@@ -1,0 +1,28 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="CheckEmptyScriptTag" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="Eslint" enabled="true" level="ERROR" enabled_by_default="true" />
+    <inspection_tool class="HtmlUnknownAttribute" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="myValues">
+        <value>
+          <list size="9">
+            <item index="0" class="java.lang.String" itemvalue="inject-view-key" />
+            <item index="1" class="java.lang.String" itemvalue="color" />
+            <item index="2" class="java.lang.String" itemvalue="url" />
+            <item index="3" class="java.lang.String" itemvalue="layers" />
+            <item index="4" class="java.lang.String" itemvalue="server-type" />
+            <item index="5" class="java.lang.String" itemvalue="layer-name" />
+            <item index="6" class="java.lang.String" itemvalue="matrix-set" />
+            <item index="7" class="java.lang.String" itemvalue="format" />
+            <item index="8" class="java.lang.String" itemvalue="style-name" />
+          </list>
+        </value>
+      </option>
+      <option name="myCustomValuesEnabled" value="true" />
+    </inspection_tool>
+    <inspection_tool class="JSEqualityComparisonWithCoercion" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="mySeverity" value="All except when comparing with null" />
+    </inspection_tool>
+  </profile>
+</component>
