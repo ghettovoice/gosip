@@ -1,6 +1,7 @@
 package message
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/ghettovoice/gosip/log"
@@ -39,5 +40,35 @@ const (
 // Message introduces common SIP message RFC 3261 - 7.
 type Message interface {
 	log.LocalLogger
+	Clone() Message
+	// Start line returns message start line.
 	StartLine() string
+	// String returns string representation of SIP message in RFC 3261 form.
+	String() string
+	// Short returns short string info about message.
+	Short()
+	// SipVersion returns SIP protocol version.
+	SipVersion() string
+	// SetSipVersion sets SIP protocol version.
+	SetSipVersion(version string)
+
+	// Headers returns all message headers.
+	Headers()
+	// GetHeaders returns slice of headers of the given type.
+	GetHeaders(name string) []Header
+	// AppendHeader appends header to message.
+	AppendHeader(header Header)
+	// PrependHeader prepends header to message.
+	PrependHeader(header Header)
+	// RemoveHeader removes header from message.
+	RemoveHeader(name string) error
+
+	// Body returns message body.
+	Body() string
+	// SetBody sets message body.
+	SetBody(body string)
+}
+
+// headers is a struct with methods to work with SIP headers.
+type headers struct {
 }
