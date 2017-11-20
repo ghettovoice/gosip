@@ -15,11 +15,11 @@ const (
 	hookStackDelta = 5
 )
 
-// CallerHook is an hook for logrus logger that adds file, line, function info.
-type CallerHook struct{}
+// CallInfoHook is an hook for logrus logger that adds file, line, function info.
+type CallInfoHook struct{}
 
 // Fire is an callback that will be called by logrus for each log entry.
-func (sh *CallerHook) Fire(entry *logrus.Entry) error {
+func (sh *CallInfoHook) Fire(entry *logrus.Entry) error {
 	file, line, fn := GetStackInfo()
 	entry.Data["file"] = file
 	entry.Data["line"] = line
@@ -28,8 +28,8 @@ func (sh *CallerHook) Fire(entry *logrus.Entry) error {
 	return nil
 }
 
-// Levels returns CallerHook working levels.
-func (sh *CallerHook) Levels() []logrus.Level {
+// Levels returns CallInfoHook working levels.
+func (sh *CallInfoHook) Levels() []logrus.Level {
 	return logrus.AllLevels
 }
 

@@ -26,7 +26,7 @@ const (
 )
 
 func init() {
-	logrus.AddHook(&CallerHook{})
+	logrus.AddHook(&CallInfoHook{})
 	logrus.SetFormatter(NewFormatter(true))
 }
 
@@ -36,10 +36,11 @@ type Logger interface {
 	logrus.FieldLogger
 }
 
-// Local logger introduces types with local context scoped logger.
-type LocalLogger interface {
+// WithLogger introduces types with local context scoped logger.
+type WithLogger interface {
 	// Log returns Logger instance
 	Log() Logger
+	SetLog(logger Logger)
 }
 
 func StandardLogger() logrus.FieldLogger {

@@ -1,13 +1,15 @@
 package base
 
-type MaybeString interface {
-	String() string
+import "fmt"
+
+// Port number
+type Port uint16
+
+func (port *Port) String() string {
+	return fmt.Sprintf("%d", *port)
 }
 
-type String struct {
-	Str string
-}
-
-func (str String) String() string {
-	return str.Str
+func (port *Port) Clone() *Port {
+	newPort := *port
+	return &newPort
 }
