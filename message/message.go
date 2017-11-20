@@ -1,4 +1,4 @@
-package msg
+package message
 
 import (
 	"strings"
@@ -14,14 +14,14 @@ import (
 // This is syntactic sugar around the string type, so make sure to use
 // the Equals method rather than built-in equality, or you'll fall foul of case differences.
 // If you're defining your own Method, uppercase is preferred but not compulsory.
-type Method string
+type RequestMethod string
 
 // StatusCode - response status code: 1xx - 6xx
 type StatusCode uint16
 
 // Determine if the given method equals some other given method.
 // This is syntactic sugar for case insensitive equality checking.
-func (method *Method) Equals(other *Method) bool {
+func (method *RequestMethod) Equals(other *RequestMethod) bool {
 	if method != nil && other != nil {
 		return strings.EqualFold(string(*method), string(*other))
 	} else {
@@ -32,21 +32,21 @@ func (method *Method) Equals(other *Method) bool {
 // It's nicer to avoid using raw strings to represent methods, so the following standard
 // method names are defined here as constants for convenience.
 const (
-	INVITE    Method = "INVITE"
-	ACK       Method = "ACK"
-	CANCEL    Method = "CANCEL"
-	BYE       Method = "BYE"
-	REGISTER  Method = "REGISTER"
-	OPTIONS   Method = "OPTIONS"
-	SUBSCRIBE Method = "SUBSCRIBE"
-	NOTIFY    Method = "NOTIFY"
-	REFER     Method = "REFER"
+	INVITE    RequestMethod = "INVITE"
+	ACK       RequestMethod = "ACK"
+	CANCEL    RequestMethod = "CANCEL"
+	BYE       RequestMethod = "BYE"
+	REGISTER  RequestMethod = "REGISTER"
+	OPTIONS   RequestMethod = "OPTIONS"
+	SUBSCRIBE RequestMethod = "SUBSCRIBE"
+	NOTIFY    RequestMethod = "NOTIFY"
+	REFER     RequestMethod = "REFER"
 )
 
 // Message introduces common SIP message RFC 3261 - 7.
-type Message interface {
+type SipMessage interface {
 	log.WithLogger
-	Clone() Message
+	Clone() SipMessage
 	// Start line returns message start line.
 	StartLine() string
 	// String returns string representation of SIP message in RFC 3261 form.
@@ -59,13 +59,13 @@ type Message interface {
 	SetSipVersion(version string)
 
 	// Headers returns all message headers.
-	Headers() []Header
+	Headers() []SipHeader
 	// GetHeaders returns slice of headers of the given type.
-	GetHeaders(name string) []Header
+	GetHeaders(name string) []SipHeader
 	// AppendHeader appends header to message.
-	AppendHeader(header Header)
+	AppendHeader(header SipHeader)
 	// PrependHeader prepends header to message.
-	PrependHeader(header Header)
+	PrependHeader(header SipHeader)
 	// RemoveHeader removes header from message.
 	RemoveHeader(name string)
 
@@ -85,19 +85,20 @@ type Message interface {
 	To() (*ToHeader, bool)
 	// CSeq returns 'CSeq' header field.
 	CSeq() (*CSeq, bool)
+	ContentLength() (*ContentLength, bool)
 }
 
 // headers is a struct with methods to work with SIP headers.
 type headers struct {
 	// The logical SIP headers attached to this message.
-	headers map[string][]Header
+	headers map[string][]SipHeader
 	// The order the headers should be displayed in.
 	headerOrder []string
 }
 
-func newHeaders(hdrs []Header) *headers {
+func newHeaders(hdrs []SipHeader) *headers {
 	hs := new(headers)
-	hs.headers = make(map[string][]Header)
+	hs.headers = make(map[string][]SipHeader)
 	hs.headerOrder = make([]string, 0)
 	for _, header := range hdrs {
 		hs.AppendHeader(header)
@@ -121,12 +122,12 @@ func (hs headers) String() string {
 }
 
 // Add the given header.
-func (hs *headers) AppendHeader(header Header) {
+func (hs *headers) AppendHeader(header SipHeader) {
 	name := strings.ToLower(header.Name())
 	if _, ok := hs.headers[name]; ok {
 		hs.headers[name] = append(hs.headers[name], header)
 	} else {
-		hs.headers[name] = []Header{header}
+		hs.headers[name] = []SipHeader{header}
 		hs.headerOrder = append(hs.headerOrder, name)
 	}
 }
@@ -134,21 +135,21 @@ func (hs *headers) AppendHeader(header Header) {
 // AddFrontHeader adds header to the front of header list
 // if there is no header has h's name, add h to the tail of all headers
 // if there are some headers have h's name, add h to front of the sublist
-func (hs *headers) PrependHeader(header Header) {
+func (hs *headers) PrependHeader(header SipHeader) {
 	name := strings.ToLower(header.Name())
 	if hdrs, ok := hs.headers[name]; ok {
-		newHdrs := make([]Header, 1, len(hdrs)+1)
+		newHdrs := make([]SipHeader, 1, len(hdrs)+1)
 		newHdrs[0] = header
 		hs.headers[name] = append(newHdrs, hdrs...)
 	} else {
-		hs.headers[name] = []Header{header}
+		hs.headers[name] = []SipHeader{header}
 		hs.headerOrder = append(hs.headerOrder, name)
 	}
 }
 
 // Gets some headers.
-func (hs *headers) Headers() []Header {
-	hdrs := make([]Header, 0)
+func (hs *headers) Headers() []SipHeader {
+	hdrs := make([]SipHeader, 0)
 	for _, key := range hs.headerOrder {
 		hdrs = append(hdrs, hs.headers[key]...)
 	}
@@ -156,17 +157,17 @@ func (hs *headers) Headers() []Header {
 	return hdrs
 }
 
-func (hs *headers) GetHeaders(name string) []Header {
+func (hs *headers) GetHeaders(name string) []SipHeader {
 	name = strings.ToLower(name)
 	if hs.headers == nil {
-		hs.headers = map[string][]Header{}
+		hs.headers = map[string][]SipHeader{}
 		hs.headerOrder = []string{}
 	}
 	if headers, ok := hs.headers[name]; ok {
 		return headers
 	}
 
-	return []Header{}
+	return []SipHeader{}
 }
 
 func (hs *headers) RemoveHeader(name string) {
@@ -181,8 +182,8 @@ func (hs *headers) RemoveHeader(name string) {
 }
 
 // CloneHeaders returns all cloned headers in slice.
-func (hs *headers) CloneHeaders() []Header {
-	hdrs := make([]Header, 0)
+func (hs *headers) CloneHeaders() []SipHeader {
+	hdrs := make([]SipHeader, 0)
 	for _, header := range hs.Headers() {
 		hdrs = append(hdrs, header.Clone())
 	}
@@ -249,6 +250,18 @@ func (hs *headers) CSeq() (*CSeq, bool) {
 		return nil, false
 	}
 	return cseq, true
+}
+
+func (hs *headers) ContentLength() (*ContentLength, bool) {
+	hdrs := hs.GetHeaders("Content-Length")
+	if len(hdrs) == 0 {
+		return nil, false
+	}
+	contentLength, ok := hdrs[0].(*ContentLength)
+	if !ok {
+		return nil, false
+	}
+	return contentLength, true
 }
 
 // basic message implementation

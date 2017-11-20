@@ -1,4 +1,4 @@
-package msg
+package message
 
 import (
 	"bytes"
@@ -10,9 +10,9 @@ import (
 
 // Request RFC 3261 - 7.1.
 type Request interface {
-	Message
-	Method() Method
-	SetMethod(method Method)
+	SipMessage
+	Method() RequestMethod
+	SetMethod(method RequestMethod)
 	Recipient() Uri
 	SetRecipient(recipient Uri)
 	/* Common Helpers */
@@ -22,15 +22,15 @@ type Request interface {
 
 type request struct {
 	message
-	method    Method
+	method    RequestMethod
 	recipient Uri
 }
 
 func NewRequest(
-	method Method,
+	method RequestMethod,
 	recipient Uri,
 	sipVersion string,
-	hdrs []Header,
+	hdrs []SipHeader,
 	body string,
 	logger log.Logger,
 ) Request {
@@ -48,10 +48,10 @@ func NewRequest(
 	return req
 }
 
-func (req *request) Method() Method {
+func (req *request) Method() RequestMethod {
 	return req.method
 }
-func (req *request) SetMethod(method Method) {
+func (req *request) SetMethod(method RequestMethod) {
 	req.method = method
 }
 
@@ -104,7 +104,7 @@ func (req *request) String() string {
 	return buffer.String()
 }
 
-func (req *request) Clone() Message {
+func (req *request) Clone() SipMessage {
 	return NewRequest(
 		req.Method(),
 		req.Recipient().Clone(),

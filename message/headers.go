@@ -1,4 +1,4 @@
-package msg
+package message
 
 import (
 	"bytes"
@@ -18,11 +18,11 @@ import (
 const abnfWs = " \t"
 
 // Header is a single SIP header.
-type Header interface {
+type SipHeader interface {
 	// Name returns header name.
 	Name() string
 	// Clone returns copy of header struct.
-	Clone() Header
+	Clone() SipHeader
 	String() string
 }
 
@@ -45,51 +45,51 @@ type ContactUri interface {
 
 // Generic list of parameters on a header.
 type HeaderParams interface {
-	Get(key string) (string, bool)
-	Add(key string, val string) HeaderParams
+	Get(key string) (base.MaybeString, bool)
+	Add(key string, val base.MaybeString) HeaderParams
 	Clone() HeaderParams
 	Equals(params HeaderParams) bool
 	ToString(sep uint8) string
 	String() string
 	Length() int
-	Items() map[string]string
+	Items() map[string]base.MaybeString
 	Keys() []string
 }
 
 // IMPLEMENTATION
 
 // HeaderParams implementation.
-type params struct {
-	params     map[string]string
+type headerParams struct {
+	params     map[string]base.MaybeString
 	paramOrder []string
 }
 
 // Create an empty set of parameters.
-func NewParams() HeaderParams {
-	return &params{
-		params:     make(map[string]string),
+func NewHeaderParams() HeaderParams {
+	return &headerParams{
+		params:     make(map[string]base.MaybeString),
 		paramOrder: []string{},
 	}
 }
 
 // Returns the entire parameter map.
-func (params *params) Items() map[string]string {
+func (params *headerParams) Items() map[string]base.MaybeString {
 	return params.params
 }
 
 // Returns a slice of keys, in order.
-func (params *params) Keys() []string {
+func (params *headerParams) Keys() []string {
 	return params.paramOrder
 }
 
 // Returns the requested parameter value.
-func (params *params) Get(key string) (string, bool) {
+func (params *headerParams) Get(key string) (base.MaybeString, bool) {
 	v, ok := params.params[key]
 	return v, ok
 }
 
 // Add a new parameter.
-func (params *params) Add(key string, val string) HeaderParams {
+func (params *headerParams) Add(key string, val base.MaybeString) HeaderParams {
 	// Add param to order list if new.
 	if _, ok := params.params[key]; !ok {
 		params.paramOrder = append(params.paramOrder, key)
@@ -103,8 +103,8 @@ func (params *params) Add(key string, val string) HeaderParams {
 }
 
 // Copy a list of params.
-func (params *params) Clone() HeaderParams {
-	dup := NewParams()
+func (params *headerParams) Clone() HeaderParams {
+	dup := NewHeaderParams()
 	for _, key := range params.Keys() {
 		if val, ok := params.Get(key); ok {
 			dup.Add(key, val)
@@ -119,7 +119,7 @@ func (params *params) Clone() HeaderParams {
 
 // Render params to a string.
 // Note that this does not escape special characters, this should already have been done before calling this method.
-func (params *params) ToString(sep uint8) string {
+func (params *headerParams) ToString(sep uint8) string {
 	var buffer bytes.Buffer
 	first := true
 
@@ -137,13 +137,12 @@ func (params *params) ToString(sep uint8) string {
 
 		buffer.WriteString(fmt.Sprintf("%s", key))
 
-		if strings.Replace(val, abnfWs, "", -1) == "" {
-			continue
-		}
-		if strings.ContainsAny(val, abnfWs) {
-			buffer.WriteString(fmt.Sprintf("=\"%s\"", val))
-		} else {
-			buffer.WriteString(fmt.Sprintf("=%s", val))
+		if val, ok := val.(base.String); ok {
+			if strings.ContainsAny(val.String(), abnfWs) {
+				buffer.WriteString(fmt.Sprintf("=\"%s\"", val.String()))
+			} else {
+				buffer.WriteString(fmt.Sprintf("=%s", val.String()))
+			}
 		}
 	}
 
@@ -151,18 +150,18 @@ func (params *params) ToString(sep uint8) string {
 }
 
 // String returns params joined with '&' char.
-func (params *params) String() string {
+func (params *headerParams) String() string {
 	return params.ToString('&')
 }
 
 // Returns number of params.
-func (params *params) Length() int {
+func (params *headerParams) Length() int {
 	return len(params.params)
 }
 
 // Check if two maps of parameters are equal in the sense of having the same keys with the same values.
 // This does not rely on any ordering of the keys of the map in memory.
-func (params *params) Equals(q HeaderParams) bool {
+func (params *headerParams) Equals(q HeaderParams) bool {
 	if params.Length() == 0 && q.Length() == 0 {
 		return true
 	}
@@ -186,7 +185,7 @@ func (params *params) Equals(q HeaderParams) bool {
 
 func cloneWithNil(params HeaderParams) HeaderParams {
 	if params == nil {
-		return NewParams()
+		return NewHeaderParams()
 	}
 	return params.Clone()
 }
@@ -199,14 +198,14 @@ type SipUri struct {
 
 	// The user part of the URI: the 'joe' in sip:joe@bloggs.com
 	// This is a pointer, so that URIs without a user part can have 'nil'.
-	User string
+	User base.MaybeString
 
 	// The password field of the URI. This is represented in the URI as joe:hunter2@bloggs.com.
 	// Note that if a URI has a password field, it *must* have a user field as well.
 	// This is a pointer, so that URIs without a password field can have 'nil'.
 	// Note that RFC 3261 strongly recommends against the use of password fields in SIP URIs,
 	// as they are fundamentally insecure.
-	Password string
+	Password base.MaybeString
 
 	// The host part of the URI. This can be a domain, or a string representation of an IP address.
 	Host string
@@ -276,11 +275,11 @@ func (uri *SipUri) String() string {
 	}
 
 	// Optional userinfo part.
-	if uri.User != "" {
-		buffer.WriteString(uri.User)
-		if uri.Password != "" {
+	if user, ok := uri.User.(base.String); ok && user.String() != "" {
+		buffer.WriteString(uri.User.String())
+		if pass, ok := uri.Password.(base.String); ok && pass.String() != "" {
 			buffer.WriteString(":")
-			buffer.WriteString(uri.Password)
+			buffer.WriteString(pass.String())
 		}
 		buffer.WriteString("@")
 	}
@@ -368,7 +367,7 @@ func (header *GenericHeader) Name() string {
 }
 
 // Copy the header.
-func (header *GenericHeader) Clone() Header {
+func (header *GenericHeader) Clone() SipHeader {
 	return &GenericHeader{
 		HeaderName: header.HeaderName,
 		Contents:   header.Contents,
@@ -378,7 +377,7 @@ func (header *GenericHeader) Clone() Header {
 // ToHeader introduces SIP 'To' header
 type ToHeader struct {
 	// The display name from the header, may be omitted.
-	DisplayName string
+	DisplayName base.MaybeString
 	Address     Uri
 	// Any parameters present in the header.
 	Params HeaderParams
@@ -388,8 +387,8 @@ func (to *ToHeader) String() string {
 	var buffer bytes.Buffer
 	buffer.WriteString("To: ")
 
-	if to.DisplayName != "" {
-		buffer.WriteString(fmt.Sprintf("\"%s\" ", to.DisplayName))
+	if displayName, ok := to.DisplayName.(base.String); ok && displayName.String() != "" {
+		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
 	}
 
 	buffer.WriteString(fmt.Sprintf("<%s>", to.Address))
@@ -405,7 +404,7 @@ func (to *ToHeader) String() string {
 func (to *ToHeader) Name() string { return "To" }
 
 // Copy the header.
-func (to *ToHeader) Clone() Header {
+func (to *ToHeader) Clone() SipHeader {
 	return &ToHeader{
 		DisplayName: to.DisplayName,
 		Address:     to.Address.Clone(),
@@ -415,7 +414,7 @@ func (to *ToHeader) Clone() Header {
 
 type FromHeader struct {
 	// The display name from the header, may be omitted.
-	DisplayName string
+	DisplayName base.MaybeString
 
 	Address Uri
 
@@ -427,8 +426,8 @@ func (from *FromHeader) String() string {
 	var buffer bytes.Buffer
 	buffer.WriteString("From: ")
 
-	if from.DisplayName != "" {
-		buffer.WriteString(fmt.Sprintf("\"%s\" ", from.DisplayName))
+	if displayName, ok := from.DisplayName.(base.String); ok && displayName.String() != "" {
+		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
 	}
 
 	buffer.WriteString(fmt.Sprintf("<%s>", from.Address))
@@ -443,7 +442,7 @@ func (from *FromHeader) String() string {
 func (from *FromHeader) Name() string { return "From" }
 
 // Copy the header.
-func (from *FromHeader) Clone() Header {
+func (from *FromHeader) Clone() SipHeader {
 	return &FromHeader{
 		DisplayName: from.DisplayName,
 		Address:     from.Address.Clone(),
@@ -453,7 +452,7 @@ func (from *FromHeader) Clone() Header {
 
 type ContactHeader struct {
 	// The display name from the header, may be omitted.
-	DisplayName string
+	DisplayName base.MaybeString
 	Address     ContactUri
 	// Any parameters present in the header.
 	Params HeaderParams
@@ -463,8 +462,8 @@ func (contact *ContactHeader) String() string {
 	var buffer bytes.Buffer
 	buffer.WriteString("Contact: ")
 
-	if contact.DisplayName != "" {
-		buffer.WriteString(fmt.Sprintf("\"%s\" ", contact.DisplayName))
+	if displayName, ok := contact.DisplayName.(base.String); ok && displayName.String() != "" {
+		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
 	}
 
 	switch contact.Address.(type) {
@@ -486,7 +485,7 @@ func (contact *ContactHeader) String() string {
 func (contact *ContactHeader) Name() string { return "Contact" }
 
 // Copy the header.
-func (contact *ContactHeader) Clone() Header {
+func (contact *ContactHeader) Clone() SipHeader {
 	return &ContactHeader{
 		DisplayName: contact.DisplayName,
 		Address:     contact.Address.Clone().(ContactUri),
@@ -503,14 +502,14 @@ func (callId CallId) String() string {
 
 func (callId *CallId) Name() string { return "Call-Id" }
 
-func (callId *CallId) Clone() Header {
+func (callId *CallId) Clone() SipHeader {
 	temp := *callId
 	return &temp
 }
 
 type CSeq struct {
 	SeqNo      uint32
-	MethodName Method
+	MethodName RequestMethod
 }
 
 func (cseq *CSeq) String() string {
@@ -519,7 +518,7 @@ func (cseq *CSeq) String() string {
 
 func (cseq *CSeq) Name() string { return "CSeq" }
 
-func (cseq *CSeq) Clone() Header {
+func (cseq *CSeq) Clone() SipHeader {
 	return &CSeq{
 		SeqNo:      cseq.SeqNo,
 		MethodName: cseq.MethodName,
@@ -534,7 +533,7 @@ func (maxForwards MaxForwards) String() string {
 
 func (maxForwards MaxForwards) Name() string { return "Max-Forwards" }
 
-func (maxForwards MaxForwards) Clone() Header { return maxForwards }
+func (maxForwards MaxForwards) Clone() SipHeader { return maxForwards }
 
 type ContentLength uint32
 
@@ -544,7 +543,7 @@ func (contentLength ContentLength) String() string {
 
 func (contentLength ContentLength) Name() string { return "Content-Length" }
 
-func (contentLength ContentLength) Clone() Header { return contentLength }
+func (contentLength ContentLength) Clone() SipHeader { return contentLength }
 
 type ViaHeader []*ViaHop
 
@@ -563,7 +562,7 @@ func (via ViaHeader) String() string {
 
 func (via ViaHeader) Name() string { return "Via" }
 
-func (via ViaHeader) Clone() Header {
+func (via ViaHeader) Clone() SipHeader {
 	dup := make([]*ViaHop, 0, len(via))
 	for _, hop := range via {
 		dup = append(dup, hop.Clone())
@@ -631,7 +630,7 @@ func (require *RequireHeader) String() string {
 
 func (require *RequireHeader) Name() string { return "Require" }
 
-func (require *RequireHeader) Clone() Header {
+func (require *RequireHeader) Clone() SipHeader {
 	dup := make([]string, len(require.Options))
 	copy(require.Options, dup)
 	return &RequireHeader{dup}
@@ -648,7 +647,7 @@ func (support *SupportedHeader) String() string {
 
 func (support *SupportedHeader) Name() string { return "Supported" }
 
-func (support *SupportedHeader) Clone() Header {
+func (support *SupportedHeader) Clone() SipHeader {
 	dup := make([]string, len(support.Options))
 	copy(support.Options, dup)
 	return &SupportedHeader{dup}
@@ -665,7 +664,7 @@ func (proxyRequire *ProxyRequireHeader) String() string {
 
 func (proxyRequire *ProxyRequireHeader) Name() string { return "Proxy-Require" }
 
-func (proxyRequire *ProxyRequireHeader) Clone() Header {
+func (proxyRequire *ProxyRequireHeader) Clone() SipHeader {
 	dup := make([]string, len(proxyRequire.Options))
 	copy(proxyRequire.Options, dup)
 	return &ProxyRequireHeader{dup}
@@ -684,7 +683,7 @@ func (unsupported *UnsupportedHeader) String() string {
 
 func (unsupported *UnsupportedHeader) Name() string { return "Unsupported" }
 
-func (unsupported *UnsupportedHeader) Clone() Header {
+func (unsupported *UnsupportedHeader) Clone() SipHeader {
 	dup := make([]string, len(unsupported.Options))
 	copy(unsupported.Options, dup)
 	return &UnsupportedHeader{dup}

@@ -1,4 +1,4 @@
-package msg
+package message
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 
 // Response RFC 3261 - 7.2.
 type Response interface {
-	Message
+	SipMessage
 	StatusCode() StatusCode
 	SetStatusCode(code StatusCode)
 	Reason() string
@@ -34,7 +34,7 @@ func NewResponse(
 	sipVersion string,
 	statusCode StatusCode,
 	reason string,
-	hdrs []Header,
+	hdrs []SipHeader,
 	body string,
 	logger log.Logger,
 ) Response {
@@ -108,7 +108,7 @@ func (res *response) String() string {
 	return buffer.String()
 }
 
-func (res *response) Clone() Message {
+func (res *response) Clone() SipMessage {
 	return NewResponse(
 		res.SipVersion(),
 		res.StatusCode(),

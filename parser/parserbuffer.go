@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/ghettovoice/gossip/log"
+	"github.com/ghettovoice/gosip/log"
 )
 
 // parserBuffer is a specialized buffer for use in the parser package.

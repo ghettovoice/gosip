@@ -1,4 +1,4 @@
-package msg
+package message
 
 import (
 	"fmt"
@@ -34,7 +34,7 @@ func doTests(tests []stringTest, t *testing.T) {
 // Some global ports to use since port is still a pointer.
 var port5060 base.Port = 5060
 var port6060 base.Port = 6060
-var noParams = NewParams()
+var noParams = NewHeaderParams()
 
 func TestMessage_String(t *testing.T) {
 	callId := CallId("call-1234567890")
@@ -45,17 +45,17 @@ func TestMessage_String(t *testing.T) {
 			NewRequest(
 				"INVITE",
 				&SipUri{
-					User:      "bob",
+					User:      base.String{"bob"},
 					Host:      "far-far-away.com",
 					UriParams: noParams,
 					Headers:   noParams,
 				},
 				"SIP/2.0",
-				[]Header{
+				[]SipHeader{
 					&ToHeader{
-						DisplayName: "bob",
+						DisplayName: base.String{"bob"},
 						Address: &SipUri{
-							User:      "bob",
+							User:      base.String{"bob"},
 							Host:      "far-far-away.com",
 							UriParams: noParams,
 							Headers:   noParams,
@@ -63,14 +63,14 @@ func TestMessage_String(t *testing.T) {
 						Params: noParams,
 					},
 					&FromHeader{
-						DisplayName: "alice",
+						DisplayName: base.String{"alice"},
 						Address: &SipUri{
-							User:      "alice",
+							User:      base.String{"alice"},
 							Host:      "wonderland.com",
 							UriParams: noParams,
 							Headers:   noParams,
 						},
-						Params: NewParams().Add("tag", "qwerty"),
+						Params: NewHeaderParams().Add("tag", base.String{"qwerty"}),
 					},
 					&callId,
 				},
@@ -91,7 +91,7 @@ func TestSipUri_String(t *testing.T) {
 		{
 			"Basic SIP URI",
 			&SipUri{
-				User:      "alice",
+				User:      base.String{"alice"},
 				Host:      "wonderland.com",
 				UriParams: noParams,
 				Headers:   noParams,
@@ -110,8 +110,8 @@ func TestSipUri_String(t *testing.T) {
 		{
 			"SIP URI with password",
 			&SipUri{
-				User:      "alice",
-				Password:  "hunter2",
+				User:      base.String{"alice"},
+				Password:  base.String{"hunter2"},
 				Host:      "wonderland.com",
 				UriParams: noParams,
 				Headers:   noParams,
@@ -121,7 +121,7 @@ func TestSipUri_String(t *testing.T) {
 		{
 			"SIP URI with explicit port 5060",
 			&SipUri{
-				User:      "alice",
+				User:      base.String{"alice"},
 				Host:      "wonderland.com",
 				Port:      &port5060,
 				UriParams: noParams,
@@ -132,7 +132,7 @@ func TestSipUri_String(t *testing.T) {
 		{
 			"SIP URI with other port",
 			&SipUri{
-				User:      "alice",
+				User:      base.String{"alice"},
 				Host:      "wonderland.com",
 				Port:      &port6060,
 				UriParams: noParams,
@@ -144,7 +144,7 @@ func TestSipUri_String(t *testing.T) {
 			"Basic SIPS URI",
 			&SipUri{
 				IsEncrypted: true,
-				User:        "alice",
+				User:        base.String{"alice"},
 				Host:        "wonderland.com",
 				UriParams:   noParams,
 				Headers:     noParams,
@@ -154,9 +154,9 @@ func TestSipUri_String(t *testing.T) {
 		{
 			"SIP URI with one parameter",
 			&SipUri{
-				User:      "alice",
+				User:      base.String{"alice"},
 				Host:      "wonderland.com",
-				UriParams: NewParams().Add("food", "cake"),
+				UriParams: NewHeaderParams().Add("food", base.String{"cake"}),
 				Headers:   noParams,
 			},
 			"sip:alice@wonderland.com;food=cake",
@@ -164,9 +164,9 @@ func TestSipUri_String(t *testing.T) {
 		{
 			"SIP URI with one no-value parameter",
 			&SipUri{
-				User:      "alice",
+				User:      base.String{"alice"},
 				Host:      "wonderland.com",
-				UriParams: NewParams().Add("something", ""),
+				UriParams: NewHeaderParams().Add("something", nil),
 				Headers:   noParams,
 			},
 			"sip:alice@wonderland.com;something",
@@ -174,11 +174,11 @@ func TestSipUri_String(t *testing.T) {
 		{
 			"SIP URI with three parameters",
 			&SipUri{
-				User: "alice",
+				User: base.String{"alice"},
 				Host: "wonderland.com",
-				UriParams: NewParams().Add("food", "cake").
-					Add("something", "").
-					Add("drink", "tea"),
+				UriParams: NewHeaderParams().Add("food", base.String{"cake"}).
+					Add("something", nil).
+					Add("drink", base.String{"tea"}),
 				Headers: noParams,
 			},
 			"sip:alice@wonderland.com;food=cake;something;drink=tea",
@@ -186,31 +186,31 @@ func TestSipUri_String(t *testing.T) {
 		{
 			"SIP URI with one header",
 			&SipUri{
-				User:      "alice",
+				User:      base.String{"alice"},
 				Host:      "wonderland.com",
 				UriParams: noParams,
-				Headers:   NewParams().Add("CakeLocation", "Tea Party"),
+				Headers:   NewHeaderParams().Add("CakeLocation", base.String{"Tea Party"}),
 			},
 			"sip:alice@wonderland.com?CakeLocation=\"Tea Party\"",
 		},
 		{
 			"SIP URI with three headers",
 			&SipUri{
-				User:      "alice",
+				User:      base.String{"alice"},
 				Host:      "wonderland.com",
 				UriParams: noParams,
-				Headers: NewParams().Add("CakeLocation", "Tea Party").
-					Add("Identity", "Mad Hatter").
-					Add("OtherHeader", "Some value")},
+				Headers: NewHeaderParams().Add("CakeLocation", base.String{"Tea Party"}).
+					Add("Identity", base.String{"Mad Hatter"}).
+					Add("OtherHeader", base.String{"Some value"})},
 			"sip:alice@wonderland.com?CakeLocation=\"Tea Party\"&Identity=\"Mad Hatter\"&OtherHeader=\"Some value\"",
 		},
 		{
 			"SIP URI with parameter and header",
 			&SipUri{
-				User:      "alice",
+				User:      base.String{"alice"},
 				Host:      "wonderland.com",
-				UriParams: NewParams().Add("food", "cake"),
-				Headers:   NewParams().Add("CakeLocation", "Tea Party"),
+				UriParams: NewHeaderParams().Add("food", base.String{"cake"}),
+				Headers:   NewHeaderParams().Add("CakeLocation", base.String{"Tea Party"}),
 			},
 			"sip:alice@wonderland.com;food=cake?CakeLocation=\"Tea Party\"",
 		},
@@ -229,7 +229,7 @@ func TestHeaders_String(t *testing.T) {
 			"Basic To Header",
 			&ToHeader{
 				Address: &SipUri{
-					User:      "alice",
+					User:      base.String{"alice"},
 					Host:      "wonderland.com",
 					UriParams: noParams,
 					Headers:   noParams,
@@ -241,9 +241,9 @@ func TestHeaders_String(t *testing.T) {
 		{
 			"To Header with display name",
 			&ToHeader{
-				DisplayName: "Alice Liddell",
+				DisplayName: base.String{"Alice Liddell"},
 				Address: &SipUri{
-					User:      "alice",
+					User:      base.String{"alice"},
 					Host:      "wonderland.com",
 					UriParams: noParams,
 					Headers:   noParams,
@@ -256,12 +256,12 @@ func TestHeaders_String(t *testing.T) {
 			"To Header with parameters",
 			&ToHeader{
 				Address: &SipUri{
-					User:      "alice",
+					User:      base.String{"alice"},
 					Host:      "wonderland.com",
 					UriParams: noParams,
 					Headers:   noParams,
 				},
-				Params: NewParams().Add("food", "cake"),
+				Params: NewHeaderParams().Add("food", base.String{"cake"}),
 			},
 			"To: <sip:alice@wonderland.com>;food=cake",
 		},
@@ -271,7 +271,7 @@ func TestHeaders_String(t *testing.T) {
 			"Basic From Header",
 			&FromHeader{
 				Address: &SipUri{
-					User:      "alice",
+					User:      base.String{"alice"},
 					Host:      "wonderland.com",
 					UriParams: noParams,
 					Headers:   noParams,
@@ -283,9 +283,9 @@ func TestHeaders_String(t *testing.T) {
 		{
 			"From Header with display name",
 			&FromHeader{
-				DisplayName: "Alice Liddell",
+				DisplayName: base.String{"Alice Liddell"},
 				Address: &SipUri{
-					User:      "alice",
+					User:      base.String{"alice"},
 					Host:      "wonderland.com",
 					UriParams: noParams,
 					Headers:   noParams,
@@ -298,12 +298,12 @@ func TestHeaders_String(t *testing.T) {
 			"From Header with parameters",
 			&FromHeader{
 				Address: &SipUri{
-					User:      "alice",
+					User:      base.String{"alice"},
 					Host:      "wonderland.com",
 					UriParams: noParams,
 					Headers:   noParams,
 				},
-				Params: NewParams().Add("food", "cake"),
+				Params: NewHeaderParams().Add("food", base.String{"cake"}),
 			},
 			"From: <sip:alice@wonderland.com>;food=cake",
 		},
@@ -313,7 +313,7 @@ func TestHeaders_String(t *testing.T) {
 			"Basic Contact Header",
 			&ContactHeader{
 				Address: &SipUri{
-					User:      "alice",
+					User:      base.String{"alice"},
 					Host:      "wonderland.com",
 					UriParams: noParams,
 					Headers:   noParams,
@@ -325,9 +325,9 @@ func TestHeaders_String(t *testing.T) {
 		{
 			"Contact Header with display name",
 			&ContactHeader{
-				DisplayName: "Alice Liddell",
+				DisplayName: base.String{"Alice Liddell"},
 				Address: &SipUri{
-					User:      "alice",
+					User:      base.String{"alice"},
 					Host:      "wonderland.com",
 					UriParams: noParams,
 					Headers:   noParams,
@@ -340,12 +340,12 @@ func TestHeaders_String(t *testing.T) {
 			"Contact Header with parameters",
 			&ContactHeader{
 				Address: &SipUri{
-					User:      "alice",
+					User:      base.String{"alice"},
 					Host:      "wonderland.com",
 					UriParams: noParams,
 					Headers:   noParams,
 				},
-				Params: NewParams().Add("food", "cake"),
+				Params: NewHeaderParams().Add("food", base.String{"cake"}),
 			},
 			"Contact: <sip:alice@wonderland.com>;food=cake",
 		},
@@ -360,7 +360,7 @@ func TestHeaders_String(t *testing.T) {
 		{
 			"Contact Header with display name and Wildcard URI",
 			&ContactHeader{
-				DisplayName: "Mad Hatter",
+				DisplayName: base.String{"Mad Hatter"},
 				Address:     &WildcardUri{},
 				Params:      noParams,
 			},
@@ -370,7 +370,7 @@ func TestHeaders_String(t *testing.T) {
 			"Contact Header with Wildcard URI and parameters",
 			&ContactHeader{
 				Address: &WildcardUri{},
-				Params:  NewParams().Add("food", "cake"),
+				Params:  NewHeaderParams().Add("food", base.String{"cake"}),
 			},
 			"Contact: *;food=cake",
 		},
@@ -384,7 +384,7 @@ func TestHeaders_String(t *testing.T) {
 					ProtocolVersion: "2.0",
 					Transport:       "UDP",
 					Host:            "wonderland.com",
-					Params:          NewParams(),
+					Params:          NewHeaderParams(),
 				},
 			},
 			"Via: SIP/2.0/UDP wonderland.com",
@@ -398,7 +398,7 @@ func TestHeaders_String(t *testing.T) {
 					Transport:       "UDP",
 					Host:            "wonderland.com",
 					Port:            &port6060,
-					Params:          NewParams(),
+					Params:          NewHeaderParams(),
 				},
 			},
 			"Via: SIP/2.0/UDP wonderland.com:6060",
@@ -412,7 +412,8 @@ func TestHeaders_String(t *testing.T) {
 					Transport:       "UDP",
 					Host:            "wonderland.com",
 					Port:            &port6060,
-					Params:          NewParams().Add("food", "cake").Add("delicious", ""),
+					Params: NewHeaderParams().Add("food", base.String{"cake"}).
+						Add("delicious", nil),
 				},
 			},
 			"Via: SIP/2.0/UDP wonderland.com:6060;food=cake;delicious",
@@ -425,21 +426,21 @@ func TestHeaders_String(t *testing.T) {
 					ProtocolVersion: "2.0",
 					Transport:       "UDP",
 					Host:            "wonderland.com",
-					Params:          NewParams(),
+					Params:          NewHeaderParams(),
 				},
 				&ViaHop{
 					ProtocolName:    "SIP",
 					ProtocolVersion: "2.0",
 					Transport:       "TCP",
 					Host:            "looking-glass.net",
-					Params:          NewParams(),
+					Params:          NewHeaderParams(),
 				},
 				&ViaHop{
 					ProtocolName:    "SIP",
 					ProtocolVersion: "2.0",
 					Transport:       "UDP",
 					Host:            "oxford.co.uk",
-					Params:          NewParams(),
+					Params:          NewHeaderParams(),
 				},
 			},
 			"Via: SIP/2.0/UDP wonderland.com, SIP/2.0/TCP looking-glass.net, SIP/2.0/UDP oxford.co.uk",
@@ -453,7 +454,7 @@ func TestHeaders_String(t *testing.T) {
 					Transport:       "UDP",
 					Host:            "wonderland.com",
 					Port:            &port5060,
-					Params:          NewParams(),
+					Params:          NewHeaderParams(),
 				},
 				&ViaHop{
 					ProtocolName:    "SIP",
@@ -461,14 +462,14 @@ func TestHeaders_String(t *testing.T) {
 					Transport:       "TCP",
 					Host:            "looking-glass.net",
 					Port:            &port6060,
-					Params:          NewParams().Add("food", "cake"),
+					Params:          NewHeaderParams().Add("food", base.String{"cake"}),
 				},
 				&ViaHop{
 					ProtocolName:    "SIP",
 					ProtocolVersion: "2.0",
 					Transport:       "UDP",
 					Host:            "oxford.co.uk",
-					Params:          NewParams().Add("delicious", ""),
+					Params:          NewHeaderParams().Add("delicious", nil),
 				},
 			},
 			"Via: SIP/2.0/UDP wonderland.com:5060, SIP/2.0/TCP looking-glass.net:6060;food=cake, SIP/2.0/UDP oxford.co.uk;delicious",
