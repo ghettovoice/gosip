@@ -26,3 +26,17 @@ type String struct {
 func (str String) String() string {
 	return str.Str
 }
+
+type MessageTunnel interface {
+	SetOutput(output chan Message)
+	Output() <-chan Message
+	SetErrors(errs chan error)
+	Errors() <-chan error
+}
+
+type DataTunnel interface {
+	SetOutput(output chan []byte)
+	Output() <-chan []byte
+	SetErrors(errs chan error)
+	Errors() <-chan error
+}
