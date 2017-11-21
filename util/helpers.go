@@ -1,4 +1,5 @@
-package utils
+// Forked from github.com/StefanKopieczek/gossip by @StefanKopieczek
+package util
 
 import (
 	"crypto/rand"

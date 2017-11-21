@@ -1,4 +1,4 @@
-package message
+package core
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 
 // Request RFC 3261 - 7.1.
 type Request interface {
-	SipMessage
+	Message
 	Method() RequestMethod
 	SetMethod(method RequestMethod)
 	Recipient() Uri
@@ -30,7 +30,7 @@ func NewRequest(
 	method RequestMethod,
 	recipient Uri,
 	sipVersion string,
-	hdrs []SipHeader,
+	hdrs []Header,
 	body string,
 	logger log.Logger,
 ) Request {
@@ -104,7 +104,7 @@ func (req *request) String() string {
 	return buffer.String()
 }
 
-func (req *request) Clone() SipMessage {
+func (req *request) Clone() Message {
 	return NewRequest(
 		req.Method(),
 		req.Recipient().Clone(),

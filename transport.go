@@ -1,5 +1,5 @@
 package gosip
 
 // SIP transport layer
-type transportLayer struct {
+type Transport struct {
 }

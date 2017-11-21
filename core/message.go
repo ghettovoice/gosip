@@ -1,11 +1,9 @@
-package message
+package core
 
 import (
-	"strings"
-
 	"bytes"
-
 	"fmt"
+	"strings"
 
 	"github.com/ghettovoice/gosip/log"
 )
@@ -44,9 +42,9 @@ const (
 )
 
 // Message introduces common SIP message RFC 3261 - 7.
-type SipMessage interface {
+type Message interface {
 	log.WithLogger
-	Clone() SipMessage
+	Clone() Message
 	// Start line returns message start line.
 	StartLine() string
 	// String returns string representation of SIP message in RFC 3261 form.
@@ -59,13 +57,13 @@ type SipMessage interface {
 	SetSipVersion(version string)
 
 	// Headers returns all message headers.
-	Headers() []SipHeader
+	Headers() []Header
 	// GetHeaders returns slice of headers of the given type.
-	GetHeaders(name string) []SipHeader
+	GetHeaders(name string) []Header
 	// AppendHeader appends header to message.
-	AppendHeader(header SipHeader)
+	AppendHeader(header Header)
 	// PrependHeader prepends header to message.
-	PrependHeader(header SipHeader)
+	PrependHeader(header Header)
 	// RemoveHeader removes header from message.
 	RemoveHeader(name string)
 
@@ -91,14 +89,14 @@ type SipMessage interface {
 // headers is a struct with methods to work with SIP headers.
 type headers struct {
 	// The logical SIP headers attached to this message.
-	headers map[string][]SipHeader
+	headers map[string][]Header
 	// The order the headers should be displayed in.
 	headerOrder []string
 }
 
-func newHeaders(hdrs []SipHeader) *headers {
+func newHeaders(hdrs []Header) *headers {
 	hs := new(headers)
-	hs.headers = make(map[string][]SipHeader)
+	hs.headers = make(map[string][]Header)
 	hs.headerOrder = make([]string, 0)
 	for _, header := range hdrs {
 		hs.AppendHeader(header)
@@ -122,12 +120,12 @@ func (hs headers) String() string {
 }
 
 // Add the given header.
-func (hs *headers) AppendHeader(header SipHeader) {
+func (hs *headers) AppendHeader(header Header) {
 	name := strings.ToLower(header.Name())
 	if _, ok := hs.headers[name]; ok {
 		hs.headers[name] = append(hs.headers[name], header)
 	} else {
-		hs.headers[name] = []SipHeader{header}
+		hs.headers[name] = []Header{header}
 		hs.headerOrder = append(hs.headerOrder, name)
 	}
 }
@@ -135,21 +133,21 @@ func (hs *headers) AppendHeader(header SipHeader) {
 // AddFrontHeader adds header to the front of header list
 // if there is no header has h's name, add h to the tail of all headers
 // if there are some headers have h's name, add h to front of the sublist
-func (hs *headers) PrependHeader(header SipHeader) {
+func (hs *headers) PrependHeader(header Header) {
 	name := strings.ToLower(header.Name())
 	if hdrs, ok := hs.headers[name]; ok {
-		newHdrs := make([]SipHeader, 1, len(hdrs)+1)
+		newHdrs := make([]Header, 1, len(hdrs)+1)
 		newHdrs[0] = header
 		hs.headers[name] = append(newHdrs, hdrs...)
 	} else {
-		hs.headers[name] = []SipHeader{header}
+		hs.headers[name] = []Header{header}
 		hs.headerOrder = append(hs.headerOrder, name)
 	}
 }
 
 // Gets some headers.
-func (hs *headers) Headers() []SipHeader {
-	hdrs := make([]SipHeader, 0)
+func (hs *headers) Headers() []Header {
+	hdrs := make([]Header, 0)
 	for _, key := range hs.headerOrder {
 		hdrs = append(hdrs, hs.headers[key]...)
 	}
@@ -157,17 +155,17 @@ func (hs *headers) Headers() []SipHeader {
 	return hdrs
 }
 
-func (hs *headers) GetHeaders(name string) []SipHeader {
+func (hs *headers) GetHeaders(name string) []Header {
 	name = strings.ToLower(name)
 	if hs.headers == nil {
-		hs.headers = map[string][]SipHeader{}
+		hs.headers = map[string][]Header{}
 		hs.headerOrder = []string{}
 	}
 	if headers, ok := hs.headers[name]; ok {
 		return headers
 	}
 
-	return []SipHeader{}
+	return []Header{}
 }
 
 func (hs *headers) RemoveHeader(name string) {
@@ -182,8 +180,8 @@ func (hs *headers) RemoveHeader(name string) {
 }
 
 // CloneHeaders returns all cloned headers in slice.
-func (hs *headers) CloneHeaders() []SipHeader {
-	hdrs := make([]SipHeader, 0)
+func (hs *headers) CloneHeaders() []Header {
+	hdrs := make([]Header, 0)
 	for _, header := range hs.Headers() {
 		hdrs = append(hdrs, header.Clone())
 	}

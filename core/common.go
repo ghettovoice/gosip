@@ -1,4 +1,4 @@
-package base
+package core
 
 import "fmt"
 
@@ -14,6 +14,7 @@ func (port *Port) Clone() *Port {
 	return &newPort
 }
 
+// String wrapper
 type MaybeString interface {
 	String() string
 }
