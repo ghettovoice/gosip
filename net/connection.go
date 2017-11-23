@@ -3,9 +3,13 @@ package net
 import (
 	"net"
 	"sync"
+
+	"bytes"
+	"github.com/ghettovoice/gosip/log"
 )
 
 type Connection interface {
+	log.WithLogger
 	Read(buf []byte) (num int, err error)
 	Write(buf []byte) (num int, err error)
 	LocalAddr() string
@@ -13,6 +17,7 @@ type Connection interface {
 	Close() error
 }
 
+// packetConnection wraps net.Conn
 type streamConnection struct {
 	baseConn net.Conn
 }
@@ -25,18 +30,46 @@ func (conn *streamConnection) Write(buf []byte) (num int, err error) {
 
 }
 
+// packetConnection wraps net.PacketConn
 type packetConnection struct {
+	log        log.Logger
 	baseConn   net.PacketConn
 	localAddr  string
 	remoteAddr string
+	buffer     *bytes.Buffer
+}
+
+func NewPacketConnection(
+	baseConn net.PacketConn,
+	localAddr string,
+	remoteAddr string,
+	buffer []byte,
+	logger log.Logger,
+) Connection {
+	conn := &packetConnection{
+		baseConn:   baseConn,
+		localAddr:  localAddr,
+		remoteAddr: remoteAddr,
+		buffer:     bytes.NewBuffer(buffer),
+	}
+	conn.SetLog(logger)
+	return conn
+}
+
+func (conn *packetConnection) Log() log.Logger {
+	return conn.log
+}
+
+func (conn *packetConnection) SetLog(logger log.Logger) {
+	conn.log = logger
 }
 
 func (conn *packetConnection) Read(buf []byte) (num int, err error) {
-
+	return conn.buffer.Read(buf)
 }
 
 func (conn *packetConnection) Write(buf []byte) (num int, err error) {
-
+	return conn.buffer.Write(buf)
 }
 
 func (conn *packetConnection) LocalAddr() string {
@@ -54,32 +87,32 @@ func (conn *packetConnection) Close() error {
 // Helper struct to store opened connection
 type connectionsPool struct {
 	connectionsLock sync.RWMutex
-	connections     map[string]Connection
+	connectionsMap  map[string]Connection
 }
 
-func (pool *connectionsPool) AddConnection(key string, conn Connection) {
+func (pool *connectionsPool) addConnection(key string, conn Connection) {
 	pool.connectionsLock.Lock()
-	pool.connections[key] = conn
+	pool.connectionsMap[key] = conn
 	pool.connectionsLock.Unlock()
 }
 
-func (pool *connectionsPool) GetConnection(key string) (Connection, bool) {
+func (pool *connectionsPool) getConnection(key string) (Connection, bool) {
 	pool.connectionsLock.RLock()
 	defer pool.connectionsLock.RUnlock()
-	connection, ok := pool.connections[key]
+	connection, ok := pool.connectionsMap[key]
 	return connection, ok
 }
 
-func (pool *connectionsPool) DropConnection(key string) {
+func (pool *connectionsPool) dropConnection(key string) {
 	pool.connectionsLock.Lock()
-	delete(pool.connections, key)
+	delete(pool.connectionsMap, key)
 	pool.connectionsLock.Unlock()
 }
 
-func (pool *connectionsPool) Connections() []Connection {
+func (pool *connectionsPool) connections() []Connection {
 	all := make([]Connection, 0)
-	for key := range pool.connections {
-		if conn, ok := pool.GetConnection(key); ok {
+	for key := range pool.connectionsMap {
+		if conn, ok := pool.getConnection(key); ok {
 			all = append(all, conn)
 		}
 	}

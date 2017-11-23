@@ -13,8 +13,7 @@ type udpProtocol struct {
 
 func NewUdpProtocol() Protocol {
 	udp := new(udpProtocol)
-	udp.connections = make(map[string]Connection)
-	udp.stop = make(chan bool, 1)
+	udp.connectionsMap = make(map[string]Connection)
 	return udp
 }
 
@@ -31,36 +30,49 @@ func (udp *udpProtocol) IsReliable() bool {
 }
 
 func (udp *udpProtocol) Listen(addr string) error {
-	udp.Log().Debugf("initializing new %s listener on address %s", udp.Name(), addr)
-	baseConn, err := net.ListenPacket("udp", addr)
+	udp.Log().Infof("initializing new %s listener on address %s", udp.Name(), addr)
+
+	conn, err := net.ListenPacket("udp", addr)
 	if err != nil {
-		udp.Log().Errorf("protocol %s listen on address %s failed: %", udp.Name(), addr, err.Error())
+		udp.Log().Errorf("failed to listen %s protocol on address %s: %s", udp.Name(), addr, err.Error())
 		return err
 	}
-	go udp.listen(baseConn)
+	go udp.listen(conn)
 
 	return err // should be nil here
 }
 
 func (udp *udpProtocol) listen(baseConn net.PacketConn) {
 	udp.Log().Infof("begin listening for %s on address %s", udp.Name(), baseConn.LocalAddr())
+
 	buf := make([]byte, bufferSize)
 	for {
 		select {
-		case <-udp.stop:
-			udp.Log().Infof("stopped listening for %s on address %s", udp.Name(), baseConn.LocalAddr())
+		case <-udp.done:
+			udp.Log().Infof("done listening for %s on address %s", udp.Name(), baseConn.LocalAddr())
+			udp.onDone()
 			return
 		default:
 			num, remoteAddr, err := baseConn.ReadFrom(buf)
 			if err != nil {
-				err := fmt.Errorf("failed to read from %s socket on address %s: %s", udp.Name(), baseConn.LocalAddr(), err)
-				udp.Log().Error(err)
-				udp.errs <- err
+				udp.errs <- NewError(fmt.Sprintf(
+					"failed to read from %s socket on address %s: %s",
+					udp.Name(),
+					baseConn.LocalAddr(),
+					err,
+				))
 				continue
 			}
-			// todo save connction to pool for re-using
-			pkt := append([]byte(nil), buf[:num]...)
-			udp.output <- pkt
+
+			conn := NewPacketConnection(
+				baseConn,
+				baseConn.LocalAddr().String(),
+				remoteAddr.String(),
+				buf[:num],
+				udp.Log(),
+			)
+			// TODO read from connection
+			udp.output <- conn
 		}
 	}
 }

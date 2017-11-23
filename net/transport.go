@@ -38,15 +38,15 @@ func (err *Error) String() string {
 // Transport layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Transport interface {
 	log.WithLogger
-	core.MessageTunnel
+	SetOutput(output chan core.Message)
+	SetErrors(errs chan error)
+	SetDone(done chan bool)
 	// Registers new transport protocol.
 	Register(protocol Protocol) error
 	// Listen starts listening on `addr` for each registered protocol.
 	Listen(addr string) error
 	// Send sends message on suitable protocol.
 	Send(addr string, msg core.Message) error
-	// Stop listening for incoming messages.
-	Stop()
 }
 
 // Transport layer implementation.
@@ -55,15 +55,22 @@ type transport struct {
 	log    log.Logger
 	output chan core.Message
 	errs   chan error
-	lock   *sync.RWMutex
+	done   chan bool
 }
 
-func NewTransport(output chan core.Message, errs chan error, protocols []Protocol, logger log.Logger) *transport {
+func NewTransport(
+	output chan core.Message,
+	errs chan error,
+	done chan bool,
+	protocols []Protocol,
+	logger log.Logger,
+) *transport {
 	tp := new(transport)
-	tp.protocols = make(map[string]Protocol)
+	tp.protocolsMap = make(map[string]Protocol)
 	tp.SetLog(logger)
 	tp.SetOutput(output)
 	tp.SetErrors(errs)
+	tp.SetDone(done)
 
 	for _, protocol := range protocols {
 		tp.Register(protocol)
@@ -84,27 +91,24 @@ func (tp *transport) SetOutput(output chan core.Message) {
 	tp.output = output
 }
 
-func (tp *transport) Output() <-chan core.Message {
-	return tp.output
-}
-
 func (tp *transport) SetErrors(errs chan error) {
 	tp.errs = errs
 }
 
-func (tp *transport) Errors() <-chan error {
-	return tp.errs
+func (tp *transport) SetDone(done chan bool) {
+	tp.done = done
 }
 
 func (tp *transport) Register(protocol Protocol) error {
 	if _, ok := tp.getProtocol(protocol.Name()); ok {
-		return NewError(fmt.Sprintf("protocol '%s' already registered", protocol.Name()))
+		return NewError(fmt.Sprintf("protocol %s already registered", protocol.Name()))
 	}
 
 	output := make(chan []byte)
 	errs := make(chan error)
 	protocol.SetOutput(output)
 	protocol.SetErrors(errs)
+	protocol.SetLog(tp.Log())
 	tp.addProtocol(protocol.Name(), protocol)
 
 	return nil
@@ -113,7 +117,7 @@ func (tp *transport) Register(protocol Protocol) error {
 func (tp *transport) Listen(addr string) error {
 	tp.Log().Debugf("starting listening on each registered protocol...")
 
-	for _, protocol := range tp.Protocols() {
+	for _, protocol := range tp.protocols() {
 		go func() {
 			err := protocol.Listen(addr)
 			if err != nil {
@@ -140,35 +144,29 @@ func (tp *transport) Listen(addr string) error {
 	}
 }
 
-func (tp *transport) Stop() {
-	for _, protocol := range tp.protocols {
-		protocol.Stop()
-	}
-}
-
-// helper struct for thread-safe protocols storing
+// helper struct for thread-safe protocolsMap storing
 type protocolsStore struct {
 	protocolsLock sync.RWMutex
-	protocols     map[string]Protocol
+	protocolsMap  map[string]Protocol
 }
 
 func (prs *protocolsStore) addProtocol(key string, protocol Protocol) {
 	prs.protocolsLock.Lock()
-	prs.protocols[key] = protocol
+	prs.protocolsMap[key] = protocol
 	prs.protocolsLock.Unlock()
 }
 
 func (prs *protocolsStore) getProtocol(key string) (Protocol, bool) {
 	prs.protocolsLock.RLock()
 	defer prs.protocolsLock.RUnlock()
-	protocol, ok := prs.protocols[key]
+	protocol, ok := prs.protocolsMap[key]
 	return protocol, ok
 }
 
-func (prs *protocolsStore) Protocols() []Protocol {
+func (prs *protocolsStore) protocols() []Protocol {
 	all := make([]Protocol, 0)
 
-	for key := range prs.protocols {
+	for key := range prs.protocolsMap {
 		if protocol, ok := prs.getProtocol(key); ok {
 			all = append(all, protocol)
 		}
