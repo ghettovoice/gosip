@@ -32,14 +32,13 @@ func NewRequest(
 	sipVersion string,
 	hdrs []Header,
 	body string,
-	logger log.Logger,
 ) Request {
 	req := new(request)
 	req.SetSipVersion(sipVersion)
 	req.headers = newHeaders(hdrs)
 	req.SetMethod(method)
 	req.SetRecipient(recipient)
-	req.SetLog(logger)
+	req.SetLog(log.StandardLogger())
 
 	if strings.TrimSpace(body) != "" {
 		req.SetBody(body)
@@ -87,6 +86,15 @@ func (req *request) Short() string {
 	if cseq, ok := req.CSeq(); ok {
 		buffer.WriteString(fmt.Sprintf(" (%s)", cseq))
 	}
+	if callId, ok := req.CallId(); ok {
+		buffer.WriteString(fmt.Sprintf(" (%s)", callId))
+	}
+	if from, ok := req.From(); ok {
+		buffer.WriteString(fmt.Sprintf(" (%s)", from))
+	}
+	if to, ok := req.To(); ok {
+		buffer.WriteString(fmt.Sprintf(" (%s)", to))
+	}
 
 	return buffer.String()
 }
@@ -105,14 +113,15 @@ func (req *request) String() string {
 }
 
 func (req *request) Clone() Message {
-	return NewRequest(
+	clone := NewRequest(
 		req.Method(),
 		req.Recipient().Clone(),
 		req.SipVersion(),
 		req.headers.CloneHeaders(),
 		req.Body(),
-		req.Log(),
 	)
+	clone.SetLog(req.Log())
+	return clone
 }
 
 func (req *request) IsInvite() bool {

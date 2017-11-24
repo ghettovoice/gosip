@@ -26,7 +26,7 @@ const MAX_CSEQ = 2147483647
 
 // A Parser converts the raw bytes of SIP messages into core.Message objects.
 // It allows
-type SipParser interface {
+type Parser interface {
 	log.WithLogger
 	// Implements io.Writer. Queues the given bytes to be parsed.
 	// If the parser has terminated due to a previous fatal error, it will return n=0 and an appropriate error.
@@ -71,9 +71,9 @@ func defaultHeaderParsers() map[string]HeaderParser {
 func ParseMessage(msgData []byte, logger log.Logger) (core.Message, error) {
 	output := make(chan core.Message, 0)
 	errors := make(chan error, 0)
-	parser := NewParser(output, errors, false, logger)
+	parser := NewParser(output, errors, false)
 	defer parser.Stop()
-
+	parser.SetLog(logger)
 	parser.Write(msgData)
 	select {
 	case msg := <-output:
@@ -97,12 +97,11 @@ func ParseMessage(msgData []byte, logger log.Logger) (core.Message, error) {
 
 // 'streamed' should be set to true whenever the caller cannot reliably identify the starts and ends of messages from the transport frames,
 // e.g. when using streamed protocols such as TCP.
-func NewParser(output chan<- core.Message, errs chan<- error, streamed bool, logger log.Logger) SipParser {
+func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Parser {
 	p := &parser{
 		streamed: streamed,
-		log:      logger,
 	}
-
+	p.SetLog(log.StandardLogger())
 	// Configure the parser with the standard set of header parsers.
 	p.headerParsers = make(map[string]HeaderParser)
 	for headerName, headerParser := range defaultHeaderParsers() {
@@ -114,12 +113,12 @@ func NewParser(output chan<- core.Message, errs chan<- error, streamed bool, log
 
 	if !streamed {
 		// If we're not in streaming mode, set up a channel so the Write method can pass calculated body lengths to the parser.
-		p.bodyLengths.Init(p.Log())
+		p.bodyLengths.Init()
 	}
 
 	// Create a managed buffer to allow message data to be asynchronously provided to the parser, and
 	// to allow the parser to block until enough data is available to parse.
-	p.input = newParserBuffer(p.Log())
+	p.input = newParserBuffer()
 
 	// Wait for input a line at a time, and produce SipMessages to send down p.output.
 	go p.parse(streamed)
@@ -140,11 +139,13 @@ type parser struct {
 }
 
 func (p *parser) Log() log.Logger {
-	return p.log.WithField("pars-ptr", fmt.Sprintf("%p", p))
+	return p.log
 }
 
 func (p *parser) SetLog(logger log.Logger) {
-	p.log = logger
+	p.log = logger.WithField("parser", fmt.Sprintf("%p", p))
+	p.bodyLengths.SetLog(p.Log())
+	p.input.SetLog(p.Log())
 }
 
 func (p *parser) Write(data []byte) (int, error) {
@@ -195,11 +196,11 @@ func (p *parser) parse(requireContentLength bool) {
 
 		if isRequest(startLine) {
 			method, recipient, sipVersion, err := parseRequestLine(startLine)
-			msg = core.NewRequest(method, recipient, sipVersion, []core.Header{}, "", p.Log())
+			msg = core.NewRequest(method, recipient, sipVersion, []core.Header{}, "")
 			p.terminalErr = err
 		} else if isResponse(startLine) {
 			sipVersion, statusCode, reason, err := parseStatusLine(startLine)
-			msg = core.NewResponse(sipVersion, statusCode, reason, []core.Header{}, "", p.Log())
+			msg = core.NewResponse(sipVersion, statusCode, reason, []core.Header{}, "")
 			p.terminalErr = err
 		} else {
 			p.terminalErr = fmt.Errorf("transmission beginning '%s' is not a SIP message", startLine)
@@ -210,6 +211,8 @@ func (p *parser) parse(requireContentLength bool) {
 			p.errs <- p.terminalErr
 			break
 		}
+
+		msg.SetLog(p.Log())
 
 		// Parse the header section.
 		// Headers can be split across lines (marked by whitespace at the start of subsequent lines),
@@ -223,7 +226,7 @@ func (p *parser) parse(requireContentLength bool) {
 				if err == nil {
 					headers = append(headers, newHeaders...)
 				} else {
-					p.Log().Debugf("skipping header '%s' due to error: %s", buffer, err)
+					p.Log().Warnf("skipping header '%s' due to error: %s", buffer, err)
 				}
 				buffer.Reset()
 			}
@@ -303,7 +306,7 @@ func (p *parser) parse(requireContentLength bool) {
 		body, err := p.input.NextChunk(contentLength)
 
 		if err != nil {
-			p.Log().Debugf("parsed %p stopped", p)
+			p.Log().Warnf("incorrect body content length: discard and stop parser %p", p)
 			break
 		}
 
@@ -515,8 +518,8 @@ func ParseSipUri(uriStr string) (uri core.SipUri, err error) {
 	if err != nil {
 		return
 	} else if len(uriStr) == 0 {
-		uri.UriParams = core.NewHeaderParams()
-		uri.Headers = core.NewHeaderParams()
+		uri.UriParams = core.NewParams()
+		uri.Headers = core.NewParams()
 		return
 	}
 
@@ -524,7 +527,7 @@ func ParseSipUri(uriStr string) (uri core.SipUri, err error) {
 	// These are key-value pairs separated by ';'.
 	// They end at the end of the URI, or at the start of any URI headers
 	// which may be present (denoted by an initial '?').
-	var uriParams core.HeaderParams
+	var uriParams core.Params
 	var n int
 	if uriStr[0] == ';' {
 		uriParams, n, err = parseParams(uriStr, ';', ';', '?', true, true)
@@ -532,14 +535,14 @@ func ParseSipUri(uriStr string) (uri core.SipUri, err error) {
 			return
 		}
 	} else {
-		uriParams, n = core.NewHeaderParams(), 0
+		uriParams, n = core.NewParams(), 0
 	}
 	uri.UriParams = uriParams
 	uriStr = uriStr[n:]
 
 	// Finally parse any URI headers.
 	// These are key-value pairs, starting with a '?' and separated by '&'.
-	var headers core.HeaderParams
+	var headers core.Params
 	headers, n, err = parseParams(uriStr, '?', '&', 0, true, false)
 	if err != nil {
 		return
@@ -594,9 +597,9 @@ func parseParams(
 	quoteValues bool,
 	permitSingletons bool,
 ) (
-	params core.HeaderParams, consumed int, err error) {
+	params core.Params, consumed int, err error) {
 
-	params = core.NewHeaderParams()
+	params = core.NewParams()
 
 	if len(source) == 0 {
 		// Key-value section is completely empty; return defaults.
@@ -766,7 +769,7 @@ func parseAddressHeader(headerName string, headerText string) (
 	case "to", "from", "contact", "t", "f", "m":
 		var displayNames []core.MaybeString
 		var uris []core.Uri
-		var paramSets []core.HeaderParams
+		var paramSets []core.Params
 
 		// Perform the actual parsing. The rest of this method is just typeclass bookkeeping.
 		displayNames, uris, paramSets, err = parseAddressValues(headerText)
@@ -1008,7 +1011,7 @@ func parseViaHeader(headerName string, headerText string) (
 			if err != nil {
 				return
 			}
-			hop.Params = core.NewHeaderParams()
+			hop.Params = core.NewParams()
 		} else {
 			host, port, err = parseHostPort(viaBody[:paramsIdx])
 			if err != nil {
@@ -1058,7 +1061,7 @@ func parseContentLength(headerName string, headerText string) (
 func parseAddressValues(addresses string) (
 	displayNames []core.MaybeString,
 	uris []core.Uri,
-	headerParams []core.HeaderParams,
+	headerParams []core.Params,
 	err error,
 ) {
 
@@ -1080,7 +1083,7 @@ func parseAddressValues(addresses string) (
 		} else if !inQuotes && !inBrackets && char == ',' {
 			var displayName core.MaybeString
 			var uri core.Uri
-			var params core.HeaderParams
+			var params core.Params
 			displayName, uri, params, err = parseAddressValue(addresses[prevIdx:idx])
 			if err != nil {
 				return
@@ -1108,11 +1111,11 @@ func parseAddressValues(addresses string) (
 func parseAddressValue(addressText string) (
 	displayName core.MaybeString,
 	uri core.Uri,
-	headerParams core.HeaderParams,
+	headerParams core.Params,
 	err error,
 ) {
 
-	headerParams = core.NewHeaderParams()
+	headerParams = core.NewParams()
 
 	if len(addressText) == 0 {
 		err = fmt.Errorf("address-type header has empty body")

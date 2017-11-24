@@ -1,6 +1,6 @@
-package net
+package transport
 
-// TCP protocol implementation
+// TCP stdProtocol implementation
 type tcpProtocol struct {
 }
 

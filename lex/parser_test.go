@@ -53,7 +53,7 @@ var pass error = nil
 var port_5060 core.Port = 5060
 var port_5 core.Port = 5
 var port_9 core.Port = 9
-var noParams = core.NewHeaderParams()
+var noParams = core.NewParams()
 
 func TestAAAASetup(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
@@ -73,7 +73,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", core.String{"bar"}),
+				core.NewParams().Add("foo", core.String{"bar"}),
 				8,
 			},
 		},
@@ -88,7 +88,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", core.String{""}),
+				core.NewParams().Add("foo", core.String{""}),
 				5,
 			},
 		},
@@ -103,7 +103,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", nil),
+				core.NewParams().Add("foo", nil),
 				4,
 			},
 		},
@@ -118,7 +118,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", core.String{"bar"}),
+				core.NewParams().Add("foo", core.String{"bar"}),
 				8,
 			},
 		},
@@ -133,7 +133,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", nil),
+				core.NewParams().Add("foo", nil),
 				4,
 			},
 		},
@@ -148,7 +148,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", core.String{""}),
+				core.NewParams().Add("foo", core.String{""}),
 				5,
 			},
 		},
@@ -163,7 +163,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", core.String{"bar"}),
+				core.NewParams().Add("foo", core.String{"bar"}),
 				8,
 			},
 		},
@@ -178,7 +178,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", nil), 4}},
+				core.NewParams().Add("foo", nil), 4}},
 		{
 			&paramInput{
 				"foo!h;l!o",
@@ -190,7 +190,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				fail,
-				core.NewHeaderParams(),
+				core.NewParams(),
 				0,
 			},
 		},
@@ -205,7 +205,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				fail,
-				core.NewHeaderParams(),
+				core.NewParams(),
 				0,
 			},
 		},
@@ -220,7 +220,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}),
+				core.NewParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}),
 				17,
 			},
 		},
@@ -235,7 +235,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}),
+				core.NewParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}),
 				17,
 			},
 		},
@@ -250,7 +250,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", core.String{"bar"}).
 					Add("baz", nil),
 				12,
@@ -267,7 +267,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", nil).
 					Add("baz", core.String{"boop"}),
 				13,
@@ -284,7 +284,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", core.String{"bar"}).
 					Add("baz", core.String{"boop"}).
 					Add("a", core.String{"b"}),
@@ -302,7 +302,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", nil).
 					Add("baz", core.String{"boop"}).
 					Add("a", core.String{"b"}),
@@ -320,7 +320,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", core.String{"bar"}).
 					Add("baz", nil).
 					Add("a", core.String{"b"}),
@@ -338,7 +338,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", core.String{"bar"}).
 					Add("baz", core.String{"boop"}).
 					Add("a", nil),
@@ -356,7 +356,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", core.String{"bar"}).
 					Add("baz", core.String{""}).
 					Add("a", nil),
@@ -374,7 +374,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", core.String{""}).
 					Add("baz", core.String{"bob"}).
 					Add("a", nil),
@@ -392,7 +392,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				fail,
-				core.NewHeaderParams(),
+				core.NewParams(),
 				0,
 			},
 		},
@@ -407,7 +407,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", core.String{"bar"}),
 				8,
 			},
@@ -423,7 +423,7 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", nil),
 				4,
 			},
@@ -439,56 +439,56 @@ func TestParams(t *testing.T) {
 			},
 			&paramResult{
 				pass,
-				core.NewHeaderParams().
+				core.NewParams().
 					Add("foo", core.String{"bar"}),
 				8,
 			},
 		},
-		{&paramInput{"$foo#hello", '$', ',', '#', false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", nil), 4}},
-		{&paramInput{"$foo=bar!h;,!o", '$', ',', '!', false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}), 8}},
-		{&paramInput{"$foo!h;l!,", '$', ',', '!', false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", nil), 4}},
-		{&paramInput{"foo!h;l!o", '$', ',', '!', false, true}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{"foo,h,l!o", '$', ',', '!', false, true}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{"$foo=bar,baz=boop", '$', ',', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}), 17}},
-		{&paramInput{"$foo=bar;baz", '$', ',', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar;baz"}), 12}},
-		{&paramInput{"$foo=bar,baz=boop!lol", '$', ',', '!', false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}), 17}},
-		{&paramInput{"$foo=bar,baz", '$', ',', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", nil), 12}},
-		{&paramInput{"$foo=,baz", '$', ',', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{""}).Add("baz", nil), 9}},
-		{&paramInput{"$foo,baz=boop", '$', ',', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", nil).Add("baz", core.String{"boop"}), 13}},
-		{&paramInput{"$foo=bar,baz=boop,a=b", '$', ',', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}).Add("a", core.String{"b"}), 21}},
-		{&paramInput{"$foo,baz=boop,a=b", '$', ',', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", nil).Add("baz", core.String{"boop"}).Add("a", core.String{"b"}), 17}},
-		{&paramInput{"$foo=bar,baz,a=b", '$', ',', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", nil).Add("a", core.String{"b"}), 16}},
-		{&paramInput{"$foo=bar,baz=boop,a", '$', ',', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}).Add("a", nil), 19}},
-		{&paramInput{";foo", ';', ';', 0, false, false}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";foo=", ';', ';', 0, false, false}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{""}), 5}},
-		{&paramInput{";foo=bar;baz=boop", ';', ';', 0, false, false}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}), 17}},
-		{&paramInput{";foo=bar;baz", ';', ';', 0, false, false}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";foo;bar=baz", ';', ';', 0, false, false}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";foo=;baz=boop", ';', ';', 0, false, false}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{""}).Add("baz", core.String{"boop"}), 14}},
-		{&paramInput{";foo=bar;baz=", ';', ';', 0, false, false}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", core.String{""}), 13}},
+		{&paramInput{"$foo#hello", '$', ',', '#', false, true}, &paramResult{pass, core.NewParams().Add("foo", nil), 4}},
+		{&paramInput{"$foo=bar!h;,!o", '$', ',', '!', false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}), 8}},
+		{&paramInput{"$foo!h;l!,", '$', ',', '!', false, true}, &paramResult{pass, core.NewParams().Add("foo", nil), 4}},
+		{&paramInput{"foo!h;l!o", '$', ',', '!', false, true}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{"foo,h,l!o", '$', ',', '!', false, true}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{"$foo=bar,baz=boop", '$', ',', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}), 17}},
+		{&paramInput{"$foo=bar;baz", '$', ',', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar;baz"}), 12}},
+		{&paramInput{"$foo=bar,baz=boop!lol", '$', ',', '!', false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}), 17}},
+		{&paramInput{"$foo=bar,baz", '$', ',', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}).Add("baz", nil), 12}},
+		{&paramInput{"$foo=,baz", '$', ',', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{""}).Add("baz", nil), 9}},
+		{&paramInput{"$foo,baz=boop", '$', ',', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", nil).Add("baz", core.String{"boop"}), 13}},
+		{&paramInput{"$foo=bar,baz=boop,a=b", '$', ',', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}).Add("a", core.String{"b"}), 21}},
+		{&paramInput{"$foo,baz=boop,a=b", '$', ',', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", nil).Add("baz", core.String{"boop"}).Add("a", core.String{"b"}), 17}},
+		{&paramInput{"$foo=bar,baz,a=b", '$', ',', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}).Add("baz", nil).Add("a", core.String{"b"}), 16}},
+		{&paramInput{"$foo=bar,baz=boop,a", '$', ',', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}).Add("a", nil), 19}},
+		{&paramInput{";foo", ';', ';', 0, false, false}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";foo=", ';', ';', 0, false, false}, &paramResult{pass, core.NewParams().Add("foo", core.String{""}), 5}},
+		{&paramInput{";foo=bar;baz=boop", ';', ';', 0, false, false}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}).Add("baz", core.String{"boop"}), 17}},
+		{&paramInput{";foo=bar;baz", ';', ';', 0, false, false}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";foo;bar=baz", ';', ';', 0, false, false}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";foo=;baz=boop", ';', ';', 0, false, false}, &paramResult{pass, core.NewParams().Add("foo", core.String{""}).Add("baz", core.String{"boop"}), 14}},
+		{&paramInput{";foo=bar;baz=", ';', ';', 0, false, false}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}).Add("baz", core.String{""}), 13}},
 		{&paramInput{"$foo=bar,baz=,a=b", '$', ',', 0, false, true}, &paramResult{pass,
-			core.NewHeaderParams().Add("foo", core.String{"bar"}).Add("baz", core.String{""}).Add("a", core.String{"b"}), 17}},
-		{&paramInput{"$foo=bar,baz,a=b", '$', ',', 0, false, false}, &paramResult{fail, core.NewHeaderParams(), 17}},
-		{&paramInput{";foo=\"bar\"", ';', ';', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"\"bar\""}), 10}},
-		{&paramInput{";foo=\"bar", ';', ';', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"\"bar"}), 9}},
-		{&paramInput{";foo=bar\"", ';', ';', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar\""}), 9}},
-		{&paramInput{";\"foo\"=bar", ';', ';', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("\"foo\"", core.String{"bar"}), 10}},
-		{&paramInput{";foo\"=bar", ';', ';', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("foo\"", core.String{"bar"}), 9}},
-		{&paramInput{";\"foo=bar", ';', ';', 0, false, true}, &paramResult{pass, core.NewHeaderParams().Add("\"foo", core.String{"bar"}), 9}},
-		{&paramInput{";foo=\"bar\"", ';', ';', 0, true, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}), 10}},
-		{&paramInput{";foo=\"ba\"r", ';', ';', 0, true, true}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";foo=ba\"r", ';', ';', 0, true, true}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";foo=bar\"", ';', ';', 0, true, true}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";foo=\"bar", ';', ';', 0, true, true}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";\"foo\"=bar", ';', ';', 0, true, true}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";\"foo=bar", ';', ';', 0, true, true}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";foo\"=bar", ';', ';', 0, true, true}, &paramResult{fail, core.NewHeaderParams(), 0}},
-		{&paramInput{";foo=\"bar;baz\"", ';', ';', 0, true, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar;baz"}), 14}},
-		{&paramInput{";foo=\"bar;baz\";a=b", ';', ';', 0, true, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar;baz"}).Add("a", core.String{"b"}), 18}},
-		{&paramInput{";foo=\"bar;baz\";a", ';', ';', 0, true, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar;baz"}).Add("a", nil), 16}},
-		{&paramInput{";foo=bar", ';', ';', 0, true, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{"bar"}), 8}},
-		{&paramInput{";foo=", ';', ';', 0, true, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{""}), 5}},
-		{&paramInput{";foo=\"\"", ';', ';', 0, true, true}, &paramResult{pass, core.NewHeaderParams().Add("foo", core.String{""}), 7}},
+			core.NewParams().Add("foo", core.String{"bar"}).Add("baz", core.String{""}).Add("a", core.String{"b"}), 17}},
+		{&paramInput{"$foo=bar,baz,a=b", '$', ',', 0, false, false}, &paramResult{fail, core.NewParams(), 17}},
+		{&paramInput{";foo=\"bar\"", ';', ';', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"\"bar\""}), 10}},
+		{&paramInput{";foo=\"bar", ';', ';', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"\"bar"}), 9}},
+		{&paramInput{";foo=bar\"", ';', ';', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar\""}), 9}},
+		{&paramInput{";\"foo\"=bar", ';', ';', 0, false, true}, &paramResult{pass, core.NewParams().Add("\"foo\"", core.String{"bar"}), 10}},
+		{&paramInput{";foo\"=bar", ';', ';', 0, false, true}, &paramResult{pass, core.NewParams().Add("foo\"", core.String{"bar"}), 9}},
+		{&paramInput{";\"foo=bar", ';', ';', 0, false, true}, &paramResult{pass, core.NewParams().Add("\"foo", core.String{"bar"}), 9}},
+		{&paramInput{";foo=\"bar\"", ';', ';', 0, true, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}), 10}},
+		{&paramInput{";foo=\"ba\"r", ';', ';', 0, true, true}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";foo=ba\"r", ';', ';', 0, true, true}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";foo=bar\"", ';', ';', 0, true, true}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";foo=\"bar", ';', ';', 0, true, true}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";\"foo\"=bar", ';', ';', 0, true, true}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";\"foo=bar", ';', ';', 0, true, true}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";foo\"=bar", ';', ';', 0, true, true}, &paramResult{fail, core.NewParams(), 0}},
+		{&paramInput{";foo=\"bar;baz\"", ';', ';', 0, true, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar;baz"}), 14}},
+		{&paramInput{";foo=\"bar;baz\";a=b", ';', ';', 0, true, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar;baz"}).Add("a", core.String{"b"}), 18}},
+		{&paramInput{";foo=\"bar;baz\";a", ';', ';', 0, true, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar;baz"}).Add("a", nil), 16}},
+		{&paramInput{";foo=bar", ';', ';', 0, true, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{"bar"}), 8}},
+		{&paramInput{";foo=", ';', ';', 0, true, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{""}), 5}},
+		{&paramInput{";foo=\"\"", ';', ';', 0, true, true}, &paramResult{pass, core.NewParams().Add("foo", core.String{""}), 7}},
 	}, t)
 }
 
@@ -509,62 +509,62 @@ func TestSipUris(t *testing.T) {
 			Host: "example.com", Port: &port_5060, UriParams: noParams, Headers: noParams}}},
 		{sipUriInput("sip:bob@example.com:5"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5, UriParams: noParams, Headers: noParams}}},
 		{sipUriInput("sip:bob@example.com;foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: core.NewHeaderParams().Add("foo", core.String{"bar"}), Headers: noParams}}},
+			UriParams: core.NewParams().Add("foo", core.String{"bar"}), Headers: noParams}}},
 		{sipUriInput("sip:bob@example.com:5060;foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5060,
-			UriParams: core.NewHeaderParams().Add("foo", core.String{"bar"}), Headers: noParams}}},
+			UriParams: core.NewParams().Add("foo", core.String{"bar"}), Headers: noParams}}},
 		{sipUriInput("sip:bob@example.com:5;foo"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: core.NewHeaderParams().Add("foo", nil), Headers: noParams}}},
+			UriParams: core.NewParams().Add("foo", nil), Headers: noParams}}},
 		{sipUriInput("sip:bob@example.com:5;foo;baz=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: core.NewHeaderParams().Add("foo", nil).Add("baz", core.String{"bar"}), Headers: noParams}}},
+			UriParams: core.NewParams().Add("foo", nil).Add("baz", core.String{"bar"}), Headers: noParams}}},
 		{sipUriInput("sip:bob@example.com:5;baz=bar;foo"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: core.NewHeaderParams().Add("foo", nil).Add("baz", core.String{"bar"}), Headers: noParams}}},
+			UriParams: core.NewParams().Add("foo", nil).Add("baz", core.String{"bar"}), Headers: noParams}}},
 		{sipUriInput("sip:bob@example.com:5;foo;baz=bar;a=b"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: core.NewHeaderParams().Add("foo", nil).Add("baz", core.String{"bar"}).Add("a", core.String{"b"}), Headers: noParams}}},
+			UriParams: core.NewParams().Add("foo", nil).Add("baz", core.String{"bar"}).Add("a", core.String{"b"}), Headers: noParams}}},
 		{sipUriInput("sip:bob@example.com:5;baz=bar;foo;a=b"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: core.NewHeaderParams().Add("foo", nil).Add("baz", core.String{"bar"}).Add("a", core.String{"b"}), Headers: noParams}}},
+			UriParams: core.NewParams().Add("foo", nil).Add("baz", core.String{"bar"}).Add("a", core.String{"b"}), Headers: noParams}}},
 		{sipUriInput("sip:bob@example.com?foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: noParams, Headers: core.NewHeaderParams().Add("foo", core.String{"bar"})}}},
+			UriParams: noParams, Headers: core.NewParams().Add("foo", core.String{"bar"})}}},
 		{sipUriInput("sip:bob@example.com?foo="), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: noParams, Headers: core.NewHeaderParams().Add("foo", core.String{""})}}},
+			UriParams: noParams, Headers: core.NewParams().Add("foo", core.String{""})}}},
 		{sipUriInput("sip:bob@example.com:5060?foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5060,
-			UriParams: noParams, Headers: core.NewHeaderParams().Add("foo", core.String{"bar"})}}},
+			UriParams: noParams, Headers: core.NewParams().Add("foo", core.String{"bar"})}}},
 		{sipUriInput("sip:bob@example.com:5?foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: noParams, Headers: core.NewHeaderParams().Add("foo", core.String{"bar"})}}},
+			UriParams: noParams, Headers: core.NewParams().Add("foo", core.String{"bar"})}}},
 		{sipUriInput("sips:bob@example.com:5?baz=bar&foo=&a=b"), &sipUriResult{pass, core.SipUri{IsEncrypted: true, User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: noParams, Headers: core.NewHeaderParams().Add("baz", core.String{"bar"}).Add("a", core.String{"b"}).Add("foo", core.String{""})}}},
+			UriParams: noParams, Headers: core.NewParams().Add("baz", core.String{"bar"}).Add("a", core.String{"b"}).Add("foo", core.String{""})}}},
 		{sipUriInput("sip:bob@example.com:5?baz=bar&foo&a=b"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:5?foo"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50?foo"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50?foo=bar&baz"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com;foo?foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: core.NewHeaderParams().Add("foo", nil),
-			Headers:   core.NewHeaderParams().Add("foo", core.String{"bar"})}}},
+			UriParams: core.NewParams().Add("foo", nil),
+			Headers:   core.NewParams().Add("foo", core.String{"bar"})}}},
 		{sipUriInput("sip:bob@example.com:5060;foo?foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5060,
-			UriParams: core.NewHeaderParams().Add("foo", nil),
-			Headers:   core.NewHeaderParams().Add("foo", core.String{"bar"})}}},
+			UriParams: core.NewParams().Add("foo", nil),
+			Headers:   core.NewParams().Add("foo", core.String{"bar"})}}},
 		{sipUriInput("sip:bob@example.com:5;foo?foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: core.NewHeaderParams().Add("foo", nil),
-			Headers:   core.NewHeaderParams().Add("foo", core.String{"bar"})}}},
+			UriParams: core.NewParams().Add("foo", nil),
+			Headers:   core.NewParams().Add("foo", core.String{"bar"})}}},
 		{sipUriInput("sips:bob@example.com:5;foo?baz=bar&a=b&foo="), &sipUriResult{pass, core.SipUri{IsEncrypted: true, User: core.String{"bob"},
 			Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: core.NewHeaderParams().Add("foo", nil),
-			Headers:   core.NewHeaderParams().Add("baz", core.String{"bar"}).Add("a", core.String{"b"}).Add("foo", core.String{""})}}},
+			UriParams: core.NewParams().Add("foo", nil),
+			Headers:   core.NewParams().Add("baz", core.String{"bar"}).Add("a", core.String{"b"}).Add("foo", core.String{""})}}},
 		{sipUriInput("sip:bob@example.com:5;foo?baz=bar&foo&a=b"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:5;foo?foo"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50;foo?foo"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50;foo?foo=bar&baz"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com;foo=baz?foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: core.NewHeaderParams().Add("foo", core.String{"baz"}),
-			Headers:   core.NewHeaderParams().Add("foo", core.String{"bar"})}}},
+			UriParams: core.NewParams().Add("foo", core.String{"baz"}),
+			Headers:   core.NewParams().Add("foo", core.String{"bar"})}}},
 		{sipUriInput("sip:bob@example.com:5060;foo=baz?foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5060,
-			UriParams: core.NewHeaderParams().Add("foo", core.String{"baz"}),
-			Headers:   core.NewHeaderParams().Add("foo", core.String{"bar"})}}},
+			UriParams: core.NewParams().Add("foo", core.String{"baz"}),
+			Headers:   core.NewParams().Add("foo", core.String{"bar"})}}},
 		{sipUriInput("sip:bob@example.com:5;foo=baz?foo=bar"), &sipUriResult{pass, core.SipUri{User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: core.NewHeaderParams().Add("foo", core.String{"baz"}),
-			Headers:   core.NewHeaderParams().Add("foo", core.String{"bar"})}}},
+			UriParams: core.NewParams().Add("foo", core.String{"baz"}),
+			Headers:   core.NewParams().Add("foo", core.String{"bar"})}}},
 		{sipUriInput("sips:bob@example.com:5;foo=baz?baz=bar&a=b"), &sipUriResult{pass, core.SipUri{IsEncrypted: true, User: core.String{"bob"}, Password: nil, Host: "example.com", Port: &port_5,
-			UriParams: core.NewHeaderParams().Add("foo", core.String{"baz"}),
-			Headers:   core.NewHeaderParams().Add("baz", core.String{"bar"}).Add("a", core.String{"b"})}}},
+			UriParams: core.NewParams().Add("foo", core.String{"baz"}),
+			Headers:   core.NewParams().Add("baz", core.String{"bar"}).Add("a", core.String{"b"})}}},
 		{sipUriInput("sip:bob@example.com:5;foo=baz?baz=bar&foo&a=b"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:5;foo=baz?foo"), &sipUriResult{fail, core.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50;foo=baz?foo"), &sipUriResult{fail, core.SipUri{}}},
@@ -607,8 +607,8 @@ func TestHeaderBlocks(t *testing.T) {
 }
 */
 func TestToHeaders(t *testing.T) {
-	fooEqBar := core.NewHeaderParams().Add("foo", core.String{"bar"})
-	fooSingleton := core.NewHeaderParams().Add("foo", nil)
+	fooEqBar := core.NewParams().Add("foo", core.String{"bar"})
+	fooSingleton := core.NewParams().Add("foo", nil)
 	doTests([]test{
 		{toHeaderInput("To: \"Alice Liddell\" <sip:alice@wonderland.com>"), &toHeaderResult{pass,
 			&core.ToHeader{DisplayName: core.String{"Alice Liddell"},
@@ -776,8 +776,8 @@ func TestToHeaders(t *testing.T) {
 
 func TestFromHeaders(t *testing.T) {
 	// These are identical to the To: header tests, but there's no clean way to share them :(
-	fooEqBar := core.NewHeaderParams().Add("foo", core.String{"bar"})
-	fooSingleton := core.NewHeaderParams().Add("foo", nil)
+	fooEqBar := core.NewParams().Add("foo", core.String{"bar"})
+	fooSingleton := core.NewParams().Add("foo", nil)
 	doTests([]test{
 		{fromHeaderInput("From: \"Alice Liddell\" <sip:alice@wonderland.com>"), &fromHeaderResult{pass,
 			&core.FromHeader{DisplayName: core.String{"Alice Liddell"},
@@ -909,8 +909,8 @@ func TestFromHeaders(t *testing.T) {
 }
 
 func TestContactHeaders(t *testing.T) {
-	fooEqBar := core.NewHeaderParams().Add("foo", core.String{"bar"})
-	fooSingleton := core.NewHeaderParams().Add("foo", nil)
+	fooEqBar := core.NewParams().Add("foo", core.String{"bar"})
+	fooSingleton := core.NewParams().Add("foo", nil)
 	doTests([]test{
 		{contactHeaderInput("Contact: \"Alice Liddell\" <sip:alice@wonderland.com>"), &contactHeaderResult{
 			pass,
@@ -1305,9 +1305,9 @@ func TestContentLength(t *testing.T) {
 
 func TestViaHeaders(t *testing.T) {
 	// branch=z9hG4bKnashds8
-	fooEqBar := core.NewHeaderParams().Add("foo", core.String{Str: "bar"})
-	fooEqSlashBar := core.NewHeaderParams().Add("foo", core.String{Str: "//bar"})
-	singleFoo := core.NewHeaderParams().Add("foo", nil)
+	fooEqBar := core.NewParams().Add("foo", core.String{Str: "bar"})
+	fooEqSlashBar := core.NewParams().Add("foo", core.String{Str: "//bar"})
+	singleFoo := core.NewParams().Add("foo", nil)
 	doTests([]test{
 		{viaInput("Via: SIP/2.0/UDP pc33.atlanta.com"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
 		{viaInput("Via: bAzz/fooo/BAAR pc33.atlanta.com"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"bAzz", "fooo", "BAAR", "pc33.atlanta.com", nil, noParams}}}},
@@ -1702,7 +1702,7 @@ func (data *paramInput) evaluate() result {
 
 type paramResult struct {
 	err      error
-	params   core.HeaderParams
+	params   core.Params
 	consumed int
 }
 
@@ -2337,7 +2337,7 @@ type parserTestStep struct {
 	returnedError error
 }
 
-func (step *parserTestStep) Test(parser SipParser, msgChan chan core.Message, errChan chan error) (success bool, reason string) {
+func (step *parserTestStep) Test(parser Parser, msgChan chan core.Message, errChan chan error) (success bool, reason string) {
 	_, err := parser.Write([]byte(step.input))
 	if err != step.returnedError {
 		success = false
@@ -2405,7 +2405,7 @@ func portStr(port *core.Port) string {
 	if port == nil {
 		return "nil"
 	}
-	return port.String()
+	return fmt.Sprintf("%d", *port)
 }
 
 func errToStr(err error) string {

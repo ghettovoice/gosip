@@ -9,7 +9,7 @@ import (
 	"github.com/ghettovoice/gosip/log"
 )
 
-// parserBuffer is a specialized buffer for use in the parser package.
+// parserBuffer is a specialized buffer for use in the parser.
 // It is written to via the non-blocking Write.
 // It exposes various blocking read methods, which wait until the requested
 // data is available, and then return it.
@@ -29,12 +29,20 @@ type parserBuffer struct {
 // Create a new parserBuffer object (see struct comment for object details).
 // Note that resources owned by the parserBuffer may not be able to be GCed
 // until the Dispose() method is called.
-func newParserBuffer(logger log.Logger) *parserBuffer {
+func newParserBuffer() *parserBuffer {
 	var pb parserBuffer
-	pb.log = logger
 	pb.pipeReader, pb.Writer = io.Pipe()
 	pb.reader = bufio.NewReader(pb.pipeReader)
+	pb.SetLog(log.StandardLogger())
 	return &pb
+}
+
+func (pb *parserBuffer) Log() log.Logger {
+	return pb.log
+}
+
+func (pb *parserBuffer) SetLog(logger log.Logger) {
+	pb.log = logger
 }
 
 // Block until the buffer contains at least one CRLF-terminated line.
@@ -63,7 +71,7 @@ func (pb *parserBuffer) NextLine() (response string, err error) {
 		if b == '\n' {
 			response = buffer.String()
 			response = response[:len(response)-2]
-			pb.log.Debugf("parser buffer returns line '%s'", response)
+			pb.Log().Debugf("parser buffer returns line '%s'", response)
 			return
 		}
 	}
@@ -84,7 +92,7 @@ func (pb *parserBuffer) NextChunk(n int) (response string, err error) {
 	}
 
 	response = string(data)
-	pb.log.Debugf("parser buffer returns chunk '%s'", response)
+	pb.Log().Debugf("parser buffer returns chunk '%s'", response)
 	return
 }
 

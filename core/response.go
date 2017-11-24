@@ -36,14 +36,13 @@ func NewResponse(
 	reason string,
 	hdrs []Header,
 	body string,
-	logger log.Logger,
 ) Response {
 	res := new(response)
 	res.SetSipVersion(sipVersion)
 	res.headers = newHeaders(hdrs)
 	res.SetStatusCode(statusCode)
 	res.SetReason(reason)
-	res.SetLog(logger)
+	res.SetLog(log.StandardLogger())
 
 	if strings.TrimSpace(body) != "" {
 		res.SetBody(body)
@@ -91,6 +90,15 @@ func (res *response) Short() string {
 	if cseq, ok := res.CSeq(); ok {
 		buffer.WriteString(fmt.Sprintf(" (%s)", cseq))
 	}
+	if callId, ok := res.CallId(); ok {
+		buffer.WriteString(fmt.Sprintf(" (%s)", callId))
+	}
+	if from, ok := res.From(); ok {
+		buffer.WriteString(fmt.Sprintf(" (%s)", from))
+	}
+	if to, ok := res.To(); ok {
+		buffer.WriteString(fmt.Sprintf(" (%s)", to))
+	}
 
 	return buffer.String()
 }
@@ -109,14 +117,15 @@ func (res *response) String() string {
 }
 
 func (res *response) Clone() Message {
-	return NewResponse(
+	clone := NewResponse(
 		res.SipVersion(),
 		res.StatusCode(),
 		res.Reason(),
 		res.headers.CloneHeaders(),
 		res.Body(),
-		res.Log(),
 	)
+	clone.SetLog(res.Log())
+	return clone
 }
 
 func (res *response) IsProvisional() bool {

@@ -43,3 +43,14 @@ func RandStr(length int, args ...interface{}) string {
 
 	return fmt.Sprintf("%s%x", prefix, buf)
 }
+
+func Coalesce(arg1 interface{}, arg2 interface{}, args ...interface{}) interface{} {
+	all := append([]interface{}{arg1, arg2}, args...)
+	for _, arg := range all {
+		if arg != nil {
+			return arg
+		}
+	}
+
+	return nil
+}

@@ -43,11 +43,11 @@ type ContactUri interface {
 }
 
 // Generic list of parameters on a header.
-type HeaderParams interface {
+type Params interface {
 	Get(key string) (MaybeString, bool)
-	Add(key string, val MaybeString) HeaderParams
-	Clone() HeaderParams
-	Equals(params HeaderParams) bool
+	Add(key string, val MaybeString) Params
+	Clone() Params
+	Equals(params Params) bool
 	ToString(sep uint8) string
 	String() string
 	Length() int
@@ -57,14 +57,14 @@ type HeaderParams interface {
 
 // IMPLEMENTATION
 
-// HeaderParams implementation.
+// Params implementation.
 type headerParams struct {
 	params     map[string]MaybeString
 	paramOrder []string
 }
 
 // Create an empty set of parameters.
-func NewHeaderParams() HeaderParams {
+func NewParams() Params {
 	return &headerParams{
 		params:     make(map[string]MaybeString),
 		paramOrder: []string{},
@@ -88,7 +88,7 @@ func (params *headerParams) Get(key string) (MaybeString, bool) {
 }
 
 // Add a new parameter.
-func (params *headerParams) Add(key string, val MaybeString) HeaderParams {
+func (params *headerParams) Add(key string, val MaybeString) Params {
 	// Add param to order list if new.
 	if _, ok := params.params[key]; !ok {
 		params.paramOrder = append(params.paramOrder, key)
@@ -102,8 +102,8 @@ func (params *headerParams) Add(key string, val MaybeString) HeaderParams {
 }
 
 // Copy a list of params.
-func (params *headerParams) Clone() HeaderParams {
-	dup := NewHeaderParams()
+func (params *headerParams) Clone() Params {
+	dup := NewParams()
 	for _, key := range params.Keys() {
 		if val, ok := params.Get(key); ok {
 			dup.Add(key, val)
@@ -160,7 +160,7 @@ func (params *headerParams) Length() int {
 
 // Check if two maps of parameters are equal in the sense of having the same keys with the same values.
 // This does not rely on any ordering of the keys of the map in memory.
-func (params *headerParams) Equals(q HeaderParams) bool {
+func (params *headerParams) Equals(q Params) bool {
 	if params.Length() == 0 && q.Length() == 0 {
 		return true
 	}
@@ -182,9 +182,9 @@ func (params *headerParams) Equals(q HeaderParams) bool {
 	return true
 }
 
-func cloneWithNil(params HeaderParams) HeaderParams {
+func cloneWithNil(params Params) Params {
 	if params == nil {
-		return NewHeaderParams()
+		return NewParams()
 	}
 	return params.Clone()
 }
@@ -216,14 +216,14 @@ type SipUri struct {
 	// These are used to provide information about requests that may be constructed from the URI.
 	// (For more details, see RFC 3261 section 19.1.1).
 	// These appear as a semicolon-separated list of key=value pairs following the host[:port] part.
-	UriParams HeaderParams
+	UriParams Params
 
 	// Any headers to be included on requests constructed from this URI.
 	// These appear as a '&'-separated list at the end of the URI, introduced by '?'.
 	// Although the values of the map are MaybeStrings, they will never be NoString in practice as the parser
 	// guarantees to not return blank values for header elements in SIP URIs.
 	// You should not set the values of headers to NoString.
-	Headers HeaderParams
+	Headers Params
 }
 
 func (uri *SipUri) IsWildcard() bool {
@@ -288,8 +288,7 @@ func (uri *SipUri) String() string {
 
 	// Optional port number.
 	if uri.Port != nil {
-		buffer.WriteString(":")
-		buffer.WriteString(uri.Port.String())
+		buffer.WriteString(fmt.Sprintf(":%d", *uri.Port))
 	}
 
 	if (uri.UriParams != nil) && uri.UriParams.Length() > 0 {
@@ -379,7 +378,7 @@ type ToHeader struct {
 	DisplayName MaybeString
 	Address     Uri
 	// Any parameters present in the header.
-	Params HeaderParams
+	Params Params
 }
 
 func (to *ToHeader) String() string {
@@ -418,7 +417,7 @@ type FromHeader struct {
 	Address Uri
 
 	// Any parameters present in the header.
-	Params HeaderParams
+	Params Params
 }
 
 func (from *FromHeader) String() string {
@@ -454,7 +453,7 @@ type ContactHeader struct {
 	DisplayName MaybeString
 	Address     ContactUri
 	// Any parameters present in the header.
-	Params HeaderParams
+	Params Params
 }
 
 func (contact *ContactHeader) String() string {
@@ -580,7 +579,17 @@ type ViaHop struct {
 	Host            string
 	// The port for this via hop. This is stored as a pointer type, since it is an optional field.
 	Port   *Port
-	Params HeaderParams
+	Params Params
+}
+
+func (hop *ViaHop) SentBy() string {
+	var buf bytes.Buffer
+	buf.WriteString(hop.Host)
+	if hop.Port != nil {
+		buf.WriteString(fmt.Sprintf(":%d", *hop.Port))
+	}
+
+	return buf.String()
 }
 
 func (hop *ViaHop) String() string {

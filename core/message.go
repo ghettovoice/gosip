@@ -77,6 +77,8 @@ type Message interface {
 	CallId() (*CallId, bool)
 	// Via returns the top 'Via' header field.
 	Via() (*ViaHeader, bool)
+	// ViaHop returns the first segment of the top 'Via' header.
+	ViaHop() (*ViaHop, bool)
 	// From returns 'From' header field.
 	From() (*FromHeader, bool)
 	// To returns 'To' header field.
@@ -214,6 +216,19 @@ func (hs *headers) Via() (*ViaHeader, bool) {
 	return via, true
 }
 
+func (hs *headers) ViaHop() (*ViaHop, bool) {
+	via, ok := hs.Via()
+	if !ok {
+		return nil, false
+	}
+	hops := []*ViaHop(via)
+	if len(hops) == 0 {
+		return nil, false
+	}
+
+	return hops[0], true
+}
+
 func (hs *headers) From() (*FromHeader, bool) {
 	hdrs := hs.GetHeaders("From")
 	if len(hdrs) == 0 {
@@ -305,7 +320,7 @@ func (msg *message) SetLog(logger log.Logger) {
 
 func (msg *message) logFields() map[string]interface{} {
 	fields := make(map[string]interface{})
-	fields["msg-ptr"] = fmt.Sprintf("%p", msg)
+	fields["msg"] = fmt.Sprintf("%p", msg)
 	// add Call-Id
 	if callId, ok := msg.CallId(); ok {
 		fields[strings.ToLower(callId.Name())] = string(*callId)

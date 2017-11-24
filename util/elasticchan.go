@@ -18,13 +18,21 @@ type ElasticChan struct {
 }
 
 // Initialise the Elastic channel, and start the management goroutine.
-func (c *ElasticChan) Init(logger log.Logger) {
+func (c *ElasticChan) Init() {
 	c.In = make(chan interface{}, c_ELASTIC_CHANSIZE)
 	c.Out = make(chan interface{}, c_ELASTIC_CHANSIZE)
 	c.buffer = make([]interface{}, 0)
-	c.log = logger
+	c.SetLog(log.StandardLogger())
 
 	go c.manage()
+}
+
+func (c *ElasticChan) Log() log.Logger {
+	return c.log
+}
+
+func (c *ElasticChan) SetLog(logger log.Logger) {
+	c.log = logger
 }
 
 // Poll for input from one end of the channel and add it to the buffer.
@@ -38,13 +46,13 @@ func (c *ElasticChan) manage() {
 			select {
 			case in, ok := <-c.In:
 				if !ok {
-					c.log.Debugf("chan %p will dispose", c)
+					c.Log().Debugf("chan %p will dispose", c)
 					break
 				}
-				c.log.Debugf("chan %p gets '%v'", c, in)
+				c.Log().Debugf("chan %p gets '%v'", c, in)
 				c.buffer = append(c.buffer, in)
 			case c.Out <- c.buffer[0]:
-				c.log.Debugf("chan %p sends '%v'", c, c.buffer[0])
+				c.Log().Debugf("chan %p sends '%v'", c, c.buffer[0])
 				c.buffer = c.buffer[1:]
 			}
 		} else {
@@ -52,10 +60,10 @@ func (c *ElasticChan) manage() {
 			// Just wait to receive.
 			in, ok := <-c.In
 			if !ok {
-				c.log.Debugf("chan %p will dispose", c)
+				c.Log().Debugf("chan %p will dispose", c)
 				break
 			}
-			c.log.Debugf("chan %p gets '%v'", c, in)
+			c.Log().Debugf("chan %p gets '%v'", c, in)
 			c.buffer = append(c.buffer, in)
 		}
 	}
@@ -64,10 +72,10 @@ func (c *ElasticChan) manage() {
 }
 
 func (c *ElasticChan) dispose() {
-	c.log.Debugf("chan %p disposing...", c)
+	c.Log().Debugf("chan %p disposing...", c)
 	for len(c.buffer) > 0 {
 		c.Out <- c.buffer[0]
 		c.buffer = c.buffer[1:]
 	}
-	c.log.Debugf("chan %p disposed", c)
+	c.Log().Debugf("chan %p disposed", c)
 }
