@@ -88,9 +88,14 @@ func (tp *stdTransport) Errors() <-chan error {
 
 func (tp *stdTransport) Register(protocol transport.Protocol) error {
 	if _, ok := tp.protocols.Get(protocol.Name()); ok {
-		return transport.NewError(fmt.Sprintf("protocol %s already registered", protocol.Name()))
+		return transport.NewError(fmt.Sprintf(
+			"%s protocol %p already registered",
+			protocol.Name(),
+			protocol,
+		))
 	}
 
+	tp.Log().Debugf("registering %s protocol %p", protocol.Name(), protocol)
 	output := make(chan *transport.IncomingMessage)
 	errs := make(chan error)
 	protocol.SetLog(tp.Log())
@@ -102,7 +107,7 @@ func (tp *stdTransport) Register(protocol transport.Protocol) error {
 }
 
 func (tp *stdTransport) Listen(addr string) error {
-	tp.Log().Info("begin listening all registered protocols")
+	tp.Log().Infof("begin listening all registered protocols")
 
 	for _, protocol := range tp.protocols.All() {
 		// star protocol listening
@@ -127,26 +132,28 @@ func (tp *stdTransport) Send(addr string, msg core.Message) error {
 }
 
 func (tp *stdTransport) Stop() {
-	tp.Log().Info("stop transport layer")
+	tp.Log().Infof("stop transport")
 	tp.stop <- true
 	tp.wg.Wait()
 
-	tp.Log().Debug("closing transport output channels")
+	tp.Log().Debugf("disposing output channels")
 	close(tp.output)
 	close(tp.errs)
 
-	tp.Log().Debug("stop all registered protocols")
+	tp.Log().Debugf("disposing all registered protocols")
 	for _, protocol := range tp.protocols.All() {
 		protocol.Stop()
 	}
 }
 
 func (tp *stdTransport) handleProtocol(protocol transport.Protocol) {
+	tp.Log().Debugf("begin forwarding of %s protocol %p outputs", protocol.Name(), protocol)
+
 	for {
 		select {
 		// handle stop signal
 		case <-tp.stop:
-			tp.Log().Debugf("stop %s protocol", protocol.Name())
+			tp.Log().Debugf("stop forwarding of %s protocol %p outputs", protocol.Name(), protocol)
 			return
 			// forward incoming message
 		case incoming := <-protocol.Output():
@@ -161,27 +168,41 @@ func (tp *stdTransport) handleProtocol(protocol transport.Protocol) {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tp *stdTransport) onProtocolIncoming(incoming *transport.IncomingMessage, protocol transport.Protocol) {
+	tp.Log().Debugf(
+		"forwarding message '%s' %p from %s protocol %p",
+		incoming.Msg.Short(),
+		incoming.Msg,
+		protocol.Name(),
+		protocol,
+	)
+
 	switch msg := incoming.Msg.(type) {
 	case core.Response:
 		// RFC 3261 - 18.1.2. - Receiving Responses.
 		viaHop, ok := msg.ViaHop()
 		if !ok {
 			tp.Log().Warnf(
-				"discarding message %s from %s over %s: empty or malformed 'Via' header",
+				"discarding message '%s' %p from %s to %s over %s protocol %p: empty or malformed 'Via' header",
 				msg.Short(),
+				msg,
 				incoming.RAddr,
+				incoming.LAddr,
 				protocol.Name(),
+				protocol,
 			)
 			return
 		}
 
 		if viaHop.Host != tp.hostname {
 			tp.Log().Warnf(
-				"discarding message %s from %s over %s: 'sent-by' in the first 'Via' header "+
+				"discarding message '%s' %p from %s to %s over %s protocol %p: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
 				msg.Short(),
+				msg,
 				incoming.RAddr,
+				incoming.LAddr,
 				protocol.Name(),
+				protocol,
 				viaHop.Host,
 				tp.hostname,
 			)
@@ -194,21 +215,27 @@ func (tp *stdTransport) onProtocolIncoming(incoming *transport.IncomingMessage, 
 		viaHop, ok := msg.ViaHop()
 		if !ok {
 			tp.Log().Warnf(
-				"discarding message %s from %s over %s: empty or malformed 'Via' header",
+				"discarding message '%s' %p from %s to %s over %s protocol %p: empty or malformed 'Via' header",
 				msg.Short(),
+				msg,
 				incoming.RAddr,
+				incoming.LAddr,
 				protocol.Name(),
+				protocol,
 			)
 			return
 		}
 
 		if viaHop.Host != tp.hostname {
 			tp.Log().Warnf(
-				"discarding message %s from %s over %s: 'sent-by' in the first 'Via' header "+
+				"discarding message '%s' %p from %s to %s over %s protocol %p: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
 				msg.Short(),
+				msg,
 				incoming.RAddr,
+				incoming.LAddr,
 				protocol.Name(),
+				protocol,
 				viaHop.Host,
 				tp.hostname,
 			)
@@ -222,6 +249,13 @@ func (tp *stdTransport) onProtocolIncoming(incoming *transport.IncomingMessage, 
 // handles protocol errors
 // should be called inside goroutine for non-blocking forwarding
 func (tp *stdTransport) onProtocolError(err error, protocol transport.Protocol) {
+	tp.Log().Debugf(
+		"forwarding error '%s' from %s protocol %p",
+		err,
+		protocol.Name(),
+		protocol,
+	)
+
 	if err, ok := err.(*transport.Error); !ok {
 		err = transport.NewError(err.Error())
 	}

@@ -9,9 +9,9 @@ import (
 	"github.com/ghettovoice/gosip/lex"
 )
 
-// UDP stdProtocol implementation
+// UDP protocol implementation
 type udpProtocol struct {
-	stdProtocol
+	protocol
 	// outgoing connections
 	connections *connectionsPool
 	// incoming listeners
@@ -33,19 +33,20 @@ func (udp *udpProtocol) Listen(addr string) error {
 	laddr, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {
 		return NewError(fmt.Sprintf(
-			"failed to resolve %s address %s: %s",
+			"%s protocol %p failed to resolve address %s: %s",
 			udp.Name(),
+			udp,
 			addr,
 			err,
 		))
 	}
 
-	udp.Log().Debugf("receive resolved address %s", laddr)
 	conn, err := net.ListenUDP(network, laddr)
 	if err != nil {
 		return NewError(fmt.Sprintf(
-			"failed to listen %s on address %s: %s",
+			"%s protocol %p failed to listen address %s: %s",
 			udp.Name(),
+			udp,
 			addr,
 			err,
 		))
@@ -55,20 +56,20 @@ func (udp *udpProtocol) Listen(addr string) error {
 	udp.wg.Add(1)
 	go func() {
 		defer udp.wg.Done()
-		udp.listenConn(conn)
+		udp.serve(conn)
 	}()
 
 	return err // should be nil here
 }
 
-func (udp *udpProtocol) listenConn(baseConn *net.UDPConn) {
-	udp.Log().Infof("begin listening %s connections on address %s", udp.Name(), baseConn.LocalAddr())
+func (udp *udpProtocol) serve(baseConn *net.UDPConn) {
+	udp.Log().Infof("begin serving connection on address %s", baseConn.LocalAddr())
 
 	buf := make([]byte, bufferSize)
 	for {
 		select {
 		case <-udp.stop:
-			udp.Log().Infof("stop listening %s connections on address %s", udp.Name(), baseConn.LocalAddr())
+			udp.Log().Infof("stop serving connection on address %s", baseConn.LocalAddr())
 			return
 		default:
 			// read and parse new UDP packet
@@ -77,34 +78,37 @@ func (udp *udpProtocol) listenConn(baseConn *net.UDPConn) {
 			num, err := conn.Read(buf)
 			if err != nil {
 				udp.errs <- NewError(fmt.Sprintf(
-					"connection %p failed to read data from %s to %s over %s: %s",
+					"connection %p failed to read data from %s to %s over %s protocol %p: %s",
 					conn,
 					conn.RemoteAddr(),
 					conn.LocalAddr(),
 					udp.Name(),
+					udp,
 					err,
 				))
 				continue
 			}
-			udp.Log().Debugf(
-				"connection %p received %d bytes from %s to %s over %s",
+
+			udp.Log().Infof(
+				"connection %p received %d bytes from %s to %s",
 				conn,
 				num,
 				conn.RemoteAddr(),
 				conn.LocalAddr(),
-				udp.Name(),
 			)
+
 			pkt := append([]byte{}, buf[:num]...)
 			go func() {
 				if msg, err := lex.ParseMessage(pkt, conn.Log()); err == nil {
 					udp.output <- &IncomingMessage{msg, conn.LocalAddr(), conn.RemoteAddr()}
 				} else {
 					udp.errs <- NewError(fmt.Sprintf(
-						"connection %p failed to parse SIP message from %s to %s over %s: %s",
+						"connection %p failed to parse SIP message from %s to %s over %s protocol %p: %s",
 						conn,
 						conn.RemoteAddr(),
 						conn.LocalAddr(),
 						udp.Name(),
+						udp,
 						err,
 					))
 				}
@@ -114,8 +118,8 @@ func (udp *udpProtocol) listenConn(baseConn *net.UDPConn) {
 }
 
 func (udp *udpProtocol) Send(addr string, msg core.Message) error {
-	udp.Log().Infof("sending message %s to %s over %s", msg.Short(), addr, udp.Name())
-	udp.Log().Debugf("sending message to %s over %s:\r\n%s", addr, udp.Name(), msg)
+	udp.Log().Infof("sending message '%s' to %s", msg.Short(), addr)
+	udp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), addr, msg)
 
 	conn, err := udp.getOrCreateConnection(addr)
 	if err != nil {
@@ -126,10 +130,13 @@ func (udp *udpProtocol) Send(addr string, msg core.Message) error {
 	num, err := conn.Write(data)
 	if num != len(data) {
 		return NewError(fmt.Sprintf(
-			"failed to send message %s to %s over %s: written bytes num %d, but expected %d",
+			"connection %p failed to send message '%s' to %s over %s protocol %p: "+
+				"written bytes num %d, but expected %d",
+			conn,
 			msg.Short(),
 			addr,
 			udp.Name(),
+			udp,
 			num,
 			len(data),
 		))
@@ -143,8 +150,9 @@ func (udp *udpProtocol) getOrCreateConnection(addr string) (Connection, error) {
 	raddr, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {
 		return nil, NewError(fmt.Sprintf(
-			"failed to resolve %s address %s: %s",
+			"%s protocol %p failed to resolve address %s: %s",
 			udp.Name(),
+			udp,
 			addr,
 			err,
 		))
@@ -158,8 +166,9 @@ func (udp *udpProtocol) getOrCreateConnection(addr string) (Connection, error) {
 	baseConn, err := net.DialUDP(network, laddr, raddr)
 	if err != nil {
 		return nil, NewError(fmt.Sprintf(
-			"failed to create %s connection to address %s: %s",
+			"%s protocol %p failed to create connection to address %s: %s",
 			udp.Name(),
+			udp,
 			addr,
 			err,
 		))
@@ -173,12 +182,12 @@ func (udp *udpProtocol) getOrCreateConnection(addr string) (Connection, error) {
 }
 
 func (udp *udpProtocol) onStop() error {
-	udp.Log().Debugf("closing all active %s connections", udp.Name())
+	udp.Log().Debugf("disposing all active connections")
 	for _, conn := range udp.connections.All() {
 		conn.Close()
 		udp.connections.Drop(conn.RemoteAddr())
 	}
-	udp.Log().Debugf("closing all active %s listeners", udp.Name())
+	udp.Log().Debugf("disposing all active listeners")
 	for _, conn := range udp.listeners {
 		conn.Close()
 	}

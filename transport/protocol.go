@@ -24,7 +24,7 @@ type Protocol interface {
 	Stop()
 }
 
-type stdProtocol struct {
+type protocol struct {
 	log      log.Logger
 	name     string
 	reliable bool
@@ -36,7 +36,7 @@ type stdProtocol struct {
 	onStop   func() error
 }
 
-func (pr *stdProtocol) init(name string, reliable bool, stream bool, onStop func() error) {
+func (pr *protocol) init(name string, reliable bool, stream bool, onStop func() error) {
 	pr.name = name
 	pr.reliable = reliable
 	pr.stream = stream
@@ -48,53 +48,53 @@ func (pr *stdProtocol) init(name string, reliable bool, stream bool, onStop func
 	pr.SetLog(log.StandardLogger())
 }
 
-func (pr *stdProtocol) SetLog(logger log.Logger) {
+func (pr *protocol) SetLog(logger log.Logger) {
 	pr.log = logger.WithFields(logrus.Fields{
-		"stdProtocol":     pr.Name(),
-		"stdProtocol-ptr": fmt.Sprintf("%p", pr),
+		"protocol":     pr.Name(),
+		"protocol-ptr": fmt.Sprintf("%p", pr),
 	})
 }
 
-func (pr *stdProtocol) Log() log.Logger {
+func (pr *protocol) Log() log.Logger {
 	return pr.log
 }
 
-func (pr *stdProtocol) Name() string {
+func (pr *protocol) Name() string {
 	return pr.name
 }
 
-func (pr *stdProtocol) IsReliable() bool {
+func (pr *protocol) IsReliable() bool {
 	return pr.reliable
 }
 
-func (pr *stdProtocol) IsStream() bool {
+func (pr *protocol) IsStream() bool {
 	return pr.stream
 }
 
-func (pr *stdProtocol) SetOutput(output chan *IncomingMessage) {
+func (pr *protocol) SetOutput(output chan *IncomingMessage) {
 	if pr.output != nil {
 		close(pr.output)
 	}
 	pr.output = output
 }
 
-func (pr *stdProtocol) Output() <-chan *IncomingMessage {
+func (pr *protocol) Output() <-chan *IncomingMessage {
 	return pr.output
 }
 
-func (pr *stdProtocol) SetErrors(errs chan error) {
+func (pr *protocol) SetErrors(errs chan error) {
 	if pr.errs != nil {
 		close(pr.errs)
 	}
 	pr.errs = errs
 }
 
-func (pr *stdProtocol) Errors() <-chan error {
+func (pr *protocol) Errors() <-chan error {
 	return pr.errs
 }
 
-func (pr *stdProtocol) Stop() {
-	pr.Log().Infof("stop %s stdProtocol", pr.Name())
+func (pr *protocol) Stop() {
+	pr.Log().Infof("stop %s protocol", pr.Name())
 	pr.stop <- true
 	pr.wg.Wait()
 

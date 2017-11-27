@@ -23,7 +23,7 @@ type Connection interface {
 }
 
 // Connection implementation.
-type stdConnection struct {
+type connection struct {
 	log      log.Logger
 	baseConn net.Conn
 	laddr    net.Addr
@@ -35,7 +35,7 @@ func NewConnection(
 	baseConn net.Conn,
 	stream bool,
 ) Connection {
-	conn := &stdConnection{
+	conn := &connection{
 		baseConn: baseConn,
 		laddr:    baseConn.LocalAddr(),
 		raddr:    baseConn.RemoteAddr(),
@@ -45,12 +45,12 @@ func NewConnection(
 	return conn
 }
 
-func (conn *stdConnection) Log() log.Logger {
+func (conn *connection) Log() log.Logger {
 	// remote addr for net.PacketConn resolved in runtime
 	return conn.log.WithField("raddr", conn.RemoteAddr().String())
 }
 
-func (conn *stdConnection) SetLog(logger log.Logger) {
+func (conn *connection) SetLog(logger log.Logger) {
 	conn.log = logger.WithFields(logrus.Fields{
 		"laddr":    conn.LocalAddr().String(),
 		"net":      strings.ToUpper(conn.LocalAddr().Network()),
@@ -58,11 +58,11 @@ func (conn *stdConnection) SetLog(logger log.Logger) {
 	})
 }
 
-func (conn *stdConnection) IsStream() bool {
+func (conn *connection) IsStream() bool {
 	return conn.stream
 }
 
-func (conn *stdConnection) Read(buf []byte) (num int, err error) {
+func (conn *connection) Read(buf []byte) (num int, err error) {
 	switch baseConn := conn.baseConn.(type) {
 	case net.PacketConn: // UDP & ...
 		num, raddr, err := baseConn.ReadFrom(buf)
@@ -73,7 +73,7 @@ func (conn *stdConnection) Read(buf []byte) (num int, err error) {
 	}
 }
 
-func (conn *stdConnection) Write(buf []byte) (num int, err error) {
+func (conn *connection) Write(buf []byte) (num int, err error) {
 	switch baseConn := conn.baseConn.(type) {
 	case net.PacketConn: // UDP & ...
 		return baseConn.WriteTo(buf, conn.RemoteAddr())
@@ -82,15 +82,15 @@ func (conn *stdConnection) Write(buf []byte) (num int, err error) {
 	}
 }
 
-func (conn *stdConnection) LocalAddr() net.Addr {
+func (conn *connection) LocalAddr() net.Addr {
 	return conn.laddr
 }
 
-func (conn *stdConnection) RemoteAddr() net.Addr {
+func (conn *connection) RemoteAddr() net.Addr {
 	return conn.raddr
 }
 
-func (conn *stdConnection) Close() error {
+func (conn *connection) Close() error {
 	return conn.baseConn.Close()
 }
 
