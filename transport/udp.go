@@ -12,16 +12,13 @@ import (
 // UDP protocol implementation
 type udpProtocol struct {
 	protocol
-	// outgoing connections
+	// listening connections
 	connections *connectionsPool
-	// incoming listeners
-	listeners []*net.UDPConn
 }
 
 func NewUdpProtocol() Protocol {
 	udp := &udpProtocol{
 		connections: NewConnectionsPool(),
-		listeners:   make([]*net.UDPConn, 0),
 	}
 	udp.init("UDP", false, false, udp.onStop)
 	return udp
@@ -41,7 +38,7 @@ func (udp *udpProtocol) Listen(addr string) error {
 		))
 	}
 
-	conn, err := net.ListenUDP(network, laddr)
+	udpConn, err := net.ListenUDP(network, laddr)
 	if err != nil {
 		return NewError(fmt.Sprintf(
 			"%s protocol %p failed to listen address %s: %s",
@@ -51,13 +48,12 @@ func (udp *udpProtocol) Listen(addr string) error {
 			err,
 		))
 	}
-
-	udp.listeners = append(udp.listeners, conn)
-	udp.wg.Add(1)
-	go func() {
-		defer udp.wg.Done()
-		udp.serve(conn)
-	}()
+	// register new connection
+	conn := NewConnection(udpConn)
+	conn.SetLog(udp.Log())
+	udp.connections.Add(laddr, conn)
+	// start connection serving
+	udp.serveConnection(conn)
 
 	return err // should be nil here
 }
@@ -187,11 +183,11 @@ func (udp *udpProtocol) onStop() error {
 		conn.Close()
 		udp.connections.Drop(conn.RemoteAddr())
 	}
-	udp.Log().Debugf("disposing all active listeners")
-	for _, conn := range udp.listeners {
+	udp.Log().Debugf("disposing all active connections")
+	for _, conn := range udp.connections {
 		conn.Close()
 	}
-	udp.listeners = make([]*net.UDPConn, 0)
+	udp.connections = make([]*net.UDPConn, 0)
 
 	return nil
 }

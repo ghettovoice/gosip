@@ -20,6 +20,7 @@ type Connection interface {
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
 	Close() error
+	IsStream() bool
 }
 
 // Connection implementation.
@@ -28,18 +29,15 @@ type connection struct {
 	baseConn net.Conn
 	laddr    net.Addr
 	raddr    net.Addr
-	stream   bool
 }
 
 func NewConnection(
 	baseConn net.Conn,
-	stream bool,
 ) Connection {
 	conn := &connection{
 		baseConn: baseConn,
 		laddr:    baseConn.LocalAddr(),
 		raddr:    baseConn.RemoteAddr(),
-		stream:   stream,
 	}
 	conn.SetLog(log.StandardLogger())
 	return conn
@@ -59,7 +57,12 @@ func (conn *connection) SetLog(logger log.Logger) {
 }
 
 func (conn *connection) IsStream() bool {
-	return conn.stream
+	switch conn.(type) {
+	case net.PacketConn:
+		return false
+	default:
+		return true
+	}
 }
 
 func (conn *connection) Read(buf []byte) (num int, err error) {
