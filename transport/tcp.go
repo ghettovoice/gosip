@@ -24,7 +24,7 @@ func NewTcpProtocol() Protocol {
 
 func (tcp *tcpProtocol) Listen(addr string) error {
 	network := strings.ToLower(tcp.Name())
-	addr = fillAddr(tcp.Name(), addr)
+	addr = fillLocalAddr(tcp.Name(), addr)
 	laddr, err := net.ResolveTCPAddr(network, addr)
 	if err != nil {
 		return NewError(fmt.Sprintf(

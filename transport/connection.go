@@ -29,15 +29,25 @@ type connection struct {
 	baseConn net.Conn
 	laddr    net.Addr
 	raddr    net.Addr
+	stream   bool
 }
 
 func NewConnection(
 	baseConn net.Conn,
 ) Connection {
+	var stream bool
+	switch baseConn.(type) {
+	case net.PacketConn:
+		stream = false
+	default:
+		stream = true
+	}
+
 	conn := &connection{
 		baseConn: baseConn,
 		laddr:    baseConn.LocalAddr(),
 		raddr:    baseConn.RemoteAddr(),
+		stream:   stream,
 	}
 	conn.SetLog(log.StandardLogger())
 	return conn
@@ -57,12 +67,7 @@ func (conn *connection) SetLog(logger log.Logger) {
 }
 
 func (conn *connection) IsStream() bool {
-	switch conn.(type) {
-	case net.PacketConn:
-		return false
-	default:
-		return true
-	}
+	return conn.stream
 }
 
 func (conn *connection) Read(buf []byte) (num int, err error) {
@@ -98,6 +103,7 @@ func (conn *connection) Close() error {
 }
 
 // Pool of connections.
+// todo connections management: expiry & ...
 type connectionsPool struct {
 	lock        *sync.RWMutex
 	connections map[net.Addr]Connection

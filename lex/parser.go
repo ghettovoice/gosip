@@ -101,7 +101,6 @@ func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Par
 	p := &parser{
 		streamed: streamed,
 	}
-	p.SetLog(log.StandardLogger())
 	// Configure the parser with the standard set of header parsers.
 	p.headerParsers = make(map[string]HeaderParser)
 	for headerName, headerParser := range defaultHeaderParsers() {
@@ -119,7 +118,7 @@ func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Par
 	// Create a managed buffer to allow message data to be asynchronously provided to the parser, and
 	// to allow the parser to block until enough data is available to parse.
 	p.input = newParserBuffer()
-
+	p.SetLog(log.StandardLogger())
 	// Wait for input a line at a time, and produce SipMessages to send down p.output.
 	go p.parse(streamed)
 

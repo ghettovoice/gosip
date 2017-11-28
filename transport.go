@@ -3,6 +3,7 @@ package gosip
 
 import (
 	"fmt"
+	"net"
 	"sync"
 
 	"github.com/ghettovoice/gosip/core"
@@ -13,9 +14,7 @@ import (
 // Transport layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Transport interface {
 	log.WithLogger
-	SetOutput(output chan core.Message)
 	Output() <-chan core.Message
-	SetErrors(errs chan error)
 	Errors() <-chan error
 	// Registers new stdTransport protocol.
 	Register(protocol transport.Protocol) error
@@ -49,7 +48,7 @@ func NewTransport(
 		hostname:  hostname,
 		output:    make(chan core.Message),
 		errs:      make(chan error),
-		stop:      make(chan bool, 1),
+		stop:      make(chan bool),
 		wg:        new(sync.WaitGroup),
 		protocols: NewProtocolsPool(),
 	}
@@ -68,18 +67,13 @@ func (tp *stdTransport) Log() log.Logger {
 
 func (tp *stdTransport) SetLog(logger log.Logger) {
 	tp.log = logger.WithField("transport-ptr", fmt.Sprintf("%p", tp))
-}
-
-func (tp *stdTransport) SetOutput(output chan core.Message) {
-	tp.output = output
+	for _, protocol := range tp.protocols.All() {
+		protocol.SetLog(tp.Log())
+	}
 }
 
 func (tp *stdTransport) Output() <-chan core.Message {
 	return tp.output
-}
-
-func (tp *stdTransport) SetErrors(errs chan error) {
-	tp.errs = errs
 }
 
 func (tp *stdTransport) Errors() <-chan error {
@@ -96,11 +90,7 @@ func (tp *stdTransport) Register(protocol transport.Protocol) error {
 	}
 
 	tp.Log().Debugf("registering %s protocol %p", protocol.Name(), protocol)
-	output := make(chan *transport.IncomingMessage)
-	errs := make(chan error)
 	protocol.SetLog(tp.Log())
-	protocol.SetOutput(output)
-	protocol.SetErrors(errs)
 	tp.protocols.Add(protocol.Name(), protocol)
 
 	return nil
@@ -110,17 +100,14 @@ func (tp *stdTransport) Listen(addr string) error {
 	tp.Log().Infof("begin listening all registered protocols")
 
 	for _, protocol := range tp.protocols.All() {
-		// star protocol listening
+		// start protocol listening
 		if err := protocol.Listen(addr); err != nil {
 			// return error right away to be more explicitly
 			return err
 		}
 		// start protocol output forwarding goroutine
 		tp.wg.Add(1)
-		go func() {
-			defer tp.wg.Done()
-			tp.handleProtocol(protocol)
-		}()
+		go tp.handleProtocol(protocol)
 	}
 
 	return nil
@@ -133,50 +120,54 @@ func (tp *stdTransport) Send(addr string, msg core.Message) error {
 
 func (tp *stdTransport) Stop() {
 	tp.Log().Infof("stop transport")
-	tp.stop <- true
+	close(tp.stop)
 	tp.wg.Wait()
-
-	tp.Log().Debugf("disposing output channels")
-	close(tp.output)
-	close(tp.errs)
 
 	tp.Log().Debugf("disposing all registered protocols")
 	for _, protocol := range tp.protocols.All() {
 		protocol.Stop()
 	}
+
+	tp.Log().Debugf("disposing output channels")
+	close(tp.output)
+	close(tp.errs)
 }
 
 func (tp *stdTransport) handleProtocol(protocol transport.Protocol) {
+	defer func() {
+		tp.wg.Done()
+		tp.Log().Debugf("stop forwarding of %s protocol %p outputs", protocol.Name(), protocol)
+	}()
 	tp.Log().Debugf("begin forwarding of %s protocol %p outputs", protocol.Name(), protocol)
 
 	for {
 		select {
-		// handle stop signal
-		case <-tp.stop:
-			tp.Log().Debugf("stop forwarding of %s protocol %p outputs", protocol.Name(), protocol)
+		case <-tp.stop: // transport stop was called
 			return
 			// forward incoming message
-		case incoming := <-protocol.Output():
-			go tp.onProtocolIncoming(incoming, protocol)
+		case incomingMsg := <-protocol.Output():
+			tp.onProtocolMessage(incomingMsg, protocol)
 			// forward errors
 		case err := <-protocol.Errors():
-			go tp.onProtocolError(err, protocol)
+			tp.onProtocolError(err, protocol)
 		}
 	}
 }
 
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
-func (tp *stdTransport) onProtocolIncoming(incoming *transport.IncomingMessage, protocol transport.Protocol) {
+func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage, protocol transport.Protocol) {
 	tp.Log().Debugf(
 		"forwarding message '%s' %p from %s protocol %p",
-		incoming.Msg.Short(),
-		incoming.Msg,
+		incomingMsg.Msg.Short(),
+		incomingMsg.Msg,
 		protocol.Name(),
 		protocol,
 	)
 
-	switch msg := incoming.Msg.(type) {
+	msg := incomingMsg.Msg
+	switch incomingMsg.Msg.(type) {
+	// incoming Response
 	case core.Response:
 		// RFC 3261 - 18.1.2. - Receiving Responses.
 		viaHop, ok := msg.ViaHop()
@@ -185,8 +176,8 @@ func (tp *stdTransport) onProtocolIncoming(incoming *transport.IncomingMessage, 
 				"discarding message '%s' %p from %s to %s over %s protocol %p: empty or malformed 'Via' header",
 				msg.Short(),
 				msg,
-				incoming.RAddr,
-				incoming.LAddr,
+				incomingMsg.RAddr,
+				incomingMsg.LAddr,
 				protocol.Name(),
 				protocol,
 			)
@@ -199,8 +190,8 @@ func (tp *stdTransport) onProtocolIncoming(incoming *transport.IncomingMessage, 
 					" equals to %s, but expected %s",
 				msg.Short(),
 				msg,
-				incoming.RAddr,
-				incoming.LAddr,
+				incomingMsg.RAddr,
+				incomingMsg.LAddr,
 				protocol.Name(),
 				protocol,
 				viaHop.Host,
@@ -208,8 +199,7 @@ func (tp *stdTransport) onProtocolIncoming(incoming *transport.IncomingMessage, 
 			)
 			return
 		}
-		// pass up message
-		tp.output <- msg
+		// incoming Request
 	case core.Request:
 		// RFC 3261 - 18.2.1. - Receiving Request.
 		viaHop, ok := msg.ViaHop()
@@ -218,31 +208,42 @@ func (tp *stdTransport) onProtocolIncoming(incoming *transport.IncomingMessage, 
 				"discarding message '%s' %p from %s to %s over %s protocol %p: empty or malformed 'Via' header",
 				msg.Short(),
 				msg,
-				incoming.RAddr,
-				incoming.LAddr,
+				incomingMsg.RAddr,
+				incomingMsg.LAddr,
 				protocol.Name(),
 				protocol,
 			)
 			return
 		}
 
-		if viaHop.Host != tp.hostname {
-			tp.Log().Warnf(
-				"discarding message '%s' %p from %s to %s over %s protocol %p: 'sent-by' in the first 'Via' header "+
-					" equals to %s, but expected %s",
+		rhost, _, err := net.SplitHostPort(incomingMsg.RAddr.String())
+		if err != nil {
+			tp.Log().Errorf(
+				"failed to extract host from remote address %s of the incoming request '%s' %p",
+				incomingMsg.RAddr.String(),
 				msg.Short(),
 				msg,
-				incoming.RAddr,
-				incoming.LAddr,
-				protocol.Name(),
-				protocol,
-				viaHop.Host,
-				tp.hostname,
 			)
 			return
 		}
-		// pss up message
-		tp.output <- msg
+		if viaHop.Host != rhost {
+			tp.Log().Debugf(
+				"host %s from the first 'Via' header differs from the actual source address %s of the message '%s' %p: "+
+					"'received' parameter will be added",
+				viaHop.Host,
+				rhost,
+				msg.Short(),
+				msg,
+			)
+			viaHop.Params.Add("received", core.String{rhost})
+		}
+	}
+
+	// pass up message
+	select {
+	case tp.output <- msg:
+	case <-tp.stop:
+		return
 	}
 }
 
@@ -259,7 +260,13 @@ func (tp *stdTransport) onProtocolError(err error, protocol transport.Protocol) 
 	if err, ok := err.(*transport.Error); !ok {
 		err = transport.NewError(err.Error())
 	}
-	tp.errs <- err
+
+	// pass up error
+	select {
+	case tp.errs <- err:
+	case <-tp.stop:
+		return
+	}
 }
 
 // Thread-safe protocols pool.

@@ -27,8 +27,10 @@ type Protocol interface {
 	Name() string
 	IsReliable() bool
 	IsStream() bool
-	SetOutput(output chan *IncomingMessage)
-	SetErrors(errs chan error)
+	// Channel were incoming messages arrives
+	Output() <-chan *IncomingMessage
+	// Channel for protocol errors
+	Errors() <-chan error
 	Listen(addr string) error
 	Send(addr string, msg core.Message) error
 	Stop()
@@ -47,8 +49,6 @@ type protocol struct {
 }
 
 func (pr *protocol) init(
-	output chan *IncomingMessage,
-	errs chan error,
 	name string,
 	reliable bool,
 	stream bool,
@@ -58,8 +58,8 @@ func (pr *protocol) init(
 	pr.reliable = reliable
 	pr.stream = stream
 	pr.onStop = onStop
-	pr.output = output
-	pr.errs = errs
+	pr.output = make(chan *IncomingMessage)
+	pr.errs = make(chan error)
 	pr.stop = make(chan bool)
 	pr.wg = new(sync.WaitGroup)
 	pr.SetLog(log.StandardLogger())
@@ -88,82 +88,72 @@ func (pr *protocol) IsStream() bool {
 	return pr.stream
 }
 
-func (pr *protocol) SetOutput(output chan *IncomingMessage) {
-	pr.output = output
+func (pr *protocol) Output() <-chan *IncomingMessage {
+	return pr.output
 }
 
-//func (pr *protocol) Output() <-chan *IncomingMessage {
-//	return pr.output
-//}
-
-func (pr *protocol) SetErrors(errs chan error) {
-	pr.errs = errs
+func (pr *protocol) Errors() <-chan error {
+	return pr.errs
 }
-
-//func (pr *protocol) Errors() <-chan error {
-//	return pr.errs
-//}
 
 func (pr *protocol) Stop() {
 	pr.Log().Infof("stop %s protocol", pr.Name())
-	close(pr.stop) // unlock and exit all goroutines
-	pr.wg.Wait()   // wait while goroutines completes
+	// unlock and exit all goroutines
+	close(pr.stop)
+	// wait while goroutines completes
+	pr.wg.Wait()
+	// close outputs
+	close(pr.output)
+	close(pr.errs)
 	// execute protocol specific disposing
 	if err := pr.onStop(); err != nil {
 		pr.Log().Error(err)
 	}
 }
 
-func (pr *protocol) serveConnection(conn Connection) {
+// serves connection with related parser
+func (pr *protocol) serveConnection(conn Connection) <-chan error {
 	pr.Log().Infof("begin serving connection %p on address %s", conn, conn.LocalAddr())
 
 	pr.wg.Add(1)
+	outErrs := make(chan error, 1)
 	// create parser for connection
 	connWg := new(sync.WaitGroup)
-	messages := make(chan core.Message)
-	errs := make(chan error)
-	parser := lex.NewParser(messages, errs, conn.IsStream())
+	parserOutput := make(chan core.Message)
+	parserErrs := make(chan error)
+	parser := lex.NewParser(parserOutput, parserErrs, conn.IsStream())
 	parser.SetLog(conn.Log())
 
-	// start connection listener goroutine
-	connWg.Add(1)
+	// start reading goroutine
 	go func() {
-		defer connWg.Done()
-		pr.Log().Debugf("start serving goroutine for connection %p", conn)
+		defer func() {
+			connWg.Done()
+			pr.Log().Infof("stop reading connection %p on address %s", conn, conn.LocalAddr())
+			// close parser output channels here due to nothing to parse without connection
+			close(parserOutput)
+			close(parserErrs)
+		}()
+		pr.Log().Debugf("start reading goroutine for connection %p", conn)
 
 		buf := make([]byte, bufferSize)
 		for {
 			select {
-			case <-pr.stop: // stop called
-				pr.Log().Infof("stop serving connection %p on address %s", conn, conn.LocalAddr())
+			case <-pr.stop: // protocol stop was called
 				return
 			default:
 				num, err := conn.Read(buf)
 				if err != nil {
-					if conn.IsStream() {
-						pr.Log().Warnf(
-							"connection %p failed to read data from %s to %s over %s protocol %p: %s; "+
-								"connection will be re-created",
-							conn,
-							conn.RemoteAddr(),
-							conn.LocalAddr(),
-							pr.Name(),
-							pr,
-							err,
-						)
-						continue
-					} else {
-						pr.Log().Errorf(
-							"connection %p failed to read data from %s to %s over %s protocol %p: %s",
-							conn,
-							conn.RemoteAddr(),
-							conn.LocalAddr(),
-							pr.Name(),
-							pr,
-							err,
-						)
-						return
-					}
+					// broken connection, stop serving and piping
+					outErrs <- NewError(fmt.Sprintf(
+						"connection %p failed to read data from %s to %s over %s protocol %p: %s",
+						conn,
+						conn.RemoteAddr(),
+						conn.LocalAddr(),
+						pr.Name(),
+						pr,
+						err,
+					))
+					return
 				}
 
 				pr.Log().Debugf(
@@ -175,29 +165,41 @@ func (pr *protocol) serveConnection(conn Connection) {
 				)
 
 				pkt := append([]byte{}, buf[:num]...)
-				parser.Write(pkt)
+				if _, err := parser.Write(pkt); err != nil {
+					select {
+					case parserErrs <- err:
+					case <-pr.stop: // protocol stop called
+						return
+					}
+				}
 			}
 		}
 	}()
 
-	// start piping goroutine
+	// start piping parser outputs goroutine
 	connWg.Add(1)
 	go func() {
-		defer connWg.Done()
+		defer func() {
+			connWg.Done()
+			pr.Log().Infof(
+				"stop piping parser %p outputs for connection %p on address %s",
+				parser,
+				conn,
+				conn.LocalAddr(),
+			)
+		}()
 		pr.Log().Debugf("start piping goroutine for connection %p and parser %p", conn, parser)
 
 		for {
 			select {
-			case <-pr.stop: // stop called
-				pr.Log().Infof(
-					"stop piping parser %p outputs for connection %p on address %s",
-					parser,
-					conn,
-					conn.LocalAddr(),
-				)
+			case <-pr.stop: // protocol stop called
 				return
-			case msg := <-messages:
-				go func() {
+			case msg, ok := <-parserOutput:
+				if !ok {
+					// connection was closed, then exit
+					return
+				}
+				if msg != nil {
 					pr.Log().Infof(
 						"connection %p from %s to %s received message '%s'",
 						conn,
@@ -206,20 +208,30 @@ func (pr *protocol) serveConnection(conn Connection) {
 						msg.Short(),
 					)
 
-					pr.output <- &IncomingMessage{msg, conn.LocalAddr(), conn.RemoteAddr()}
-				}()
-			case err := <-errs:
-				go func() {
+					incomingMsg := &IncomingMessage{msg, conn.LocalAddr(), conn.RemoteAddr()}
+					select {
+					case pr.output <- incomingMsg:
+					case <-pr.stop: // protocol stop called
+						return
+					}
+
+				}
+			case err, ok := <-parserErrs:
+				if !ok {
+					// connection was closed, then exit
+					return
+				}
+				if err != nil {
 					pr.Log().Warnf(
-						"connection %p from %s to %s failed to parse SIP message: %s; restarting parser",
+						"connection %p from %s to %s failed to parse SIP message: %s; recreating parser",
 						conn,
 						conn.RemoteAddr(),
 						conn.LocalAddr(),
 						err,
 					)
-					parser := lex.NewParser(messages, errs, conn.IsStream())
+					parser := lex.NewParser(parserOutput, parserErrs, conn.IsStream())
 					parser.SetLog(conn.Log())
-				}()
+				}
 			}
 		}
 	}()
@@ -228,7 +240,8 @@ func (pr *protocol) serveConnection(conn Connection) {
 	go func() {
 		defer pr.wg.Done()
 		connWg.Wait()
-		close(messages)
-		close(errs)
+		close(outErrs)
 	}()
+
+	return outErrs
 }

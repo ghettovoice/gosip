@@ -48,7 +48,7 @@ func DefaultPort(protocol string) core.Port {
 }
 
 // fills omitted host/port parts with default values according to protocol defaults.
-func fillAddr(protocol string, addr string) string {
+func fillLocalAddr(protocol string, addr string) string {
 	var host, port string
 	// The port starts after the last colon.
 	if i := strings.LastIndexByte(addr, ':'); i < 0 {
