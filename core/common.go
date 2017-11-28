@@ -1,7 +1,5 @@
 package core
 
-import "fmt"
-
 // Port number
 type Port uint16
 

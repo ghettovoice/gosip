@@ -9,7 +9,10 @@ import (
 )
 
 const (
-	bufferSize     uint16    = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
+	bufferSize uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
+
+	Mtu uint16 = 1500
+
 	DefaultHost              = "localhost"
 	DefaultUdpPort core.Port = 5060
 	DefaultTcpPort core.Port = 5060

@@ -42,7 +42,6 @@ type stdTransport struct {
 // 	- protocols - initial slice of protocols for register in layer
 func NewTransport(
 	hostname string,
-	protocols []transport.Protocol,
 ) *stdTransport {
 	tp := &stdTransport{
 		hostname:  hostname,
@@ -53,10 +52,9 @@ func NewTransport(
 		protocols: NewProtocolsPool(),
 	}
 	tp.SetLog(log.StandardLogger())
-
-	for _, protocol := range protocols {
-		tp.Register(protocol)
-	}
+	// register all predefined protocols
+	tp.Register(transport.NewUdpProtocol())
+	tp.Register(transport.NewTcpProtocol())
 
 	return tp
 }
@@ -114,7 +112,9 @@ func (tp *stdTransport) Listen(addr string) error {
 }
 
 func (tp *stdTransport) Send(addr string, msg core.Message) error {
-	// TODO implement
+	msgLen := len(msg.String())
+
+
 	return nil
 }
 

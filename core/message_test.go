@@ -3,8 +3,6 @@ package core
 import (
 	"fmt"
 	"testing"
-
-	"github.com/ghettovoice/gosip/log"
 )
 
 // Generic test for testing anything with a String() method.
@@ -74,7 +72,6 @@ func TestMessage_String(t *testing.T) {
 					&callId,
 				},
 				"",
-				log.WithField("test", t.Name()),
 			),
 			"INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 				"To: \"bob\" <sip:bob@far-far-away.com>\r\n" +

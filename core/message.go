@@ -221,7 +221,7 @@ func (hs *headers) ViaHop() (*ViaHop, bool) {
 	if !ok {
 		return nil, false
 	}
-	hops := []*ViaHop(via)
+	hops := []*ViaHop(*via)
 	if len(hops) == 0 {
 		return nil, false
 	}
@@ -301,6 +301,7 @@ func (msg *message) Body() string {
 // SetBody sets message body, calculates it length and add 'Content-Length' header.
 func (msg *message) SetBody(body string) {
 	msg.body = body
+	// todo fix usage in parser, do not change original message, should emit error when streamed conn used without Content-Length
 	hdrs := msg.GetHeaders("Content-Length")
 	if len(hdrs) == 0 {
 		length := ContentLength(len(body))
