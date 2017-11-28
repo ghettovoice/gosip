@@ -114,7 +114,7 @@ func (pr *protocol) Stop() {
 // serves connection with related parser
 func (pr *protocol) serveConnection(conn Connection) <-chan error {
 	pr.Log().Infof("begin serving connection %p on address %s", conn, conn.LocalAddr())
-
+	// TODO split into two methods: readConnection and pipeConnection
 	pr.wg.Add(1)
 	outErrs := make(chan error, 1)
 	// create parser for connection
