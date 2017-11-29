@@ -1359,7 +1359,6 @@ func TestUnstreamedParse1(t *testing.T) {
 				"SIP/2.0",
 				make([]core.Header, 0),
 				"",
-				log.WithField("test", t.Name()),
 			),
 			nil,
 			nil,
@@ -1393,7 +1392,6 @@ func TestUnstreamedParse2(t *testing.T) {
 				"SIP/2.0",
 				[]core.Header{&core.CSeq{SeqNo: 13, MethodName: core.INVITE}},
 				"I am a banana",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1418,7 +1416,6 @@ func TestUnstreamedParse3(t *testing.T) {
 				"OK",
 				[]core.Header{&core.CSeq{SeqNo: 2, MethodName: core.INVITE}},
 				"Everything is awesome.",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1451,7 +1448,6 @@ func TestUnstreamedParse4(t *testing.T) {
 					&maxForwards,
 				},
 				"Everything is awesome.",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1485,7 +1481,6 @@ func TestUnstreamedParse5(t *testing.T) {
 					&callId,
 					&maxForwards},
 				"Everything is awesome.",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1504,7 +1499,6 @@ func TestUnstreamedParse6(t *testing.T) {
 				"Forbidden",
 				[]core.Header{},
 				"",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1532,7 +1526,6 @@ func TestUnstreamedParse7(t *testing.T) {
 				"SIP/2.0",
 				[]core.Header{},
 				"",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1565,7 +1558,6 @@ func TestStreamedParse1(t *testing.T) {
 				"SIP/2.0",
 				[]core.Header{&contentLength},
 				"",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1595,7 +1587,6 @@ func TestStreamedParse2(t *testing.T) {
 				"SIP/2.0",
 				[]core.Header{&contentLength},
 				"",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1627,7 +1618,6 @@ func TestStreamedParse3(t *testing.T) {
 				"SIP/2.0",
 				[]core.Header{&contentLength23},
 				"Hello!\r\nThis is a test.",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1659,7 +1649,6 @@ func TestStreamedParse3(t *testing.T) {
 					},
 				},
 				"This is an ack! : \n ! \r\n contact:",
-				log.StandardLogger(),
 			),
 			nil,
 			nil},
@@ -1835,7 +1824,7 @@ func (expected *headerBlockResult) equals(other result) (equal bool, reason stri
 func parseHeader(rawHeader string) (headers []core.Header, err error) {
 	messages := make(chan core.Message, 0)
 	errors := make(chan error, 0)
-	p := NewParser(messages, errors, false, log.StandardLogger())
+	p := NewParser(messages, errors, false)
 	defer func() {
 		log.Debugf("Stopping %p", p)
 		p.Stop()
@@ -2302,7 +2291,7 @@ func (pt *ParserTest) Test(t *testing.T) {
 	output := make(chan core.Message)
 	errs := make(chan error)
 
-	p := NewParser(output, errs, pt.streamed, log.WithField("test", t.Name()))
+	p := NewParser(output, errs, pt.streamed)
 	defer p.Stop()
 
 	for stepIdx, step := range pt.steps {
