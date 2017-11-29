@@ -11,32 +11,87 @@ import (
 const (
 	bufferSize uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
 
-	Mtu uint16 = 1500
+	MTU uint16 = 1500
 
-	DefaultHost              = "localhost"
-	DefaultUdpPort core.Port = 5060
-	DefaultTcpPort core.Port = 5060
-	DefaultTlsPort core.Port = 5061
+	DefaultHost               = "localhost"
+	DefaultProtocol           = "TCP"
+	DefaultUdpPort  core.Port = 5060
+	DefaultTcpPort  core.Port = 5060
+	DefaultTlsPort  core.Port = 5061
 )
 
-// Common transport layer error.
+// Transport error
 type Error struct {
-	msg string
-}
-
-func NewError(msg string) *Error {
-	return &Error{msg}
+	Txt        string
+	Protocol   string
+	Connection string
+	// Local address to which message arrived
+	LAddr string
+	// Remote address from which message arrived
+	RAddr string
 }
 
 func (err *Error) Error() string {
-	return err.msg
+	return fmt.Sprintf(
+		"transport error: %s, protocol: %s, connection: %s, laddr: %s, raddr: %s",
+		err.Txt,
+		err.Protocol,
+		err.Connection,
+		err.LAddr,
+		err.RAddr,
+	)
 }
 
-func (err *Error) String() string {
-	return err.Error()
+// Incoming message with meta info: remote addr, local addr & etc.
+type IncomingMessage struct {
+	// SIP message
+	Msg core.Message
+	// Local address to which message arrived
+	LAddr net.Addr
+	// Remote address from which message arrived
+	RAddr net.Addr
 }
 
-// DefaultPort returns protocol default port by name.
+// Target endpoint
+type Target struct {
+	Host     string
+	Port     *core.Port
+	Protocol string
+}
+
+func (trg *Target) Addr() string {
+	var (
+		host string
+		port core.Port
+	)
+
+	if strings.TrimSpace(trg.Host) != "" {
+		host = trg.Host
+	} else {
+		host = DefaultHost
+	}
+
+	if trg.Port != nil {
+		port = *trg.Port
+	} else {
+		port = DefaultPort(trg.Protocol)
+	}
+
+	return fmt.Sprintf("%v:%v", host, port)
+}
+
+func (trg *Target) String() string {
+	var prc string
+	if strings.TrimSpace(trg.Protocol) != "" {
+		prc = trg.Protocol
+	} else {
+		prc = DefaultProtocol
+	}
+
+	return fmt.Sprintf("%s %s", prc, trg.Addr())
+}
+
+// DefaultPort returns protocol default port by network.
 func DefaultPort(protocol string) core.Port {
 	switch strings.ToLower(protocol) {
 	case "tls":
@@ -44,24 +99,24 @@ func DefaultPort(protocol string) core.Port {
 	case "tcp":
 		return DefaultTcpPort
 	case "udp":
-		fallthrough
-	default:
 		return DefaultUdpPort
+	default:
+		return DefaultTcpPort
 	}
 }
 
-// fills omitted host/port parts with default values according to protocol defaults.
-func fillLocalAddr(protocol string, addr string) string {
-	var host, port string
-	// The port starts after the last colon.
-	if i := strings.LastIndexByte(addr, ':'); i < 0 {
-		host = addr
-		port = fmt.Sprintf("%d", DefaultPort(protocol))
-	} else {
-		port = addr[i+1:]
+// Fills endpoint target with default values.
+func FillTarget(target *Target) *Target {
+	if strings.TrimSpace(target.Protocol) == "" {
+		target.Protocol = DefaultProtocol
 	}
-	if host == "" {
-		host = DefaultHost
+	if strings.TrimSpace(target.Host) == "" {
+		target.Host = DefaultHost
 	}
-	return net.JoinHostPort(host, port)
+	if target.Port == nil {
+		p := DefaultPort(target.Protocol)
+		target.Port = &p
+	}
+
+	return target
 }

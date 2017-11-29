@@ -16,12 +16,10 @@ type Transport interface {
 	log.WithLogger
 	Output() <-chan core.Message
 	Errors() <-chan error
-	// Registers new stdTransport protocol.
-	Register(protocol transport.Protocol) error
 	// Listen starts listening on `addr` for each registered protocol.
-	Listen(addr string) error
+	Listen(target *transport.Target) error
 	// Send sends message on suitable protocol.
-	Send(addr string, msg core.Message) error
+	Send(target *transport.Target, msg core.Message) error
 	// Stops all protocols
 	Stop()
 }
@@ -30,7 +28,7 @@ type Transport interface {
 type stdTransport struct {
 	protocols *protocolsPool
 	log       log.Logger
-	hostname  string
+	hostaddr  string
 	output    chan core.Message
 	errs      chan error
 	stop      chan bool
@@ -38,13 +36,12 @@ type stdTransport struct {
 }
 
 // NewTransport creates transport layer.
-// 	- hostname - current server hostname (IP or FQDN)
-// 	- protocols - initial slice of protocols for register in layer
+// 	- hostaddr - current server host address (IP or FQDN)
 func NewTransport(
-	hostname string,
+	hostaddr string,
 ) *stdTransport {
 	tp := &stdTransport{
-		hostname:  hostname,
+		hostaddr:  hostaddr,
 		output:    make(chan core.Message),
 		errs:      make(chan error),
 		stop:      make(chan bool),
@@ -52,9 +49,14 @@ func NewTransport(
 		protocols: NewProtocolsPool(),
 	}
 	tp.SetLog(log.StandardLogger())
-	// register all predefined protocols
-	tp.Register(transport.NewUdpProtocol())
-	tp.Register(transport.NewTcpProtocol())
+
+	// protocols registering
+	udp := transport.NewUdpProtocol()
+	tp.protocols.Add(udp.Network(), udp)
+
+	tcp := transport.NewTcpProtocol()
+	tp.protocols.Add(tcp.Network(), tcp)
+	// TODO implement TLS
 
 	return tp
 }
@@ -78,42 +80,49 @@ func (tp *stdTransport) Errors() <-chan error {
 	return tp.errs
 }
 
-func (tp *stdTransport) Register(protocol transport.Protocol) error {
-	if _, ok := tp.protocols.Get(protocol.Name()); ok {
-		return transport.NewError(fmt.Sprintf(
-			"%s protocol %p already registered",
-			protocol.Name(),
-			protocol,
-		))
-	}
+func (tp *stdTransport) Listen(target *transport.Target) error {
+	target = transport.FillTarget(target)
+	tp.Log().Infof("begin listening on %s", target)
 
-	tp.Log().Debugf("registering %s protocol %p", protocol.Name(), protocol)
-	protocol.SetLog(tp.Log())
-	tp.protocols.Add(protocol.Name(), protocol)
-
-	return nil
-}
-
-func (tp *stdTransport) Listen(addr string) error {
-	tp.Log().Infof("begin listening all registered protocols")
-
-	for _, protocol := range tp.protocols.All() {
-		// start protocol listening
-		if err := protocol.Listen(addr); err != nil {
-			// return error right away to be more explicitly
-			return err
+	protocol, ok := tp.protocols.Get(target.Protocol)
+	if !ok {
+		return &transport.Error{
+			Txt:      fmt.Sprintf("unknown protocol %s", target.Protocol),
+			Protocol: target.Protocol,
+			LAddr:    target.Addr(),
 		}
-		// start protocol output forwarding goroutine
-		tp.wg.Add(1)
-		go tp.handleProtocol(protocol)
 	}
+
+	if err := protocol.Listen(target); err != nil {
+		// return error right away to be more explicitly
+		return err
+	}
+
+	protocol.SetLog(tp.Log())
+	tp.protocols.Add(protocol.Network(), protocol)
+	// start protocol output forwarding goroutine
+	tp.wg.Add(1)
+	go tp.serveProtocol(protocol, tp.wg)
 
 	return nil
 }
 
-func (tp *stdTransport) Send(addr string, msg core.Message) error {
-	msgLen := len(msg.String())
+func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
+	switch msg := msg.(type) {
+	// RFC 3261 - 18.1.1.
+	case core.Request:
+		msgLen := len(msg.String())
+		viaHop, ok := msg.ViaHop()
+		if !ok {
+			return &core.MalformedMessageError{
+				Txt: "missing 'Via' header",
+				Msg: msg,
+			}
+		}
+		viaHop.Host = tp.hostaddr
 
+	case core.Response:
+	}
 
 	return nil
 }
@@ -133,12 +142,12 @@ func (tp *stdTransport) Stop() {
 	close(tp.errs)
 }
 
-func (tp *stdTransport) handleProtocol(protocol transport.Protocol) {
+func (tp *stdTransport) serveProtocol(protocol transport.Protocol, wg *sync.WaitGroup) {
 	defer func() {
-		tp.wg.Done()
-		tp.Log().Debugf("stop forwarding of %s protocol %p outputs", protocol.Name(), protocol)
+		wg.Done()
+		tp.Log().Infof("stop forwarding of %s protocol %p outputs", protocol.Network(), protocol)
 	}()
-	tp.Log().Debugf("begin forwarding of %s protocol %p outputs", protocol.Name(), protocol)
+	tp.Log().Infof("begin forwarding of %s protocol %p outputs", protocol.Network(), protocol)
 
 	for {
 		select {
@@ -157,11 +166,10 @@ func (tp *stdTransport) handleProtocol(protocol transport.Protocol) {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage, protocol transport.Protocol) {
-	tp.Log().Debugf(
-		"forwarding message '%s' %p from %s protocol %p",
+	tp.Log().Infof(
+		"received message '%s' %p from %s",
 		incomingMsg.Msg.Short(),
 		incomingMsg.Msg,
-		protocol.Name(),
 		protocol,
 	)
 
@@ -173,29 +181,27 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 		viaHop, ok := msg.ViaHop()
 		if !ok {
 			tp.Log().Warnf(
-				"discarding message '%s' %p from %s to %s over %s protocol %p: empty or malformed 'Via' header",
+				"discarding malformed response '%s' %p from %s to %s over %s: empty or malformed 'Via' header",
 				msg.Short(),
 				msg,
 				incomingMsg.RAddr,
 				incomingMsg.LAddr,
-				protocol.Name(),
 				protocol,
 			)
 			return
 		}
 
-		if viaHop.Host != tp.hostname {
+		if viaHop.Host != tp.hostaddr {
 			tp.Log().Warnf(
-				"discarding message '%s' %p from %s to %s over %s protocol %p: 'sent-by' in the first 'Via' header "+
+				"discarding unexpected response '%s' %p from %s to %s over %s: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
 				msg.Short(),
 				msg,
 				incomingMsg.RAddr,
 				incomingMsg.LAddr,
-				protocol.Name(),
 				protocol,
 				viaHop.Host,
-				tp.hostname,
+				tp.hostaddr,
 			)
 			return
 		}
@@ -204,30 +210,47 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 		// RFC 3261 - 18.2.1. - Receiving Request.
 		viaHop, ok := msg.ViaHop()
 		if !ok {
-			tp.Log().Warnf(
-				"discarding message '%s' %p from %s to %s over %s protocol %p: empty or malformed 'Via' header",
-				msg.Short(),
-				msg,
-				incomingMsg.RAddr,
-				incomingMsg.LAddr,
-				protocol.Name(),
-				protocol,
-			)
+			// pass up errors on malformed requests, UA may response on it with 4xx code
+			err := &core.MalformedMessageError{
+				Txt: fmt.Sprintf(
+					"malformed request '%s' %p from %s to %s over %s: empty or malformed 'Via' header",
+					msg.Short(),
+					msg,
+					incomingMsg.RAddr,
+					incomingMsg.LAddr,
+					protocol,
+				),
+				Msg: msg,
+			}
+
+			select {
+			case tp.errs <- err:
+			case <-tp.stop:
+			}
 			return
 		}
 
 		rhost, _, err := net.SplitHostPort(incomingMsg.RAddr.String())
 		if err != nil {
-			tp.Log().Errorf(
-				"failed to extract host from remote address %s of the incoming request '%s' %p",
-				incomingMsg.RAddr.String(),
-				msg.Short(),
-				msg,
-			)
+			err = &transport.Error{
+				Txt: fmt.Sprintf(
+					"failed to extract host from remote address %s of the incoming request '%s' %p",
+					incomingMsg.RAddr.String(),
+					msg.Short(),
+					msg,
+				),
+				Protocol: protocol.String(),
+				LAddr:    incomingMsg.LAddr.String(),
+				RAddr:    incomingMsg.RAddr.String(),
+			}
+			select {
+			case tp.errs <- err:
+			case <-tp.stop:
+			}
 			return
 		}
 		if viaHop.Host != rhost {
-			tp.Log().Debugf(
+			tp.Log().Infof(
 				"host %s from the first 'Via' header differs from the actual source address %s of the message '%s' %p: "+
 					"'received' parameter will be added",
 				viaHop.Host,
@@ -250,16 +273,11 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 // handles protocol errors
 // should be called inside goroutine for non-blocking forwarding
 func (tp *stdTransport) onProtocolError(err error, protocol transport.Protocol) {
-	tp.Log().Debugf(
-		"forwarding error '%s' from %s protocol %p",
+	tp.Log().Warnf(
+		"received error '%s' from %s",
 		err,
-		protocol.Name(),
 		protocol,
 	)
-
-	if err, ok := err.(*transport.Error); !ok {
-		err = transport.NewError(err.Error())
-	}
 
 	// pass up error
 	select {

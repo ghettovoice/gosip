@@ -19,8 +19,10 @@ type Connection interface {
 	Write(buf []byte) (num int, err error)
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
+	Network() string
 	Close() error
 	IsStream() bool
+	String() string
 }
 
 // Connection implementation.
@@ -53,6 +55,25 @@ func NewConnection(
 	return conn
 }
 
+func (conn *connection) String() string {
+	var name, network string
+	if conn == nil {
+		name = "<nil>"
+		network = ""
+	} else {
+		name = fmt.Sprintf("%p", conn)
+		network = conn.Network() + " "
+	}
+
+	return fmt.Sprintf(
+		"%sconnection %s (laddr %s, raddr %s)",
+		network,
+		name,
+		conn.LocalAddr(),
+		conn.RemoteAddr(),
+	)
+}
+
 func (conn *connection) Log() log.Logger {
 	// remote addr for net.PacketConn resolved in runtime
 	return conn.log.WithField("raddr", conn.RemoteAddr().String())
@@ -60,9 +81,9 @@ func (conn *connection) Log() log.Logger {
 
 func (conn *connection) SetLog(logger log.Logger) {
 	conn.log = logger.WithFields(logrus.Fields{
-		"laddr":    conn.LocalAddr().String(),
-		"net":      strings.ToUpper(conn.LocalAddr().Network()),
-		"conn-ptr": fmt.Sprintf("%p", conn),
+		"laddr":      conn.LocalAddr().String(),
+		"network":    strings.ToUpper(conn.LocalAddr().Network()),
+		"connection": conn.String(),
 	})
 }
 
@@ -70,24 +91,76 @@ func (conn *connection) IsStream() bool {
 	return conn.stream
 }
 
-func (conn *connection) Read(buf []byte) (num int, err error) {
-	switch baseConn := conn.baseConn.(type) {
-	case net.PacketConn: // UDP & ...
-		num, raddr, err := baseConn.ReadFrom(buf)
-		conn.raddr = raddr
-		return num, err
-	default: // net.Conn - TCP, TLS & ...
-		return conn.baseConn.Read(buf)
-	}
+func (conn *connection) Network() string {
+	return strings.ToUpper(conn.baseConn.LocalAddr().Network())
 }
 
-func (conn *connection) Write(buf []byte) (num int, err error) {
+func (conn *connection) Read(buf []byte) (int, error) {
+	var (
+		num   int
+		err   error
+		raddr net.Addr
+	)
+
 	switch baseConn := conn.baseConn.(type) {
 	case net.PacketConn: // UDP & ...
-		return baseConn.WriteTo(buf, conn.RemoteAddr())
+		num, raddr, err = baseConn.ReadFrom(buf)
+		conn.raddr = raddr
 	default: // net.Conn - TCP, TLS & ...
-		return conn.baseConn.Write(buf)
+		num, err = conn.baseConn.Read(buf)
 	}
+
+	if err != nil {
+		return num, &Error{
+			Txt: fmt.Sprintf(
+				"failed to read data from %s: %s",
+				conn,
+				err,
+			),
+			Connection: conn.String(),
+		}
+	}
+
+	conn.Log().Debugf(
+		"received %d bytes from %s",
+		num,
+		conn,
+	)
+
+	return num, err
+}
+
+func (conn *connection) Write(buf []byte) (int, error) {
+	var (
+		num int
+		err error
+	)
+
+	switch baseConn := conn.baseConn.(type) {
+	case net.PacketConn: // UDP & ...
+		num, err = baseConn.WriteTo(buf, conn.RemoteAddr())
+	default: // net.Conn - TCP, TLS & ...
+		num, err = conn.baseConn.Write(buf)
+	}
+
+	if err != nil {
+		return num, &Error{
+			Txt: fmt.Sprintf(
+				"failed to write data to %s: %s",
+				conn,
+				err,
+			),
+			Connection: conn.String(),
+		}
+	}
+
+	conn.Log().Debugf(
+		"written %d bytes to %s",
+		num,
+		conn,
+	)
+
+	return num, err
 }
 
 func (conn *connection) LocalAddr() net.Addr {
@@ -99,7 +172,24 @@ func (conn *connection) RemoteAddr() net.Addr {
 }
 
 func (conn *connection) Close() error {
-	return conn.baseConn.Close()
+	err := conn.baseConn.Close()
+	if err != nil {
+		return &Error{
+			Txt: fmt.Sprintf(
+				"%s failed to close: %s",
+				conn,
+				err,
+			),
+			Connection: conn.String(),
+		}
+	}
+
+	conn.Log().Debugf(
+		"%s closed",
+		conn,
+	)
+
+	return err
 }
 
 // Pool of connections.

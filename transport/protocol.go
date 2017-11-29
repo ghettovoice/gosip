@@ -2,7 +2,6 @@ package transport
 
 import (
 	"fmt"
-	"net"
 	"sync"
 
 	"github.com/ghettovoice/gosip/core"
@@ -11,34 +10,25 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Incoming message with meta info: remote addr, local addr & etc.
-type IncomingMessage struct {
-	// SIP message
-	Msg core.Message
-	// Local address to which message arrived
-	LAddr net.Addr
-	// Remote address from which message arrived
-	RAddr net.Addr
-}
-
 // Protocol implements network specific transport features.
 type Protocol interface {
 	log.WithLogger
-	Name() string
+	Network() string
 	IsReliable() bool
 	IsStream() bool
 	// Channel were incoming messages arrives
 	Output() <-chan *IncomingMessage
 	// Channel for protocol errors
 	Errors() <-chan error
-	Listen(addr string) error
-	Send(addr string, msg core.Message) error
+	Listen(target *Target) error
+	Send(target *Target, msg core.Message) error
 	Stop()
+	String() string
 }
 
 type protocol struct {
 	log      log.Logger
-	name     string
+	network  string
 	reliable bool
 	stream   bool
 	output   chan *IncomingMessage
@@ -49,12 +39,12 @@ type protocol struct {
 }
 
 func (pr *protocol) init(
-	name string,
+	network string,
 	reliable bool,
 	stream bool,
 	onStop func() error,
 ) {
-	pr.name = name
+	pr.network = network
 	pr.reliable = reliable
 	pr.stream = stream
 	pr.onStop = onStop
@@ -67,17 +57,29 @@ func (pr *protocol) init(
 
 func (pr *protocol) SetLog(logger log.Logger) {
 	pr.log = logger.WithFields(logrus.Fields{
-		"protocol":     pr.Name(),
-		"protocol-ptr": fmt.Sprintf("%p", pr),
+		"protocol": pr.String(),
 	})
+}
+
+func (pr *protocol) String() string {
+	var name, network string
+	if pr == nil {
+		name = "<nil>"
+		network = ""
+	} else {
+		name = fmt.Sprintf("%p", pr)
+		network = pr.Network() + " "
+	}
+
+	return fmt.Sprintf("%sprotocol %p", network, name)
 }
 
 func (pr *protocol) Log() log.Logger {
 	return pr.log
 }
 
-func (pr *protocol) Name() string {
-	return pr.name
+func (pr *protocol) Network() string {
+	return pr.network
 }
 
 func (pr *protocol) IsReliable() bool {
@@ -97,7 +99,7 @@ func (pr *protocol) Errors() <-chan error {
 }
 
 func (pr *protocol) Stop() {
-	pr.Log().Infof("stop %s protocol", pr.Name())
+	pr.Log().Infof("stop %s", pr)
 	// unlock and exit all goroutines
 	close(pr.stop)
 	// wait while goroutines completes
@@ -113,7 +115,7 @@ func (pr *protocol) Stop() {
 
 // serves connection with related parser
 func (pr *protocol) serveConnection(conn Connection) <-chan error {
-	pr.Log().Infof("begin serving connection %p on address %s", conn, conn.LocalAddr())
+	pr.Log().Infof("begin serving %s on address %s", conn, conn.LocalAddr())
 	// TODO split into two methods: readConnection and pipeConnection
 	pr.wg.Add(1)
 	outErrs := make(chan error, 1)
@@ -128,12 +130,12 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 	go func() {
 		defer func() {
 			connWg.Done()
-			pr.Log().Infof("stop reading connection %p on address %s", conn, conn.LocalAddr())
+			pr.Log().Debugf("stop reading %s on address %s", conn, conn.LocalAddr())
 			// close parser output channels here due to nothing to parse without connection
 			close(parserOutput)
 			close(parserErrs)
 		}()
-		pr.Log().Debugf("start reading goroutine for connection %p", conn)
+		pr.Log().Debugf("start reading goroutine for %s", conn)
 
 		buf := make([]byte, bufferSize)
 		for {
@@ -143,26 +145,11 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 			default:
 				num, err := conn.Read(buf)
 				if err != nil {
-					// broken connection, stop serving and piping
-					outErrs <- NewError(fmt.Sprintf(
-						"connection %p failed to read data from %s to %s over %s protocol %p: %s",
-						conn,
-						conn.RemoteAddr(),
-						conn.LocalAddr(),
-						pr.Name(),
-						pr,
-						err,
-					))
+					// broken connection, stop reading and piping
+					// return this errors to caller for connection restart
+					outErrs <- err
 					return
 				}
-
-				pr.Log().Debugf(
-					"connection %p received %d bytes from %s to %s",
-					conn,
-					num,
-					conn.RemoteAddr(),
-					conn.LocalAddr(),
-				)
 
 				pkt := append([]byte{}, buf[:num]...)
 				if _, err := parser.Write(pkt); err != nil {
@@ -181,14 +168,14 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 	go func() {
 		defer func() {
 			connWg.Done()
-			pr.Log().Infof(
-				"stop piping parser %p outputs for connection %p on address %s",
+			pr.Log().Debugf(
+				"stop piping %s outputs for %s on address %s",
 				parser,
 				conn,
 				conn.LocalAddr(),
 			)
 		}()
-		pr.Log().Debugf("start piping goroutine for connection %p and parser %p", conn, parser)
+		pr.Log().Debugf("start piping goroutine for %s and %s", conn, parser)
 
 		for {
 			select {
@@ -201,11 +188,11 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 				}
 				if msg != nil {
 					pr.Log().Infof(
-						"connection %p from %s to %s received message '%s'",
-						conn,
-						conn.RemoteAddr(),
-						conn.LocalAddr(),
+						"%s received message '%s' from %s and %s, passing it up",
+						pr,
 						msg.Short(),
+						conn,
+						parser,
 					)
 
 					incomingMsg := &IncomingMessage{msg, conn.LocalAddr(), conn.RemoteAddr()}
@@ -223,14 +210,20 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 				}
 				if err != nil {
 					pr.Log().Warnf(
-						"connection %p from %s to %s failed to parse SIP message: %s; recreating parser",
+						"%s received parse error from %s and %s: %s",
+						pr,
 						conn,
-						conn.RemoteAddr(),
-						conn.LocalAddr(),
+						parser,
 						err,
 					)
-					parser := lex.NewParser(parserOutput, parserErrs, conn.IsStream())
-					parser.SetLog(conn.Log())
+
+					select {
+					case pr.errs <- err:
+						parser := lex.NewParser(parserOutput, parserErrs, conn.IsStream())
+						parser.SetLog(conn.Log())
+					case <-pr.stop: // protocol stop called
+						return
+					}
 				}
 			}
 		}

@@ -23,40 +23,55 @@ func NewUdpProtocol() Protocol {
 	return udp
 }
 
-func (udp *udpProtocol) Listen(addr string) error {
-	return udp.serve(addr, 1)
+func (udp *udpProtocol) Listen(target *Target) error {
+	return udp.serve(FillTarget(target), 1)
 }
 
 // serves connection with recreation of broken connections
-func (udp *udpProtocol) serve(addr string, try uint8) error {
-	network := strings.ToLower(udp.Name())
-	addr = fillLocalAddr(udp.Name(), addr)
+func (udp *udpProtocol) serve(target *Target, try uint8) error {
+	network := strings.ToLower(udp.Network())
+	addr := target.Addr()
+	// resolve local UDP endpoint
 	laddr, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {
-		return NewError(fmt.Sprintf(
-			"%s protocol %p failed to resolve local address %s: %s",
-			udp.Name(),
-			udp,
-			addr,
-			err,
-		))
+		return &Error{
+			Txt: fmt.Sprintf(
+				"%s failed to resolve local address %s: %s",
+				udp,
+				addr,
+				err,
+			),
+			Protocol: udp.String(),
+			LAddr:    laddr.String(),
+		}
 	}
 
 	conn, ok := udp.connections.Get(laddr)
 	if ok {
 		// connection already serving
-		return nil
+		return &Error{
+			Txt: fmt.Sprintf(
+				"%s already listening on address %s",
+				udp,
+				laddr,
+			),
+			Protocol:   udp.String(),
+			Connection: conn.String(),
+		}
 	}
 
 	udpConn, err := net.ListenUDP(network, laddr)
 	if err != nil {
-		return NewError(fmt.Sprintf(
-			"%s protocol %p failed to listen address %s: %s",
-			udp.Name(),
-			udp,
-			addr,
-			err,
-		))
+		return &Error{
+			Txt: fmt.Sprintf(
+				"%s failed to listen address %s: %s",
+				udp,
+				laddr,
+				err,
+			),
+			Protocol: udp.String(),
+			LAddr:    laddr.String(),
+		}
 	}
 	// register new connection
 	conn = NewConnection(udpConn)
@@ -65,22 +80,19 @@ func (udp *udpProtocol) serve(addr string, try uint8) error {
 	// start connection serving
 	go func() {
 		// run serving connection
-		// if the connection falls try to recreate 3 times and pass up error
+		// if the connection falls try to recreate 3 times then pass up error
 		if err := <-udp.serveConnection(conn); err != nil {
 			try++
 			if try > 3 {
-				err = NewError(fmt.Sprintf(
-					"%s connection %p was closed: %s",
-					udp.Name(),
-					conn,
-					err,
-				))
 				select {
 				case udp.errs <- err: // send error
 				case <-udp.stop: // or just exit if protocol was stopped
 				}
 			} else {
-				udp.serve(addr, try)
+				// recreate connection
+				conn.Close()
+				udp.connections.Drop(laddr)
+				udp.serve(target, try)
 			}
 		}
 	}()
@@ -88,32 +100,48 @@ func (udp *udpProtocol) serve(addr string, try uint8) error {
 	return err // should be nil here
 }
 
-func (udp *udpProtocol) Send(addr string, msg core.Message) error {
+func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
+	addr := target.Addr()
+
 	udp.Log().Infof("sending message '%s' to %s", msg.Short(), addr)
 	udp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), addr, msg)
 
-	network := strings.ToLower(udp.Name())
+	laddr := &net.UDPAddr{
+		IP:   net.IP(DefaultHost),
+		Port: int(DefaultUdpPort),
+		Zone: "",
+	}
+
+	network := strings.ToLower(udp.String())
 	// resolve remote address
 	raddr, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {
-		return NewError(fmt.Sprintf(
-			"%s protocol %p failed to resolve remote address %s: %s",
-			udp.Name(),
-			udp,
-			addr,
-			err,
-		))
+		return &Error{
+			Txt: fmt.Sprintf(
+				"%s failed to resolve remote address %s: %s",
+				udp,
+				addr,
+				err,
+			),
+			Protocol: udp.String(),
+			LAddr:    laddr.String(),
+			RAddr:    raddr.String(),
+		}
 	}
 
-	baseConn, err := net.DialUDP(network, nil, raddr)
+	baseConn, err := net.DialUDP(network, laddr, raddr)
 	if err != nil {
-		return NewError(fmt.Sprintf(
-			"%s protocol %p failed to create connection to address %s: %s",
-			udp.Name(),
-			udp,
-			addr,
-			err,
-		))
+		return &Error{
+			Txt: fmt.Sprintf(
+				"%s failed to create connection to address %s: %s",
+				udp,
+				addr,
+				err,
+			),
+			Protocol: udp.String(),
+			LAddr:    laddr.String(),
+			RAddr:    raddr.String(),
+		}
 	}
 
 	conn := NewConnection(baseConn)
@@ -122,20 +150,7 @@ func (udp *udpProtocol) Send(addr string, msg core.Message) error {
 	udp.connections.Add(raddr, conn)
 
 	data := []byte(msg.String())
-	num, err := conn.Write(data)
-	if num != len(data) {
-		return NewError(fmt.Sprintf(
-			"connection %p failed to send message '%s' to %s over %s protocol %p: "+
-				"written bytes num %d, but expected %d",
-			conn,
-			msg.Short(),
-			addr,
-			udp.Name(),
-			udp,
-			num,
-			len(data),
-		))
-	}
+	_, err = conn.Write(data)
 
 	return err // should be nil
 }
