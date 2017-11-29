@@ -152,7 +152,7 @@ type parser struct {
 	log           log.Logger
 }
 
-func (p *parser) Parser() string {
+func (p *parser) String() string {
 	var addr string
 	if p == nil {
 		addr = "<nil>"
