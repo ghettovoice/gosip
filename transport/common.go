@@ -11,9 +11,9 @@ import (
 const (
 	bufferSize uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
 
-	MTU uint16 = 1500
+	MTU uint = 1500
 
-	DefaultHost               = "localhost"
+	DefaultHost               = "0.0.0.0"
 	DefaultProtocol           = "TCP"
 	DefaultUdpPort  core.Port = 5060
 	DefaultTcpPort  core.Port = 5060
@@ -106,10 +106,9 @@ func DefaultPort(protocol string) core.Port {
 }
 
 // Fills endpoint target with default values.
-func FillTarget(target *Target) *Target {
-	if strings.TrimSpace(target.Protocol) == "" {
-		target.Protocol = DefaultProtocol
-	}
+func FillTargetHostAndPort(protocol string, target *Target) *Target {
+	target.Protocol = protocol
+
 	if strings.TrimSpace(target.Host) == "" {
 		target.Host = DefaultHost
 	}

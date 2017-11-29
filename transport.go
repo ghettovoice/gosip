@@ -81,17 +81,17 @@ func (tp *stdTransport) Errors() <-chan error {
 }
 
 func (tp *stdTransport) Listen(target *transport.Target) error {
-	target = transport.FillTarget(target)
-	tp.Log().Infof("begin listening on %s", target)
-
 	protocol, ok := tp.protocols.Get(target.Protocol)
 	if !ok {
 		return &transport.Error{
-			Txt:      fmt.Sprintf("unknown protocol %s", target.Protocol),
-			Protocol: target.Protocol,
+			Txt:      fmt.Sprintf("unknown transport protocol %s", target.Protocol),
+			Protocol: fmt.Sprintf("%s protocol", target.Protocol),
 			LAddr:    target.Addr(),
 		}
 	}
+
+	target = transport.FillTargetHostAndPort(target.Protocol, target)
+	tp.Log().Infof("begin listening on %s", target)
 
 	if err := protocol.Listen(target); err != nil {
 		// return error right away to be more explicitly
@@ -108,23 +108,84 @@ func (tp *stdTransport) Listen(target *transport.Target) error {
 }
 
 func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
+	nets := make([]string, 0)
+
+	viaHop, ok := msg.ViaHop()
+	if !ok {
+		return &core.MalformedMessageError{
+			Txt: "missing 'Via' header",
+			Msg: msg,
+		}
+	}
+
 	switch msg := msg.(type) {
 	// RFC 3261 - 18.1.1.
 	case core.Request:
 		msgLen := len(msg.String())
-		viaHop, ok := msg.ViaHop()
-		if !ok {
-			return &core.MalformedMessageError{
-				Txt: "missing 'Via' header",
-				Msg: msg,
-			}
-		}
+		// rewrite sent-by host
 		viaHop.Host = tp.hostaddr
 
-	case core.Response:
-	}
+		if viaHop.Transport == "UDP" && msgLen > int(transport.MTU)-200 {
+			nets = append(nets, "TCP", viaHop.Transport)
+		} else {
+			nets = append(nets, viaHop.Transport)
+		}
 
-	return nil
+		var err error
+		for _, nt := range nets {
+			protocol, ok := tp.protocols.Get(nt)
+			if !ok {
+				err = &transport.Error{
+					Txt:      fmt.Sprintf("unknown transport protocol %s", target.Protocol),
+					Protocol: fmt.Sprintf("%s protocol", nt),
+					RAddr:    target.Addr(),
+				}
+				continue
+			}
+			// rewrite sent-by transport
+			viaHop.Transport = nt
+			// rewrite sent-by port
+			defPort := transport.DefaultPort(nt)
+			if viaHop.Port == nil {
+				viaHop.Port = &defPort
+			}
+			err = protocol.Send(target, msg)
+			if err != nil {
+				break
+			}
+		}
+
+		return err
+	// RFC 3261 - 18.2.2.
+	case core.Response:
+		// resolve protocol from Via
+		protocol, ok := tp.protocols.Get(viaHop.Transport)
+		if !ok {
+			return &transport.Error{
+				Txt:      fmt.Sprintf("unknown transport protocol %s", target.Protocol),
+				Protocol: fmt.Sprintf("%s protocol", viaHop.Transport),
+				RAddr:    target.Addr(),
+			}
+		}
+		// override target with values from Response headers
+		// resolve host, port from Via
+		target = new(transport.Target)
+		if received, ok := viaHop.Params.Get("received"); ok {
+			target.Host = received.String()
+		} else {
+			target.Host = viaHop.Host
+		}
+
+		return protocol.Send(target, msg)
+	default:
+		return &transport.Error{
+			Txt: fmt.Sprintf(
+				"failed to send unknown message '%s' %p",
+				msg.Short(),
+				msg,
+			),
+		}
+	}
 }
 
 func (tp *stdTransport) Stop() {
@@ -260,6 +321,17 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 			)
 			viaHop.Params.Add("received", core.String{rhost})
 		}
+	default:
+		// unknown message received, log and discard
+		tp.Log().Warnf(
+			"received unknown message '%s' %p from %s to %s over %s",
+			msg.Short(),
+			msg,
+			incomingMsg.RAddr,
+			incomingMsg.LAddr,
+			protocol,
+		)
+		return
 	}
 
 	// pass up message

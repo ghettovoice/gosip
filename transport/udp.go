@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gossip/transport"
 )
 
 // UDP protocol implementation
@@ -24,7 +25,9 @@ func NewUdpProtocol() Protocol {
 }
 
 func (udp *udpProtocol) Listen(target *Target) error {
-	return udp.serve(FillTarget(target), 1)
+	// fill empty target props with default values
+	target = FillTargetHostAndPort(udp.Network(), target)
+	return udp.serve(target, 1)
 }
 
 // serves connection with recreation of broken connections
@@ -101,16 +104,30 @@ func (udp *udpProtocol) serve(target *Target, try uint8) error {
 }
 
 func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
-	addr := target.Addr()
-
-	udp.Log().Infof("sending message '%s' to %s", msg.Short(), addr)
-	udp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), addr, msg)
-
 	laddr := &net.UDPAddr{
 		IP:   net.IP(DefaultHost),
 		Port: int(DefaultUdpPort),
 		Zone: "",
 	}
+	target = FillTargetHostAndPort(udp.Network(), target)
+	// validate remote address
+	if target.Host == "" || target.Host == DefaultHost {
+		return &Error{
+			Txt: fmt.Sprintf(
+				"failed to send message '%s' %p: invalid remote host resolved %s",
+				msg.Short(),
+				msg,
+				target.Host,
+			),
+			Protocol: udp.String(),
+			RAddr:    target.Addr(),
+			LAddr:    laddr.String(),
+		}
+	}
+
+	addr := target.Addr()
+	udp.Log().Infof("sending message '%s' to %s", msg.Short(), addr)
+	udp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), addr, msg)
 
 	network := strings.ToLower(udp.String())
 	// resolve remote address
