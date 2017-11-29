@@ -8,6 +8,7 @@ import (
 	"github.com/ghettovoice/gosip/lex"
 	"github.com/ghettovoice/gosip/log"
 	"github.com/sirupsen/logrus"
+	"net"
 )
 
 // Protocol implements network specific transport features.
@@ -145,8 +146,12 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 			default:
 				num, err := conn.Read(buf)
 				if err != nil {
+					// if we get timeout error just go further and try read on the next iteration
+					if err, ok := err.(net.Error); ok && err.Timeout() {
+						continue
+					}
 					// broken connection, stop reading and piping
-					// return this errors to caller for connection restart
+					// return error to the caller for handling
 					outErrs <- err
 					return
 				}

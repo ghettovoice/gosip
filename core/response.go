@@ -45,7 +45,7 @@ func NewResponse(
 	res.SetLog(log.StandardLogger())
 
 	if strings.TrimSpace(body) != "" {
-		res.SetBody(body)
+		res.SetBody(body, true)
 	}
 
 	return res

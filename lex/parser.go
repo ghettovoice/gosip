@@ -369,7 +369,7 @@ func (p *parser) parse(requireContentLength bool) {
 		}
 
 		if strings.TrimSpace(body) != "" {
-			msg.SetBody(body)
+			msg.SetBody(body, false)
 		}
 		p.output <- msg
 	}

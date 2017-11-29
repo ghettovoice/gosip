@@ -9,56 +9,61 @@ import (
 // TCP protocol implementation
 type tcpProtocol struct {
 	protocol
-	connections *connectionsPool
-	listeners   []*net.TCPListener
+	connections *connectionsStore
+	listeners   *listenersStore
 }
 
 func NewTcpProtocol() Protocol {
 	tcp := &tcpProtocol{
-		connections: NewConnectionsPool(),
-		listeners:   make([]*net.TCPListener, 0),
+		connections: NewConnectionsStore(),
+		listeners:   NewListenersStore(),
 	}
 	tcp.init("TCP", true, true, tcp.onStop)
 	return tcp
 }
 
-func (tcp *tcpProtocol) Listen(addr string) error {
-	network := strings.ToLower(tcp.Name())
-	addr = fillLocalAddr(tcp.Name(), addr)
+func (tcp *tcpProtocol) Listen(target *Target) error {
+	target = FillTargetHostAndPort(tcp.Network(), target)
+	network := strings.ToLower(tcp.Network())
+	addr := target.Addr()
+	// resolve local TCP endpoint
 	laddr, err := net.ResolveTCPAddr(network, addr)
 	if err != nil {
-		return NewError(fmt.Sprintf(
-			"%s protocol %p failed to resolve address %s: %s",
-			tcp.Name(),
-			tcp,
-			addr,
-			err,
-		))
+		return &Error{
+			Txt: fmt.Sprintf(
+				"%s failed to resolve address %s: %s",
+				tcp,
+				addr,
+				err,
+			),
+			Protocol: tcp.String(),
+			LAddr:    addr,
+		}
 	}
 
 	listener, err := net.ListenTCP(network, laddr)
 	if err != nil {
-		return NewError(fmt.Sprintf(
-			"%s protocol %p failed to listen on address %s: %s",
-			tcp.Name(),
-			tcp,
-			addr,
-			err,
-		))
+		return &Error{
+			Txt: fmt.Sprintf(
+				"%s failed to listen on address %s: %s",
+				tcp,
+				addr,
+				err,
+			),
+			Protocol: tcp.String(),
+			LAddr:    laddr.String(),
+		}
 	}
 
-	tcp.listeners = append(tcp.listeners, listener)
-	tcp.wg.Add(1)
-	go func() {
-		defer tcp.wg.Done()
-		tcp.serve(listener)
-	}()
+	tcp.listeners.Add(laddr, listener)
+	// start listener serving
+	go tcp.serveListener(listener)
 
 	return err // should be nil here
 }
 
-func (tcp *tcpProtocol) serve(listener *net.TCPListener) {
-	tcp.Log().Infof("begin serving listener on address %s", listener.Addr())
+func (tcp *tcpProtocol) serveListener(listener *net.TCPListener) <-chan error {
+	tcp.Log().Infof("begin serving listener %p on address %s", listener, listener.Addr())
 
 	for {
 		select {

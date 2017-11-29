@@ -70,7 +70,7 @@ type Message interface {
 	// Body returns message body.
 	Body() string
 	// SetBody sets message body.
-	SetBody(body string)
+	SetBody(body string, setContentLength bool)
 
 	/* Helper getters for common headers */
 	// CallId returns 'Call-Id' header.
@@ -299,15 +299,16 @@ func (msg *message) Body() string {
 }
 
 // SetBody sets message body, calculates it length and add 'Content-Length' header.
-func (msg *message) SetBody(body string) {
+func (msg *message) SetBody(body string, setContentLength bool) {
 	msg.body = body
-	// todo fix usage in parser, do not change original message, should emit error when streamed conn used without Content-Length
-	hdrs := msg.GetHeaders("Content-Length")
-	if len(hdrs) == 0 {
-		length := ContentLength(len(body))
-		msg.AppendHeader(length)
-	} else {
-		hdrs[0] = ContentLength(len(body))
+	if setContentLength {
+		hdrs := msg.GetHeaders("Content-Length")
+		if len(hdrs) == 0 {
+			length := ContentLength(len(body))
+			msg.AppendHeader(length)
+		} else {
+			hdrs[0] = ContentLength(len(body))
+		}
 	}
 }
 

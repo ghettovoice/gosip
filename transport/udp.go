@@ -6,19 +6,18 @@ import (
 	"strings"
 
 	"github.com/ghettovoice/gosip/core"
-	"github.com/ghettovoice/gossip/transport"
 )
 
 // UDP protocol implementation
 type udpProtocol struct {
 	protocol
 	// listening connections
-	connections *connectionsPool
+	connections *connectionsStore
 }
 
 func NewUdpProtocol() Protocol {
 	udp := &udpProtocol{
-		connections: NewConnectionsPool(),
+		connections: NewConnectionsStore(),
 	}
 	udp.init("UDP", false, false, udp.onStop)
 	return udp
@@ -45,21 +44,7 @@ func (udp *udpProtocol) serve(target *Target, try uint8) error {
 				err,
 			),
 			Protocol: udp.String(),
-			LAddr:    laddr.String(),
-		}
-	}
-
-	conn, ok := udp.connections.Get(laddr)
-	if ok {
-		// connection already serving
-		return &Error{
-			Txt: fmt.Sprintf(
-				"%s already listening on address %s",
-				udp,
-				laddr,
-			),
-			Protocol:   udp.String(),
-			Connection: conn.String(),
+			LAddr:    addr,
 		}
 	}
 
@@ -77,25 +62,31 @@ func (udp *udpProtocol) serve(target *Target, try uint8) error {
 		}
 	}
 	// register new connection
-	conn = NewConnection(udpConn)
+	conn := NewConnection(udpConn)
 	conn.SetLog(udp.Log())
 	udp.connections.Add(laddr, conn)
 	// start connection serving
 	go func() {
-		// run serving connection
-		// if the connection falls try to recreate 3 times then pass up error
-		if err := <-udp.serveConnection(conn); err != nil {
-			try++
-			if try > 3 {
-				select {
-				case udp.errs <- err: // send error
-				case <-udp.stop: // or just exit if protocol was stopped
+		select {
+		case <-udp.stop:
+			// stop called, exit immediately
+			return
+		case err := <-udp.serveConnection(conn):
+			// if the connection falls try to recreate 3 times then pass up error
+			// todo check on Timeout error?
+			if err != nil {
+				try++
+				if try > 3 {
+					select {
+					case udp.errs <- err: // send error
+					case <-udp.stop: // or just exit if protocol was stopped
+					}
+				} else {
+					// recreate connection
+					conn.Close()
+					udp.connections.Drop(laddr)
+					udp.serve(target, try)
 				}
-			} else {
-				// recreate connection
-				conn.Close()
-				udp.connections.Drop(laddr)
-				udp.serve(target, try)
 			}
 		}
 	}()
@@ -164,7 +155,6 @@ func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
 	conn := NewConnection(baseConn)
 	defer conn.Close()
 	conn.SetLog(udp.Log())
-	udp.connections.Add(raddr, conn)
 
 	data := []byte(msg.String())
 	_, err = conn.Write(data)

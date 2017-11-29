@@ -26,7 +26,7 @@ type Transport interface {
 
 // Transport layer implementation.
 type stdTransport struct {
-	protocols *protocolsPool
+	protocols *protocolsStore
 	log       log.Logger
 	hostaddr  string
 	output    chan core.Message
@@ -46,7 +46,7 @@ func NewTransport(
 		errs:      make(chan error),
 		stop:      make(chan bool),
 		wg:        new(sync.WaitGroup),
-		protocols: NewProtocolsPool(),
+		protocols: NewProtocolsStore(),
 	}
 	tp.SetLog(log.StandardLogger())
 
@@ -359,36 +359,36 @@ func (tp *stdTransport) onProtocolError(err error, protocol transport.Protocol) 
 	}
 }
 
-// Thread-safe protocols pool.
-type protocolsPool struct {
-	lock      *sync.RWMutex
-	protocols map[string]transport.Protocol
+// Thread-safe protocols store.
+type protocolsStore struct {
+	lock  *sync.RWMutex
+	index map[string]transport.Protocol
 }
 
-func NewProtocolsPool() *protocolsPool {
-	return &protocolsPool{
-		lock:      new(sync.RWMutex),
-		protocols: make(map[string]transport.Protocol),
+func NewProtocolsStore() *protocolsStore {
+	return &protocolsStore{
+		lock:  new(sync.RWMutex),
+		index: make(map[string]transport.Protocol),
 	}
 }
 
-func (pool *protocolsPool) Add(key string, protocol transport.Protocol) {
-	pool.lock.Lock()
-	pool.protocols[key] = protocol
-	pool.lock.Unlock()
+func (store *protocolsStore) Add(key string, protocol transport.Protocol) {
+	store.lock.Lock()
+	store.index[key] = protocol
+	store.lock.Unlock()
 }
 
-func (pool *protocolsPool) Get(key string) (transport.Protocol, bool) {
-	pool.lock.RLock()
-	defer pool.lock.RUnlock()
-	protocol, ok := pool.protocols[key]
+func (store *protocolsStore) Get(key string) (transport.Protocol, bool) {
+	store.lock.RLock()
+	defer store.lock.RUnlock()
+	protocol, ok := store.index[key]
 	return protocol, ok
 }
 
-func (pool *protocolsPool) All() []transport.Protocol {
+func (store *protocolsStore) All() []transport.Protocol {
 	all := make([]transport.Protocol, 0)
-	for key := range pool.protocols {
-		if protocol, ok := pool.Get(key); ok {
+	for key := range store.index {
+		if protocol, ok := store.Get(key); ok {
 			all = append(all, protocol)
 		}
 	}

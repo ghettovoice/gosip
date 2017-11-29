@@ -41,7 +41,7 @@ func NewRequest(
 	req.SetLog(log.StandardLogger())
 
 	if strings.TrimSpace(body) != "" {
-		req.SetBody(body)
+		req.SetBody(body, true)
 	}
 
 	return req
