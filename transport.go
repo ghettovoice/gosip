@@ -112,8 +112,8 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 
 	viaHop, ok := msg.ViaHop()
 	if !ok {
-		return &core.MalformedMessageError{
-			Txt: "missing 'Via' header",
+		return &core.MessageError{
+			Err: "missing 'Via' header",
 			Msg: msg,
 		}
 	}
@@ -272,8 +272,8 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 		viaHop, ok := msg.ViaHop()
 		if !ok {
 			// pass up errors on malformed requests, UA may response on it with 4xx code
-			err := &core.MalformedMessageError{
-				Txt: fmt.Sprintf(
+			err := &core.MessageError{
+				Err: fmt.Sprintf(
 					"malformed request '%s' %p from %s to %s over %s: empty or malformed 'Via' header",
 					msg.Short(),
 					msg,

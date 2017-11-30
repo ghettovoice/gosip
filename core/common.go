@@ -25,13 +25,24 @@ func (str String) String() string {
 	return str.Str
 }
 
-// Broken or malformed message
-type MalformedMessageError struct {
-	Txt string
-	Msg Message
+type MessageError interface {
+	error
+	// Malformed indicates that message is syntactically valid but has invalid headers, or
+	// without required headers and etc.
+	Malformed() bool
 }
 
-func (err *MalformedMessageError) Error() string {
+type ContentLengthError struct {
+	Msg Message
+	Err error
+}
+
+func (err *ContentLengthError) Malformed() bool { return true }
+func (err *ContentLengthError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+
 	var msg string
 	if err.Msg == nil {
 		msg = "<nil>"
@@ -39,9 +50,26 @@ func (err *MalformedMessageError) Error() string {
 		msg = err.Msg.Short()
 	}
 
-	return fmt.Sprintf("malformed message error: %s, message: %s", err.Txt, msg)
+	return fmt.Sprintf("ContentLengthError with message '%s': %s", msg, err.Err)
 }
 
-func (err *MalformedMessageError) String() string {
-	return err.Error()
+type BrokenMessageError struct {
+	Msg Message
+	Err error
+}
+
+func (err *BrokenMessageError) Malformed() bool { return false }
+func (err *BrokenMessageError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+
+	var msg string
+	if err.Msg == nil {
+		msg = "<nil>"
+	} else {
+		msg = err.Msg.Short()
+	}
+
+	return fmt.Sprintf("BrokenMessageError with message '%s': %s", msg, err.Err)
 }

@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/ghettovoice/gosip/core"
-	"github.com/ghettovoice/gosip/lex"
+	"github.com/ghettovoice/gosip/syntax"
 	"github.com/ghettovoice/gosip/log"
 	"github.com/sirupsen/logrus"
 	"net"
@@ -124,7 +124,7 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 	connWg := new(sync.WaitGroup)
 	parserOutput := make(chan core.Message)
 	parserErrs := make(chan error)
-	parser := lex.NewParser(parserOutput, parserErrs, conn.IsStream())
+	parser := syntax.NewParser(parserOutput, parserErrs, conn.IsStream())
 	parser.SetLog(conn.Log())
 
 	// start reading goroutine
@@ -224,7 +224,7 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 
 					select {
 					case pr.errs <- err:
-						parser := lex.NewParser(parserOutput, parserErrs, conn.IsStream())
+						parser := syntax.NewParser(parserOutput, parserErrs, conn.IsStream())
 						parser.SetLog(conn.Log())
 					case <-pr.stop: // protocol stop called
 						return

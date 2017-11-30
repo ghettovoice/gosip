@@ -1,5 +1,5 @@
 // Forked from github.com/StefanKopieczek/gossip by @StefanKopieczek
-package lex
+package syntax
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"errors"
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/util"
@@ -21,19 +22,6 @@ const c_ABNF_WS = " \t"
 // The maximum permissible CSeq number in a SIP message (2**31 - 1).
 // C.f. RFC 3261 S. 8.1.1.5.
 const MAX_CSEQ = 2147483647
-
-// Parser error
-type ParseError struct {
-	Txt string
-}
-
-func (err *ParseError) Error() string {
-	return fmt.Sprintf("parse error: %s", err.Txt)
-}
-
-func (err *ParseError) String() string {
-	return err.Error()
-}
 
 // The buffer size of the parser input channel.
 
@@ -184,7 +172,7 @@ func (p *parser) Write(data []byte) (int, error) {
 		)
 		return 0, p.terminalErr
 	} else if p.stopped {
-		return 0, &ParseError{fmt.Sprintf("cannot write data to stopped parser %p", p)}
+		return 0, ParserWriteError(fmt.Sprintf("cannot write data to stopped parser '%s'", p))
 	}
 
 	if !p.streamed {
@@ -200,10 +188,10 @@ func (p *parser) Write(data []byte) (int, error) {
 // The parser will not release its resources until Stop() is called,
 // even if the parser object itself is garbage collected.
 func (p *parser) Stop() {
-	p.Log().Debugf("stopping parser %p", p)
+	p.Log().Debugf("stopping parser '%s'", p)
 	p.stopped = true
 	p.input.Stop()
-	p.Log().Debugf("parser %p stopped", p)
+	p.Log().Debugf("parser '%s' stopped", p)
 }
 
 // Consume input lines one at a time, producing core.Message objects and sending them down p.output.
@@ -215,7 +203,7 @@ func (p *parser) parse(requireContentLength bool) {
 		startLine, err := p.input.NextLine()
 
 		if err != nil {
-			p.Log().Debugf("parser %p stopped", p)
+			p.Log().Debugf("parser '%s' stopped", p)
 			break
 		}
 
@@ -224,25 +212,36 @@ func (p *parser) parse(requireContentLength bool) {
 			if err == nil {
 				msg = core.NewRequest(method, recipient, sipVersion, []core.Header{}, "")
 			} else {
-				p.terminalErr = &ParseError{err.Error()}
+				p.terminalErr = InvalidStartLineError(fmt.Sprintf(
+					"%s; parser: %s",
+					err,
+					p,
+				))
 			}
 		} else if isResponse(startLine) {
 			sipVersion, statusCode, reason, err := parseStatusLine(startLine)
 			if err == nil {
 				msg = core.NewResponse(sipVersion, statusCode, reason, []core.Header{}, "")
 			} else {
-				p.terminalErr = &ParseError{Txt: err.Error()}
+				p.terminalErr = InvalidStartLineError(fmt.Sprintf(
+					"%s; parser: %s",
+					err,
+					p,
+				))
 			}
 		} else {
-			p.terminalErr = &ParseError{
-				fmt.Sprintf("transmission beginning '%s' is not a SIP message", startLine),
-			}
+			p.terminalErr = InvalidStartLineError(fmt.Sprintf(
+				"transmission beginning '%s' is not a SIP message; parser: %s",
+				startLine,
+				p,
+			))
 		}
 
 		if p.terminalErr != nil {
-			p.terminalErr = &ParseError{
-				fmt.Sprintf("failed to parse first line of message: %s", p.terminalErr),
-			}
+			p.terminalErr = InvalidStartLineError(fmt.Sprintf(
+				"failed to parse first line of message: %s",
+				p.terminalErr,
+			))
 			p.errs <- p.terminalErr
 			break
 		}
@@ -314,23 +313,23 @@ func (p *parser) parse(requireContentLength bool) {
 			// Use the content-length header to identify the end of the message.
 			contentLengthHeaders := msg.GetHeaders("Content-Length")
 			if len(contentLengthHeaders) == 0 {
-				p.terminalErr = &core.MalformedMessageError{
-					Txt: fmt.Sprintf("missing required content-length header on message %s", msg.Short()),
+				p.terminalErr = &core.ContentLengthError{
+					Err: fmt.Errorf("missing required 'Content-Length' header; parser: %s", p),
 					Msg: msg,
 				}
 				p.errs <- p.terminalErr
 				break
 			} else if len(contentLengthHeaders) > 1 {
 				var errbuf bytes.Buffer
-				errbuf.WriteString("multiple content-length headers on message ")
+				errbuf.WriteString("multiple 'Content-Length' headers on message '")
 				errbuf.WriteString(msg.Short())
-				errbuf.WriteString(":\n")
+				errbuf.WriteString(fmt.Sprintf("'; parser: %s:\n", p))
 				for _, header := range contentLengthHeaders {
 					errbuf.WriteString("\t")
 					errbuf.WriteString(header.String())
 				}
-				p.terminalErr = &core.MalformedMessageError{
-					Txt: fmt.Sprintf(errbuf.String()),
+				p.terminalErr = &core.ContentLengthError{
+					Err: errors.New(errbuf.String()),
 					Msg: msg,
 				}
 				p.errs <- p.terminalErr
@@ -346,8 +345,8 @@ func (p *parser) parse(requireContentLength bool) {
 		// Extract the message body.
 		body, err := p.input.NextChunk(contentLength)
 		if err != nil {
-			p.terminalErr = &core.MalformedMessageError{
-				Txt: fmt.Sprintf("failed to read body of the message '%s'", msg.Short()),
+			p.terminalErr = &core.BrokenMessageError{
+				Err: fmt.Errorf("%s failed to read message body", p),
 				Msg: msg,
 			}
 			p.errs <- p.terminalErr
@@ -355,12 +354,12 @@ func (p *parser) parse(requireContentLength bool) {
 		}
 		// RFC 3261 - 18.3.
 		if len(body) != contentLength {
-			p.terminalErr = &core.MalformedMessageError{
-				Txt: fmt.Sprintf(
-					"incomplete message body %s: read %d bytes, expected %d bytes",
-					msg.Short(),
+			p.terminalErr = &core.BrokenMessageError{
+				Err: fmt.Errorf(
+					"incomplete message body: read %d bytes, expected %d bytes; parser: %s",
 					len(body),
 					contentLength,
+					p,
 				),
 				Msg: msg,
 			}
