@@ -112,6 +112,8 @@ func (pr *protocol) Stop() {
 	// close outputs
 	close(pr.output)
 	close(pr.errs)
+	pr.output = nil
+	pr.errs = nil
 }
 
 // executes connection serving in separate goroutines

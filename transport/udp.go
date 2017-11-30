@@ -19,7 +19,7 @@ func NewUdpProtocol() Protocol {
 	udp := &udpProtocol{
 		connections: NewConnectionsStore(),
 	}
-	udp.init("UDP", false, false)
+	udp.init("udp", false, false)
 	return udp
 }
 
@@ -27,17 +27,12 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	// fill empty target props with default values
 	target = FillTargetHostAndPort(udp.Network(), target)
 	network := strings.ToLower(udp.Network())
-	addr := target.Addr()
 	// resolve local UDP endpoint
-	laddr, err := net.ResolveUDPAddr(network, addr)
+	laddr, err := udp.resolveTarget(target)
 	if err != nil {
-		return &ProtocolError{
-			fmt.Errorf("failed to resolve local address %s: %s", addr, err),
-			fmt.Sprintf("resolve %s address", udp.Network()),
-			udp,
-		}
+		return err
 	}
-
+	// create UDP connection
 	udpConn, err := net.ListenUDP(network, laddr)
 	if err != nil {
 		return &ProtocolError{
@@ -53,14 +48,14 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	udp.connections.Add(conn.LocalAddr(), conn)
 	// start connection serving
 	errs := make(chan error)
-	udp.serveConnection(conn, udp.output, udp.errs)
+	udp.serveConnection(conn, udp.output, errs)
 	udp.wg.Add(1)
 	go func() {
 		defer func() {
 			udp.wg.Done()
 			close(errs)
 		}()
-		for {
+		for udp.errs != nil {
 			select {
 			case <-udp.stop:
 				return
@@ -69,7 +64,7 @@ func (udp *udpProtocol) Listen(target *Target) error {
 					return
 				}
 				if _, ok := err.(net.Error); ok {
-					udp.Log().Warnf("%s received connection error: %s; connection %s will be closed", udp, err, conn)
+					udp.Log().Errorf("%s received connection error: %s; connection %s will be closed", udp, err, conn)
 					conn.Close()
 					udp.connections.Drop(conn.LocalAddr())
 				}
@@ -86,46 +81,42 @@ func (udp *udpProtocol) Listen(target *Target) error {
 }
 
 func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
-	laddr := &net.UDPAddr{
-		IP:   net.IP(DefaultHost),
-		Port: int(DefaultUdpPort),
-		Zone: "",
-	}
 	target = FillTargetHostAndPort(udp.Network(), target)
+
+	udp.Log().Infof("sending message '%s' to %s", msg.Short(), target.Addr())
+	udp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), target.Addr(), msg)
+
 	// validate remote address
 	if target.Host == "" || target.Host == DefaultHost {
 		return &ProtocolError{
-			fmt.Errorf("invalid remote host resolved %s for message '%s'", target.Host, msg.Short()),
+			fmt.Errorf("invalid remote host resolved %s", target.Host),
 			"resolve destination address",
 			udp,
 		}
 	}
 
-	addr := target.Addr()
-	udp.Log().Infof("sending message '%s' to %s", msg.Short(), addr)
-	udp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), addr, msg)
-
-	network := strings.ToLower(udp.String())
 	// resolve remote address
-	raddr, err := net.ResolveUDPAddr(network, addr)
+	raddr, err := udp.resolveTarget(target)
 	if err != nil {
-		return &ProtocolError{
-			fmt.Errorf("failed to resolve remote address %s: %s", addr, err),
-			fmt.Sprintf("resolve %s address", addr),
-			udp,
-		}
+		return err
 	}
 
-	baseConn, err := net.DialUDP(network, laddr, raddr)
+	network := strings.ToLower(udp.Network())
+	laddr := &net.UDPAddr{
+		IP:   net.IP(DefaultHost),
+		Port: int(DefaultUdpPort),
+		Zone: "",
+	}
+	udpConn, err := net.DialUDP(network, laddr, raddr)
 	if err != nil {
 		return &ProtocolError{
-			fmt.Errorf("failed to connection to remote address %s: %s", raddr, err),
+			fmt.Errorf("failed to create connection to remote address %s: %s", raddr, err),
 			fmt.Sprintf("create %s connection", udp.Network()),
 			udp,
 		}
 	}
 
-	conn := NewConnection(baseConn)
+	conn := NewConnection(udpConn)
 	defer conn.Close()
 	conn.SetLog(udp.Log())
 
@@ -143,4 +134,20 @@ func (udp *udpProtocol) Stop() {
 		conn.Close()
 		udp.connections.Drop(conn.LocalAddr())
 	}
+}
+
+func (udp *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
+	addr := target.Addr()
+	network := strings.ToLower(udp.String())
+	// resolve remote address
+	raddr, err := net.ResolveUDPAddr(network, addr)
+	if err != nil {
+		return nil, &ProtocolError{
+			fmt.Errorf("failed to resolve address %s: %s", addr, err),
+			fmt.Sprintf("resolve %s address", addr),
+			udp,
+		}
+	}
+
+	return raddr, nil
 }
