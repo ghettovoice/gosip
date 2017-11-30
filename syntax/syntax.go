@@ -1,17 +1,17 @@
 package syntax
 
-import "github.com/ghettovoice/gosip/core"
-
 type Error interface {
-	core.Message
+	error
 	// Syntax indicates that this is syntax error
 	Syntax() bool
 }
 
 type InvalidStartLineError string
 
-func (err InvalidStartLineError) Syntax() bool  { return true }
-func (err InvalidStartLineError) Error() string { return "InvalidStartLineError: " + string(err) }
+func (err InvalidStartLineError) Syntax() bool    { return true }
+func (err InvalidStartLineError) Malformed() bool { return false }
+func (err InvalidStartLineError) Broken() bool    { return true }
+func (err InvalidStartLineError) Error() string   { return "InvalidStartLineError: " + string(err) }
 
 type ParserWriteError string
 

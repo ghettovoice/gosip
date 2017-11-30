@@ -5,10 +5,16 @@ import (
 	"sync"
 
 	"github.com/ghettovoice/gosip/core"
-	"github.com/ghettovoice/gosip/syntax"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/syntax"
 	"github.com/sirupsen/logrus"
 	"net"
+	"strings"
+	"time"
+)
+
+const (
+	tmpErrTimeout = 10 * time.Second
 )
 
 // Protocol implements network specific transport features.
@@ -80,7 +86,7 @@ func (pr *protocol) Log() log.Logger {
 }
 
 func (pr *protocol) Network() string {
-	return pr.network
+	return strings.ToUpper(pr.network)
 }
 
 func (pr *protocol) IsReliable() bool {
@@ -115,11 +121,10 @@ func (pr *protocol) Stop() {
 }
 
 // serves connection with related parser
-func (pr *protocol) serveConnection(conn Connection) <-chan error {
+func (pr *protocol) serveConnection(conn Connection) {
 	pr.Log().Infof("begin serving %s on address %s", conn, conn.LocalAddr())
 	// TODO split into two methods: readConnection and pipeConnection
 	pr.wg.Add(1)
-	outErrs := make(chan error, 1)
 	// create parser for connection
 	connWg := new(sync.WaitGroup)
 	parserOutput := make(chan core.Message)
@@ -147,12 +152,21 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 				num, err := conn.Read(buf)
 				if err != nil {
 					// if we get timeout error just go further and try read on the next iteration
-					if err, ok := err.(net.Error); ok && err.Timeout() {
-						continue
+					if err, ok := err.(net.Error); ok {
+						if err.Timeout() {
+							continue
+						}
+						if err.Temporary() {
+							time.Sleep(tmpErrTimeout)
+							continue
+						}
 					}
-					// broken connection, stop reading and piping
-					// return error to the caller for handling
-					outErrs <- err
+					// broken or closed connection, stop reading and piping
+					// pass up error
+					select {
+					case pr.errs <- err:
+					case <-pr.stop: // protocol stop called
+					}
 					return
 				}
 
@@ -206,7 +220,6 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 					case <-pr.stop: // protocol stop called
 						return
 					}
-
 				}
 			case err, ok := <-parserErrs:
 				if !ok {
@@ -214,18 +227,17 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 					return
 				}
 				if err != nil {
-					pr.Log().Warnf(
-						"%s received parse error from %s and %s: %s",
+					pr.Log().Debugf(
+						"%s recreating parser for %s due to parser error: %s",
 						pr,
 						conn,
-						parser,
 						err,
 					)
+					parser := syntax.NewParser(parserOutput, parserErrs, conn.IsStream())
+					parser.SetLog(conn.Log())
 
 					select {
 					case pr.errs <- err:
-						parser := syntax.NewParser(parserOutput, parserErrs, conn.IsStream())
-						parser.SetLog(conn.Log())
 					case <-pr.stop: // protocol stop called
 						return
 					}
@@ -236,10 +248,10 @@ func (pr *protocol) serveConnection(conn Connection) <-chan error {
 
 	// wait for connection goroutines completes
 	go func() {
-		defer pr.wg.Done()
+		defer func() {
+			pr.wg.Done()
+			pr.Log().Infof("stop serving %s on address %s", conn, conn.LocalAddr())
+		}()
 		connWg.Wait()
-		close(outErrs)
 	}()
-
-	return outErrs
 }

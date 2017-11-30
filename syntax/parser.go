@@ -313,7 +313,7 @@ func (p *parser) parse(requireContentLength bool) {
 			// Use the content-length header to identify the end of the message.
 			contentLengthHeaders := msg.GetHeaders("Content-Length")
 			if len(contentLengthHeaders) == 0 {
-				p.terminalErr = &core.ContentLengthError{
+				p.terminalErr = &core.MalformedMessageError{
 					Err: fmt.Errorf("missing required 'Content-Length' header; parser: %s", p),
 					Msg: msg,
 				}
@@ -328,7 +328,7 @@ func (p *parser) parse(requireContentLength bool) {
 					errbuf.WriteString("\t")
 					errbuf.WriteString(header.String())
 				}
-				p.terminalErr = &core.ContentLengthError{
+				p.terminalErr = &core.MalformedMessageError{
 					Err: errors.New(errbuf.String()),
 					Msg: msg,
 				}

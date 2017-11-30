@@ -22,6 +22,7 @@ type Transport interface {
 	Send(target *transport.Target, msg core.Message) error
 	// Stops all protocols
 	Stop()
+	String() string
 }
 
 // Transport layer implementation.
@@ -61,6 +62,17 @@ func NewTransport(
 	return tp
 }
 
+func (tp *stdTransport) String() string {
+	var addr string
+	if tp == nil {
+		addr = "<nil>"
+	} else {
+		addr = fmt.Sprintf("%p", tp)
+	}
+
+	return fmt.Sprintf("transport layer %s", addr)
+}
+
 func (tp *stdTransport) Log() log.Logger {
 	return tp.log
 }
@@ -83,11 +95,11 @@ func (tp *stdTransport) Errors() <-chan error {
 func (tp *stdTransport) Listen(target *transport.Target) error {
 	protocol, ok := tp.protocols.Get(target.Protocol)
 	if !ok {
-		return &transport.Error{
-			Txt:      fmt.Sprintf("unknown transport protocol %s", target.Protocol),
-			Protocol: fmt.Sprintf("%s protocol", target.Protocol),
-			LAddr:    target.Addr(),
-		}
+		return transport.UnsupportedProtocolError(fmt.Sprintf(
+			"protocol %s not registered in %s",
+			target.Protocol,
+			tp,
+		))
 	}
 
 	target = transport.FillTargetHostAndPort(target.Protocol, target)
@@ -112,8 +124,8 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 
 	viaHop, ok := msg.ViaHop()
 	if !ok {
-		return &core.MessageError{
-			Err: "missing 'Via' header",
+		return &core.MalformedMessageError{
+			Err: fmt.Errorf("missing 'Via' header"),
 			Msg: msg,
 		}
 	}
@@ -135,11 +147,11 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 		for _, nt := range nets {
 			protocol, ok := tp.protocols.Get(nt)
 			if !ok {
-				err = &transport.Error{
-					Txt:      fmt.Sprintf("unknown transport protocol %s", target.Protocol),
-					Protocol: fmt.Sprintf("%s protocol", nt),
-					RAddr:    target.Addr(),
-				}
+				err = transport.UnsupportedProtocolError(fmt.Sprintf(
+					"protocol %s not registered in %s",
+					target.Protocol,
+					tp,
+				))
 				continue
 			}
 			// rewrite sent-by transport
@@ -161,11 +173,11 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 		// resolve protocol from Via
 		protocol, ok := tp.protocols.Get(viaHop.Transport)
 		if !ok {
-			return &transport.Error{
-				Txt:      fmt.Sprintf("unknown transport protocol %s", target.Protocol),
-				Protocol: fmt.Sprintf("%s protocol", viaHop.Transport),
-				RAddr:    target.Addr(),
-			}
+			return transport.UnsupportedProtocolError(fmt.Sprintf(
+				"protocol %s not registered in %s",
+				target.Protocol,
+				tp,
+			))
 		}
 		// override target with values from Response headers
 		// resolve host, port from Via
@@ -178,12 +190,13 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 
 		return protocol.Send(target, msg)
 	default:
-		return &transport.Error{
-			Txt: fmt.Sprintf(
-				"failed to send unknown message '%s' %p",
+		return &core.UnsupportedMessageError{
+			Err: fmt.Errorf(
+				"failed to send unsupported message '%s' %p",
 				msg.Short(),
 				msg,
 			),
+			Msg: msg,
 		}
 	}
 }
@@ -227,8 +240,9 @@ func (tp *stdTransport) serveProtocol(protocol transport.Protocol, wg *sync.Wait
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage, protocol transport.Protocol) {
-	tp.Log().Infof(
-		"received message '%s' %p from %s",
+	tp.Log().Debugf(
+		"%s received message '%s' %p from %s",
+		tp,
 		incomingMsg.Msg.Short(),
 		incomingMsg.Msg,
 		protocol,
@@ -272,13 +286,10 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 		viaHop, ok := msg.ViaHop()
 		if !ok {
 			// pass up errors on malformed requests, UA may response on it with 4xx code
-			err := &core.MessageError{
-				Err: fmt.Sprintf(
-					"malformed request '%s' %p from %s to %s over %s: empty or malformed 'Via' header",
-					msg.Short(),
-					msg,
-					incomingMsg.RAddr,
-					incomingMsg.LAddr,
+			err := &core.MalformedMessageError{
+				Err: fmt.Errorf(
+					"empty or malformed 'Via' header %s; protocol: %s",
+					viaHop,
 					protocol,
 				),
 				Msg: msg,
@@ -293,16 +304,15 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 
 		rhost, _, err := net.SplitHostPort(incomingMsg.RAddr.String())
 		if err != nil {
-			err = &transport.Error{
-				Txt: fmt.Sprintf(
-					"failed to extract host from remote address %s of the incoming request '%s' %p",
+			err = &transport.ProtocolError{
+				Err: fmt.Errorf(
+					"failed to extract remote host from source address %s of the incoming request '%s' %p",
 					incomingMsg.RAddr.String(),
 					msg.Short(),
 					msg,
 				),
-				Protocol: protocol.String(),
-				LAddr:    incomingMsg.LAddr.String(),
-				RAddr:    incomingMsg.RAddr.String(),
+				Op:       "extract remote host",
+				Protocol: protocol,
 			}
 			select {
 			case tp.errs <- err:
@@ -322,9 +332,9 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 			viaHop.Params.Add("received", core.String{rhost})
 		}
 	default:
-		// unknown message received, log and discard
+		// unsupported message received, log and discard
 		tp.Log().Warnf(
-			"received unknown message '%s' %p from %s to %s over %s",
+			"received unsupported message '%s' %p from %s to %s over %s",
 			msg.Short(),
 			msg,
 			incomingMsg.RAddr,
@@ -334,19 +344,25 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 		return
 	}
 
+	tp.Log().Debugf(
+		"%s passing up message '%s' %p",
+		tp,
+		msg.Short(),
+		msg,
+	)
 	// pass up message
 	select {
 	case tp.output <- msg:
 	case <-tp.stop:
-		return
 	}
 }
 
 // handles protocol errors
 // should be called inside goroutine for non-blocking forwarding
 func (tp *stdTransport) onProtocolError(err error, protocol transport.Protocol) {
-	tp.Log().Warnf(
-		"received error '%s' from %s",
+	tp.Log().Debugf(
+		"%s received error '%s' from %s, passing it up",
+		tp,
 		err,
 		protocol,
 	)
@@ -355,7 +371,6 @@ func (tp *stdTransport) onProtocolError(err error, protocol transport.Protocol) 
 	select {
 	case tp.errs <- err:
 	case <-tp.stop:
-		return
 	}
 }
 

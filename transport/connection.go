@@ -112,7 +112,13 @@ func (conn *connection) Read(buf []byte) (int, error) {
 	}
 
 	if err != nil {
-		return num, err
+		return num, &ConnectionError{
+			err,
+			"read",
+			conn.RemoteAddr(),
+			conn.LocalAddr(),
+			conn,
+		}
 	}
 
 	conn.Log().Debugf(
@@ -140,7 +146,13 @@ func (conn *connection) Write(buf []byte) (int, error) {
 	}
 
 	if err != nil {
-		return num, err
+		return num, &ConnectionError{
+			err,
+			"write",
+			conn.LocalAddr(),
+			conn.RemoteAddr(),
+			conn,
+		}
 	}
 
 	conn.Log().Debugf(
@@ -163,7 +175,13 @@ func (conn *connection) RemoteAddr() net.Addr {
 func (conn *connection) Close() error {
 	err := conn.baseConn.Close()
 	if err != nil {
-		return err
+		return &ConnectionError{
+			err,
+			"close",
+			nil,
+			nil,
+			conn,
+		}
 	}
 
 	conn.Log().Debugf(
@@ -171,7 +189,7 @@ func (conn *connection) Close() error {
 		conn,
 	)
 
-	return err
+	return nil
 }
 
 // Thread-safe connections store.
