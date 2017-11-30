@@ -27,6 +27,10 @@ func (c *ElasticChan) Init() {
 	go c.manage()
 }
 
+func (c *ElasticChan) Reset() {
+	c.buffer = make([]interface{}, 0)
+}
+
 func (c *ElasticChan) Log() log.Logger {
 	return c.log
 }

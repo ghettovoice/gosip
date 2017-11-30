@@ -33,9 +33,9 @@ type IncomingMessage struct {
 
 // Target endpoint
 type Target struct {
+	Protocol string
 	Host     string
 	Port     *core.Port
-	Protocol string
 }
 
 func (trg *Target) Addr() string {
@@ -62,7 +62,7 @@ func (trg *Target) Addr() string {
 func (trg *Target) String() string {
 	var prc string
 	if strings.TrimSpace(trg.Protocol) != "" {
-		prc = trg.Protocol
+		prc = strings.ToUpper(trg.Protocol)
 	} else {
 		prc = DefaultProtocol
 	}

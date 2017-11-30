@@ -42,6 +42,8 @@ type Parser interface {
 	Stop()
 
 	String() string
+	// Reset resets parser state
+	Reset()
 }
 
 // A HeaderParser is any function that turns raw header data into one or more Header objects.
@@ -73,15 +75,15 @@ func defaultHeaderParsers() map[string]HeaderParser {
 // same endpoint (e.g. UDP).
 func ParseMessage(msgData []byte, logger log.Logger) (core.Message, error) {
 	output := make(chan core.Message, 0)
-	errors := make(chan error, 0)
-	parser := NewParser(output, errors, false)
+	errs := make(chan error, 0)
+	parser := NewParser(output, errs, false)
 	defer parser.Stop()
 	parser.SetLog(logger)
 	parser.Write(msgData)
 	select {
 	case msg := <-output:
 		return msg, nil
-	case err := <-errors:
+	case err := <-errs:
 		return nil, err
 	}
 }
@@ -192,6 +194,18 @@ func (p *parser) Stop() {
 	p.stopped = true
 	p.input.Stop()
 	p.Log().Debugf("parser '%s' stopped", p)
+}
+
+func (p *parser) Reset() {
+	p.Stop()
+	// reset elastic chan
+	p.bodyLengths.Reset()
+	// recreate buffer
+	p.input = newParserBuffer()
+	p.input.SetLog(p.Log())
+	// run
+	p.stopped = false
+	p.terminalErr = nil
 }
 
 // Consume input lines one at a time, producing core.Message objects and sending them down p.output.

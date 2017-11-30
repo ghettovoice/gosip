@@ -19,18 +19,13 @@ func NewUdpProtocol() Protocol {
 	udp := &udpProtocol{
 		connections: NewConnectionsStore(),
 	}
-	udp.init("UDP", false, false, udp.onStop)
+	udp.init("UDP", false, false)
 	return udp
 }
 
 func (udp *udpProtocol) Listen(target *Target) error {
 	// fill empty target props with default values
 	target = FillTargetHostAndPort(udp.Network(), target)
-	return udp.serve(target, 1)
-}
-
-// serves connection with recreation of broken connections
-func (udp *udpProtocol) serve(target *Target, try uint8) error {
 	network := strings.ToLower(udp.Network())
 	addr := target.Addr()
 	// resolve local UDP endpoint
@@ -54,9 +49,38 @@ func (udp *udpProtocol) serve(target *Target, try uint8) error {
 	// register new connection
 	conn := NewConnection(udpConn)
 	conn.SetLog(udp.Log())
-	udp.connections.Add(laddr, conn)
+	// store by local address
+	udp.connections.Add(conn.LocalAddr(), conn)
 	// start connection serving
-	udp.serveConnection(conn)
+	errs := make(chan error)
+	udp.serveConnection(conn, udp.output, udp.errs)
+	udp.wg.Add(1)
+	go func() {
+		defer func() {
+			udp.wg.Done()
+			close(errs)
+		}()
+		for {
+			select {
+			case <-udp.stop:
+				return
+			case err, ok := <-errs:
+				if !ok {
+					return
+				}
+				if _, ok := err.(net.Error); ok {
+					udp.Log().Warnf("%s received connection error: %s; connection %s will be closed", udp, err, conn)
+					conn.Close()
+					udp.connections.Drop(conn.LocalAddr())
+				}
+				select {
+				case <-udp.stop:
+					return
+				case udp.errs <- err:
+				}
+			}
+		}
+	}()
 
 	return err // should be nil here
 }
@@ -111,12 +135,12 @@ func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
 	return err // should be nil
 }
 
-func (udp *udpProtocol) onStop() error {
+func (udp *udpProtocol) Stop() {
+	udp.protocol.Stop()
+
 	udp.Log().Debugf("disposing all active connections")
 	for _, conn := range udp.connections.All() {
 		conn.Close()
-		udp.connections.Drop(conn.RemoteAddr())
+		udp.connections.Drop(conn.LocalAddr())
 	}
-
-	return nil
 }

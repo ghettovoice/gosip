@@ -29,29 +29,19 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 	// resolve local TCP endpoint
 	laddr, err := net.ResolveTCPAddr(network, addr)
 	if err != nil {
-		return &Error{
-			Txt: fmt.Sprintf(
-				"%s failed to resolve address %s: %s",
-				tcp,
-				addr,
-				err,
-			),
-			Protocol: tcp.String(),
-			LAddr:    addr,
+		return &ProtocolError{
+			fmt.Errorf("failed to resolve local address %s: %s", addr, err),
+			fmt.Sprintf("resolve %s address", tcp.Network()),
+			tcp,
 		}
 	}
 
 	listener, err := net.ListenTCP(network, laddr)
 	if err != nil {
-		return &Error{
-			Txt: fmt.Sprintf(
-				"%s failed to listen on address %s: %s",
-				tcp,
-				addr,
-				err,
-			),
-			Protocol: tcp.String(),
-			LAddr:    laddr.String(),
+		return &ProtocolError{
+			fmt.Errorf("failed to listen address %s: %s", laddr, err),
+			fmt.Sprintf("create %s listener", tcp.Network()),
+			tcp,
 		}
 	}
 
@@ -62,13 +52,15 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 	return err // should be nil here
 }
 
-func (tcp *tcpProtocol) serveListener(listener *net.TCPListener) <-chan error {
+func (tcp *tcpProtocol) serveListener(listener *net.TCPListener) {
+	defer func() {
+		tcp.Log().Infof("stop serving listener %p on address %s", listener, listener.Addr())
+	}()
 	tcp.Log().Infof("begin serving listener %p on address %s", listener, listener.Addr())
 
 	for {
 		select {
-		case <-tcp.stop:
-			tcp.Log().Infof("stop serving connections on address %s", listener.Addr())
+		case <-tcp.stop: // protocol stop was called
 			return
 		default:
 			baseConn, err := listener.Accept()
