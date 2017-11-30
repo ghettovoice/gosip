@@ -11,14 +11,14 @@ import (
 // TCP protocol implementation
 type tcpProtocol struct {
 	protocol
-	connections *connectionsStore
-	listeners   *listenersStore
+	connections *connectionPool
+	listeners   *listenerPool
 }
 
 func NewTcpProtocol() Protocol {
 	tcp := &tcpProtocol{
-		connections: NewConnectionsStore(),
-		listeners:   NewListenersStore(),
+		connections: NewConnectionPool(),
+		listeners:   NewListenerPool(),
 	}
 	tcp.init("tcp", true, true)
 	return tcp

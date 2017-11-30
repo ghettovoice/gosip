@@ -9,8 +9,6 @@ import (
 )
 
 const (
-	bufferSize uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
-
 	MTU uint = 1500
 
 	DefaultHost     = "0.0.0.0"
@@ -106,6 +104,7 @@ type Error interface {
 	Network() bool
 }
 
+// Connection level error.
 type ConnectionError struct {
 	Err    error
 	Op     string
@@ -156,6 +155,7 @@ func (err *ConnectionError) Error() string {
 	return s
 }
 
+// Net Protocol level error
 type ProtocolError struct {
 	Err      error
 	Op       string
@@ -189,13 +189,4 @@ func (err *ProtocolError) Error() string {
 	s += " " + err.Op + ": " + err.Err.Error()
 
 	return s
-}
-
-type UnsupportedProtocolError string
-
-func (err UnsupportedProtocolError) Network() bool   { return false }
-func (err UnsupportedProtocolError) Timeout() bool   { return false }
-func (err UnsupportedProtocolError) Temporary() bool { return false }
-func (err UnsupportedProtocolError) Error() string {
-	return "UnsupportedProtocolError: " + string(err)
 }

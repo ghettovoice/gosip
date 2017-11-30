@@ -12,12 +12,12 @@ import (
 type udpProtocol struct {
 	protocol
 	// listening connections
-	connections *connectionsStore
+	connections *connectionPool
 }
 
 func NewUdpProtocol() Protocol {
 	udp := &udpProtocol{
-		connections: NewConnectionsStore(),
+		connections: NewConnectionPool(),
 	}
 	udp.init("udp", false, false)
 	return udp

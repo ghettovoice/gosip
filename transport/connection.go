@@ -8,7 +8,12 @@ import (
 	"time"
 
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/timing"
 	"github.com/sirupsen/logrus"
+)
+
+var (
+	bufferSize uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
 )
 
 // Wrapper around net.Conn.
@@ -190,90 +195,4 @@ func (conn *connection) Close() error {
 	)
 
 	return nil
-}
-
-// Thread-safe connections store.
-type connectionsStore struct {
-	lock  *sync.RWMutex
-	index map[net.Addr]Connection
-}
-
-func NewConnectionsStore() *connectionsStore {
-	return &connectionsStore{
-		lock:  new(sync.RWMutex),
-		index: make(map[net.Addr]Connection),
-	}
-}
-
-func (store *connectionsStore) Add(key net.Addr, conn Connection) {
-	store.lock.Lock()
-	store.index[key] = conn
-	store.lock.Unlock()
-}
-
-func (store *connectionsStore) Get(key net.Addr) (Connection, bool) {
-	store.lock.RLock()
-	defer store.lock.RUnlock()
-	connection, ok := store.index[key]
-	return connection, ok
-}
-
-func (store *connectionsStore) Drop(key net.Addr) {
-	store.lock.Lock()
-	delete(store.index, key)
-	store.lock.Unlock()
-}
-
-func (store *connectionsStore) All() []Connection {
-	all := make([]Connection, 0)
-	for key := range store.index {
-		if conn, ok := store.Get(key); ok {
-			all = append(all, conn)
-		}
-	}
-
-	return all
-}
-
-// Thread-safe listeners store.
-type listenersStore struct {
-	lock  *sync.RWMutex
-	index map[net.Addr]net.Listener
-}
-
-func NewListenersStore() *listenersStore {
-	return &listenersStore{
-		lock:  new(sync.RWMutex),
-		index: make(map[net.Addr]net.Listener),
-	}
-}
-
-func (store *listenersStore) Add(key net.Addr, listener net.Listener) {
-	store.lock.Lock()
-	store.index[key] = listener
-	store.lock.Unlock()
-}
-
-func (store *listenersStore) Get(key net.Addr) (net.Listener, bool) {
-	store.lock.RLock()
-	defer store.lock.RUnlock()
-	listener, ok := store.index[key]
-	return listener, ok
-}
-
-func (store *listenersStore) Drop(key net.Addr) {
-	store.lock.Lock()
-	delete(store.index, key)
-	store.lock.Unlock()
-}
-
-func (store *listenersStore) All() []net.Listener {
-	all := make([]net.Listener, 0)
-	for key := range store.index {
-		if listener, ok := store.Get(key); ok {
-			all = append(all, listener)
-		}
-	}
-
-	return all
 }

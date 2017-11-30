@@ -4,6 +4,7 @@ package gosip
 import (
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/ghettovoice/gosip/core"
@@ -11,11 +12,30 @@ import (
 	"github.com/ghettovoice/gosip/transport"
 )
 
+type UnsupportedProtocolError string
+
+func (err UnsupportedProtocolError) Network() bool   { return false }
+func (err UnsupportedProtocolError) Timeout() bool   { return false }
+func (err UnsupportedProtocolError) Temporary() bool { return false }
+func (err UnsupportedProtocolError) Error() string {
+	return "UnsupportedProtocolError: " + string(err)
+}
+
+type AlreadyRegisteredProtocolError string
+
+func (err AlreadyRegisteredProtocolError) Network() bool   { return false }
+func (err AlreadyRegisteredProtocolError) Timeout() bool   { return false }
+func (err AlreadyRegisteredProtocolError) Temporary() bool { return false }
+func (err AlreadyRegisteredProtocolError) Error() string {
+	return "AlreadyRegisteredProtocolError: " + string(err)
+}
+
 // Transport layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Transport interface {
 	log.WithLogger
 	Output() <-chan core.Message
 	Errors() <-chan error
+	Register(protocol transport.Protocol) error
 	// Listen starts listening on `addr` for each registered protocol.
 	Listen(target *transport.Target) error
 	// Send sends message on suitable protocol.
@@ -27,7 +47,7 @@ type Transport interface {
 
 // Transport layer implementation.
 type stdTransport struct {
-	protocols *protocolsStore
+	protocols *protocolPool
 	log       log.Logger
 	hostaddr  string
 	output    chan core.Message
@@ -47,19 +67,27 @@ func NewTransport(
 		errs:      make(chan error),
 		stop:      make(chan bool),
 		wg:        new(sync.WaitGroup),
-		protocols: NewProtocolsStore(),
+		protocols: NewProtocolPool(),
 	}
 	tp.SetLog(log.StandardLogger())
 
-	// protocols registering
-	udp := transport.NewUdpProtocol()
-	tp.protocols.Add(udp.Network(), udp)
-
-	tcp := transport.NewTcpProtocol()
-	tp.protocols.Add(tcp.Network(), tcp)
+	// predefined protocols
+	tp.Register(transport.NewTcpProtocol())
+	tp.Register(transport.NewUdpProtocol())
 	// TODO implement TLS
 
 	return tp
+}
+
+func (tp *stdTransport) Register(protocol transport.Protocol) error {
+	if _, ok := tp.protocols.Get(protocolKey(protocol.Network())); ok {
+		return AlreadyRegisteredProtocolError(fmt.Sprintf("%s already registered", protocol))
+	}
+
+	protocol.SetLog(tp.Log())
+	tp.protocols.Add(protocolKey(protocol.Network()), protocol)
+
+	return nil
 }
 
 func (tp *stdTransport) String() string {
@@ -93,10 +121,10 @@ func (tp *stdTransport) Errors() <-chan error {
 }
 
 func (tp *stdTransport) Listen(target *transport.Target) error {
-	protocol, ok := tp.protocols.Get(target.Protocol)
+	protocol, ok := tp.protocols.Get(protocolKey(target.Protocol))
 	if !ok {
-		return transport.UnsupportedProtocolError(fmt.Sprintf(
-			"protocol %s not registered in %s",
+		return UnsupportedProtocolError(fmt.Sprintf(
+			"protocol %s is not registered in %s",
 			target.Protocol,
 			tp,
 		))
@@ -110,8 +138,6 @@ func (tp *stdTransport) Listen(target *transport.Target) error {
 		return err
 	}
 
-	protocol.SetLog(tp.Log())
-	tp.protocols.Add(protocol.Network(), protocol)
 	// start protocol output forwarding goroutine
 	tp.wg.Add(1)
 	go tp.serveProtocol(protocol, tp.wg)
@@ -137,18 +163,18 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 		// rewrite sent-by host
 		viaHop.Host = tp.hostaddr
 
-		if viaHop.Transport == "UDP" && msgLen > int(transport.MTU)-200 {
-			nets = append(nets, "TCP", viaHop.Transport)
+		if strings.ToLower(viaHop.Transport) == "udp" && msgLen > int(transport.MTU)-200 {
+			nets = append(nets, transport.DefaultProtocol, viaHop.Transport)
 		} else {
 			nets = append(nets, viaHop.Transport)
 		}
 
 		var err error
 		for _, nt := range nets {
-			protocol, ok := tp.protocols.Get(nt)
+			protocol, ok := tp.protocols.Get(protocolKey(nt))
 			if !ok {
-				err = transport.UnsupportedProtocolError(fmt.Sprintf(
-					"protocol %s not registered in %s",
+				err = UnsupportedProtocolError(fmt.Sprintf(
+					"protocol %s is not registered in %s",
 					target.Protocol,
 					tp,
 				))
@@ -171,10 +197,10 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 	// RFC 3261 - 18.2.2.
 	case core.Response:
 		// resolve protocol from Via
-		protocol, ok := tp.protocols.Get(viaHop.Transport)
+		protocol, ok := tp.protocols.Get(protocolKey(viaHop.Transport))
 		if !ok {
-			return transport.UnsupportedProtocolError(fmt.Sprintf(
-				"protocol %s not registered in %s",
+			return UnsupportedProtocolError(fmt.Sprintf(
+				"protocol %s is not registered in %s",
 				target.Protocol,
 				tp,
 			))
@@ -374,36 +400,38 @@ func (tp *stdTransport) onProtocolError(err error, protocol transport.Protocol) 
 	}
 }
 
-// Thread-safe protocols store.
-type protocolsStore struct {
+type protocolKey string
+
+// Thread-safe protocols pool.
+type protocolPool struct {
 	lock  *sync.RWMutex
-	index map[string]transport.Protocol
+	store map[protocolKey]transport.Protocol
 }
 
-func NewProtocolsStore() *protocolsStore {
-	return &protocolsStore{
+func NewProtocolPool() *protocolPool {
+	return &protocolPool{
 		lock:  new(sync.RWMutex),
-		index: make(map[string]transport.Protocol),
+		store: make(map[protocolKey]transport.Protocol),
 	}
 }
 
-func (store *protocolsStore) Add(key string, protocol transport.Protocol) {
-	store.lock.Lock()
-	store.index[key] = protocol
-	store.lock.Unlock()
+func (pool *protocolPool) Add(key protocolKey, protocol transport.Protocol) {
+	pool.lock.Lock()
+	pool.store[key] = protocol
+	pool.lock.Unlock()
 }
 
-func (store *protocolsStore) Get(key string) (transport.Protocol, bool) {
-	store.lock.RLock()
-	defer store.lock.RUnlock()
-	protocol, ok := store.index[key]
+func (pool *protocolPool) Get(key protocolKey) (transport.Protocol, bool) {
+	pool.lock.RLock()
+	defer pool.lock.RUnlock()
+	protocol, ok := pool.store[key]
 	return protocol, ok
 }
 
-func (store *protocolsStore) All() []transport.Protocol {
+func (pool *protocolPool) All() []transport.Protocol {
 	all := make([]transport.Protocol, 0)
-	for key := range store.index {
-		if protocol, ok := store.Get(key); ok {
+	for key := range pool.store {
+		if protocol, ok := pool.Get(key); ok {
 			all = append(all, protocol)
 		}
 	}
