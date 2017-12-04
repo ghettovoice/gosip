@@ -7,7 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/syntax"
 	"github.com/ghettovoice/gosip/timing"
 )
 
@@ -209,6 +211,9 @@ type connectionHandler struct {
 	timer      timing.Timer
 	expiryTime time.Time
 	expiry     chan<- ConnKey
+	parser     syntax.Parser
+	messages   chan core.Message
+	errs       chan error
 }
 
 func NewConnectionHandler(
@@ -227,18 +232,23 @@ func NewConnectionHandler(
 		expiryTime: timing.Now().Add(ttl),
 	}
 	handler.SetLog(conn.Log())
+	// initialize parser for connection
+	handler.parser = syntax.NewParser(handler.messages, handler.errs, conn.IsStream())
+	handler.parser.SetLog(handler.Log())
 	return handler
 }
 
 func (handler *connectionHandler) String() string {
-	var name string
+	var name, key string
 	if handler == nil {
 		name = "<nil>"
+		key = ""
 	} else {
 		name = fmt.Sprintf("%p", handler)
+		key = fmt.Sprintf(" (key %s)", handler.Key())
 	}
 
-	return fmt.Sprintf("connection handler %s", name)
+	return fmt.Sprintf("connection handler %s%s", name, key)
 }
 
 func (handler *connectionHandler) Log() log.Logger {
@@ -291,6 +301,118 @@ func (handler *connectionHandler) Serve() {
 			// pass up to the pool expired connection key
 			// pool will make decision to drop out connection or update ttl.
 			handler.expiry <- handler.Key()
+		}
+	}
+}
+
+func (handler *connectionHandler) readConnection() {
+	defer func() {
+		handler.Log().Debugf("stop reading from %s on address %s with %s", handler.Connection(),
+			handler.Connection().LocalAddr(), handler.parser)
+	}()
+	handler.Log().Debugf("begin reading from %s on address %s with %s", handler.Connection(),
+		handler.Connection().LocalAddr(), handler.parser)
+
+	buf := make([]byte, bufferSize)
+	for {
+		select {
+		case <-handler.ctx.Done():
+			return
+		default:
+			num, err := handler.Connection().Read(buf)
+			if err != nil {
+				// if we get timeout error just go further and try read on the next iteration
+				if err, ok := err.(net.Error); ok {
+					if err.Timeout() || err.Temporary() {
+						handler.Log().Debugf("%s timeout or temporary unavailable, sleep by %d seconds",
+							handler.Connection(), netErrRetryTime)
+						time.Sleep(netErrRetryTime)
+						continue
+					}
+				}
+				// broken or closed connection, stop reading and piping
+				// so passing up error
+				select {
+				case <-handler.ctx.Done():
+				case handler.errs <- err:
+				}
+				return
+			}
+
+			pkt := append([]byte{}, buf[:num]...)
+			if _, err := handler.parser.Write(pkt); err != nil {
+				select {
+				case <-handler.ctx.Done():
+					return
+				case handler.errs <- err:
+				}
+			}
+		}
+	}
+}
+
+func (handler *connectionHandler) pipeConnection() {
+	defer func() {
+		handler.Log().Debugf("stop piping outputs from %s on address %s with %s", handler.Connection(),
+			handler.Connection().LocalAddr(), handler.parser)
+	}()
+	handler.Log().Debugf("start piping outputs from %s on address %s with %s", handler.Connection(),
+		handler.Connection().LocalAddr(), handler.parser)
+
+	for {
+		select {
+		case <-handler.ctx.Done():
+			return
+		case msg, ok := <-handler.messages:
+			if !ok {
+				// connection was closed, exit
+				return
+			}
+			if msg != nil {
+				handler.Log().Infof("%s received message '%s' from %s and %s, passing it up", handler,
+					msg.Short(), handler.Connection(), handler.parser)
+
+				incomingMsg := &IncomingMessage{
+					msg,
+					handler.Connection().LocalAddr(),
+					handler.Connection().RemoteAddr(),
+				}
+				select {
+				case <-handler.ctx.Done(): // protocol stop called
+					return
+				case incomingMessages <- incomingMsg:
+					pr.Log().Debugf("%s passed up message '%s' %p", pr, msg.Short(), msg)
+				}
+			}
+		case err, ok := <-errs:
+			if !ok {
+				// connection was closed, exit
+				return
+			}
+			if err != nil {
+				// on parser errors just reset parser and pass the error up
+				//
+				// all other unhandled errors (connection fall & etc) lead to halt piping
+				// so drop connection, pass the error up and exit
+				fatal := true
+
+				if err, ok := err.(syntax.Error); ok {
+					pr.Log().Warnf("reset %s for %s due to parser error: %s", parser, conn, err)
+					parser.Reset()
+					fatal = false
+				}
+
+				select {
+				case <-pr.stop: // protocol stop called
+					return
+				case incomingErrs <- err:
+					pr.Log().Debugf("%s passed up unhandled error %s", pr, err)
+					if fatal {
+						// connection error, exit
+						return
+					}
+				}
+			}
 		}
 	}
 }
