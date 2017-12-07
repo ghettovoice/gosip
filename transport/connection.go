@@ -4,12 +4,9 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/timing"
-	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -84,10 +81,10 @@ func (conn *connection) Log() log.Logger {
 }
 
 func (conn *connection) SetLog(logger log.Logger) {
-	conn.log = logger.WithFields(logrus.Fields{
-		"laddr":      conn.LocalAddr().String(),
-		"network":    strings.ToUpper(conn.LocalAddr().Network()),
-		"connection": conn.String(),
+	conn.log = logger.WithFields(map[string]interface{}{
+		"laddr": conn.LocalAddr().String(),
+		"net":   strings.ToUpper(conn.LocalAddr().Network()),
+		"conn":  conn.String(),
 	})
 }
 

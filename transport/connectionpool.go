@@ -53,15 +53,19 @@ type connectionPool struct {
 	wg       *sync.WaitGroup
 	store    map[ConnKey]ConnectionHandler
 	expiries chan ConnKey
+	output   chan<- *IncomingMessage
+	errs     chan<- error
 }
 
-func NewConnectionPool(ctx context.Context) *connectionPool {
+func NewConnectionPool(ctx context.Context, output chan<- *IncomingMessage, errs chan<- error) *connectionPool {
 	pool := &connectionPool{
 		ctx:      ctx,
 		lock:     new(sync.RWMutex),
 		wg:       new(sync.WaitGroup),
 		store:    make(map[ConnKey]ConnectionHandler),
 		expiries: make(chan ConnKey),
+		output:   output,
+		errs:     errs,
 	}
 	pool.SetLog(log.StandardLogger())
 	return pool
@@ -94,7 +98,7 @@ func (pool *connectionPool) Add(key ConnKey, connection Connection, ttl time.Dur
 	handler, ok := pool.getHandler(key)
 	if !ok {
 		ctx, cancel := context.WithCancel(pool.ctx)
-		handler := NewConnectionHandler(ctx, key, connection, ttl, pool.expiries)
+		handler := NewConnectionHandler(ctx, key, connection, ttl, pool.expiries, pool.output, pool.errs)
 		pool.addHandler(key, NewCancellableConnectionHandler(handler, cancel))
 		pool.wg.Add(1)
 		go func() {
@@ -201,7 +205,6 @@ func (pool *connectionPool) dispose() {
 	close(pool.expiries)
 }
 
-// todo move serveConnection methods to Handler
 // connectionHandler actually serves associated connection
 type connectionHandler struct {
 	log        log.Logger
@@ -211,9 +214,8 @@ type connectionHandler struct {
 	timer      timing.Timer
 	expiryTime time.Time
 	expiry     chan<- ConnKey
-	parser     syntax.Parser
-	messages   chan core.Message
-	errs       chan error
+	output     chan<- *IncomingMessage
+	errs       chan<- error
 }
 
 func NewConnectionHandler(
@@ -222,6 +224,8 @@ func NewConnectionHandler(
 	conn Connection,
 	ttl time.Duration,
 	expiry chan<- ConnKey,
+	output chan<- *IncomingMessage,
+	errs chan<- error,
 ) ConnectionHandler {
 	handler := &connectionHandler{
 		ctx:        ctx,
@@ -230,25 +234,22 @@ func NewConnectionHandler(
 		expiry:     expiry,
 		timer:      timing.NewTimer(ttl),
 		expiryTime: timing.Now().Add(ttl),
+		output:     output,
+		errs:       errs,
 	}
 	handler.SetLog(conn.Log())
-	// initialize parser for connection
-	handler.parser = syntax.NewParser(handler.messages, handler.errs, conn.IsStream())
-	handler.parser.SetLog(handler.Log())
 	return handler
 }
 
 func (handler *connectionHandler) String() string {
-	var name, key string
+	var name string
 	if handler == nil {
 		name = "<nil>"
-		key = ""
 	} else {
 		name = fmt.Sprintf("%p", handler)
-		key = fmt.Sprintf(" (key %s)", handler.Key())
 	}
 
-	return fmt.Sprintf("connection handler %s%s", name, key)
+	return fmt.Sprintf("connection handler %s", name)
 }
 
 func (handler *connectionHandler) Log() log.Logger {
@@ -256,7 +257,11 @@ func (handler *connectionHandler) Log() log.Logger {
 }
 
 func (handler *connectionHandler) SetLog(logger log.Logger) {
-	handler.log = logger.WithField("conn-handler", handler.String())
+	handler.log = logger.WithFields(map[string]interface{}{
+		"conn-handler": handler.String(),
+		"conn-key":     fmt.Sprintf("%s", handler.Key()),
+		"conn":         fmt.Sprintf("%s", handler.Connection()),
+	})
 }
 
 func (handler *connectionHandler) Key() ConnKey {
@@ -289,6 +294,12 @@ func (handler *connectionHandler) Serve() {
 
 	handler.Log().Infof("begin serving %s for key %s and %s", handler, handler.Key(), handler.Connection())
 
+	parsedMessages := make(chan core.Message)
+	parserErrors := make(chan error)
+	parser := syntax.NewParser(parsedMessages, parserErrors, handler.Connection().IsStream())
+	parser.SetLog(handler.Log())
+
+	buf := make([]byte, bufferSize)
 	for {
 		select {
 		// pool canceled current handler
@@ -300,24 +311,52 @@ func (handler *connectionHandler) Serve() {
 				handler.Key())
 			// pass up to the pool expired connection key
 			// pool will make decision to drop out connection or update ttl.
-			handler.expiry <- handler.Key()
-		}
-	}
-}
+			select {
+			case <-handler.ctx.Done():
+				return
+			case handler.expiry <- handler.Key():
+			}
+		case msg, ok := <-parsedMessages:
+			if !ok {
+				// connection was closed, exit
+				return
+			}
+			if msg != nil {
+				handler.Log().Infof("%s received message '%s' from %s and %s, passing it up", handler,
+					msg.Short(), handler.Connection(), parser)
 
-func (handler *connectionHandler) readConnection() {
-	defer func() {
-		handler.Log().Debugf("stop reading from %s on address %s with %s", handler.Connection(),
-			handler.Connection().LocalAddr(), handler.parser)
-	}()
-	handler.Log().Debugf("begin reading from %s on address %s with %s", handler.Connection(),
-		handler.Connection().LocalAddr(), handler.parser)
+				incomingMsg := &IncomingMessage{
+					msg,
+					handler.Connection().LocalAddr(),
+					handler.Connection().RemoteAddr(),
+				}
+				select {
+				case <-handler.ctx.Done(): // protocol stop called
+					return
+				case handler.output <- incomingMsg:
+					handler.Log().Debugf("%s passed up message '%s' %p from %s and %s", handler, msg.Short(),
+						msg, handler.Connection(), parser)
+				}
+			}
+		case err, ok := <-parserErrors:
+			if !ok {
+				// connection was closed, exit
+				return
+			}
+			if err != nil {
+				// on parser errors just reset parser and pass the error up
+				handler.Log().Warnf("%s reset %s for %s due to parser error: %s", handler, parser,
+					handler.Connection(), err)
+				parser.Reset()
 
-	buf := make([]byte, bufferSize)
-	for {
-		select {
-		case <-handler.ctx.Done():
-			return
+				select {
+				case <-handler.ctx.Done():
+					return
+				case handler.errs <- err:
+					handler.Log().Debugf("%s passed up unhandled error %s from %s and %s", handler, err,
+						handler.Connection(), parser)
+				}
+			}
 		default:
 			num, err := handler.Connection().Read(buf)
 			if err != nil {
@@ -331,7 +370,7 @@ func (handler *connectionHandler) readConnection() {
 					}
 				}
 				// broken or closed connection, stop reading and piping
-				// so passing up error
+				// and pass up error
 				select {
 				case <-handler.ctx.Done():
 				case handler.errs <- err:
@@ -340,77 +379,11 @@ func (handler *connectionHandler) readConnection() {
 			}
 
 			pkt := append([]byte{}, buf[:num]...)
-			if _, err := handler.parser.Write(pkt); err != nil {
+			if _, err := parser.Write(pkt); err != nil {
 				select {
 				case <-handler.ctx.Done():
 					return
-				case handler.errs <- err:
-				}
-			}
-		}
-	}
-}
-
-func (handler *connectionHandler) pipeConnection() {
-	defer func() {
-		handler.Log().Debugf("stop piping outputs from %s on address %s with %s", handler.Connection(),
-			handler.Connection().LocalAddr(), handler.parser)
-	}()
-	handler.Log().Debugf("start piping outputs from %s on address %s with %s", handler.Connection(),
-		handler.Connection().LocalAddr(), handler.parser)
-
-	for {
-		select {
-		case <-handler.ctx.Done():
-			return
-		case msg, ok := <-handler.messages:
-			if !ok {
-				// connection was closed, exit
-				return
-			}
-			if msg != nil {
-				handler.Log().Infof("%s received message '%s' from %s and %s, passing it up", handler,
-					msg.Short(), handler.Connection(), handler.parser)
-
-				incomingMsg := &IncomingMessage{
-					msg,
-					handler.Connection().LocalAddr(),
-					handler.Connection().RemoteAddr(),
-				}
-				select {
-				case <-handler.ctx.Done(): // protocol stop called
-					return
-				case incomingMessages <- incomingMsg:
-					pr.Log().Debugf("%s passed up message '%s' %p", pr, msg.Short(), msg)
-				}
-			}
-		case err, ok := <-errs:
-			if !ok {
-				// connection was closed, exit
-				return
-			}
-			if err != nil {
-				// on parser errors just reset parser and pass the error up
-				//
-				// all other unhandled errors (connection fall & etc) lead to halt piping
-				// so drop connection, pass the error up and exit
-				fatal := true
-
-				if err, ok := err.(syntax.Error); ok {
-					pr.Log().Warnf("reset %s for %s due to parser error: %s", parser, conn, err)
-					parser.Reset()
-					fatal = false
-				}
-
-				select {
-				case <-pr.stop: // protocol stop called
-					return
-				case incomingErrs <- err:
-					pr.Log().Debugf("%s passed up unhandled error %s", pr, err)
-					if fatal {
-						// connection error, exit
-						return
-					}
+				case parserErrors <- err:
 				}
 			}
 		}

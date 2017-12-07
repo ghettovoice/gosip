@@ -45,7 +45,7 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	conn := NewConnection(udpConn)
 	conn.SetLog(udp.Log())
 	// store by local address
-	udp.connections.Add(conn.LocalAddr(), conn)
+	udp.connections.Add(ConnKey(conn.LocalAddr()), conn, -1)
 	// start connection serving
 	errs := make(chan error)
 	udp.serveConnection(conn, udp.output, errs)

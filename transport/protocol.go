@@ -10,7 +10,6 @@ import (
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/syntax"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -60,7 +59,7 @@ func (pr *protocol) init(
 }
 
 func (pr *protocol) SetLog(logger log.Logger) {
-	pr.log = logger.WithFields(logrus.Fields{
+	pr.log = logger.WithFields(map[string]interface{}{
 		"protocol": pr.String(),
 	})
 }
