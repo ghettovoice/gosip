@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -15,11 +16,11 @@ type udpProtocol struct {
 	connections *connectionPool
 }
 
-func NewUdpProtocol() Protocol {
+func NewUdpProtocol(ctx context.Context, output chan<- *IncomingMessage, errs chan<- error) Protocol {
 	udp := &udpProtocol{
-		connections: NewConnectionPool(),
+		connections: NewConnectionPool(ctx, output, errs),
 	}
-	udp.init("udp", false, false)
+	udp.init(ctx, "udp", false, false, output, errs)
 	return udp
 }
 
@@ -124,16 +125,6 @@ func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
 	_, err = conn.Write(data)
 
 	return err // should be nil
-}
-
-func (udp *udpProtocol) Stop() {
-	udp.protocol.Stop()
-
-	udp.Log().Debugf("disposing all active connections")
-	for _, conn := range udp.connections.All() {
-		conn.Close()
-		udp.connections.Drop(conn.LocalAddr())
-	}
 }
 
 func (udp *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {

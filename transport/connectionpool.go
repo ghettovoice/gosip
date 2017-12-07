@@ -47,25 +47,27 @@ type CancellableConnectionHandler interface {
 
 // Thread-safe connection pool implementation with expiry management.
 type connectionPool struct {
-	ctx      context.Context
-	log      log.Logger
-	lock     *sync.RWMutex
-	wg       *sync.WaitGroup
-	store    map[ConnKey]ConnectionHandler
-	expiries chan ConnKey
-	output   chan<- *IncomingMessage
-	errs     chan<- error
+	ctx             context.Context
+	log             log.Logger
+	lock            *sync.RWMutex
+	wg              *sync.WaitGroup
+	store           map[ConnKey]ConnectionHandler
+	expiredHandlers chan ConnectionHandler
+	output          chan<- *IncomingMessage
+	errs            chan<- error
+	handlerErrors   chan error
 }
 
 func NewConnectionPool(ctx context.Context, output chan<- *IncomingMessage, errs chan<- error) *connectionPool {
 	pool := &connectionPool{
-		ctx:      ctx,
-		lock:     new(sync.RWMutex),
-		wg:       new(sync.WaitGroup),
-		store:    make(map[ConnKey]ConnectionHandler),
-		expiries: make(chan ConnKey),
-		output:   output,
-		errs:     errs,
+		ctx:             ctx,
+		lock:            new(sync.RWMutex),
+		wg:              new(sync.WaitGroup),
+		store:           make(map[ConnKey]ConnectionHandler),
+		expiredHandlers: make(chan ConnectionHandler),
+		handlerErrors:   make(chan error),
+		output:          output,
+		errs:            errs,
 	}
 	pool.SetLog(log.StandardLogger())
 	return pool
@@ -98,7 +100,7 @@ func (pool *connectionPool) Add(key ConnKey, connection Connection, ttl time.Dur
 	handler, ok := pool.getHandler(key)
 	if !ok {
 		ctx, cancel := context.WithCancel(pool.ctx)
-		handler := NewConnectionHandler(ctx, key, connection, ttl, pool.expiries, pool.output, pool.errs)
+		handler := NewConnectionHandler(ctx, key, connection, ttl, pool.expiredHandlers, pool.output, pool.handlerErrors)
 		pool.addHandler(key, NewCancellableConnectionHandler(handler, cancel))
 		pool.wg.Add(1)
 		go func() {
@@ -144,23 +146,22 @@ func (pool *connectionPool) Serve() {
 		select {
 		case <-pool.ctx.Done():
 			return
-		case key := <-pool.expiries:
-			handler, ok := pool.getHandler(key)
+		case handler := <-pool.expiredHandlers:
+			_, ok := pool.getHandler(handler.Key())
 			if !ok {
-				pool.Log().Warnf("ignore already dropped out handler for key %s in %s", key, pool)
+				pool.Log().Warnf("ignore already dropped out %s in %s", handler, pool)
 				continue
 			}
 
 			if handler.Expiries().Before(time.Now()) {
 				// connection expired
-				pool.Log().Debugf("%s notified that %s for key %s and %s has expired, drop it", pool,
-					handler, key, handler.Connection())
+				pool.Log().Debugf("%s notified that %s has expired, drop it", pool, handler)
 				// close and drop from pool
-				pool.Drop(key)
+				pool.Drop(handler.Key())
 			} else {
 				// Due to a race condition, the socket has been updated since this expiry happened.
 				// Ignore the expiry since we already have a new socket for this address.
-				pool.Log().Warnf("ignored spurious expiry for key %s in %s", key, pool)
+				pool.Log().Warnf("ignored spurious expiry of %s in %s", handler, pool)
 			}
 		}
 	}
@@ -202,7 +203,8 @@ func (pool *connectionPool) dispose() {
 		pool.Drop(handler.Key())
 	}
 	pool.wg.Wait()
-	close(pool.expiries)
+	close(pool.expiredHandlers)
+	close(pool.handlerErrors)
 }
 
 // connectionHandler actually serves associated connection
@@ -213,7 +215,7 @@ type connectionHandler struct {
 	connection Connection
 	timer      timing.Timer
 	expiryTime time.Time
-	expiry     chan<- ConnKey
+	expired    chan<- ConnectionHandler
 	output     chan<- *IncomingMessage
 	errs       chan<- error
 }
@@ -223,7 +225,7 @@ func NewConnectionHandler(
 	key ConnKey,
 	conn Connection,
 	ttl time.Duration,
-	expiry chan<- ConnKey,
+	expired chan<- ConnectionHandler,
 	output chan<- *IncomingMessage,
 	errs chan<- error,
 ) ConnectionHandler {
@@ -231,7 +233,7 @@ func NewConnectionHandler(
 		ctx:        ctx,
 		key:        key,
 		connection: conn,
-		expiry:     expiry,
+		expired:    expired,
 		timer:      timing.NewTimer(ttl),
 		expiryTime: timing.Now().Add(ttl),
 		output:     output,
@@ -242,14 +244,32 @@ func NewConnectionHandler(
 }
 
 func (handler *connectionHandler) String() string {
-	var name string
+	var name, key, conn, addition string
 	if handler == nil {
 		name = "<nil>"
+		key = ""
+		conn = ""
 	} else {
 		name = fmt.Sprintf("%p", handler)
+		if handler.Key() != nil {
+			key = fmt.Sprintf("%s", handler.Key())
+		}
+		if handler.Connection() != nil {
+			conn = fmt.Sprintf("%s", handler.Connection())
+		}
+		if key != "" || conn != "" {
+			addition = "("
+			if key != "" {
+				addition += key
+			}
+			if conn != "" {
+				addition += conn
+			}
+			addition += ")"
+		}
 	}
 
-	return fmt.Sprintf("connection handler %s", name)
+	return fmt.Sprintf("connection handler %s%s", name, addition)
 }
 
 func (handler *connectionHandler) Log() log.Logger {
@@ -287,17 +307,20 @@ func (handler *connectionHandler) Update(ttl time.Duration) {
 // connection serving loop.
 // Waits for the connection to expire, and notifies the pool when it does.
 func (handler *connectionHandler) Serve() {
-	defer func() {
-		handler.Log().Infof("stop serving %s for key %s and %s", handler, handler.Key(), handler.Connection())
-		handler.dispose()
-	}()
-
-	handler.Log().Infof("begin serving %s for key %s and %s", handler, handler.Key(), handler.Connection())
-
 	parsedMessages := make(chan core.Message)
 	parserErrors := make(chan error)
 	parser := syntax.NewParser(parsedMessages, parserErrors, handler.Connection().IsStream())
 	parser.SetLog(handler.Log())
+
+	defer func() {
+		handler.Log().Infof("stop serving %s for key %s and %s", handler, handler.Key(), handler.Connection())
+		parser.Stop()
+		handler.dispose()
+		close(parsedMessages)
+		close(parserErrors)
+	}()
+
+	handler.Log().Infof("begin serving %s for key %s and %s", handler, handler.Key(), handler.Connection())
 
 	buf := make([]byte, bufferSize)
 	for {
@@ -314,7 +337,7 @@ func (handler *connectionHandler) Serve() {
 			select {
 			case <-handler.ctx.Done():
 				return
-			case handler.expiry <- handler.Key():
+			case handler.expired <- handler.Key():
 			}
 		case msg, ok := <-parsedMessages:
 			if !ok {
@@ -344,7 +367,7 @@ func (handler *connectionHandler) Serve() {
 				return
 			}
 			if err != nil {
-				// on parser errors just reset parser and pass the error up
+				// on parser errors (should be syntax.Error) just reset parser and pass the error up
 				handler.Log().Warnf("%s reset %s for %s due to parser error: %s", handler, parser,
 					handler.Connection(), err)
 				parser.Reset()
@@ -352,7 +375,7 @@ func (handler *connectionHandler) Serve() {
 				select {
 				case <-handler.ctx.Done():
 					return
-				case handler.errs <- err:
+				case handler.errs <- &ConnectionHandlerError{err, handler}:
 					handler.Log().Debugf("%s passed up unhandled error %s from %s and %s", handler, err,
 						handler.Connection(), parser)
 				}
@@ -370,10 +393,12 @@ func (handler *connectionHandler) Serve() {
 					}
 				}
 				// broken or closed connection, stop reading and piping
-				// and pass up error
+				// and pass up error (net.Error)
 				select {
 				case <-handler.ctx.Done():
-				case handler.errs <- err:
+				case handler.errs <- &ConnectionHandlerError{err, handler}:
+					handler.Log().Debugf("%s passed up unhandled error %s from %s and %s", handler, err,
+						handler.Connection(), parser)
 				}
 				return
 			}

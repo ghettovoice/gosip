@@ -190,3 +190,37 @@ func (err *ProtocolError) Error() string {
 
 	return s
 }
+
+type ConnectionHandlerError struct {
+	Err     error
+	Handler ConnectionHandler
+}
+
+func (err *ConnectionHandlerError) Network() bool { return true }
+func (err *ConnectionHandlerError) Timeout() bool {
+	if nerr, ok := err.Err.(net.Error); ok {
+		return nerr.Timeout()
+	}
+	terr, ok := err.Err.(Error)
+	return ok && terr.Timeout()
+}
+func (err *ConnectionHandlerError) Temporary() bool {
+	if nerr, ok := err.Err.(net.Error); ok {
+		return nerr.Temporary()
+	}
+	terr, ok := err.Err.(Error)
+	return ok && terr.Temporary()
+}
+func (err *ConnectionHandlerError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+
+	s := "ConnectionHandlerError"
+	if err.Handler != nil {
+		s += " " + err.Handler.String()
+	}
+	s += ": " + err.Err.Error()
+
+	return s
+}
