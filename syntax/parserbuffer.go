@@ -80,7 +80,7 @@ func (pb *parserBuffer) NextLine() (response string, err error) {
 // Block until the buffer contains at least n characters.
 // Return precisely those n characters, then delete them from the buffer.
 func (pb *parserBuffer) NextChunk(n int) (response string, err error) {
-	var data []byte = make([]byte, n)
+	var data = make([]byte, n)
 
 	var read int
 	for total := 0; total < n; {
@@ -98,5 +98,6 @@ func (pb *parserBuffer) NextChunk(n int) (response string, err error) {
 
 // Stop the parser buffer.
 func (pb *parserBuffer) Stop() {
+	pb.Log().Debugf("stopping parser buffer %p", pb)
 	pb.pipeReader.Close()
 }

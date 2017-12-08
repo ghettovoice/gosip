@@ -109,21 +109,29 @@ func isNetwork(err error) bool {
 	return ok
 }
 func isTimeout(err error) bool {
-	nerr, ok := err.(net.Error)
-	return ok && nerr.Timeout()
+	e, ok := err.(net.Error)
+	return ok && e.Timeout()
 }
 func isTemporary(err error) bool {
-	nerr, ok := err.(net.Error)
-	return ok && nerr.Temporary()
+	e, ok := err.(net.Error)
+	return ok && e.Temporary()
+}
+func isCanceled(err error) bool {
+	e, ok := err.(core.CancelError)
+	return ok && e.Canceled()
+}
+func isExpired(err error) bool {
+	e, ok := err.(core.ExpireError)
+	return ok && e.Expired()
 }
 
 // Connection level error.
 type ConnectionError struct {
 	Err    error
 	Op     string
-	Source net.Addr
-	Dest   net.Addr
-	Conn   Connection
+	Source string
+	Dest   string
+	Conn   string
 }
 
 func (err *ConnectionError) Network() bool   { return isNetwork(err.Err) }
@@ -135,20 +143,20 @@ func (err *ConnectionError) Error() string {
 	}
 
 	s := "ConnectionError"
-	if err.Conn != nil {
-		s += " " + err.Conn.String()
+	if err.Conn != "" {
+		s += " " + err.Conn
 	}
-	s += err.Op
-	if err.Source != nil {
-		s += " " + err.Source.String()
+	s += " " + err.Op
+	if err.Source != "" {
+		s += " " + err.Source
 	}
-	if err.Dest != nil {
-		if err.Source != nil {
+	if err.Dest != "" {
+		if err.Source != "" {
 			s += "->"
 		} else {
 			s += " "
 		}
-		s += err.Dest.String()
+		s += err.Dest
 	}
 
 	s += ": " + err.Err.Error()
@@ -156,11 +164,29 @@ func (err *ConnectionError) Error() string {
 	return s
 }
 
+type CancelError string
+
+func (err CancelError) Network() bool   { return false }
+func (err CancelError) Timeout() bool   { return false }
+func (err CancelError) Temporary() bool { return false }
+func (err CancelError) Canceled() bool  { return true }
+func (err CancelError) Expired() bool   { return false }
+func (err CancelError) Error() string   { return "CancelError: " + string(err) }
+
+type ExpireError string
+
+func (err ExpireError) Network() bool   { return false }
+func (err ExpireError) Timeout() bool   { return true }
+func (err ExpireError) Temporary() bool { return false }
+func (err ExpireError) Canceled() bool  { return false }
+func (err ExpireError) Expired() bool   { return true }
+func (err ExpireError) Error() string   { return "ExpireError: " + string(err) }
+
 // Net Protocol level error
 type ProtocolError struct {
 	Err      error
 	Op       string
-	Protocol Protocol
+	Protocol string
 }
 
 func (err *ProtocolError) Network() bool   { return isNetwork(err.Err) }
@@ -172,8 +198,8 @@ func (err *ProtocolError) Error() string {
 	}
 
 	s := "ProtocolError"
-	if err.Protocol != nil {
-		s += " " + err.Protocol.String()
+	if err.Protocol != "" {
+		s += " " + err.Protocol
 	}
 	s += " " + err.Op + ": " + err.Err.Error()
 
@@ -182,20 +208,23 @@ func (err *ProtocolError) Error() string {
 
 type ConnectionHandlerError struct {
 	Err     error
-	Handler ConnectionHandler
+	Key     ConnectionKey
+	Handler string
 }
 
 func (err *ConnectionHandlerError) Network() bool   { return isNetwork(err.Err) }
 func (err *ConnectionHandlerError) Timeout() bool   { return isTimeout(err.Err) }
 func (err *ConnectionHandlerError) Temporary() bool { return isTemporary(err.Err) }
+func (err *ConnectionHandlerError) Canceled() bool  { return isCanceled(err.Err) }
+func (err *ConnectionHandlerError) Expired() bool   { return isExpired(err.Err) }
 func (err *ConnectionHandlerError) Error() string {
 	if err == nil {
 		return "<nil>"
 	}
 
 	s := "ConnectionHandlerError"
-	if err.Handler != nil {
-		s += " " + err.Handler.String()
+	if err.Handler != "" {
+		s += " " + err.Handler
 	}
 	s += ": " + err.Err.Error()
 
@@ -204,20 +233,46 @@ func (err *ConnectionHandlerError) Error() string {
 
 type ListenerHandlerError struct {
 	Err     error
-	Handler ListenerHandler
+	Key     ListenerKey
+	Handler string
 }
 
 func (err *ListenerHandlerError) Network() bool   { return isNetwork(err.Err) }
 func (err *ListenerHandlerError) Timeout() bool   { return isTimeout(err.Err) }
 func (err *ListenerHandlerError) Temporary() bool { return isTemporary(err.Err) }
+func (err *ListenerHandlerError) Canceled() bool  { return isCanceled(err.Err) }
+func (err *ListenerHandlerError) Expired() bool   { return isExpired(err.Err) }
 func (err *ListenerHandlerError) Error() string {
 	if err == nil {
 		return "<nil>"
 	}
 
 	s := "ListenerHandlerError"
-	if err.Handler != nil {
-		s += " " + err.Handler.String()
+	if err.Handler != "" {
+		s += " (" + err.Handler + ")"
+	}
+	s += ": " + err.Err.Error()
+
+	return s
+}
+
+type PoolError struct {
+	Err  error
+	Op   string
+	Pool string
+}
+
+func (err *PoolError) Network() bool   { return isNetwork(err.Err) }
+func (err *PoolError) Timeout() bool   { return isTimeout(err.Err) }
+func (err *PoolError) Temporary() bool { return isTemporary(err.Err) }
+func (err *PoolError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+
+	s := "PoolError " + err.Op
+	if err.Pool != "" {
+		s += " (" + err.Pool + ")"
 	}
 	s += ": " + err.Err.Error()
 

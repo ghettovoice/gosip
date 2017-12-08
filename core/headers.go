@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gossip/utils"
+	"github.com/ghettovoice/gosip/util"
 )
 
 // SIP Headers structs
@@ -87,7 +87,7 @@ func (params *headerParams) Get(key string) (MaybeString, bool) {
 	return v, ok
 }
 
-// Add a new parameter.
+// Put a new parameter.
 func (params *headerParams) Add(key string, val MaybeString) Params {
 	// Add param to order list if new.
 	if _, ok := params.params[key]; !ok {
@@ -169,12 +169,12 @@ func (params *headerParams) Equals(q Params) bool {
 		return false
 	}
 
-	for key, p_val := range params.Items() {
-		q_val, ok := q.Get(key)
+	for key, pVal := range params.Items() {
+		qVal, ok := q.Get(key)
 		if !ok {
 			return false
 		}
-		if p_val != q_val {
+		if pVal != qVal {
 			return false
 		}
 	}
@@ -243,7 +243,7 @@ func (uri *SipUri) Equals(otherUri Uri) bool {
 		uri.User == other.User &&
 		uri.Password == other.Password &&
 		uri.Host == other.Host &&
-		utils.Uint16PtrEq((*uint16)(uri.Port), (*uint16)(other.Port))
+		util.Uint16PtrEq((*uint16)(uri.Port), (*uint16)(other.Port))
 
 	if !result {
 		return false

@@ -46,14 +46,24 @@ type Transport interface {
 	String() string
 }
 
+var hostAddrKey = "hostAddr"
+
+func WithHostAddr(parentCtx context.Context, hostAddr string) context.Context {
+	return context.WithValue(parentCtx, hostAddrKey, hostAddr)
+}
+
+func GetHostAddr(ctx context.Context) (string, bool) {
+	hostAddr, ok := ctx.Value(hostAddrKey).(string)
+	return hostAddr, ok
+}
+
 // Transport layer implementation.
 type stdTransport struct {
 	protocols *protocolPool
 	log       log.Logger
-	hostaddr  string
-	output    chan core.Message
-	errs      chan error
-	stop      chan bool
+	ctx       context.Context
+	output    chan<- core.Message
+	errs      chan<- error
 	wg        *sync.WaitGroup
 }
 
@@ -61,13 +71,13 @@ type stdTransport struct {
 // 	- hostaddr - current server host address (IP or FQDN)
 func NewTransport(
 	ctx context.Context,
-	hostaddr string,
+	output chan<- core.Message,
+	errs chan<- error,
 ) *stdTransport {
 	tp := &stdTransport{
-		hostaddr:  hostaddr,
-		output:    make(chan core.Message),
-		errs:      make(chan error),
-		stop:      make(chan bool),
+		ctx:       ctx,
+		output:    output,
+		errs:      errs,
 		wg:        new(sync.WaitGroup),
 		protocols: NewProtocolPool(),
 	}

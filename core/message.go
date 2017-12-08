@@ -177,6 +177,7 @@ func (hs *headers) RemoveHeader(name string) {
 	for idx, entry := range hs.headerOrder {
 		if entry == name {
 			hs.headerOrder = append(hs.headerOrder[:idx], hs.headerOrder[idx+1:]...)
+			break
 		}
 	}
 }
@@ -284,6 +285,46 @@ type message struct {
 	sipVersion string
 	body       string
 	log        log.Logger
+	startLine  func() string
+}
+
+func (msg *message) StartLine() string {
+	return msg.startLine()
+}
+
+func (msg *message) Short() string {
+	s := msg.StartLine()
+	parts := make([]string, 0)
+	if cseq, ok := msg.CSeq(); ok {
+		parts = append(parts, fmt.Sprintf("%s", cseq))
+	}
+	if callId, ok := msg.CallId(); ok {
+		parts = append(parts, fmt.Sprintf("%s", callId))
+	}
+	if from, ok := msg.From(); ok {
+		parts = append(parts, fmt.Sprintf("%s", from))
+	}
+	if to, ok := msg.To(); ok {
+		parts = append(parts, fmt.Sprintf("%s", to))
+	}
+	if len(parts) > 0 {
+		s += "(" + strings.Join(parts, ", ") + ")"
+	}
+
+	return s
+}
+
+func (msg *message) String() string {
+	var buffer bytes.Buffer
+
+	// write message start line
+	buffer.WriteString(msg.StartLine() + "\r\n")
+	// Write the headers.
+	buffer.WriteString(msg.headers.String())
+	// message body
+	buffer.WriteString("\r\n" + msg.Body())
+
+	return buffer.String()
 }
 
 func (msg *message) SipVersion() string {

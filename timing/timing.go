@@ -35,14 +35,20 @@ func (t *realTimer) C() <-chan time.Time {
 }
 
 func (t *realTimer) Reset(d time.Duration) bool {
-	if !t.Timer.Stop() {
-		<-t.Timer.C
-	}
+	t.Stop()
 	return t.Timer.Reset(d)
 }
 
 func (t *realTimer) Stop() bool {
-	return t.Timer.Stop()
+	//return t.Timer.Stop()
+	if !t.Timer.Stop() {
+		select {
+		case <-t.Timer.C:
+		default:
+		}
+		return false
+	}
+	return true
 }
 
 // Implementation of Timer that mocks time.Timer, firing when the total elapsed time (as controlled by Elapse)
@@ -74,7 +80,14 @@ func (t *mockTimer) Reset(d time.Duration) bool {
 }
 
 func (t *mockTimer) Stop() bool {
-	return removeMockTimer(t)
+	if !removeMockTimer(t) {
+		select {
+		case <-t.Chan:
+		default:
+		}
+		return false
+	}
+	return true
 }
 
 // Creates a new Timer; either a wrapper around a standard Go time.Timer, or a mocked-out Timer,

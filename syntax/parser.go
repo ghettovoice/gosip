@@ -3,13 +3,13 @@ package syntax
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
-	"errors"
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/util"
@@ -17,11 +17,11 @@ import (
 
 // The whitespace characters recognised by the Augmented Backus-Naur Form syntax
 // that SIP uses (RFC 3261 S.25).
-const c_ABNF_WS = " \t"
+const abnfWs = " \t"
 
 // The maximum permissible CSeq number in a SIP message (2**31 - 1).
 // C.f. RFC 3261 S. 8.1.1.5.
-const MAX_CSEQ = 2147483647
+const maxCseq = 2147483647
 
 // The buffer size of the parser input channel.
 
@@ -124,7 +124,7 @@ func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Par
 	// to allow the parser to block until enough data is available to parse.
 	p.input = newParserBuffer()
 	p.SetLog(log.StandardLogger())
-	// Wait for input a line at a time, and produce SipMessages to send down p.output.
+	// Done for input a line at a time, and produce SipMessages to send down p.output.
 	go p.parse(streamed)
 
 	return p
@@ -167,14 +167,14 @@ func (p *parser) Write(data []byte) (int, error) {
 	if p.terminalErr != nil {
 		// The parser has stopped due to a terminal error. Return it.
 		p.Log().Warnf(
-			"parser %p ignores %d new bytes due to previous terminal error: %s",
+			"%s ignores %d new bytes due to previous terminal error: %s",
 			p,
 			len(data),
 			p.terminalErr,
 		)
 		return 0, p.terminalErr
 	} else if p.stopped {
-		return 0, ParserWriteError(fmt.Sprintf("cannot write data to stopped parser '%s'", p))
+		return 0, ParserWriteError(fmt.Sprintf("cannot write data to stopped %s", p))
 	}
 
 	if !p.streamed {
@@ -190,10 +190,9 @@ func (p *parser) Write(data []byte) (int, error) {
 // The parser will not release its resources until Stop() is called,
 // even if the parser object itself is garbage collected.
 func (p *parser) Stop() {
-	p.Log().Debugf("stopping parser '%s'", p)
+	p.Log().Debugf("stopping %s", p)
 	p.stopped = true
 	p.input.Stop()
-	p.Log().Debugf("parser '%s' stopped", p)
 }
 
 func (p *parser) Reset() {
@@ -217,7 +216,7 @@ func (p *parser) parse(requireContentLength bool) {
 		startLine, err := p.input.NextLine()
 
 		if err != nil {
-			p.Log().Debugf("parser '%s' stopped", p)
+			p.Log().Debugf("%s stopped: %s", p, err)
 			break
 		}
 
@@ -253,8 +252,9 @@ func (p *parser) parse(requireContentLength bool) {
 
 		if p.terminalErr != nil {
 			p.terminalErr = InvalidStartLineError(fmt.Sprintf(
-				"failed to parse first line of message: %s",
+				"failed to parse first line of message: %s; parser: %s",
 				p.terminalErr,
+				p,
 			))
 			p.errs <- p.terminalErr
 			break
@@ -284,7 +284,7 @@ func (p *parser) parse(requireContentLength bool) {
 			line, err := p.input.NextLine()
 
 			if err != nil {
-				p.Log().Debugf("parser %p stopped", p)
+				p.Log().Debugf("%s stopped", p)
 				break
 			}
 
@@ -295,7 +295,7 @@ func (p *parser) parse(requireContentLength bool) {
 				break
 			}
 
-			if !strings.Contains(c_ABNF_WS, string(line[0])) {
+			if !strings.Contains(abnfWs, string(line[0])) {
 				// This line starts a new header.
 				// Parse anything currently in the buffer, then store the new header line in the buffer.
 				flushBuffer()
@@ -329,7 +329,7 @@ func (p *parser) parse(requireContentLength bool) {
 			if len(contentLengthHeaders) == 0 {
 				p.terminalErr = &core.MalformedMessageError{
 					Err: fmt.Errorf("missing required 'Content-Length' header; parser: %s", p),
-					Msg: msg,
+					Msg: msg.String(),
 				}
 				p.errs <- p.terminalErr
 				break
@@ -344,7 +344,7 @@ func (p *parser) parse(requireContentLength bool) {
 				}
 				p.terminalErr = &core.MalformedMessageError{
 					Err: errors.New(errbuf.String()),
-					Msg: msg,
+					Msg: msg.String(),
 				}
 				p.errs <- p.terminalErr
 				break
@@ -361,7 +361,7 @@ func (p *parser) parse(requireContentLength bool) {
 		if err != nil {
 			p.terminalErr = &core.BrokenMessageError{
 				Err: fmt.Errorf("%s failed to read message body", p),
-				Msg: msg,
+				Msg: msg.String(),
 			}
 			p.errs <- p.terminalErr
 			break
@@ -375,7 +375,7 @@ func (p *parser) parse(requireContentLength bool) {
 					contentLength,
 					p,
 				),
-				Msg: msg,
+				Msg: msg.String(),
 			}
 			p.errs <- p.terminalErr
 			break
@@ -776,7 +776,7 @@ parseLoop:
 			parsingKey = false
 
 		default:
-			if !inQuotes && strings.Contains(c_ABNF_WS, string(source[consumed])) {
+			if !inQuotes && strings.Contains(abnfWs, string(source[consumed])) {
 				// Skip unquoted whitespace.
 				continue
 			}
@@ -976,7 +976,7 @@ func parseCSeq(headerName string, headerText string) (
 		return
 	}
 
-	if seqno > MAX_CSEQ {
+	if seqno > maxCseq {
 		err = fmt.Errorf("invalid CSeq %d: exceeds maximum permitted value "+
 			"2**31 - 1", seqno)
 		return
@@ -999,9 +999,9 @@ func parseCSeq(headerName string, headerText string) (
 func parseCallId(headerName string, headerText string) (
 	headers []core.Header, err error) {
 	headerText = strings.TrimSpace(headerText)
-	var callId core.CallId = core.CallId(headerText)
+	var callId = core.CallId(headerText)
 
-	if strings.ContainsAny(string(callId), c_ABNF_WS) {
+	if strings.ContainsAny(string(callId), abnfWs) {
 		err = fmt.Errorf("unexpected whitespace in CallId header body '%s'", headerText)
 		return
 	}
@@ -1026,7 +1026,7 @@ func parseCallId(headerName string, headerText string) (
 func parseViaHeader(headerName string, headerText string) (
 	headers []core.Header, err error) {
 	sections := strings.Split(headerText, ",")
-	var via core.ViaHeader = core.ViaHeader{}
+	var via = core.ViaHeader{}
 	for _, section := range sections {
 		var hop core.ViaHop
 		parts := strings.Split(section, "/")
@@ -1043,8 +1043,8 @@ func parseViaHeader(headerName string, headerText string) (
 		// whitespace.
 		// So the end of the transport part is the first whitespace char following the
 		// first non-whitespace char.
-		initialSpaces := len(parts[2]) - len(strings.TrimLeft(parts[2], c_ABNF_WS))
-		sentByIdx := strings.IndexAny(parts[2][initialSpaces:], c_ABNF_WS) + initialSpaces + 1
+		initialSpaces := len(parts[2]) - len(strings.TrimLeft(parts[2], abnfWs))
+		sentByIdx := strings.IndexAny(parts[2][initialSpaces:], abnfWs) + initialSpaces + 1
 		if sentByIdx == 0 {
 			err = fmt.Errorf("expected whitespace after sent-protocol part "+
 				"in via header '%s'", section)
@@ -1196,7 +1196,7 @@ func parseAddressValue(addressText string) (
 	addressTextCopy := addressText
 	addressText = strings.TrimSpace(addressText)
 
-	firstAngleBracket := findUnescaped(addressText, '<', quotes_delim)
+	firstAngleBracket := findUnescaped(addressText, '<', quotesDelim)
 	displayName = nil
 	if firstAngleBracket > 0 {
 		// We have an angle bracket, and it's not the first character.
@@ -1320,9 +1320,9 @@ type delimiter struct {
 }
 
 // Define common quote characters needed in parsing.
-var quotes_delim = delimiter{'"', '"'}
+var quotesDelim = delimiter{'"', '"'}
 
-var angles_delim = delimiter{'<', '>'}
+var anglesDelim = delimiter{'<', '>'}
 
 // Find the first instance of the target in the given text which is not enclosed in any delimiters
 // from the list provided.
@@ -1361,12 +1361,12 @@ func findAnyUnescaped(text string, targets string, delims ...delimiter) int {
 // from c_ABNF_WS.
 func splitByWhitespace(text string) []string {
 	var buffer bytes.Buffer
-	var inString bool = true
+	var inString = true
 	result := make([]string, 0)
 
 	for _, char := range text {
 		s := string(char)
-		if strings.Contains(c_ABNF_WS, s) {
+		if strings.Contains(abnfWs, s) {
 			if inString {
 				// First whitespace char following text; flush buffer to the results array.
 				result = append(result, buffer.String())

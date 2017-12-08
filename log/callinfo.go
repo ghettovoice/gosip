@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"runtime"
 
-	"github.com/sirupsen/logrus"
+	"github.com/ghettovoice/logrus"
 )
 
 const UndefStack = "???"
@@ -16,20 +16,26 @@ const (
 )
 
 // CallInfoHook is an hook for logrus logger that adds file, line, function info.
-type CallInfoHook struct{}
+type CallInfoHook struct {
+}
+
+func NewCallInfoHook() *CallInfoHook {
+	return &CallInfoHook{}
+}
 
 // Fire is an callback that will be called by logrus for each log entry.
-func (sh *CallInfoHook) Fire(entry *logrus.Entry) error {
+func (hook *CallInfoHook) Fire(entry *logrus.Entry) error {
 	file, line, fn := GetStackInfo()
-	entry.Data["file"] = file
-	entry.Data["line"] = line
-	entry.Data["func"] = fn
+
+	entry.SetField("file", file)
+	entry.SetField("line", line)
+	entry.SetField("func", fn)
 
 	return nil
 }
 
 // Levels returns CallInfoHook working levels.
-func (sh *CallInfoHook) Levels() []logrus.Level {
+func (hook *CallInfoHook) Levels() []logrus.Level {
 	return logrus.AllLevels
 }
 

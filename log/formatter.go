@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/sirupsen/logrus"
-	"github.com/x-cray/logrus-prefixed-formatter"
+	"github.com/ghettovoice/logrus"
+	"github.com/ghettovoice/logrus-prefixed-formatter"
 )
 
 const PrefixFormat = "%s (%s:%s)"
@@ -18,10 +18,11 @@ type Formatter struct {
 	ShortNames bool
 }
 
-func NewFormatter(shortNames bool) *Formatter {
+func NewFormatter(shortNames bool, forceColors bool) *Formatter {
 	return &Formatter{
 		TextFormatter: &prefixed.TextFormatter{
 			ForceFormatting: true,
+			ForceColors:     forceColors,
 			FullTimestamp:   true,
 			TimestampFormat: "2006-01-02 15:04:05.000",
 		},
@@ -34,33 +35,31 @@ func (f *Formatter) Format(entry *logrus.Entry) ([]byte, error) {
 	undef := "???"
 	prefixFormat := PrefixFormat
 	args := make([]interface{}, 0)
+	fields := entry.Fields()
 
-	if val, ok := entry.Data["func"].(string); ok {
+	if val, ok := fields["func"].(string); ok {
 		if f.ShortNames {
 			val = filepath.Base(val)
 		}
-		delete(entry.Data, "func")
 		args = append(args, val)
 	} else {
 		args = append(args, undef)
 	}
-	if val, ok := entry.Data["file"].(string); ok {
+	if val, ok := fields["file"].(string); ok {
 		if f.ShortNames {
 			val = filepath.Base(val)
 		}
-		delete(entry.Data, "file")
 		args = append(args, val)
 	} else {
 		args = append(args, undef)
 	}
-	if val, ok := entry.Data["line"].(string); ok {
-		delete(entry.Data, "line")
+	if val, ok := fields["line"].(string); ok {
 		args = append(args, val)
 	} else {
 		args = append(args, undef)
 	}
 
-	entry.Data["prefix"] = fmt.Sprintf(prefixFormat, args...)
+	entry.SetField("prefix", fmt.Sprintf(prefixFormat, args...))
 
 	return f.TextFormatter.Format(entry)
 }

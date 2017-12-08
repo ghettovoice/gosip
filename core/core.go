@@ -25,10 +25,18 @@ func (str String) String() string {
 	return str.Str
 }
 
+type CancelError interface {
+	Canceled() bool
+}
+
+type ExpireError interface {
+	Expired() bool
+}
+
 type MessageError interface {
 	error
 	// Malformed indicates that message is syntactically valid but has invalid headers, or
-	// without required headers and etc.
+	// without required headers.
 	Malformed() bool
 	// Broken or incomplete message, or not a SIP message
 	Broken() bool
@@ -37,7 +45,7 @@ type MessageError interface {
 // Broken or incomplete messages, or not a SIP message.
 type BrokenMessageError struct {
 	Err error
-	Msg Message
+	Msg string
 }
 
 func (err *BrokenMessageError) Malformed() bool { return false }
@@ -48,8 +56,8 @@ func (err *BrokenMessageError) Error() string {
 	}
 
 	s := "BrokenMessageError"
-	if err.Msg != nil {
-		s += fmt.Sprintf(" with message '%s'", err.Msg.Short())
+	if err.Msg != "" {
+		s += fmt.Sprintf(" with message '%s'", err.Msg)
 	}
 	s += ": " + err.Err.Error()
 
@@ -59,7 +67,7 @@ func (err *BrokenMessageError) Error() string {
 // syntactically valid but logically invalid message
 type MalformedMessageError struct {
 	Err error
-	Msg Message
+	Msg string
 }
 
 func (err *MalformedMessageError) Malformed() bool { return true }
@@ -70,8 +78,8 @@ func (err *MalformedMessageError) Error() string {
 	}
 
 	s := "MalformedMessageError"
-	if err.Msg != nil {
-		s += fmt.Sprintf(" with message '%s'", err.Msg.Short())
+	if err.Msg != "" {
+		s += fmt.Sprintf(" with message '%s'", err.Msg)
 	}
 	s += ": " + err.Err.Error()
 
@@ -80,7 +88,7 @@ func (err *MalformedMessageError) Error() string {
 
 type UnsupportedMessageError struct {
 	Err error
-	Msg Message
+	Msg string
 }
 
 func (err *UnsupportedMessageError) Malformed() bool { return true }
@@ -91,8 +99,8 @@ func (err *UnsupportedMessageError) Error() string {
 	}
 
 	s := "UnsupportedMessageError"
-	if err.Msg != nil {
-		s += fmt.Sprintf(" '%s'", err.Msg.Short())
+	if err.Msg != "" {
+		s += fmt.Sprintf(" '%s'", err.Msg)
 	}
 	s += ": " + err.Err.Error()
 
@@ -102,4 +110,8 @@ func (err *UnsupportedMessageError) Error() string {
 // Cancellable can be canceled through cancel method
 type Cancellable interface {
 	Cancel()
+}
+
+type Awaiting interface {
+	Done() <-chan struct{}
 }

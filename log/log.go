@@ -3,7 +3,7 @@ package log
 import (
 	"io"
 
-	"github.com/sirupsen/logrus"
+	"github.com/ghettovoice/logrus"
 )
 
 const (
@@ -26,8 +26,12 @@ const (
 )
 
 func init() {
-	logrus.AddHook(&CallInfoHook{})
-	logrus.SetFormatter(NewFormatter(true))
+	logrus.AddHook(NewCallInfoHook())
+	logrus.SetFormatter(NewFormatter(true, false))
+}
+
+func SetFormatter(formatter logrus.Formatter) {
+	logrus.SetFormatter(formatter)
 }
 
 // Logger interface used as base logger throughout the library.

@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -16,15 +15,13 @@ type udpProtocol struct {
 	connections ConnectionPool
 }
 
-func NewUdpProtocol(ctx context.Context, output chan<- *IncomingMessage, errs chan<- error) Protocol {
+func NewUdpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-chan struct{}) Protocol {
 	udp := new(udpProtocol)
 	udp.network = "udp"
 	udp.reliable = false
 	udp.streamed = false
-	udp.connections = NewConnectionPool(ctx, output, errs)
+	udp.connections = NewConnectionPool(output, errs, cancel)
 	udp.SetLog(log.StandardLogger())
-	// start up pool
-	go udp.connections.Manage()
 
 	return udp
 }
@@ -49,14 +46,14 @@ func (udp *udpProtocol) Listen(target *Target) error {
 		return &ProtocolError{
 			fmt.Errorf("failed to listen address %s: %s", laddr, err),
 			fmt.Sprintf("create %s listener", udp.Network()),
-			udp,
+			udp.String(),
 		}
 	}
 	// register new connection
 	conn := NewConnection(udpConn)
 	conn.SetLog(udp.Log())
 	// index by local address
-	udp.connections.Add(conn.LocalAddr(), conn, 0)
+	udp.connections.Put(ConnectionKey(conn.LocalAddr().String()), conn, 0)
 
 	return err // should be nil here
 }
@@ -72,7 +69,7 @@ func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
 		return &ProtocolError{
 			fmt.Errorf("invalid remote host resolved %s", target.Host),
 			"resolve destination address",
-			udp,
+			udp.String(),
 		}
 	}
 
@@ -93,7 +90,7 @@ func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
 		return &ProtocolError{
 			fmt.Errorf("failed to create connection to remote address %s: %s", raddr, err),
 			fmt.Sprintf("create %s connection", udp.Network()),
-			udp,
+			udp.String(),
 		}
 	}
 
@@ -116,7 +113,7 @@ func (udp *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
 		return nil, &ProtocolError{
 			fmt.Errorf("failed to resolve address %s: %s", addr, err),
 			fmt.Sprintf("resolve %s address", addr),
-			udp,
+			udp.String(),
 		}
 	}
 

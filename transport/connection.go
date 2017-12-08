@@ -17,13 +17,9 @@ var (
 
 // Wrapper around net.Conn.
 type Connection interface {
+	net.Conn
 	log.WithLogger
-	Read(buf []byte) (num int, err error)
-	Write(buf []byte) (num int, err error)
-	LocalAddr() net.Addr
-	RemoteAddr() net.Addr
 	Network() string
-	Close() error
 	Streamed() bool
 	String() string
 }
@@ -108,13 +104,7 @@ func (conn *connection) Read(buf []byte) (int, error) {
 	)
 
 	if err := conn.baseConn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-		return 0, &ConnectionError{
-			err,
-			"set read deadline",
-			conn.RemoteAddr(),
-			conn.LocalAddr(),
-			conn,
-		}
+		conn.Log().Warnf("%s failed to set read deadline: %s", conn, err)
 	}
 
 	switch baseConn := conn.baseConn.(type) {
@@ -129,9 +119,9 @@ func (conn *connection) Read(buf []byte) (int, error) {
 		return num, &ConnectionError{
 			err,
 			"read",
-			conn.RemoteAddr(),
-			conn.LocalAddr(),
-			conn,
+			fmt.Sprintf("%v", conn.RemoteAddr()),
+			fmt.Sprintf("%v", conn.LocalAddr()),
+			conn.String(),
 		}
 	}
 
@@ -151,13 +141,7 @@ func (conn *connection) Write(buf []byte) (int, error) {
 	)
 
 	if err := conn.baseConn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		return 0, &ConnectionError{
-			err,
-			"set write deadline",
-			conn.RemoteAddr(),
-			conn.LocalAddr(),
-			conn,
-		}
+		conn.Log().Warnf("%s failed to set write deadline: %s", conn, err)
 	}
 
 	num, err = conn.baseConn.Write(buf)
@@ -165,9 +149,9 @@ func (conn *connection) Write(buf []byte) (int, error) {
 		return num, &ConnectionError{
 			err,
 			"write",
-			conn.LocalAddr(),
-			conn.RemoteAddr(),
-			conn,
+			fmt.Sprintf("%v", conn.RemoteAddr()),
+			fmt.Sprintf("%v", conn.LocalAddr()),
+			conn.String(),
 		}
 	}
 
@@ -194,9 +178,9 @@ func (conn *connection) Close() error {
 		return &ConnectionError{
 			err,
 			"close",
-			nil,
-			nil,
-			conn,
+			"",
+			"",
+			conn.String(),
 		}
 	}
 
@@ -206,4 +190,16 @@ func (conn *connection) Close() error {
 	)
 
 	return nil
+}
+
+func (conn *connection) SetDeadline(t time.Time) error {
+	return conn.baseConn.SetDeadline(t)
+}
+
+func (conn *connection) SetReadDeadline(t time.Time) error {
+	return conn.baseConn.SetReadDeadline(t)
+}
+
+func (conn *connection) SetWriteDeadline(t time.Time) error {
+	return conn.baseConn.SetWriteDeadline(t)
 }

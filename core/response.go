@@ -38,6 +38,7 @@ func NewResponse(
 	body string,
 ) Response {
 	res := new(response)
+	res.startLine = res.StartLine
 	res.SetSipVersion(sipVersion)
 	res.headers = newHeaders(hdrs)
 	res.SetStatusCode(statusCode)
@@ -78,40 +79,6 @@ func (res *response) StartLine() string {
 			res.Reason(),
 		),
 	)
-
-	return buffer.String()
-}
-
-func (res *response) Short() string {
-	var buffer bytes.Buffer
-
-	buffer.WriteString(res.StartLine())
-
-	if cseq, ok := res.CSeq(); ok {
-		buffer.WriteString(fmt.Sprintf(" (%s)", cseq))
-	}
-	if callId, ok := res.CallId(); ok {
-		buffer.WriteString(fmt.Sprintf(" (%s)", callId))
-	}
-	if from, ok := res.From(); ok {
-		buffer.WriteString(fmt.Sprintf(" (%s)", from))
-	}
-	if to, ok := res.To(); ok {
-		buffer.WriteString(fmt.Sprintf(" (%s)", to))
-	}
-
-	return buffer.String()
-}
-
-func (res *response) String() string {
-	var buffer bytes.Buffer
-
-	// write message start line
-	buffer.WriteString(res.StartLine() + "\r\n")
-	// Write the headers.
-	buffer.WriteString(res.headers.String())
-	// If the request has a message body, add it.
-	buffer.WriteString("\r\n" + res.Body())
 
 	return buffer.String()
 }

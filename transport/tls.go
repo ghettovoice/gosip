@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/ghettovoice/gosip/core"
@@ -15,19 +14,18 @@ type tlsProtocol struct {
 	conns       chan Connection
 }
 
-func NewTlsProtocol(ctx context.Context, output chan<- *IncomingMessage, errs chan<- error) Protocol {
+func NewTlsProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-chan struct{}) Protocol {
 	tls := new(tlsProtocol)
 	tls.network = "tls"
 	tls.reliable = true
 	tls.streamed = true
 	tls.conns = make(chan Connection)
-	tls.listeners = NewListenerPool(ctx, tls.conns, errs)
-	tls.connections = NewConnectionPool(ctx, output, errs)
+	// todo listen errors from pool
+	tls.listeners = NewListenerPool(tls.conns, errs, cancel)
+	tls.connections = NewConnectionPool(output, errs, cancel)
 	tls.SetLog(log.StandardLogger())
 	// start up pools
-	go tls.listeners.Manage()
-	go tls.connections.Manage()
-	go tls.manage(ctx)
+	go tls.manage()
 
 	return tls
 }
@@ -39,7 +37,7 @@ func (tls *tlsProtocol) SetLog(logger log.Logger) {
 }
 
 // piping new connections to connection pool for serving
-func (tls *tlsProtocol) manage(ctx context.Context) {
+func (tls *tlsProtocol) manage() {
 	defer func() {
 		tls.Log().Debugf("stop %s managing", tls)
 		tls.dispose()
@@ -48,12 +46,12 @@ func (tls *tlsProtocol) manage(ctx context.Context) {
 
 	for {
 		select {
-		case <-ctx.Done():
-			return
+		//case <-ctx.Done():
+		//	return
 		case conn := <-tls.conns:
-			if err := tls.connections.Add(conn.RemoteAddr(), conn, socketTtl); err != nil {
+			if err := tls.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, socketTtl); err != nil {
 				// TODO should it be passed up to UA?
-				tls.Log().Errorf("%s failed to add new %s to %s: %s", tls, conn, tls.connections, err)
+				tls.Log().Errorf("%s failed to put new %s to %s: %s", tls, conn, tls.connections, err)
 				continue
 			}
 		}
@@ -84,7 +82,7 @@ func (tls *tlsProtocol) Listen(target *Target) error {
 	//	}
 	//}
 	//// index listeners by local address
-	//tls.listeners.Add(listener.Addr(), listener)
+	//tls.listeners.Put(listener.Addr(), listener)
 	//
 	//return err // should be nil here
 }
@@ -158,7 +156,7 @@ func (tls *tlsProtocol) Send(target *Target, msg core.Message) error {
 //
 //		conn = NewConnection(tcpConn)
 //		conn.SetLog(tls.Log())
-//		tls.connections.Add(conn.RemoteAddr(), conn, socketTtl)
+//		tls.connections.Put(conn.RemoteAddr(), conn, socketTtl)
 //	}
 //
 //	return conn, nil

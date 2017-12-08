@@ -54,3 +54,5 @@ func Coalesce(arg1 interface{}, arg2 interface{}, args ...interface{}) interface
 
 	return nil
 }
+
+func Noop() {}

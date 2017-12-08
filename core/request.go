@@ -34,6 +34,7 @@ func NewRequest(
 	body string,
 ) Request {
 	req := new(request)
+	req.startLine = req.StartLine
 	req.SetSipVersion(sipVersion)
 	req.headers = newHeaders(hdrs)
 	req.SetMethod(method)
@@ -74,40 +75,6 @@ func (req *request) StartLine() string {
 			req.SipVersion(),
 		),
 	)
-
-	return buffer.String()
-}
-
-func (req *request) Short() string {
-	var buffer bytes.Buffer
-
-	buffer.WriteString(req.StartLine())
-
-	if cseq, ok := req.CSeq(); ok {
-		buffer.WriteString(fmt.Sprintf(" (%s)", cseq))
-	}
-	if callId, ok := req.CallId(); ok {
-		buffer.WriteString(fmt.Sprintf(" (%s)", callId))
-	}
-	if from, ok := req.From(); ok {
-		buffer.WriteString(fmt.Sprintf(" (%s)", from))
-	}
-	if to, ok := req.To(); ok {
-		buffer.WriteString(fmt.Sprintf(" (%s)", to))
-	}
-
-	return buffer.String()
-}
-
-func (req *request) String() string {
-	var buffer bytes.Buffer
-
-	// write message start line
-	buffer.WriteString(req.StartLine() + "\r\n")
-	// Write the headers.
-	buffer.WriteString(req.headers.String())
-	// If the request has a message body, add it.
-	buffer.WriteString("\r\n" + req.Body())
 
 	return buffer.String()
 }
