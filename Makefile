@@ -5,6 +5,7 @@ GOFLAGS=
 
 install:
 	cd $$GOPATH/src/$(PKG_NAME); \
+	go get -v -t ./...; \
 	go install $(LDFLAGS)
 
 test: test-core test-syntax test-timing test-transport

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/franela/goblin"
@@ -24,8 +25,8 @@ func TestMain(m *testing.M) {
 func TestConnectionConstruct(t *testing.T) {
 	g := goblin.Goblin(t)
 
-	g.Describe("New Connection", func() {
-		g.It("From UDP", func() {
+	g.Describe("construct new Connection", func() {
+		g.It("from UDP", func() {
 			cUdpConn, sUdpConn := createPacketClientServer(g, "udp", localAddr)
 			defer func() {
 				cUdpConn.Close()
@@ -42,7 +43,7 @@ func TestConnectionConstruct(t *testing.T) {
 			}
 		})
 
-		g.It("From TCP", func() {
+		g.It("from TCP", func() {
 			cTcpConn, sTcpConn := createStreamClientServer(g, "tcp", localAddr)
 			defer func() {
 				cTcpConn.Close()
@@ -65,32 +66,77 @@ func TestConnectionConstruct(t *testing.T) {
 func TestConnectionReadWrite(t *testing.T) {
 	g := goblin.Goblin(t)
 
-	g.Describe("Read from Connection", func() {
-		g.It("From UDP", func() {
+	g.Describe("read/write from Connection", func() {
+		data := "Hello world!"
+
+		g.It("UDP", func() {
 			cUdpConn, sUdpConn := createPacketClientServer(g, "udp", localAddr)
 			defer func() {
 				cUdpConn.Close()
 				sUdpConn.Close()
 			}()
 
-			data := "Hello world!"
 			sConn := NewConnection(sUdpConn)
+			cConn := NewConnection(cUdpConn)
 
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
 			go func() {
-				_, err := cUdpConn.(*net.UDPConn).Write([]byte(data))
+				defer wg.Done()
+
+				buf := make([]byte, bufferSize)
+				num, err := sConn.Read(buf)
 				if err != nil {
 					g.Fail(err)
 				}
+				log.Debugf("%s <- %s: read %d bytes", sConn.LocalAddr(), sConn.RemoteAddr(), num)
+
+				g.Assert(fmt.Sprintf("%v", sConn.RemoteAddr())).Equal(fmt.Sprintf("%v", cConn.LocalAddr()))
+				g.Assert(string(buf[:num])).Equal(data)
 			}()
 
-			buf := make([]byte, 0)
-			num, err := sConn.Read(buf)
+			num, err := cConn.Write([]byte(data))
 			if err != nil {
 				g.Fail(err)
 			}
+			log.Debugf("%s -> %s: written %d bytes", cConn.LocalAddr(), cConn.RemoteAddr(), num)
 
-			g.Assert(sConn.RemoteAddr().String()).Equal(cUdpConn.LocalAddr().String())
-			g.Assert(string(buf[:num])).Equal(data)
+			wg.Wait()
+		})
+
+		g.It("from TCP", func() {
+			cTcpConn, sTcpConn := createStreamClientServer(g, "tcp", localAddr)
+			defer func() {
+				cTcpConn.Close()
+				sTcpConn.Close()
+			}()
+
+			sConn := NewConnection(sTcpConn)
+			cConn := NewConnection(cTcpConn)
+
+			wg := new(sync.WaitGroup)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				buf := make([]byte, bufferSize)
+				num, err := sConn.Read(buf)
+				if err != nil {
+					g.Fail(err)
+				}
+				log.Debugf("%s <- %s: read %d bytes", sConn.LocalAddr(), sConn.RemoteAddr(), num)
+
+				g.Assert(fmt.Sprintf("%v", sConn.RemoteAddr())).Equal(fmt.Sprintf("%v", cConn.LocalAddr()))
+				g.Assert(string(buf[:num])).Equal(data)
+			}()
+
+			num, err := cConn.Write([]byte(data))
+			if err != nil {
+				g.Fail(err)
+			}
+			log.Debugf("%s -> %s: written %d bytes", cConn.LocalAddr(), cConn.RemoteAddr(), num)
+
+			wg.Wait()
 		})
 	})
 }
