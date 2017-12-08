@@ -45,7 +45,7 @@ func (tcp *tcpProtocol) SetLog(logger log.Logger) {
 func (tcp *tcpProtocol) manage(ctx context.Context) {
 	defer func() {
 		tcp.Log().Debugf("stop %s managing", tcp)
-		close(tcp.conns)
+		tcp.dispose()
 	}()
 	tcp.Log().Debugf("start %s managing", tcp)
 
@@ -54,9 +54,18 @@ func (tcp *tcpProtocol) manage(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case conn := <-tcp.conns:
-			tcp.connections.Add(conn.RemoteAddr(), conn, socketTtl)
+			if err := tcp.connections.Add(conn.RemoteAddr(), conn, socketTtl); err != nil {
+				// TODO should it be passed up to UA?
+				tcp.Log().Errorf("%s failed to add new %s to %s: %s", tcp, conn, tcp.connections, err)
+				continue
+			}
 		}
 	}
+}
+
+func (tcp *tcpProtocol) dispose() {
+	tcp.Log().Debugf("dispose %s", tcp)
+	close(tcp.conns)
 }
 
 func (tcp *tcpProtocol) Listen(target *Target) error {
@@ -80,74 +89,6 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 	tcp.listeners.Add(listener.Addr(), listener)
 
 	return err // should be nil here
-}
-
-func (tcp *tcpProtocol) serve(listener net.Listener) {
-	defer func() {
-		tcp.Log().Infof("stop serving listener %p on address %s", listener, listener.Addr())
-		tcp.disposeListener(listener)
-	}()
-	tcp.Log().Infof("begin serving listener %p on address %s", listener, listener.Addr())
-
-	for {
-		select {
-		case <-tcp.ctx.Done():
-			return
-		default:
-			baseConn, err := listener.Accept()
-			if err != nil {
-				err = &ProtocolError{
-					fmt.Errorf("%s failed to accept connection on address %s: %s", tcp, listener.Addr(), err),
-					"accept connection",
-					tcp,
-				}
-				// pass up listener error
-				select {
-				case <-tcp.ctx.Done():
-				case tcp.errs <- err:
-					tcp.Log().Error(err)
-				}
-				return
-			}
-
-			conn := NewConnection(baseConn)
-			conn.SetLog(tcp.Log())
-			// index connections by remote address
-			tcp.connections.Add(conn.RemoteAddr(), conn)
-			tcp.Log().Infof("%s accepted connection %p from %s to %s", tcp, conn, conn.RemoteAddr(), conn.LocalAddr())
-			// start connection serving
-			// TODO split into goroutines
-			errs := make(chan error)
-			tcp.serveConnection(conn, tcp.output, errs)
-			tcp.wg.Add(1)
-			go func() {
-				defer func() {
-					tcp.wg.Done()
-					close(errs)
-				}()
-				for tcp.errs != nil {
-					select {
-					case <-tcp.stop:
-						return
-					case err, ok := <-errs:
-						if !ok {
-							return
-						}
-						if _, ok := err.(net.Error); ok {
-							tcp.Log().Errorf("%s received connection error: %s; connection %s will be closed", tcp, err, conn)
-							conn.Close()
-							tcp.connections.Drop(conn.LocalAddr())
-						}
-						select {
-						case <-tcp.stop:
-							return
-						case tcp.errs <- err:
-						}
-					}
-				}
-			}()
-		}
-	}
 }
 
 func (tcp *tcpProtocol) Send(target *Target, msg core.Message) error {
@@ -222,12 +163,4 @@ func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 	}
 
 	return conn, nil
-}
-
-func (tcp *tcpProtocol) dispose() {
-	tcp.Log().Debugf("dispose %s", tcp)
-	for _, listener := range tcp.listeners.All() {
-		tcp.disposeListener(listener)
-	}
-	tcp.wg.Wait()
 }
