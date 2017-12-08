@@ -1,4 +1,4 @@
-# go-sip
+# gosip
 
 > SIP stack in Go ([RFC 3261](https://tools.ietf.org/html/rfc3261))
 
