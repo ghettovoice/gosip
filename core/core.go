@@ -98,3 +98,8 @@ func (err *UnsupportedMessageError) Error() string {
 
 	return s
 }
+
+// Cancellable can be canceled through cancel method
+type Cancellable interface {
+	Cancel()
+}

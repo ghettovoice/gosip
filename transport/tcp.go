@@ -1,27 +1,62 @@
 package transport
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
 
 	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/log"
 )
 
 // TCP protocol implementation
 type tcpProtocol struct {
 	protocol
-	connections *connectionPool
-	listeners   *listenerPool
+	listeners   ListenerPool
+	connections ConnectionPool
+	conns       chan Connection
 }
 
-func NewTcpProtocol() Protocol {
-	tcp := &tcpProtocol{
-		connections: NewConnectionPool(),
-		listeners:   NewListenerPool(),
-	}
-	tcp.init("tcp", true, true)
+func NewTcpProtocol(ctx context.Context, output chan<- *IncomingMessage, errs chan<- error) Protocol {
+	tcp := new(tcpProtocol)
+	tcp.network = "tcp"
+	tcp.reliable = true
+	tcp.streamed = true
+	tcp.conns = make(chan Connection)
+	tcp.listeners = NewListenerPool(ctx, tcp.conns, errs)
+	tcp.connections = NewConnectionPool(ctx, output, errs)
+	tcp.SetLog(log.StandardLogger())
+	// start up pools
+	go tcp.listeners.Manage()
+	go tcp.connections.Manage()
+	go tcp.manage(ctx)
+
 	return tcp
+}
+
+func (tcp *tcpProtocol) SetLog(logger log.Logger) {
+	tcp.protocol.SetLog(logger)
+	tcp.listeners.SetLog(tcp.Log())
+	tcp.connections.SetLog(tcp.Log())
+}
+
+// piping new connections to connection pool for serving
+func (tcp *tcpProtocol) manage(ctx context.Context) {
+	defer func() {
+		tcp.Log().Debugf("stop %s managing", tcp)
+		close(tcp.conns)
+	}()
+	tcp.Log().Debugf("start %s managing", tcp)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case conn := <-tcp.conns:
+			tcp.connections.Add(conn.RemoteAddr(), conn, socketTtl)
+		}
+	}
 }
 
 func (tcp *tcpProtocol) Listen(target *Target) error {
@@ -43,40 +78,34 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 	}
 	// index listeners by local address
 	tcp.listeners.Add(listener.Addr(), listener)
-	// start listener serving
-	go tcp.serveListener(listener)
 
 	return err // should be nil here
 }
 
-func (tcp *tcpProtocol) serveListener(listener net.Listener) {
+func (tcp *tcpProtocol) serve(listener net.Listener) {
 	defer func() {
 		tcp.Log().Infof("stop serving listener %p on address %s", listener, listener.Addr())
+		tcp.disposeListener(listener)
 	}()
 	tcp.Log().Infof("begin serving listener %p on address %s", listener, listener.Addr())
 
 	for {
 		select {
-		case <-tcp.stop: // protocol stop was called
+		case <-tcp.ctx.Done():
 			return
 		default:
 			baseConn, err := listener.Accept()
 			if err != nil {
 				err = &ProtocolError{
-					fmt.Errorf(
-						"%s failed to accept connection on address %s: %s",
-						tcp,
-						listener.Addr(),
-						err,
-					),
+					fmt.Errorf("%s failed to accept connection on address %s: %s", tcp, listener.Addr(), err),
 					"accept connection",
 					tcp,
 				}
-				tcp.Log().Error(err)
+				// pass up listener error
 				select {
-				case <-tcp.stop:
+				case <-tcp.ctx.Done():
 				case tcp.errs <- err:
-					tcp.closeListener(listener)
+					tcp.Log().Error(err)
 				}
 				return
 			}
@@ -119,17 +148,6 @@ func (tcp *tcpProtocol) serveListener(listener net.Listener) {
 			}()
 		}
 	}
-}
-
-func (tcp *tcpProtocol) closeListener(listener net.Listener) {
-	for _, conn := range tcp.connections.All() {
-		if conn.LocalAddr().String() == listener.Addr().String() {
-			conn.Close()
-			tcp.connections.Drop(conn.RemoteAddr())
-		}
-	}
-	listener.Close()
-	tcp.listeners.Drop(listener.Addr())
 }
 
 func (tcp *tcpProtocol) Send(target *Target, msg core.Message) error {
@@ -200,22 +218,16 @@ func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 
 		conn = NewConnection(tcpConn)
 		conn.SetLog(tcp.Log())
+		tcp.connections.Add(conn.RemoteAddr(), conn, socketTtl)
 	}
 
 	return conn, nil
 }
 
-func (tcp *tcpProtocol) Stop() {
-	tcp.protocol.Stop()
-
-	tcp.Log().Debugf("disposing all active connections")
-	for _, conn := range tcp.connections.All() {
-		conn.Close()
-		tcp.connections.Drop(conn.RemoteAddr())
-	}
-	tcp.Log().Debugf("disposing all active listeners")
+func (tcp *tcpProtocol) dispose() {
+	tcp.Log().Debugf("dispose %s", tcp)
 	for _, listener := range tcp.listeners.All() {
-		listener.Close()
-		tcp.listeners.Drop(listener.Addr())
+		tcp.disposeListener(listener)
 	}
+	tcp.wg.Wait()
 }

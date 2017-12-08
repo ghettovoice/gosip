@@ -104,6 +104,19 @@ type Error interface {
 	Network() bool
 }
 
+func isNetwork(err error) bool {
+	_, ok := err.(net.Error)
+	return ok
+}
+func isTimeout(err error) bool {
+	nerr, ok := err.(net.Error)
+	return ok && nerr.Timeout()
+}
+func isTemporary(err error) bool {
+	nerr, ok := err.(net.Error)
+	return ok && nerr.Temporary()
+}
+
 // Connection level error.
 type ConnectionError struct {
 	Err    error
@@ -113,21 +126,9 @@ type ConnectionError struct {
 	Conn   Connection
 }
 
-func (err *ConnectionError) Network() bool { return true }
-func (err *ConnectionError) Timeout() bool {
-	if nerr, ok := err.Err.(net.Error); ok {
-		return nerr.Timeout()
-	}
-	terr, ok := err.Err.(Error)
-	return ok && terr.Timeout()
-}
-func (err *ConnectionError) Temporary() bool {
-	if nerr, ok := err.Err.(net.Error); ok {
-		return nerr.Temporary()
-	}
-	terr, ok := err.Err.(Error)
-	return ok && terr.Temporary()
-}
+func (err *ConnectionError) Network() bool   { return isNetwork(err.Err) }
+func (err *ConnectionError) Timeout() bool   { return isTimeout(err.Err) }
+func (err *ConnectionError) Temporary() bool { return isTemporary(err.Err) }
 func (err *ConnectionError) Error() string {
 	if err == nil {
 		return "<nil>"
@@ -162,21 +163,9 @@ type ProtocolError struct {
 	Protocol Protocol
 }
 
-func (err *ProtocolError) Network() bool { return true }
-func (err *ProtocolError) Timeout() bool {
-	if nerr, ok := err.Err.(net.Error); ok {
-		return nerr.Timeout()
-	}
-	terr, ok := err.Err.(Error)
-	return ok && terr.Timeout()
-}
-func (err *ProtocolError) Temporary() bool {
-	if nerr, ok := err.Err.(net.Error); ok {
-		return nerr.Temporary()
-	}
-	terr, ok := err.Err.(Error)
-	return ok && terr.Temporary()
-}
+func (err *ProtocolError) Network() bool   { return isNetwork(err.Err) }
+func (err *ProtocolError) Timeout() bool   { return isTimeout(err.Err) }
+func (err *ProtocolError) Temporary() bool { return isTemporary(err.Err) }
 func (err *ProtocolError) Error() string {
 	if err == nil {
 		return "<nil>"
@@ -196,27 +185,37 @@ type ConnectionHandlerError struct {
 	Handler ConnectionHandler
 }
 
-func (err *ConnectionHandlerError) Network() bool { return true }
-func (err *ConnectionHandlerError) Timeout() bool {
-	if nerr, ok := err.Err.(net.Error); ok {
-		return nerr.Timeout()
-	}
-	terr, ok := err.Err.(Error)
-	return ok && terr.Timeout()
-}
-func (err *ConnectionHandlerError) Temporary() bool {
-	if nerr, ok := err.Err.(net.Error); ok {
-		return nerr.Temporary()
-	}
-	terr, ok := err.Err.(Error)
-	return ok && terr.Temporary()
-}
+func (err *ConnectionHandlerError) Network() bool   { return isNetwork(err.Err) }
+func (err *ConnectionHandlerError) Timeout() bool   { return isTimeout(err.Err) }
+func (err *ConnectionHandlerError) Temporary() bool { return isTemporary(err.Err) }
 func (err *ConnectionHandlerError) Error() string {
 	if err == nil {
 		return "<nil>"
 	}
 
 	s := "ConnectionHandlerError"
+	if err.Handler != nil {
+		s += " " + err.Handler.String()
+	}
+	s += ": " + err.Err.Error()
+
+	return s
+}
+
+type ListenerHandlerError struct {
+	Err     error
+	Handler ListenerHandler
+}
+
+func (err *ListenerHandlerError) Network() bool   { return isNetwork(err.Err) }
+func (err *ListenerHandlerError) Timeout() bool   { return isTimeout(err.Err) }
+func (err *ListenerHandlerError) Temporary() bool { return isTemporary(err.Err) }
+func (err *ListenerHandlerError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+
+	s := "ListenerHandlerError"
 	if err.Handler != nil {
 		s += " " + err.Handler.String()
 	}

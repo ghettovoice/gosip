@@ -13,61 +13,58 @@ import (
 	"github.com/ghettovoice/gosip/timing"
 )
 
-type ConnKey net.Addr
+type ConnectionKey net.Addr
 
 // ConnectionPool used for active connection management.
 type ConnectionPool interface {
 	log.WithLogger
 	String() string
-	Add(key ConnKey, connection Connection, ttl time.Duration) error
-	Get(key ConnKey) (Connection, bool)
-	Drop(key ConnKey) bool
-	Serve()
+	Add(key ConnectionKey, connection Connection, ttl time.Duration) error
+	Get(key ConnectionKey) (Connection, bool)
+	Drop(key ConnectionKey) bool
+	All() []Connection
+	Manage()
 }
 
 // ConnectionHandler serves associated connection, i.e. parses
 // incoming data, manages expiry time & etc.
 type ConnectionHandler interface {
 	log.WithLogger
+	core.Cancellable
 	String() string
-	Key() ConnKey
+	Key() ConnectionKey
 	Connection() Connection
 	// Expiries returns connection expiry time.
 	Expiries() time.Time
 	// Update updates connection expiry time.
 	Update(ttl time.Duration)
-	// Serve runs connection serving.
+	// Manage runs connection serving.
 	Serve()
-}
-
-type CancellableConnectionHandler interface {
-	ConnectionHandler
-	Cancel()
 }
 
 // Thread-safe connection pool implementation with expiry management.
 type connectionPool struct {
-	ctx             context.Context
-	log             log.Logger
-	lock            *sync.RWMutex
-	wg              *sync.WaitGroup
-	store           map[ConnKey]ConnectionHandler
-	expiredHandlers chan ConnectionHandler
-	output          chan<- *IncomingMessage
-	errs            chan<- error
-	handlerErrors   chan error
+	ctx         context.Context
+	log         log.Logger
+	lock        *sync.RWMutex
+	wg          *sync.WaitGroup
+	store       map[ConnectionKey]ConnectionHandler
+	expired     chan ConnectionHandler
+	handlerErrs chan error
+	output      chan<- *IncomingMessage
+	errs        chan<- error
 }
 
-func NewConnectionPool(ctx context.Context, output chan<- *IncomingMessage, errs chan<- error) *connectionPool {
+func NewConnectionPool(ctx context.Context, output chan<- *IncomingMessage, errs chan<- error) ConnectionPool {
 	pool := &connectionPool{
-		ctx:             ctx,
-		lock:            new(sync.RWMutex),
-		wg:              new(sync.WaitGroup),
-		store:           make(map[ConnKey]ConnectionHandler),
-		expiredHandlers: make(chan ConnectionHandler),
-		handlerErrors:   make(chan error),
-		output:          output,
-		errs:            errs,
+		ctx:         ctx,
+		lock:        new(sync.RWMutex),
+		wg:          new(sync.WaitGroup),
+		store:       make(map[ConnectionKey]ConnectionHandler),
+		expired:     make(chan ConnectionHandler),
+		handlerErrs: make(chan error),
+		output:      output,
+		errs:        errs,
 	}
 	pool.SetLog(log.StandardLogger())
 	return pool
@@ -92,62 +89,76 @@ func (pool *connectionPool) SetLog(logger log.Logger) {
 	pool.log = logger.WithField("conn-pool", pool.String())
 }
 
-func (pool *connectionPool) Add(key ConnKey, connection Connection, ttl time.Duration) error {
+// Add adds new connection to pool or updates TTL of existing connection
+// TTL - 0 - unlimited; 1 - ... - time to live in pool
+func (pool *connectionPool) Add(key ConnectionKey, connection Connection, ttl time.Duration) error {
 	if pool.ctx.Err() != nil {
+		pool.Log().Warnf("%s was stopped: %s", pool, pool.ctx.Err())
 		return pool.ctx.Err()
 	}
 
-	handler, ok := pool.getHandler(key)
+	handler, ok := pool.get(key)
 	if !ok {
 		ctx, cancel := context.WithCancel(pool.ctx)
-		handler := NewConnectionHandler(ctx, key, connection, ttl, pool.expiredHandlers, pool.output, pool.handlerErrors)
-		pool.addHandler(key, NewCancellableConnectionHandler(handler, cancel))
+		handler := NewConnectionHandler(ctx, key, connection, ttl, pool.expired, pool.output, pool.handlerErrs, cancel)
+		pool.Log().Debugf("add %s to %s", handler, pool)
+		pool.add(key, handler)
+
 		pool.wg.Add(1)
 		go func() {
 			defer pool.wg.Done()
 			handler.Serve()
 		}()
 	} else {
+		pool.Log().Debugf("update %s in %s", handler, pool)
 		handler.Update(ttl)
 	}
 
 	return nil
 }
 
-func (pool *connectionPool) Get(key ConnKey) (Connection, bool) {
-	if handler, ok := pool.getHandler(key); ok {
+func (pool *connectionPool) Get(key ConnectionKey) (Connection, bool) {
+	if handler, ok := pool.get(key); ok {
 		return handler.Connection(), true
 	} else {
 		return nil, false
 	}
 }
 
-func (pool *connectionPool) Drop(key ConnKey) bool {
-	if handler, ok := pool.getHandler(key); ok {
-		if handler, ok := handler.(CancellableConnectionHandler); ok {
-			handler.Cancel()
-		}
-		pool.dropHandler(key)
+func (pool *connectionPool) Drop(key ConnectionKey) bool {
+	if handler, ok := pool.get(key); ok {
+		pool.Log().Debugf("drop %s from %p", handler, pool)
+		handler.Cancel()
+		pool.drop(key)
 		return true
 	}
 
 	return false
 }
 
-// Serve serves registered connections: expires, termination nd etc.
-func (pool *connectionPool) Serve() {
+func (pool *connectionPool) All() []Connection {
+	all := make([]Connection, 0)
+	for _, handler := range pool.all() {
+		all = append(all, handler.Connection())
+	}
+
+	return all
+}
+
+// Manage registered connections: expires, termination nd etc.
+func (pool *connectionPool) Manage() {
 	defer func() {
-		pool.Log().Infof("stop %s serving", pool)
+		pool.Log().Infof("%s stop managing", pool)
 		pool.dispose()
 	}()
-	pool.Log().Infof("start %s serving", pool)
+	pool.Log().Infof("%s start managing", pool)
 
 	for {
 		select {
 		case <-pool.ctx.Done():
 			return
-		case handler := <-pool.expiredHandlers:
-			_, ok := pool.getHandler(handler.Key())
+		case handler := <-pool.expired:
+			_, ok := pool.get(handler.Key())
 			if !ok {
 				pool.Log().Warnf("ignore already dropped out %s in %s", handler, pool)
 				continue
@@ -163,33 +174,62 @@ func (pool *connectionPool) Serve() {
 				// Ignore the expiry since we already have a new socket for this address.
 				pool.Log().Warnf("ignored spurious expiry of %s in %s", handler, pool)
 			}
+		case err := <-pool.handlerErrs:
+			if err == nil {
+				continue
+			}
+
+			var handler ConnectionHandler
+			shouldDrop := false
+			// catch non-recoverable errors (like Network errors) and drop out handler from pool
+			if err, ok := err.(Error); ok && err.Network() && !err.Temporary() && !err.Timeout() {
+				shouldDrop = true
+			}
+			if err, ok := err.(net.Error); ok && !err.Temporary() && !err.Timeout() {
+				shouldDrop = true
+			}
+
+			if err, ok := err.(*ConnectionHandlerError); ok {
+				handler = err.Handler
+			}
+
+			if shouldDrop && handler != nil {
+				pool.Drop(handler.Key())
+			}
+
+			// pass up
+			select {
+			case <-pool.ctx.Done():
+				return
+			case pool.errs <- err:
+			}
 		}
 	}
 }
 
-func (pool *connectionPool) addHandler(key ConnKey, connHandler ConnectionHandler) {
+func (pool *connectionPool) add(key ConnectionKey, handler ConnectionHandler) {
 	pool.lock.Lock()
-	pool.store[key] = connHandler
+	pool.store[key] = handler
 	pool.lock.Unlock()
 }
 
-func (pool *connectionPool) getHandler(key ConnKey) (ConnectionHandler, bool) {
+func (pool *connectionPool) get(key ConnectionKey) (ConnectionHandler, bool) {
 	pool.lock.RLock()
 	defer pool.lock.RUnlock()
 	handler, ok := pool.store[key]
 	return handler, ok
 }
 
-func (pool *connectionPool) dropHandler(key ConnKey) {
+func (pool *connectionPool) drop(key ConnectionKey) {
 	pool.lock.Lock()
 	delete(pool.store, key)
 	pool.lock.Unlock()
 }
 
-func (pool *connectionPool) allHandlers() []ConnectionHandler {
+func (pool *connectionPool) all() []ConnectionHandler {
 	all := make([]ConnectionHandler, 0)
 	for key := range pool.store {
-		if handler, ok := pool.getHandler(key); ok {
+		if handler, ok := pool.get(key); ok {
 			all = append(all, handler)
 		}
 	}
@@ -199,35 +239,37 @@ func (pool *connectionPool) allHandlers() []ConnectionHandler {
 
 func (pool *connectionPool) dispose() {
 	pool.Log().Debugf("dispose %s", pool)
-	for _, handler := range pool.allHandlers() {
+	for _, handler := range pool.all() {
 		pool.Drop(handler.Key())
 	}
 	pool.wg.Wait()
-	close(pool.expiredHandlers)
-	close(pool.handlerErrors)
+	close(pool.expired)
+	close(pool.handlerErrs)
 }
 
 // connectionHandler actually serves associated connection
 type connectionHandler struct {
 	log        log.Logger
 	ctx        context.Context
-	key        ConnKey
+	key        ConnectionKey
 	connection Connection
 	timer      timing.Timer
 	expiryTime time.Time
 	expired    chan<- ConnectionHandler
 	output     chan<- *IncomingMessage
 	errs       chan<- error
+	cancel     func()
 }
 
 func NewConnectionHandler(
 	ctx context.Context,
-	key ConnKey,
+	key ConnectionKey,
 	conn Connection,
 	ttl time.Duration,
 	expired chan<- ConnectionHandler,
 	output chan<- *IncomingMessage,
 	errs chan<- error,
+	cancel func(),
 ) ConnectionHandler {
 	handler := &connectionHandler{
 		ctx:        ctx,
@@ -238,6 +280,7 @@ func NewConnectionHandler(
 		expiryTime: timing.Now().Add(ttl),
 		output:     output,
 		errs:       errs,
+		cancel:     cancel,
 	}
 	handler.SetLog(conn.Log())
 	return handler
@@ -284,7 +327,7 @@ func (handler *connectionHandler) SetLog(logger log.Logger) {
 	})
 }
 
-func (handler *connectionHandler) Key() ConnKey {
+func (handler *connectionHandler) Key() ConnectionKey {
 	return handler.key
 }
 
@@ -308,8 +351,8 @@ func (handler *connectionHandler) Update(ttl time.Duration) {
 // Waits for the connection to expire, and notifies the pool when it does.
 func (handler *connectionHandler) Serve() {
 	parsedMessages := make(chan core.Message)
-	parserErrors := make(chan error)
-	parser := syntax.NewParser(parsedMessages, parserErrors, handler.Connection().IsStream())
+	parserErrs := make(chan error)
+	parser := syntax.NewParser(parsedMessages, parserErrs, handler.Connection().Streamed())
 	parser.SetLog(handler.Log())
 
 	defer func() {
@@ -317,7 +360,7 @@ func (handler *connectionHandler) Serve() {
 		parser.Stop()
 		handler.dispose()
 		close(parsedMessages)
-		close(parserErrors)
+		close(parserErrs)
 	}()
 
 	handler.Log().Infof("begin serving %s for key %s and %s", handler, handler.Key(), handler.Connection())
@@ -337,7 +380,7 @@ func (handler *connectionHandler) Serve() {
 			select {
 			case <-handler.ctx.Done():
 				return
-			case handler.expired <- handler.Key():
+			case handler.expired <- handler:
 			}
 		case msg, ok := <-parsedMessages:
 			if !ok {
@@ -353,15 +396,17 @@ func (handler *connectionHandler) Serve() {
 					handler.Connection().LocalAddr(),
 					handler.Connection().RemoteAddr(),
 				}
+
+				handler.Log().Debugf("pass up message '%s' %p from %s", msg.Short(), msg, handler)
 				select {
 				case <-handler.ctx.Done(): // protocol stop called
 					return
 				case handler.output <- incomingMsg:
-					handler.Log().Debugf("%s passed up message '%s' %p from %s and %s", handler, msg.Short(),
-						msg, handler.Connection(), parser)
 				}
 			}
-		case err, ok := <-parserErrors:
+			// handler parser/syntax errors
+			// doesn't breaks goroutine
+		case err, ok := <-parserErrs:
 			if !ok {
 				// connection was closed, exit
 				return
@@ -371,14 +416,14 @@ func (handler *connectionHandler) Serve() {
 				handler.Log().Warnf("%s reset %s for %s due to parser error: %s", handler, parser,
 					handler.Connection(), err)
 				parser.Reset()
-
-				select {
-				case <-handler.ctx.Done():
-					return
-				case handler.errs <- &ConnectionHandlerError{err, handler}:
-					handler.Log().Debugf("%s passed up unhandled error %s from %s and %s", handler, err,
-						handler.Connection(), parser)
-				}
+				// TODO should we pass up parser errors that already handled here? Currently suppress them
+				//select {
+				//case <-handler.ctx.Done():
+				//	return
+				//case handler.errs <- &ConnectionHandlerError{err, handler}:
+				//	handler.Log().Debugf("%s passed up parser error %s from %s and %s", handler, err,
+				//		handler.Connection(), parser)
+				//}
 			}
 		default:
 			num, err := handler.Connection().Read(buf)
@@ -392,13 +437,16 @@ func (handler *connectionHandler) Serve() {
 						continue
 					}
 				}
+				err = &ConnectionHandlerError{err, handler}
+				if err, ok := err.(*ConnectionHandlerError); ok {
+					err.Network()
+				}
+				handler.Log().Debugf("pass up unhandled error %s from %s", err, handler)
 				// broken or closed connection, stop reading and piping
 				// and pass up error (net.Error)
 				select {
 				case <-handler.ctx.Done():
-				case handler.errs <- &ConnectionHandlerError{err, handler}:
-					handler.Log().Debugf("%s passed up unhandled error %s from %s and %s", handler, err,
-						handler.Connection(), parser)
+				case handler.errs <- err:
 				}
 				return
 			}
@@ -408,7 +456,7 @@ func (handler *connectionHandler) Serve() {
 				select {
 				case <-handler.ctx.Done():
 					return
-				case parserErrors <- err:
+				case parserErrs <- err:
 				}
 			}
 		}
@@ -421,17 +469,7 @@ func (handler *connectionHandler) dispose() {
 	handler.Connection().Close()
 }
 
-// ConnectionHandler decorator that implements CancellableConnectionHandler interface.
-type cancellableConnectionHandler struct {
-	ConnectionHandler
-	cancel func()
-}
-
-func NewCancellableConnectionHandler(handler ConnectionHandler, cancel func()) CancellableConnectionHandler {
-	return &cancellableConnectionHandler{handler, cancel}
-}
-
 // Cancel simply calls runtime provided cancel function.
-func (handler *cancellableConnectionHandler) Cancel() {
+func (handler *connectionHandler) Cancel() {
 	handler.cancel()
 }

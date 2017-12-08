@@ -7,21 +7,31 @@ import (
 	"strings"
 
 	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/log"
 )
 
 // UDP protocol implementation
 type udpProtocol struct {
 	protocol
-	// listening connections
-	connections *connectionPool
+	connections ConnectionPool
 }
 
 func NewUdpProtocol(ctx context.Context, output chan<- *IncomingMessage, errs chan<- error) Protocol {
-	udp := &udpProtocol{
-		connections: NewConnectionPool(ctx, output, errs),
-	}
-	udp.init(ctx, "udp", false, false, output, errs)
+	udp := new(udpProtocol)
+	udp.network = "udp"
+	udp.reliable = false
+	udp.streamed = false
+	udp.connections = NewConnectionPool(ctx, output, errs)
+	udp.SetLog(log.StandardLogger())
+	// start up pool
+	go udp.connections.Manage()
+
 	return udp
+}
+
+func (udp *udpProtocol) SetLog(logger log.Logger) {
+	udp.protocol.SetLog(logger)
+	udp.connections.SetLog(udp.Log())
 }
 
 func (udp *udpProtocol) Listen(target *Target) error {
@@ -45,38 +55,8 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	// register new connection
 	conn := NewConnection(udpConn)
 	conn.SetLog(udp.Log())
-	// store by local address
-	udp.connections.Add(ConnKey(conn.LocalAddr()), conn, -1)
-	// start connection serving
-	errs := make(chan error)
-	udp.serveConnection(conn, udp.output, errs)
-	udp.wg.Add(1)
-	go func() {
-		defer func() {
-			udp.wg.Done()
-			close(errs)
-		}()
-		for udp.errs != nil {
-			select {
-			case <-udp.stop:
-				return
-			case err, ok := <-errs:
-				if !ok {
-					return
-				}
-				if _, ok := err.(net.Error); ok {
-					udp.Log().Errorf("%s received connection error: %s; connection %s will be closed", udp, err, conn)
-					conn.Close()
-					udp.connections.Drop(conn.LocalAddr())
-				}
-				select {
-				case <-udp.stop:
-					return
-				case udp.errs <- err:
-				}
-			}
-		}
-	}()
+	// index by local address
+	udp.connections.Add(conn.LocalAddr(), conn, 0)
 
 	return err // should be nil here
 }

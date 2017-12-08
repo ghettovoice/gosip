@@ -10,7 +10,9 @@ import (
 )
 
 var (
-	bufferSize uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
+	bufferSize   uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
+	readTimeout         = 30 * time.Second
+	writeTimeout        = 30 * time.Second
 )
 
 // Wrapper around net.Conn.
@@ -22,7 +24,7 @@ type Connection interface {
 	RemoteAddr() net.Addr
 	Network() string
 	Close() error
-	IsStream() bool
+	Streamed() bool
 	String() string
 }
 
@@ -32,7 +34,7 @@ type connection struct {
 	baseConn net.Conn
 	laddr    net.Addr
 	raddr    net.Addr
-	stream   bool
+	streamed bool
 }
 
 func NewConnection(
@@ -50,7 +52,7 @@ func NewConnection(
 		baseConn: baseConn,
 		laddr:    baseConn.LocalAddr(),
 		raddr:    baseConn.RemoteAddr(),
-		stream:   stream,
+		streamed: stream,
 	}
 	conn.SetLog(log.StandardLogger())
 	return conn
@@ -88,8 +90,8 @@ func (conn *connection) SetLog(logger log.Logger) {
 	})
 }
 
-func (conn *connection) IsStream() bool {
-	return conn.stream
+func (conn *connection) Streamed() bool {
+	return conn.streamed
 }
 
 func (conn *connection) Network() string {
@@ -103,7 +105,15 @@ func (conn *connection) Read(buf []byte) (int, error) {
 		raddr net.Addr
 	)
 
-	conn.baseConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	if err := conn.baseConn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+		return 0, &ConnectionError{
+			err,
+			"set read deadline",
+			conn.RemoteAddr(),
+			conn.LocalAddr(),
+			conn,
+		}
+	}
 
 	switch baseConn := conn.baseConn.(type) {
 	case net.PacketConn: // UDP & ...
@@ -138,7 +148,15 @@ func (conn *connection) Write(buf []byte) (int, error) {
 		err error
 	)
 
-	conn.baseConn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	if err := conn.baseConn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+		return 0, &ConnectionError{
+			err,
+			"set write deadline",
+			conn.RemoteAddr(),
+			conn.LocalAddr(),
+			conn,
+		}
+	}
 
 	switch baseConn := conn.baseConn.(type) {
 	case net.PacketConn: // UDP & ...

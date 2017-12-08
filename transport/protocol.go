@@ -1,28 +1,25 @@
 package transport
 
 import (
-	"context"
 	"fmt"
-	"net"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/syntax"
 )
 
 const (
 	netErrRetryTime = 5 * time.Second
+	socketTtl       = time.Hour
 )
 
 // Protocol implements network specific transport features.
 type Protocol interface {
 	log.WithLogger
 	Network() string
-	IsReliable() bool
-	IsStream() bool
+	Reliable() bool
+	Streamed() bool
 	Listen(target *Target) error
 	Send(target *Target, msg core.Message) error
 	String() string
@@ -30,35 +27,19 @@ type Protocol interface {
 
 type protocol struct {
 	log      log.Logger
-	ctx      context.Context
 	network  string
 	reliable bool
-	stream   bool
-	output   chan<- *IncomingMessage
-	errs     chan<- error
-}
-
-func (pr *protocol) init(
-	ctx context.Context,
-	network string,
-	reliable bool,
-	stream bool,
-	output chan<- *IncomingMessage,
-	errs chan<- error,
-) {
-	pr.ctx = ctx
-	pr.network = network
-	pr.reliable = reliable
-	pr.stream = stream
-	pr.output = output
-	pr.errs = errs
-	pr.SetLog(log.StandardLogger())
+	streamed bool
 }
 
 func (pr *protocol) SetLog(logger log.Logger) {
 	pr.log = logger.WithFields(map[string]interface{}{
 		"protocol": pr.String(),
 	})
+}
+
+func (pr *protocol) Log() log.Logger {
+	return pr.log
 }
 
 func (pr *protocol) String() string {
@@ -74,18 +55,14 @@ func (pr *protocol) String() string {
 	return fmt.Sprintf("%sprotocol %p", network, name)
 }
 
-func (pr *protocol) Log() log.Logger {
-	return pr.log
-}
-
 func (pr *protocol) Network() string {
 	return strings.ToUpper(pr.network)
 }
 
-func (pr *protocol) IsReliable() bool {
+func (pr *protocol) Reliable() bool {
 	return pr.reliable
 }
 
-func (pr *protocol) IsStream() bool {
-	return pr.stream
+func (pr *protocol) Streamed() bool {
+	return pr.streamed
 }
