@@ -69,7 +69,7 @@ func (conn *connection) String() string {
 	}
 
 	return fmt.Sprintf(
-		"%sconnection %s (laddr %s, raddr %s)",
+		"%sconnection %s (laddr %v, raddr %v)",
 		network,
 		name,
 		conn.LocalAddr(),
@@ -79,12 +79,14 @@ func (conn *connection) String() string {
 
 func (conn *connection) Log() log.Logger {
 	// remote addr for net.PacketConn resolved in runtime
-	return conn.log.WithField("raddr", conn.RemoteAddr().String())
+	return conn.log.WithFields(map[string]interface{}{
+		"raddr": fmt.Sprintf("%v", conn.RemoteAddr()),
+	})
 }
 
 func (conn *connection) SetLog(logger log.Logger) {
 	conn.log = logger.WithFields(map[string]interface{}{
-		"laddr": conn.LocalAddr().String(),
+		"laddr": fmt.Sprintf("%v", conn.LocalAddr()),
 		"net":   strings.ToUpper(conn.LocalAddr().Network()),
 		"conn":  conn.String(),
 	})
@@ -160,6 +162,7 @@ func (conn *connection) Write(buf []byte) (int, error) {
 
 	switch baseConn := conn.baseConn.(type) {
 	case net.PacketConn: // UDP & ...
+		// todo check if socket in connected state, use WriteTo only for not connected
 		num, err = baseConn.WriteTo(buf, conn.RemoteAddr())
 	default: // net.Conn - TCP, TLS & ...
 		num, err = conn.baseConn.Write(buf)

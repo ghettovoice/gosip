@@ -2,6 +2,7 @@
 package gosip
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -59,6 +60,7 @@ type stdTransport struct {
 // NewTransport creates transport layer.
 // 	- hostaddr - current server host address (IP or FQDN)
 func NewTransport(
+	ctx context.Context,
 	hostaddr string,
 ) *stdTransport {
 	tp := &stdTransport{
@@ -70,10 +72,12 @@ func NewTransport(
 		protocols: NewProtocolPool(),
 	}
 	tp.SetLog(log.StandardLogger())
-
+	// todo tmp, fix later
+	incomingMessage := make(chan *transport.IncomingMessage)
+	errs := make(chan error)
 	// predefined protocols
-	tp.Register(transport.NewTcpProtocol())
-	tp.Register(transport.NewUdpProtocol())
+	tp.Register(transport.NewTcpProtocol(ctx, incomingMessage, errs))
+	tp.Register(transport.NewUdpProtocol(ctx, incomingMessage, errs))
 	// TODO implement TLS
 
 	return tp
@@ -232,11 +236,6 @@ func (tp *stdTransport) Stop() {
 	close(tp.stop)
 	tp.wg.Wait()
 
-	tp.Log().Debugf("disposing all registered protocols")
-	for _, protocol := range tp.protocols.All() {
-		protocol.Stop()
-	}
-
 	tp.Log().Debugf("disposing output channels")
 	close(tp.output)
 	close(tp.errs)
@@ -249,18 +248,18 @@ func (tp *stdTransport) serveProtocol(protocol transport.Protocol, wg *sync.Wait
 	}()
 	tp.Log().Infof("begin forwarding of %s protocol %p outputs", protocol.Network(), protocol)
 
-	for {
-		select {
-		case <-tp.stop: // transport stop was called
-			return
-			// forward incoming message
-		case incomingMsg := <-protocol.Output():
-			tp.onProtocolMessage(incomingMsg, protocol)
-			// forward errors
-		case err := <-protocol.Errors():
-			tp.onProtocolError(err, protocol)
-		}
-	}
+	//for {
+	//	select {
+	//	case <-tp.stop: // transport stop was called
+	//		return
+	//		// forward incoming message
+	//	case incomingMsg := <-protocol.Output():
+	//		tp.onProtocolMessage(incomingMsg, protocol)
+	//		// forward errors
+	//	case err := <-protocol.Errors():
+	//		tp.onProtocolError(err, protocol)
+	//	}
+	//}
 }
 
 // handles incoming message from protocol

@@ -11,7 +11,7 @@ import (
 const (
 	MTU uint = 1500
 
-	DefaultHost     = "0.0.0.0"
+	DefaultHost     = "127.0.0.1"
 	DefaultProtocol = "TCP"
 
 	DefaultUdpPort core.Port = 5060
