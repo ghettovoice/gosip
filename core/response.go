@@ -38,12 +38,12 @@ func NewResponse(
 	body string,
 ) Response {
 	res := new(response)
+	res.logger = log.NewSafeLocalLogger()
 	res.startLine = res.StartLine
 	res.SetSipVersion(sipVersion)
 	res.headers = newHeaders(hdrs)
 	res.SetStatusCode(statusCode)
 	res.SetReason(reason)
-	res.SetLog(log.StandardLogger())
 
 	if strings.TrimSpace(body) != "" {
 		res.SetBody(body, true)

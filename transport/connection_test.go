@@ -89,5 +89,6 @@ var _ = Describe("Connection", func() {
 				close(done)
 			})
 		})
+		// TODO: add TCP test
 	})
 })

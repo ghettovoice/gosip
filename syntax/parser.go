@@ -28,7 +28,7 @@ const maxCseq = 2147483647
 // A Parser converts the raw bytes of SIP messages into core.Message objects.
 // It allows
 type Parser interface {
-	log.WithLogger
+	log.LocalLogger
 	// Implements io.Writer. Queues the given bytes to be parsed.
 	// If the parser has terminated due to a previous fatal error, it will return n=0 and an appropriate error.
 	// Otherwise, it will return n=len(p) and err=nil.
@@ -105,6 +105,7 @@ func ParseMessage(msgData []byte, logger log.Logger) (core.Message, error) {
 func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Parser {
 	p := &parser{
 		streamed: streamed,
+		logger:   log.NewSafeLocalLogger(),
 	}
 	// Configure the parser with the standard set of header parsers.
 	p.headerParsers = make(map[string]HeaderParser)
@@ -114,16 +115,16 @@ func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Par
 
 	p.output = output
 	p.errs = errs
+	p.bodyLengths.Init()
 
 	if !streamed {
 		// If we're not in streaming mode, set up a channel so the Write method can pass calculated body lengths to the parser.
-		p.bodyLengths.Init()
+		p.bodyLengths.Run()
 	}
 
 	// Create a managed buffer to allow message data to be asynchronously provided to the parser, and
 	// to allow the parser to block until enough data is available to parse.
 	p.input = newParserBuffer()
-	p.SetLog(log.StandardLogger())
 	// Done for input a line at a time, and produce SipMessages to send down p.output.
 	go p.parse(streamed)
 
@@ -139,7 +140,7 @@ type parser struct {
 	errs          chan<- error
 	terminalErr   error
 	stopped       bool
-	log           log.Logger
+	logger        log.LocalLogger
 }
 
 func (p *parser) String() string {
@@ -154,11 +155,11 @@ func (p *parser) String() string {
 }
 
 func (p *parser) Log() log.Logger {
-	return p.log
+	return p.logger.Log()
 }
 
 func (p *parser) SetLog(logger log.Logger) {
-	p.log = logger.WithField("parser", fmt.Sprintf("%p", p))
+	p.logger.SetLog(logger.WithField("parser", fmt.Sprintf("%p", p)))
 	p.bodyLengths.SetLog(p.Log())
 	p.input.SetLog(p.Log())
 }

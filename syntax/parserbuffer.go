@@ -23,7 +23,7 @@ type parserBuffer struct {
 	// Don't access this directly except when closing.
 	pipeReader *io.PipeReader
 
-	log log.Logger
+	logger log.LocalLogger
 }
 
 // Create a new parserBuffer object (see struct comment for object details).
@@ -33,16 +33,16 @@ func newParserBuffer() *parserBuffer {
 	var pb parserBuffer
 	pb.pipeReader, pb.Writer = io.Pipe()
 	pb.reader = bufio.NewReader(pb.pipeReader)
-	pb.SetLog(log.StandardLogger())
+	pb.logger = log.NewSafeLocalLogger()
 	return &pb
 }
 
 func (pb *parserBuffer) Log() log.Logger {
-	return pb.log
+	return pb.logger.Log()
 }
 
 func (pb *parserBuffer) SetLog(logger log.Logger) {
-	pb.log = logger
+	pb.logger.SetLog(logger)
 }
 
 // Block until the buffer contains at least one CRLF-terminated line.

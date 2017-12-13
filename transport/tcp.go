@@ -23,12 +23,12 @@ func NewTcpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 	tcp.reliable = true
 	tcp.streamed = true
 	tcp.conns = make(chan Connection)
-	// todo listen errors from pool
+	// TODO: add separate errs chan to listen errors from pool for reconnection?
 	tcp.listeners = NewListenerPool(tcp.conns, errs, cancel)
 	tcp.connections = NewConnectionPool(output, errs, cancel)
-	tcp.SetLog(log.StandardLogger())
-	// start up pools
-	go tcp.manage()
+	tcp.logger = log.NewSafeLocalLogger()
+	// pipe listener and connection pools
+	go tcp.pipePools()
 
 	return tcp
 }
@@ -39,8 +39,18 @@ func (tcp *tcpProtocol) SetLog(logger log.Logger) {
 	tcp.connections.SetLog(tcp.Log())
 }
 
+func (tcp *tcpProtocol) Done() <-chan struct{} {
+	done := make(chan struct{})
+	go func(connections ConnectionPool, listeners ListenerPool) {
+		<-connections.Done()
+		<-listeners.Done()
+	}(tcp.connections, tcp.listeners)
+
+	return done
+}
+
 // piping new connections to connection pool for serving
-func (tcp *tcpProtocol) manage() {
+func (tcp *tcpProtocol) pipePools() {
 	defer func() {
 		tcp.Log().Debugf("stop %s managing", tcp)
 		tcp.dispose()
@@ -49,10 +59,11 @@ func (tcp *tcpProtocol) manage() {
 
 	for {
 		select {
-		//case <-ctx.Done():
-		//	return
-		case conn := <-tcp.conns:
-			if err := tcp.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, socketTtl); err != nil {
+		case conn, ok := <-tcp.conns:
+			if !ok {
+				return
+			}
+			if err := tcp.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
 				tcp.Log().Errorf("%s failed to put new %s to %s: %s", tcp, conn, tcp.connections, err)
 				continue
@@ -84,6 +95,7 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 		}
 	}
 	// index listeners by local address
+	// should live infinitely
 	tcp.listeners.Put(ListenerKey(listener.Addr().String()), listener)
 
 	return err // should be nil here
@@ -121,7 +133,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg core.Message) error {
 
 func (tcp *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 	addr := target.Addr()
-	network := strings.ToLower(tcp.String())
+	network := strings.ToLower(tcp.Network())
 	// resolve remote address
 	raddr, err := net.ResolveTCPAddr(network, addr)
 	if err != nil {
@@ -136,7 +148,7 @@ func (tcp *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 }
 
 func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
-	network := strings.ToLower(tcp.String())
+	network := strings.ToLower(tcp.Network())
 	laddr := &net.TCPAddr{
 		IP:   net.IP(DefaultHost),
 		Port: int(DefaultUdpPort),
@@ -157,7 +169,7 @@ func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 
 		conn = NewConnection(tcpConn)
 		conn.SetLog(tcp.Log())
-		tcp.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, socketTtl)
+		tcp.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, sockTTL)
 	}
 
 	return conn, nil

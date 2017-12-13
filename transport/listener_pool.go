@@ -18,7 +18,7 @@ func (key ListenerKey) String() string {
 }
 
 type ListenerPool interface {
-	log.WithLogger
+	log.LocalLogger
 	core.Awaiting
 	String() string
 	Put(key ListenerKey, listener net.Listener) error
@@ -30,7 +30,7 @@ type ListenerPool interface {
 }
 
 type ListenerHandler interface {
-	log.WithLogger
+	log.LocalLogger
 	core.Cancellable
 	core.Awaiting
 	String() string
@@ -52,7 +52,7 @@ type listenerResponse struct {
 }
 
 type listenerPool struct {
-	log     log.Logger
+	logger  log.LocalLogger
 	hwg     *sync.WaitGroup
 	store   map[ListenerKey]ListenerHandler
 	keys    []ListenerKey
@@ -70,6 +70,7 @@ type listenerPool struct {
 
 func NewListenerPool(output chan<- Connection, errs chan<- error, cancel <-chan struct{}) ListenerPool {
 	pool := &listenerPool{
+		logger:  log.NewSafeLocalLogger(),
 		hwg:     new(sync.WaitGroup),
 		store:   make(map[ListenerKey]ListenerHandler),
 		keys:    make([]ListenerKey, 0),
@@ -84,7 +85,6 @@ func NewListenerPool(output chan<- Connection, errs chan<- error, cancel <-chan 
 		drops:   make(chan *listenerRequest),
 		mu:      new(sync.RWMutex),
 	}
-	pool.SetLog(log.StandardLogger())
 
 	wg := new(sync.WaitGroup)
 	wg.Add(2)
@@ -106,11 +106,11 @@ func (pool *listenerPool) String() string {
 }
 
 func (pool *listenerPool) Log() log.Logger {
-	return pool.log
+	return pool.logger.Log()
 }
 
 func (pool *listenerPool) SetLog(logger log.Logger) {
-	pool.log = logger.WithField("listener-pool", pool.String())
+	pool.logger.SetLog(logger.WithField("listener-pool", pool.String()))
 }
 
 // Done returns channel that resolves when pool gracefully completes it work.
@@ -417,7 +417,7 @@ func (pool *listenerPool) handleDrop(req *listenerRequest) {
 }
 
 type listenerHandler struct {
-	log      log.Logger
+	logger   log.LocalLogger
 	key      ListenerKey
 	listener net.Listener
 	output   chan<- Connection
@@ -435,6 +435,7 @@ func NewListenerHandler(
 	cancel <-chan struct{},
 ) ListenerHandler {
 	handler := &listenerHandler{
+		logger:   log.NewSafeLocalLogger(),
 		key:      key,
 		listener: listener,
 		output:   output,
@@ -443,7 +444,6 @@ func NewListenerHandler(
 		canceled: make(chan struct{}),
 		done:     make(chan struct{}),
 	}
-	handler.SetLog(log.StandardLogger())
 	return handler
 }
 
@@ -469,13 +469,13 @@ func (handler *listenerHandler) String() string {
 }
 
 func (handler *listenerHandler) Log() log.Logger {
-	return handler.log
+	return handler.logger.Log()
 }
 
 func (handler *listenerHandler) SetLog(logger log.Logger) {
-	handler.log = logger.WithFields(map[string]interface{}{
+	handler.logger.SetLog(logger.WithFields(map[string]interface{}{
 		"listener-handler": handler.String(),
-	})
+	}))
 }
 
 func (handler *listenerHandler) Key() ListenerKey {
@@ -543,7 +543,9 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 			return
 		}
 
-		conns <- NewConnection(baseConn)
+		conn := NewConnection(baseConn)
+		conn.SetLog(handler.Log())
+		conns <- conn
 	}
 }
 

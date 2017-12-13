@@ -14,7 +14,7 @@ type ElasticChan struct {
 	Out     chan interface{}
 	buffer  []interface{}
 	stopped bool
-	log     log.Logger
+	logger  log.LocalLogger
 }
 
 // Initialise the Elastic channel, and start the management goroutine.
@@ -22,9 +22,11 @@ func (c *ElasticChan) Init() {
 	c.In = make(chan interface{}, c_ELASTIC_CHANSIZE)
 	c.Out = make(chan interface{}, c_ELASTIC_CHANSIZE)
 	c.buffer = make([]interface{}, 0)
-	c.SetLog(log.StandardLogger())
+	c.logger = log.NewSafeLocalLogger()
+}
 
-	go c.manage()
+func (c *ElasticChan) Run() {
+	c.manage()
 }
 
 func (c *ElasticChan) Reset() {
@@ -32,11 +34,11 @@ func (c *ElasticChan) Reset() {
 }
 
 func (c *ElasticChan) Log() log.Logger {
-	return c.log
+	return c.logger.Log()
 }
 
 func (c *ElasticChan) SetLog(logger log.Logger) {
-	c.log = logger
+	c.logger.SetLog(logger)
 }
 
 // Poll for input from one end of the channel and add it to the buffer.

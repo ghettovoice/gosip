@@ -2,6 +2,7 @@ package log
 
 import (
 	"io"
+	"sync"
 
 	"github.com/ghettovoice/logrus"
 )
@@ -40,8 +41,8 @@ type Logger interface {
 	logrus.FieldLogger
 }
 
-// WithLogger introduces types with local context scoped logger.
-type WithLogger interface {
+// LocalLogger introduces types with local context scoped logger.
+type LocalLogger interface {
 	// Log returns Logger instance
 	Log() Logger
 	SetLog(logger Logger)
@@ -205,4 +206,29 @@ func Panicln(args ...interface{}) {
 // Fatalln logs a message at level Fatal on the standard logger.
 func Fatalln(args ...interface{}) {
 	logrus.Fatalln(args...)
+}
+
+// Thread-safe local logger
+type safeLocalLogger struct {
+	Logger
+	mu *sync.RWMutex
+}
+
+func NewSafeLocalLogger() LocalLogger {
+	return &safeLocalLogger{
+		Logger: StandardLogger(),
+		mu:     new(sync.RWMutex),
+	}
+}
+
+func (l *safeLocalLogger) Log() Logger {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.Logger
+}
+
+func (l *safeLocalLogger) SetLog(logger Logger) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Logger = logger
 }

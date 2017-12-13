@@ -608,7 +608,12 @@ var _ = Describe("ConnectionPool", func() {
 						Expect(pool.Length()).To(Equal(2))
 					})
 					It("should has store with 2 connections: server1, server2", func() {
-						Expect(pool.All()).To(ConsistOf(server1, server2))
+						// this line sometimes raises DATA RACE warning
+						//Expect(pool.All()).To(ConsistOf(server1, server2))
+						// compare by element
+						all := pool.All()
+						Expect(all[0]).To(Equal(server1))
+						Expect(all[1]).To(Equal(server2))
 					})
 					It("should find connection server2 by key2", func() {
 						Expect(pool.Get(key2)).To(Equal(server2))

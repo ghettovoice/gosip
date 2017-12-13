@@ -20,12 +20,12 @@ func NewTlsProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 	tls.reliable = true
 	tls.streamed = true
 	tls.conns = make(chan Connection)
-	// todo listen errors from pool
+	// TODO: add separate errs chan to listen errors from pool for reconnection?
 	tls.listeners = NewListenerPool(tls.conns, errs, cancel)
 	tls.connections = NewConnectionPool(output, errs, cancel)
-	tls.SetLog(log.StandardLogger())
-	// start up pools
-	go tls.manage()
+	tls.logger = log.NewSafeLocalLogger()
+	// pipe listener and connection pools
+	go tls.pipePools()
 
 	return tls
 }
@@ -36,8 +36,13 @@ func (tls *tlsProtocol) SetLog(logger log.Logger) {
 	tls.connections.SetLog(tls.Log())
 }
 
+func (tls *tlsProtocol) Done() <-chan struct{} {
+	tls.Log().Fatalf("not implemented method in %s", tls)
+	return nil
+}
+
 // piping new connections to connection pool for serving
-func (tls *tlsProtocol) manage() {
+func (tls *tlsProtocol) pipePools() {
 	defer func() {
 		tls.Log().Debugf("stop %s managing", tls)
 		tls.dispose()
@@ -48,8 +53,11 @@ func (tls *tlsProtocol) manage() {
 		select {
 		//case <-ctx.Done():
 		//	return
-		case conn := <-tls.conns:
-			if err := tls.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, socketTtl); err != nil {
+		case conn, ok := <-tls.conns:
+			if !ok {
+				return
+			}
+			if err := tls.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
 				tls.Log().Errorf("%s failed to put new %s to %s: %s", tls, conn, tls.connections, err)
 				continue
@@ -64,6 +72,7 @@ func (tls *tlsProtocol) dispose() {
 }
 
 func (tls *tlsProtocol) Listen(target *Target) error {
+	tls.Log().Fatalf("not implemented method in %s", tls)
 	return fmt.Errorf("not implemented method in %s", tls)
 	//target = FillTargetHostAndPort(tls.Network(), target)
 	//network := strings.ToLower(tls.Network())
@@ -88,6 +97,7 @@ func (tls *tlsProtocol) Listen(target *Target) error {
 }
 
 func (tls *tlsProtocol) Send(target *Target, msg core.Message) error {
+	tls.Log().Fatalf("not implemented method in %s", tls)
 	return fmt.Errorf("not implemented method in %s", tls)
 	//target = FillTargetHostAndPort(tls.Network(), target)
 	//
@@ -120,7 +130,7 @@ func (tls *tlsProtocol) Send(target *Target, msg core.Message) error {
 
 //func (tls *tlsProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 //	addr := target.Addr()
-//	network := strings.ToLower(tls.String())
+//	network := strings.ToLower(tls.Network())
 //	// resolve remote address
 //	raddr, err := net.ResolveTCPAddr(network, addr)
 //	if err != nil {
@@ -135,7 +145,7 @@ func (tls *tlsProtocol) Send(target *Target, msg core.Message) error {
 //}
 //
 //func (tls *tlsProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
-//	network := strings.ToLower(tls.String())
+//	network := strings.ToLower(tls.Network())
 //	laddr := &net.TCPAddr{
 //		IP:   net.IP(DefaultHost),
 //		Port: int(DefaultUdpPort),
@@ -156,7 +166,7 @@ func (tls *tlsProtocol) Send(target *Target, msg core.Message) error {
 //
 //		conn = NewConnection(tcpConn)
 //		conn.SetLog(tls.Log())
-//		tls.connections.Put(conn.RemoteAddr(), conn, socketTtl)
+//		tls.connections.Put(conn.RemoteAddr(), conn, sockTTL)
 //	}
 //
 //	return conn, nil

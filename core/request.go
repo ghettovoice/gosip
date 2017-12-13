@@ -34,12 +34,12 @@ func NewRequest(
 	body string,
 ) Request {
 	req := new(request)
+	req.logger = log.NewSafeLocalLogger()
 	req.startLine = req.StartLine
 	req.SetSipVersion(sipVersion)
 	req.headers = newHeaders(hdrs)
 	req.SetMethod(method)
 	req.SetRecipient(recipient)
-	req.SetLog(log.StandardLogger())
 
 	if strings.TrimSpace(body) != "" {
 		req.SetBody(body, true)

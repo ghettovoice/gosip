@@ -18,7 +18,7 @@ var (
 // Wrapper around net.Conn.
 type Connection interface {
 	net.Conn
-	log.WithLogger
+	log.LocalLogger
 	Network() string
 	Streamed() bool
 	String() string
@@ -26,7 +26,7 @@ type Connection interface {
 
 // Connection implementation.
 type connection struct {
-	log      log.Logger
+	logger   log.LocalLogger
 	baseConn net.Conn
 	laddr    net.Addr
 	raddr    net.Addr
@@ -45,12 +45,12 @@ func NewConnection(
 	}
 
 	conn := &connection{
+		logger:   log.NewSafeLocalLogger(),
 		baseConn: baseConn,
 		laddr:    baseConn.LocalAddr(),
 		raddr:    baseConn.RemoteAddr(),
 		streamed: stream,
 	}
-	conn.SetLog(log.StandardLogger())
 	return conn
 }
 
@@ -75,17 +75,17 @@ func (conn *connection) String() string {
 
 func (conn *connection) Log() log.Logger {
 	// remote addr for net.PacketConn resolved in runtime
-	return conn.log.WithFields(map[string]interface{}{
+	return conn.logger.Log().WithFields(map[string]interface{}{
 		"conn":  conn.String(),
 		"raddr": fmt.Sprintf("%v", conn.RemoteAddr()),
 	})
 }
 
 func (conn *connection) SetLog(logger log.Logger) {
-	conn.log = logger.WithFields(map[string]interface{}{
+	conn.logger.SetLog(logger.WithFields(map[string]interface{}{
 		"laddr": fmt.Sprintf("%v", conn.LocalAddr()),
 		"net":   strings.ToUpper(conn.LocalAddr().Network()),
-	})
+	}))
 }
 
 func (conn *connection) Streamed() bool {

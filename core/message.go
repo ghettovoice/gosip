@@ -43,7 +43,7 @@ const (
 
 // Message introduces common SIP message RFC 3261 - 7.
 type Message interface {
-	log.WithLogger
+	log.LocalLogger
 	Clone() Message
 	// Start line returns message start line.
 	StartLine() string
@@ -284,7 +284,7 @@ type message struct {
 	*headers
 	sipVersion string
 	body       string
-	log        log.Logger
+	logger     log.LocalLogger
 	startLine  func() string
 }
 
@@ -354,11 +354,11 @@ func (msg *message) SetBody(body string, setContentLength bool) {
 }
 
 func (msg *message) Log() log.Logger {
-	return msg.log.WithFields(msg.logFields())
+	return msg.logger.Log().WithFields(msg.logFields())
 }
 
 func (msg *message) SetLog(logger log.Logger) {
-	msg.log = logger
+	msg.logger.SetLog(logger)
 }
 
 func (msg *message) logFields() map[string]interface{} {

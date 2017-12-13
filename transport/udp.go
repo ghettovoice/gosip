@@ -20,15 +20,19 @@ func NewUdpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 	udp.network = "udp"
 	udp.reliable = false
 	udp.streamed = false
+	// TODO: add separate errs chan to listen errors from pool for reconnection?
 	udp.connections = NewConnectionPool(output, errs, cancel)
-	udp.SetLog(log.StandardLogger())
-
+	udp.logger = log.NewSafeLocalLogger()
 	return udp
 }
 
 func (udp *udpProtocol) SetLog(logger log.Logger) {
 	udp.protocol.SetLog(logger)
 	udp.connections.SetLog(udp.Log())
+}
+
+func (udp *udpProtocol) Done() <-chan struct{} {
+	return udp.connections.Done()
 }
 
 func (udp *udpProtocol) Listen(target *Target) error {
@@ -52,7 +56,7 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	// register new connection
 	conn := NewConnection(udpConn)
 	conn.SetLog(udp.Log())
-	// index by local address
+	// index by local address, TTL=0 - unlimited expiry time
 	udp.connections.Put(ConnectionKey(conn.LocalAddr().String()), conn, 0)
 
 	return err // should be nil here
@@ -106,7 +110,7 @@ func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
 
 func (udp *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
 	addr := target.Addr()
-	network := strings.ToLower(udp.String())
+	network := strings.ToLower(udp.Network())
 	// resolve remote address
 	raddr, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {

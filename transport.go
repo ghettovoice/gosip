@@ -33,9 +33,7 @@ func (err AlreadyRegisteredProtocolError) Error() string {
 
 // Transport layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Transport interface {
-	log.WithLogger
-	Output() <-chan core.Message
-	Errors() <-chan error
+	log.LocalLogger
 	Register(protocol transport.Protocol) error
 	// Listen starts listening on `addr` for each registered protocol.
 	Listen(target *transport.Target) error
@@ -60,8 +58,7 @@ func GetHostAddr(ctx context.Context) (string, bool) {
 // Transport layer implementation.
 type stdTransport struct {
 	protocols *protocolPool
-	log       log.Logger
-	ctx       context.Context
+	logger    log.LocalLogger
 	output    chan<- core.Message
 	errs      chan<- error
 	wg        *sync.WaitGroup
@@ -69,25 +66,19 @@ type stdTransport struct {
 
 // NewTransport creates transport layer.
 // 	- hostaddr - current server host address (IP or FQDN)
-func NewTransport(
-	ctx context.Context,
-	output chan<- core.Message,
-	errs chan<- error,
-) *stdTransport {
+func NewTransport(output chan<- core.Message, errs chan<- error, cancel <-chan struct{}) *stdTransport {
 	tp := &stdTransport{
-		ctx:       ctx,
+		logger:    log.NewSafeLocalLogger(),
 		output:    output,
 		errs:      errs,
 		wg:        new(sync.WaitGroup),
 		protocols: NewProtocolPool(),
 	}
-	tp.SetLog(log.StandardLogger())
 	// todo tmp, fix later
 	incomingMessage := make(chan *transport.IncomingMessage)
-	errs := make(chan error)
 	// predefined protocols
-	tp.Register(transport.NewTcpProtocol(ctx, incomingMessage, errs))
-	tp.Register(transport.NewUdpProtocol(ctx, incomingMessage, errs))
+	tp.Register(transport.NewTcpProtocol(incomingMessage, errs, cancel))
+	tp.Register(transport.NewUdpProtocol(incomingMessage, errs, cancel))
 	// TODO implement TLS
 
 	return tp
@@ -116,22 +107,14 @@ func (tp *stdTransport) String() string {
 }
 
 func (tp *stdTransport) Log() log.Logger {
-	return tp.log
+	return tp.logger.Log()
 }
 
 func (tp *stdTransport) SetLog(logger log.Logger) {
-	tp.log = logger.WithField("transport-ptr", fmt.Sprintf("%p", tp))
+	tp.logger.SetLog(logger.WithField("transport-ptr", fmt.Sprintf("%p", tp)))
 	for _, protocol := range tp.protocols.All() {
 		protocol.SetLog(tp.Log())
 	}
-}
-
-func (tp *stdTransport) Output() <-chan core.Message {
-	return tp.output
-}
-
-func (tp *stdTransport) Errors() <-chan error {
-	return tp.errs
 }
 
 func (tp *stdTransport) Listen(target *transport.Target) error {

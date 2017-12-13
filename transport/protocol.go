@@ -11,12 +11,13 @@ import (
 
 const (
 	netErrRetryTime = 5 * time.Second
-	socketTtl       = time.Hour
+	sockTTL         = time.Hour
 )
 
 // Protocol implements network specific transport features.
 type Protocol interface {
-	log.WithLogger
+	log.LocalLogger
+	core.Awaiting
 	Network() string
 	Reliable() bool
 	Streamed() bool
@@ -26,20 +27,20 @@ type Protocol interface {
 }
 
 type protocol struct {
-	log      log.Logger
+	logger   log.LocalLogger
 	network  string
 	reliable bool
 	streamed bool
 }
 
 func (pr *protocol) SetLog(logger log.Logger) {
-	pr.log = logger.WithFields(map[string]interface{}{
+	pr.logger.SetLog(logger.WithFields(map[string]interface{}{
 		"protocol": pr.String(),
-	})
+	}))
 }
 
 func (pr *protocol) Log() log.Logger {
-	return pr.log
+	return pr.logger.Log()
 }
 
 func (pr *protocol) String() string {
@@ -52,7 +53,7 @@ func (pr *protocol) String() string {
 		network = pr.Network() + " "
 	}
 
-	return fmt.Sprintf("%sprotocol %p", network, name)
+	return fmt.Sprintf("%sprotocol %s", network, name)
 }
 
 func (pr *protocol) Network() string {

@@ -21,7 +21,7 @@ func (key ConnectionKey) String() string {
 
 // ConnectionPool used for active connection management.
 type ConnectionPool interface {
-	log.WithLogger
+	log.LocalLogger
 	core.Awaiting
 	String() string
 	Put(key ConnectionKey, connection Connection, ttl time.Duration) error
@@ -35,7 +35,7 @@ type ConnectionPool interface {
 // ConnectionHandler serves associated connection, i.e. parses
 // incoming data, manages expiry time & etc.
 type ConnectionHandler interface {
-	log.WithLogger
+	log.LocalLogger
 	core.Cancellable
 	core.Awaiting
 	String() string
@@ -63,7 +63,7 @@ type connectionResponse struct {
 }
 
 type connectionPool struct {
-	log     log.Logger
+	logger  log.LocalLogger
 	hwg     *sync.WaitGroup
 	store   map[ConnectionKey]ConnectionHandler
 	keys    []ConnectionKey
@@ -81,6 +81,7 @@ type connectionPool struct {
 
 func NewConnectionPool(output chan<- *IncomingMessage, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
 	pool := &connectionPool{
+		logger:  log.NewSafeLocalLogger(),
 		hwg:     new(sync.WaitGroup),
 		store:   make(map[ConnectionKey]ConnectionHandler),
 		keys:    make([]ConnectionKey, 0),
@@ -95,7 +96,6 @@ func NewConnectionPool(output chan<- *IncomingMessage, errs chan<- error, cancel
 		drops:   make(chan *connectionRequest),
 		mu:      new(sync.RWMutex),
 	}
-	pool.SetLog(log.StandardLogger())
 
 	wg := new(sync.WaitGroup)
 	wg.Add(2)
@@ -117,11 +117,11 @@ func (pool *connectionPool) String() string {
 }
 
 func (pool *connectionPool) Log() log.Logger {
-	return pool.log
+	return pool.logger.Log()
 }
 
 func (pool *connectionPool) SetLog(logger log.Logger) {
-	pool.log = logger.WithField("conn-pool", pool.String())
+	pool.logger.SetLog(logger.WithField("conn-pool", pool.String()))
 }
 
 func (pool *connectionPool) Done() <-chan struct{} {
@@ -450,7 +450,7 @@ func (pool *connectionPool) handleDrop(req *connectionRequest) {
 
 // connectionHandler actually serves associated connection
 type connectionHandler struct {
-	log        log.Logger
+	logger     log.LocalLogger
 	key        ConnectionKey
 	connection Connection
 	timer      timing.Timer
@@ -471,6 +471,7 @@ func NewConnectionHandler(
 	cancel <-chan struct{},
 ) ConnectionHandler {
 	handler := &connectionHandler{
+		logger:     log.NewSafeLocalLogger(),
 		key:        key,
 		connection: conn,
 		output:     output,
@@ -479,7 +480,6 @@ func NewConnectionHandler(
 		canceled:   make(chan struct{}),
 		done:       make(chan struct{}),
 	}
-	handler.SetLog(conn.Log())
 	//handler.Update(ttl)
 	if ttl > 0 {
 		handler.expiry = time.Now().Add(ttl)
@@ -514,13 +514,13 @@ func (handler *connectionHandler) String() string {
 }
 
 func (handler *connectionHandler) Log() log.Logger {
-	return handler.log
+	return handler.logger.Log()
 }
 
 func (handler *connectionHandler) SetLog(logger log.Logger) {
-	handler.log = logger.WithFields(map[string]interface{}{
+	handler.logger.SetLog(logger.WithFields(map[string]interface{}{
 		"conn-handler": handler.String(),
-	})
+	}))
 }
 
 func (handler *connectionHandler) Key() ConnectionKey {
