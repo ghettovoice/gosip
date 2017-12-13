@@ -23,10 +23,12 @@ func NewTcpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 	tcp.reliable = true
 	tcp.streamed = true
 	tcp.conns = make(chan Connection)
+	tcp.logger = log.NewSafeLocalLogger()
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
 	tcp.listeners = NewListenerPool(tcp.conns, errs, cancel)
+	tcp.listeners.SetLog(tcp.Log())
 	tcp.connections = NewConnectionPool(output, errs, cancel)
-	tcp.logger = log.NewSafeLocalLogger()
+	tcp.connections.SetLog(tcp.Log())
 	// pipe listener and connection pools
 	go tcp.pipePools()
 
@@ -40,25 +42,21 @@ func (tcp *tcpProtocol) SetLog(logger log.Logger) {
 }
 
 func (tcp *tcpProtocol) Done() <-chan struct{} {
-	done := make(chan struct{})
-	go func(connections ConnectionPool, listeners ListenerPool) {
-		<-connections.Done()
-		<-listeners.Done()
-	}(tcp.connections, tcp.listeners)
-
-	return done
+	return tcp.connections.Done()
 }
 
 // piping new connections to connection pool for serving
 func (tcp *tcpProtocol) pipePools() {
 	defer func() {
 		tcp.Log().Debugf("stop %s managing", tcp)
-		tcp.dispose()
+		close(tcp.conns)
 	}()
 	tcp.Log().Debugf("start %s managing", tcp)
 
 	for {
 		select {
+		case <-tcp.listeners.Done():
+			return
 		case conn, ok := <-tcp.conns:
 			if !ok {
 				return
@@ -70,11 +68,6 @@ func (tcp *tcpProtocol) pipePools() {
 			}
 		}
 	}
-}
-
-func (tcp *tcpProtocol) dispose() {
-	tcp.Log().Debugf("dispose %s", tcp)
-	close(tcp.conns)
 }
 
 func (tcp *tcpProtocol) Listen(target *Target) error {

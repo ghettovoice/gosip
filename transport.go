@@ -2,7 +2,6 @@
 package gosip
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -44,19 +43,9 @@ type Transport interface {
 	String() string
 }
 
-var hostAddrKey = "hostAddr"
-
-func WithHostAddr(parentCtx context.Context, hostAddr string) context.Context {
-	return context.WithValue(parentCtx, hostAddrKey, hostAddr)
-}
-
-func GetHostAddr(ctx context.Context) (string, bool) {
-	hostAddr, ok := ctx.Value(hostAddrKey).(string)
-	return hostAddr, ok
-}
-
 // Transport layer implementation.
 type stdTransport struct {
+	hostAddr  string
 	protocols *protocolPool
 	logger    log.LocalLogger
 	output    chan<- core.Message
@@ -65,10 +54,11 @@ type stdTransport struct {
 }
 
 // NewTransport creates transport layer.
-// 	- hostaddr - current server host address (IP or FQDN)
-func NewTransport(output chan<- core.Message, errs chan<- error, cancel <-chan struct{}) *stdTransport {
+// 	- hostAddr - current server host address (IP or FQDN)
+func NewTransport(hostAddr string, output chan<- core.Message, errs chan<- error, cancel <-chan struct{}) *stdTransport {
 	tp := &stdTransport{
 		logger:    log.NewSafeLocalLogger(),
+		hostAddr:  hostAddr,
 		output:    output,
 		errs:      errs,
 		wg:        new(sync.WaitGroup),

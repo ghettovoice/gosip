@@ -106,6 +106,7 @@ func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Par
 	p := &parser{
 		streamed: streamed,
 		logger:   log.NewSafeLocalLogger(),
+		done:     make(chan struct{}),
 	}
 	// Configure the parser with the standard set of header parsers.
 	p.headerParsers = make(map[string]HeaderParser)
@@ -116,6 +117,7 @@ func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Par
 	p.output = output
 	p.errs = errs
 	p.bodyLengths.Init()
+	p.bodyLengths.SetLog(p.Log())
 
 	if !streamed {
 		// If we're not in streaming mode, set up a channel so the Write method can pass calculated body lengths to the parser.
@@ -125,6 +127,7 @@ func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Par
 	// Create a managed buffer to allow message data to be asynchronously provided to the parser, and
 	// to allow the parser to block until enough data is available to parse.
 	p.input = newParserBuffer()
+	p.input.SetLog(p.Log())
 	// Done for input a line at a time, and produce SipMessages to send down p.output.
 	go p.parse(streamed)
 
@@ -141,6 +144,7 @@ type parser struct {
 	terminalErr   error
 	stopped       bool
 	logger        log.LocalLogger
+	done          chan struct{}
 }
 
 func (p *parser) String() string {
@@ -191,6 +195,7 @@ func (p *parser) Write(data []byte) (int, error) {
 // The parser will not release its resources until Stop() is called,
 // even if the parser object itself is garbage collected.
 func (p *parser) Stop() {
+	// TODO implement graceful teardown, wati for ElasticChan
 	p.Log().Debugf("stopping %s", p)
 	p.stopped = true
 	p.input.Stop()
@@ -204,12 +209,15 @@ func (p *parser) Reset() {
 	p.input = newParserBuffer()
 	p.input.SetLog(p.Log())
 	// run
+	p.done = make(chan struct{})
 	p.stopped = false
 	p.terminalErr = nil
 }
 
 // Consume input lines one at a time, producing core.Message objects and sending them down p.output.
 func (p *parser) parse(requireContentLength bool) {
+	defer close(p.done)
+
 	var msg core.Message
 
 	for {

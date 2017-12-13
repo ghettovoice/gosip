@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ghettovoice/gosip/log"
@@ -31,6 +32,7 @@ type connection struct {
 	laddr    net.Addr
 	raddr    net.Addr
 	streamed bool
+	mu       *sync.RWMutex
 }
 
 func NewConnection(
@@ -50,6 +52,7 @@ func NewConnection(
 		laddr:    baseConn.LocalAddr(),
 		raddr:    baseConn.RemoteAddr(),
 		streamed: stream,
+		mu:       new(sync.RWMutex),
 	}
 	return conn
 }
@@ -110,7 +113,9 @@ func (conn *connection) Read(buf []byte) (int, error) {
 	switch baseConn := conn.baseConn.(type) {
 	case net.PacketConn: // UDP & ...
 		num, raddr, err = baseConn.ReadFrom(buf)
+		conn.mu.Lock()
 		conn.raddr = raddr
+		conn.mu.Unlock()
 	default: // net.Conn - TCP, TLS & ...
 		num, err = conn.baseConn.Read(buf)
 	}
@@ -169,6 +174,11 @@ func (conn *connection) LocalAddr() net.Addr {
 }
 
 func (conn *connection) RemoteAddr() net.Addr {
+	// we should protect raddr field with mutex,
+	// because there is may be DATA RACE with Read method that usually executes
+	// in another goroutine
+	conn.mu.RLock()
+	defer conn.mu.RUnlock()
 	return conn.raddr
 }
 

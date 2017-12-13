@@ -26,11 +26,13 @@ func (c *ElasticChan) Init() {
 }
 
 func (c *ElasticChan) Run() {
-	c.manage()
+	go c.manage()
 }
 
 func (c *ElasticChan) Reset() {
 	c.buffer = make([]interface{}, 0)
+	c.In = make(chan interface{}, c_ELASTIC_CHANSIZE)
+	c.Out = make(chan interface{}, c_ELASTIC_CHANSIZE)
 }
 
 func (c *ElasticChan) Log() log.Logger {
@@ -43,6 +45,7 @@ func (c *ElasticChan) SetLog(logger log.Logger) {
 
 // Poll for input from one end of the channel and add it to the buffer.
 // Also poll sending buffered signals out over the output chan.
+// TODO: add cancel chan
 func (c *ElasticChan) manage() {
 	for {
 		if len(c.buffer) > 0 {

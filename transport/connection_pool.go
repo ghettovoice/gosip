@@ -349,10 +349,10 @@ func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Dur
 	pool.Log().Debugf("put %s to %s", handler, pool)
 	// lock store
 	pool.mu.Lock()
-	defer pool.mu.Unlock()
 	// update store
 	pool.store[handler.Key()] = handler
 	pool.keys = append(pool.keys, handler.Key())
+	pool.mu.Unlock()
 	// start serving
 	pool.hwg.Add(1)
 	go handler.Serve(pool.hwg.Done)
@@ -480,6 +480,7 @@ func NewConnectionHandler(
 		canceled:   make(chan struct{}),
 		done:       make(chan struct{}),
 	}
+	handler.SetLog(conn.Log())
 	//handler.Update(ttl)
 	if ttl > 0 {
 		handler.expiry = time.Now().Add(ttl)
@@ -506,7 +507,7 @@ func (handler *connectionHandler) String() string {
 			parts = append(parts, fmt.Sprintf("%s", handler.Connection()))
 		}
 		if len(parts) > 0 {
-			addition = " (" + strings.Join(parts, " ") + ")"
+			addition = " (" + strings.Join(parts, ", ") + ")"
 		}
 	}
 
@@ -632,6 +633,8 @@ func (handler *connectionHandler) readConnection(
 			return
 		}
 
+		handler.SetLog(handler.Connection().Log())
+		parser.SetLog(handler.Log())
 		pkt := append([]byte{}, buf[:num]...)
 		if _, err := parser.Write(pkt); err != nil {
 			errs <- err

@@ -308,7 +308,7 @@ func (msg *message) Short() string {
 		parts = append(parts, fmt.Sprintf("%s", to))
 	}
 	if len(parts) > 0 {
-		s += "(" + strings.Join(parts, ", ") + ")"
+		s += " (" + strings.Join(parts, ", ") + ")"
 	}
 
 	return s

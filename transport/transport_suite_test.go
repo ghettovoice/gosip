@@ -26,7 +26,7 @@ func TestTransport(t *testing.T) {
 	forceColor := true
 	for _, arg := range os.Args {
 		if strings.HasPrefix(arg, "--test.v") || strings.HasPrefix(arg, "--ginkgo.v") {
-			lvl = log.InfoLevel
+			lvl = log.DebugLevel
 		} else if strings.HasPrefix(arg, "--ginkgo.noColor") {
 			forceColor = false
 		}

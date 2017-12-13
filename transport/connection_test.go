@@ -56,7 +56,7 @@ var _ = Describe("Connection", func() {
 		data := "Hello world!"
 
 		Context("with net.UDPConn", func() {
-			It("should read and write data", func(done Done) {
+			It("should read and write data", func() {
 				cUdpConn, sUdpConn := createPacketClientServer("udp", localAddr1)
 				defer func() {
 					cUdpConn.Close()
@@ -86,7 +86,6 @@ var _ = Describe("Connection", func() {
 				log.Debugf("%s -> %s: written %d bytes", cConn.LocalAddr(), cConn.RemoteAddr(), num)
 
 				wg.Wait()
-				close(done)
 			})
 		})
 		// TODO: add TCP test
