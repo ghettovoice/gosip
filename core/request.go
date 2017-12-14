@@ -42,10 +42,14 @@ func NewRequest(
 	req.SetRecipient(recipient)
 
 	if strings.TrimSpace(body) != "" {
-		req.SetBody(body, true)
+		req.SetBody(body, false)
 	}
 
 	return req
+}
+
+func (req *request) Short() string {
+	return fmt.Sprintf("Request%s", req.message.Short())
 }
 
 func (req *request) Method() RequestMethod {

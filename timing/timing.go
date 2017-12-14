@@ -1,7 +1,10 @@
 // Forked from github.com/StefanKopieczek/gossip by @StefanKopieczek
 package timing
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // Controls whether library calls should be mocked, or whether we should use the standard Go time library.
 // If we're in Mock Mode, then time does not pass as normal, but only progresses when Elapse is called.
@@ -9,6 +12,7 @@ import "time"
 var MockMode bool = false
 var currentTimeMock time.Time = time.Unix(0, 0)
 var mockTimers []*mockTimer = make([]*mockTimer, 0)
+var mockTimerMu = new(sync.Mutex)
 
 // Interface over Golang's built-in Timers, allowing them to be swapped out for mocked timers.
 type Timer interface {
@@ -159,6 +163,7 @@ func Elapse(d time.Duration) {
 
 	// Stop tracking any fired timers.
 	remainingTimers := make([]*mockTimer, 0)
+	mockTimerMu.Lock()
 	for _, t := range mockTimers {
 		if !t.fired {
 			remainingTimers = append(remainingTimers, t)
@@ -166,6 +171,7 @@ func Elapse(d time.Duration) {
 	}
 
 	mockTimers = remainingTimers
+	mockTimerMu.Unlock()
 }
 
 // Returns the current time.
@@ -192,16 +198,20 @@ func removeMockTimer(t *mockTimer) bool {
 	found := false
 	var idx int
 	var elt *mockTimer
+	mockTimerMu.Lock()
 	for idx, elt = range mockTimers {
 		if elt == t {
 			found = true
 			break
 		}
 	}
+	mockTimerMu.Unlock()
 
 	if found {
+		mockTimerMu.Lock()
 		// We found the given timer. Remove it.
 		mockTimers = append(mockTimers[:idx], mockTimers[idx+1:]...)
+		mockTimerMu.Unlock()
 		return true
 	} else {
 		// The timer was not present, indicating that it was already expired.

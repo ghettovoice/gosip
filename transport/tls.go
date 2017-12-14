@@ -30,6 +30,10 @@ func NewTlsProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 	return tls
 }
 
+func (tls *tlsProtocol) String() string {
+	return fmt.Sprintf("Tls%s", tls.protocol)
+}
+
 func (tls *tlsProtocol) SetLog(logger log.Logger) {
 	tls.protocol.SetLog(logger)
 	tls.listeners.SetLog(tls.Log())

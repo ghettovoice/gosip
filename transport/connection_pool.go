@@ -11,6 +11,7 @@ import (
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/syntax"
 	"github.com/ghettovoice/gosip/timing"
+	"github.com/ghettovoice/gosip/util"
 )
 
 type ConnectionKey string
@@ -106,14 +107,7 @@ func NewConnectionPool(output chan<- *IncomingMessage, errs chan<- error, cancel
 }
 
 func (pool *connectionPool) String() string {
-	var name string
-	if pool == nil {
-		name = "<nil>"
-	} else {
-		name = fmt.Sprintf("%p", pool)
-	}
-
-	return fmt.Sprintf("connection pool %s", name)
+	return fmt.Sprintf("ConnectionPool %p", pool)
 }
 
 func (pool *connectionPool) Log() log.Logger {
@@ -230,10 +224,10 @@ func (pool *connectionPool) Length() int {
 func (pool *connectionPool) serveStore(wg *sync.WaitGroup) {
 	defer func() {
 		defer wg.Done()
-		pool.Log().Infof("%s stop serving store", pool)
+		pool.Log().Infof("%s stops serve store routine", pool)
 		pool.dispose()
 	}()
-	pool.Log().Infof("%s start serving store", pool)
+	pool.Log().Infof("%s begins serve store routine", pool)
 
 	for {
 		select {
@@ -268,10 +262,10 @@ func (pool *connectionPool) dispose() {
 func (pool *connectionPool) serveHandlers(wg *sync.WaitGroup) {
 	defer func() {
 		defer wg.Done()
-		pool.Log().Infof("%s stop serving handlers", pool)
+		pool.Log().Infof("%s stops serve handlers routine", pool)
 		close(pool.done)
 	}()
-	pool.Log().Infof("%s start serving handlers", pool)
+	pool.Log().Infof("%s begins serve handlers routine", pool)
 
 	for {
 		select {
@@ -462,6 +456,7 @@ type connectionHandler struct {
 	cancel     <-chan struct{}
 	canceled   chan struct{}
 	done       chan struct{}
+	addrs      util.ElasticChan
 }
 
 func NewConnectionHandler(
@@ -496,28 +491,30 @@ func NewConnectionHandler(
 }
 
 func (handler *connectionHandler) String() string {
-	var name, addition string
 	if handler == nil {
-		name = "<nil>"
-	} else {
-		name = fmt.Sprintf("%p", handler)
-		parts := make([]string, 0)
-		if handler.Key() != "" {
-			parts = append(parts, fmt.Sprintf("key %s", handler.Key()))
-		}
-		if handler.Connection() != nil {
-			parts = append(parts, fmt.Sprintf("%s", handler.Connection()))
-		}
-		if len(parts) > 0 {
-			addition = " (" + strings.Join(parts, ", ") + ")"
-		}
+		return "ConnectionHandler <nil>"
 	}
 
-	return fmt.Sprintf("connection handler %s%s", name, addition)
+	var info string
+	parts := make([]string, 0)
+	if handler.Key() != "" {
+		parts = append(parts, fmt.Sprintf("key %s", handler.Key()))
+	}
+	if handler.Connection() != nil {
+		parts = append(parts, fmt.Sprintf("%s", handler.Connection()))
+	}
+	if len(parts) > 0 {
+		info = " (" + strings.Join(parts, ", ") + ")"
+	}
+
+	return fmt.Sprintf("ConnectionHandler %p %s", handler, info)
 }
 
 func (handler *connectionHandler) Log() log.Logger {
-	return handler.logger.Log()
+	return handler.logger.Log().WithFields(map[string]interface{}{
+		"conn":  handler.Connection().String(),
+		"raddr": fmt.Sprintf("%v", handler.Connection().RemoteAddr()),
+	})
 }
 
 func (handler *connectionHandler) SetLog(logger log.Logger) {
@@ -570,15 +567,11 @@ func (handler *connectionHandler) Expired() bool {
 func (handler *connectionHandler) Serve(done func()) {
 	defer func() {
 		defer done()
-		handler.Log().Infof("%s stop serving", handler)
+		handler.Log().Infof("%s stops serve connection routine", handler)
 		close(handler.done)
 	}()
-	handler.Log().Infof("%s begin serving", handler)
 
-	messages := make(chan core.Message)
-	errs := make(chan error)
-	parser := syntax.NewParser(messages, errs, handler.Connection().Streamed())
-	parser.SetLog(handler.Log())
+	handler.Log().Infof("%s begins serve connection routine", handler)
 	// watch for cancel
 	go func() {
 		select {
@@ -588,70 +581,173 @@ func (handler *connectionHandler) Serve(done func()) {
 		case <-handler.canceled:
 		}
 	}()
-	// start connection serving
-	wg := new(sync.WaitGroup)
-	wg.Add(2)
-	go handler.readConnection(wg, parser, messages, errs)
-	go handler.pipeOutputs(wg, parser, messages, errs)
-
-	wg.Wait()
+	// start connection serving goroutines
+	msgs, errs := handler.readConnection()
+	handler.pipeOutputs(msgs, errs)
 }
 
-func (handler *connectionHandler) readConnection(
-	wg *sync.WaitGroup,
-	parser syntax.Parser,
-	messages chan<- core.Message,
-	errs chan<- error,
-) {
-	defer func() {
-		defer wg.Done()
-		handler.Log().Debugf("%s stop reading connection", handler)
-		handler.Connection().Close()
-		parser.Stop()
-		// wait for parser dispose
-		close(messages)
-		close(errs)
-	}()
-	handler.Log().Debugf("%s begin reading connection", handler)
+func (handler *connectionHandler) readConnection() (<-chan core.Message, <-chan error) {
+	msgs := make(chan core.Message)
+	errs := make(chan error)
+	streamed := handler.Connection().Streamed()
+	parser := syntax.NewParser(msgs, errs, streamed)
+	if !streamed {
+		handler.addrs.Init()
+		handler.addrs.Run()
+	}
 
-	buf := make([]byte, bufferSize)
-	for {
-		// wait for data
-		num, err := handler.Connection().Read(buf)
-		if err != nil {
-			// if we get timeout error just go further and try read on the next iteration
-			if err, ok := err.(net.Error); ok {
-				if err.Timeout() || err.Temporary() {
-					handler.Log().Debugf("%s timeout or temporary unavailable, sleep by %d seconds",
-						handler.Connection(), netErrRetryTime)
-					time.Sleep(netErrRetryTime)
-					continue
-				}
+	go func() {
+		defer func() {
+			handler.Log().Debugf("%s stops read connection routine", handler)
+			parser.Stop()
+			if !streamed {
+				handler.addrs.Stop()
 			}
-			// broken or closed connection
-			// pass up error and exit
-			errs <- err
-			return
-		}
+			close(msgs)
+			close(errs)
+		}()
+		handler.Log().Debugf("%s begins read connection routine", handler)
 
-		pkt := append([]byte{}, buf[:num]...)
-		if _, err := parser.Write(pkt); err != nil {
-			errs <- err
+		buf := make([]byte, bufferSize)
+		for {
+			// wait for data
+			num, err := handler.Connection().Read(buf)
+			select {
+			case <-handler.canceled:
+				return
+			default:
+			}
+			if err != nil {
+				// if we get timeout error just go further and try read on the next iteration
+				if err, ok := err.(net.Error); ok {
+					if err.Timeout() || err.Temporary() {
+						handler.Log().Debugf("%s timeout or temporary unavailable, sleep by %d seconds",
+							handler.Connection(), netErrRetryTime)
+						time.Sleep(netErrRetryTime)
+						continue
+					}
+				}
+				// broken or closed connection
+				// so send error and exit
+				errs <- err
+				return
+			}
+			// parse received data
+			if _, err := parser.Write(append([]byte{}, buf[:num]...)); err == nil {
+				if !streamed {
+					handler.addrs.In <- fmt.Sprintf("%v", handler.Connection().RemoteAddr())
+				}
+			} else {
+				errs <- err
+			}
+		}
+	}()
+
+	return msgs, errs
+}
+
+//func (handler *connectionHandler) parsePackets(wg *sync.WaitGroup, pkts <-chan []byte, errs chan<- error) <-chan core.Message {
+//	// output channels
+//	msgs := make(chan core.Message)
+//	// parser errors chan
+//	perrs := make(chan error)
+//	// parser factory
+//	createParser := func(out chan<- core.Message, errs chan<- error) syntax.Parser {
+//		parser := syntax.NewParser(out, errs, handler.Connection().Streamed())
+//		parser.SetLog(handler.Log())
+//		return parser
+//	}
+//
+//	go func() {
+//		var parser syntax.Parser
+//		parser = createParser(msgs, perrs)
+//
+//		defer func() {
+//			defer wg.Done()
+//			handler.Log().Debugf("%s stops parse packets routine", handler)
+//			parser.Stop()
+//			close(perrs)
+//			close(msgs)
+//		}()
+//
+//		handler.Log().Debugf("%s begins parse packets routine", handler)
+//
+//		for {
+//			select {
+//			case pkt, ok := <-pkts:
+//				if !ok {
+//					// connection was closed
+//					return
+//				}
+//				if pkt == nil {
+//					continue
+//				}
+//				go parser.Write(pkt)
+//			case err := <-perrs:
+//				if err == nil {
+//					continue
+//				}
+//				// check for parser/syntax errors or broken message
+//				reset := false
+//				silent := false
+//				if _, ok := err.(syntax.Error); ok {
+//					reset = true
+//					silent = true
+//				}
+//				if err, ok := err.(core.MessageError); ok {
+//					reset = true
+//					if err.Broken() {
+//						silent = true
+//					}
+//				}
+//				if reset {
+//					handler.Log().Warnf("%s resets parser due to syntax error: %s", handler, err)
+//					parser.Reset()
+//					//parser.Stop()
+//					//parser = createParser(msgs, perrs)
+//				}
+//				if silent {
+//					continue
+//				}
+//				// malformed message, invalid headers & etc.
+//				errs <- err
+//			}
+//		}
+//	}()
+//
+//	return msgs
+//}
+
+func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-chan error) {
+	streamed := handler.Connection().Streamed()
+	getRemoteAddr := func() string {
+		if streamed {
+			return fmt.Sprintf("%v", handler.Connection().RemoteAddr())
+		} else {
+			// use non-blocking read because remote address already should be here
+			// or error occurred in read connection goroutine
+			select {
+			case v := <-handler.addrs.Out:
+				return v.(string)
+			default:
+				return "<nil>"
+			}
 		}
 	}
-}
+	isSyntaxError := func(err error) bool {
+		if serr, ok := err.(syntax.Error); ok && serr.Syntax() {
+			return true
+		}
+		if merr, ok := err.(core.MessageError); ok && merr.Broken() {
+			return true
+		}
+		return false
+	}
 
-func (handler *connectionHandler) pipeOutputs(
-	wg *sync.WaitGroup,
-	parser syntax.Parser,
-	messages <-chan core.Message,
-	errs <-chan error,
-) {
 	defer func() {
-		defer wg.Done()
-		handler.Log().Debugf("%s stop piping outputs", handler)
+		handler.Log().Debugf("%s stops pipe outputs routine", handler)
 	}()
-	handler.Log().Debugf("%s begin piping outputs", handler)
+	handler.Log().Debugf("%s begins pipe outputs routine", handler)
 
 	for {
 		select {
@@ -662,7 +758,6 @@ func (handler *connectionHandler) pipeOutputs(
 				return
 			default:
 			}
-
 			if handler.Expiry().IsZero() {
 				// handler expiryTime is zero only when TTL = 0 (unlimited handler)
 				// so we must not get here with zero expiryTime
@@ -676,28 +771,25 @@ func (handler *connectionHandler) pipeOutputs(
 				ExpireError(fmt.Sprintf("%s expired", handler.Connection())),
 				handler.Key(),
 				handler.String(),
+				handler.Connection().Network(),
+				fmt.Sprintf("%v", handler.Connection().LocalAddr()),
+				fmt.Sprintf("%v", handler.Connection().RemoteAddr()),
 			}
-		case msg, ok := <-messages:
+		case msg, ok := <-msgs:
 			// cancel signal
 			select {
 			case <-handler.canceled:
 				return
 			default:
 			}
-			// connection was closed, exit
 			if !ok {
 				return
 			}
-
-			if msg != nil {
-				incomingMsg := &IncomingMessage{
-					msg,
-					handler.Connection().LocalAddr(),
-					handler.Connection().RemoteAddr(),
-				}
-
-				handler.Log().Debugf("%s received message %s %p; pass it up", handler, msg.Short(), msg)
-				handler.output <- incomingMsg
+			handler.Log().Debugf("%s sends message %s; pass it up", handler, msg.Short())
+			handler.output <- &IncomingMessage{
+				msg,
+				handler.Connection().LocalAddr().String(),
+				getRemoteAddr(),
 			}
 		case err, ok := <-errs:
 			// cancel signal
@@ -706,23 +798,27 @@ func (handler *connectionHandler) pipeOutputs(
 				return
 			default:
 			}
-			// connection was closed, exit
 			if !ok {
 				return
 			}
 
-			if err != nil {
-				handler.Log().Debugf("%s received error %s; pass it up", handler, err)
-
-				if _, ok := err.(syntax.Error); ok {
-					// parser/syntax errors, broken or malformed message
-					handler.Log().Warnf("%s reset %s due to parser error: %s", handler, parser, err)
-					parser.Reset()
-					continue
+			if isSyntaxError(err) {
+				// ignore broken message, syntax errors
+				// such error can arrives only from parser goroutine
+				// so we need to read remote address for broken message
+				if !streamed {
+					<-handler.addrs.Out
 				}
-
-				if _, ok = err.(*ConnectionHandlerError); !ok {
-					err = &ConnectionHandlerError{err, handler.Key(), handler.String()}
+				handler.Log().Warnf("%s ignores error %s", handler, err)
+			} else {
+				handler.Log().Warnf("%s sends error %s; pass it up", handler, err)
+				err = &ConnectionHandlerError{
+					err,
+					handler.Key(),
+					handler.String(),
+					handler.Connection().Network(),
+					fmt.Sprintf("%v", handler.Connection().LocalAddr()),
+					getRemoteAddr(),
 				}
 				handler.errs <- err
 			}

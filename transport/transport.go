@@ -24,9 +24,28 @@ type IncomingMessage struct {
 	// SIP message
 	Msg core.Message
 	// Local address to which message arrived
-	LAddr net.Addr
+	LAddr string
 	// Remote address from which message arrived
-	RAddr net.Addr
+	RAddr string
+}
+
+func (msg *IncomingMessage) String() string {
+	if msg == nil {
+		return "IncomingMessage <nil>"
+	}
+	s := "IncomingMessage " + msg.Msg.Short()
+	parts := make([]string, 0)
+	if msg.LAddr != "" {
+		parts = append(parts, "laddr "+msg.LAddr)
+	}
+	if msg.RAddr != "" {
+		parts = append(parts, "raddr "+msg.RAddr)
+	}
+	if len(parts) > 0 {
+		s += " (" + strings.Join(parts, ", ") + ")"
+	}
+
+	return s
 }
 
 // Target endpoint
@@ -58,6 +77,9 @@ func (trg *Target) Addr() string {
 }
 
 func (trg *Target) String() string {
+	if trg == nil {
+		return "Target <nil>"
+	}
 	var prc string
 	if strings.TrimSpace(trg.Protocol) != "" {
 		prc = strings.ToUpper(trg.Protocol)
@@ -65,7 +87,7 @@ func (trg *Target) String() string {
 		prc = DefaultProtocol
 	}
 
-	return fmt.Sprintf("%s %s", prc, trg.Addr())
+	return fmt.Sprintf("Target %s %s", prc, trg.Addr())
 }
 
 // DefaultPort returns protocol default port by network.
@@ -144,7 +166,7 @@ func (err *ConnectionError) Error() string {
 
 	s := "ConnectionError"
 	if err.Conn != "" {
-		s += " " + err.Conn
+		s += " [" + err.Conn + "]"
 	}
 	s += " " + err.Op
 	if err.Source != "" {
@@ -210,6 +232,9 @@ type ConnectionHandlerError struct {
 	Err     error
 	Key     ConnectionKey
 	Handler string
+	Net     string
+	LAddr   string
+	RAddr   string
 }
 
 func (err *ConnectionHandlerError) Network() bool   { return isNetwork(err.Err) }
@@ -224,7 +249,20 @@ func (err *ConnectionHandlerError) Error() string {
 
 	s := "ConnectionHandlerError"
 	if err.Handler != "" {
-		s += " " + err.Handler
+		s += " [" + err.Handler + "]"
+	}
+	parts := make([]string, 0)
+	if err.Net != "" {
+		parts = append(parts, "net "+err.Net)
+	}
+	if err.LAddr != "" {
+		parts = append(parts, "laddr "+err.LAddr)
+	}
+	if err.RAddr != "" {
+		parts = append(parts, "raddr "+err.RAddr)
+	}
+	if len(parts) > 0 {
+		s += " (" + strings.Join(parts, ", ") + ")"
 	}
 	s += ": " + err.Err.Error()
 
@@ -235,6 +273,8 @@ type ListenerHandlerError struct {
 	Err     error
 	Key     ListenerKey
 	Handler string
+	Net     string
+	Addr    string
 }
 
 func (err *ListenerHandlerError) Network() bool   { return isNetwork(err.Err) }
@@ -249,7 +289,17 @@ func (err *ListenerHandlerError) Error() string {
 
 	s := "ListenerHandlerError"
 	if err.Handler != "" {
-		s += " (" + err.Handler + ")"
+		s += " [" + err.Handler + "]"
+	}
+	parts := make([]string, 0)
+	if err.Net != "" {
+		parts = append(parts, "net "+err.Net)
+	}
+	if err.Addr != "" {
+		parts = append(parts, "laddr "+err.Addr)
+	}
+	if len(parts) > 0 {
+		s += " (" + strings.Join(parts, ", ") + ")"
 	}
 	s += ": " + err.Err.Error()
 

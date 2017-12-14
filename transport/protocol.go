@@ -44,16 +44,11 @@ func (pr *protocol) Log() log.Logger {
 }
 
 func (pr *protocol) String() string {
-	var name, network string
 	if pr == nil {
-		name = "<nil>"
-		network = ""
-	} else {
-		name = fmt.Sprintf("%p", pr)
-		network = pr.Network() + " "
+		return "Protocol <nil>"
 	}
 
-	return fmt.Sprintf("%sprotocol %s", network, name)
+	return fmt.Sprintf("Protocol %p (net %s)", pr, pr.Network())
 }
 
 func (pr *protocol) Network() string {

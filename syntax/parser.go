@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -107,6 +108,7 @@ func NewParser(output chan<- core.Message, errs chan<- error, streamed bool) Par
 		streamed: streamed,
 		logger:   log.NewSafeLocalLogger(),
 		done:     make(chan struct{}),
+		mu:       new(sync.Mutex),
 	}
 	// Configure the parser with the standard set of header parsers.
 	p.headerParsers = make(map[string]HeaderParser)
@@ -145,17 +147,14 @@ type parser struct {
 	stopped       bool
 	logger        log.LocalLogger
 	done          chan struct{}
+	mu            *sync.Mutex
 }
 
 func (p *parser) String() string {
-	var addr string
 	if p == nil {
-		addr = "<nil>"
-	} else {
-		addr = fmt.Sprintf("%p", p)
+		return "Parser <nil>"
 	}
-
-	return fmt.Sprintf("parser %s", addr)
+	return fmt.Sprintf("Parser %p", p)
 }
 
 func (p *parser) Log() log.Logger {
@@ -168,17 +167,31 @@ func (p *parser) SetLog(logger log.Logger) {
 	p.input.SetLog(p.Log())
 }
 
+func (p *parser) setError(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.terminalErr = err
+}
+
+func (p *parser) getError() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.terminalErr
+}
+
 func (p *parser) Write(data []byte) (int, error) {
-	if p.terminalErr != nil {
-		// The parser has stopped due to a terminal error. Return it.
-		p.Log().Warnf(
-			"%s ignores %d new bytes due to previous terminal error: %s",
-			p,
-			len(data),
-			p.terminalErr,
-		)
-		return 0, p.terminalErr
-	} else if p.stopped {
+	//termErr := p.getError()
+	//if termErr != nil {
+	//	// The parser has stopped due to a terminal error. Return it.
+	//	p.Log().Warnf(
+	//		"%s ignores %d new bytes due to previous terminal error: %s",
+	//		p,
+	//		len(data),
+	//		termErr,
+	//	)
+	//	return 0, termErr
+	//} else
+	if p.stopped {
 		return 0, ParserWriteError(fmt.Sprintf("cannot write data to stopped %s", p))
 	}
 
@@ -195,23 +208,25 @@ func (p *parser) Write(data []byte) (int, error) {
 // The parser will not release its resources until Stop() is called,
 // even if the parser object itself is garbage collected.
 func (p *parser) Stop() {
-	// TODO implement graceful teardown, wait for ElasticChan
 	p.Log().Debugf("stopping %s", p)
 	p.stopped = true
 	p.input.Stop()
+	if !p.streamed {
+		// We're in unstreamed mode, so we created a bodyLengths ElasticChan which
+		// needs to be disposed.
+		p.bodyLengths.Stop()
+	}
+	<-p.done
+	p.Log().Debugf("%s stopped", p)
 }
 
 func (p *parser) Reset() {
-	p.Stop()
-	// reset elastic chan
-	p.bodyLengths.Reset()
-	// recreate buffer
-	p.input = newParserBuffer()
-	p.input.SetLog(p.Log())
-	// run
+	// reset state
 	p.done = make(chan struct{})
 	p.stopped = false
-	p.terminalErr = nil
+	p.setError(nil)
+	// and re-run
+	go p.parse(p.streamed)
 }
 
 // Consume input lines one at a time, producing core.Message objects and sending them down p.output.
@@ -223,50 +238,35 @@ func (p *parser) parse(requireContentLength bool) {
 	for {
 		// Parse the StartLine.
 		startLine, err := p.input.NextLine()
-
 		if err != nil {
 			p.Log().Debugf("%s stopped: %s", p, err)
 			break
 		}
 
+		var termErr error
 		if isRequest(startLine) {
 			method, recipient, sipVersion, err := parseRequestLine(startLine)
 			if err == nil {
 				msg = core.NewRequest(method, recipient, sipVersion, []core.Header{}, "")
 			} else {
-				p.terminalErr = InvalidStartLineError(fmt.Sprintf(
-					"%s; parser: %s",
-					err,
-					p,
-				))
+				termErr = err
 			}
 		} else if isResponse(startLine) {
 			sipVersion, statusCode, reason, err := parseStatusLine(startLine)
 			if err == nil {
 				msg = core.NewResponse(sipVersion, statusCode, reason, []core.Header{}, "")
 			} else {
-				p.terminalErr = InvalidStartLineError(fmt.Sprintf(
-					"%s; parser: %s",
-					err,
-					p,
-				))
+				termErr = err
 			}
 		} else {
-			p.terminalErr = InvalidStartLineError(fmt.Sprintf(
-				"transmission beginning '%s' is not a SIP message; parser: %s",
-				startLine,
-				p,
-			))
+			termErr = fmt.Errorf("transmission beginning '%s' is not a SIP message", startLine)
 		}
 
-		if p.terminalErr != nil {
-			p.terminalErr = InvalidStartLineError(fmt.Sprintf(
-				"failed to parse first line of message: %s; parser: %s",
-				p.terminalErr,
-				p,
-			))
-			p.errs <- p.terminalErr
-			break
+		if termErr != nil {
+			termErr = InvalidStartLineError(fmt.Sprintf("%s failed to parse first line of message: %s", p, termErr))
+			p.setError(termErr)
+			p.errs <- termErr
+			continue
 		}
 
 		msg.SetLog(p.Log())
@@ -330,18 +330,18 @@ func (p *parser) parse(requireContentLength bool) {
 		}
 
 		var contentLength int
-
 		// Determine the length of the body, so we know when to stop parsing this message.
 		if p.streamed {
 			// Use the content-length header to identify the end of the message.
 			contentLengthHeaders := msg.GetHeaders("Content-Length")
 			if len(contentLengthHeaders) == 0 {
-				p.terminalErr = &core.MalformedMessageError{
+				termErr := &core.MalformedMessageError{
 					Err: fmt.Errorf("missing required 'Content-Length' header; parser: %s", p),
 					Msg: msg.String(),
 				}
-				p.errs <- p.terminalErr
-				break
+				p.setError(termErr)
+				p.errs <- termErr
+				continue
 			} else if len(contentLengthHeaders) > 1 {
 				var errbuf bytes.Buffer
 				errbuf.WriteString("multiple 'Content-Length' headers on message '")
@@ -351,12 +351,13 @@ func (p *parser) parse(requireContentLength bool) {
 					errbuf.WriteString("\t")
 					errbuf.WriteString(header.String())
 				}
-				p.terminalErr = &core.MalformedMessageError{
+				termErr := &core.MalformedMessageError{
 					Err: errors.New(errbuf.String()),
 					Msg: msg.String(),
 				}
-				p.errs <- p.terminalErr
-				break
+				p.setError(termErr)
+				p.errs <- termErr
+				continue
 			}
 
 			contentLength = int(*(contentLengthHeaders[0].(*core.ContentLength)))
@@ -368,16 +369,17 @@ func (p *parser) parse(requireContentLength bool) {
 		// Extract the message body.
 		body, err := p.input.NextChunk(contentLength)
 		if err != nil {
-			p.terminalErr = &core.BrokenMessageError{
+			termErr := &core.BrokenMessageError{
 				Err: fmt.Errorf("%s failed to read message body", p),
 				Msg: msg.String(),
 			}
-			p.errs <- p.terminalErr
-			break
+			p.setError(termErr)
+			p.errs <- termErr
+			continue
 		}
 		// RFC 3261 - 18.3.
 		if len(body) != contentLength {
-			p.terminalErr = &core.BrokenMessageError{
+			termErr := &core.BrokenMessageError{
 				Err: fmt.Errorf(
 					"incomplete message body: read %d bytes, expected %d bytes; parser: %s",
 					len(body),
@@ -386,20 +388,15 @@ func (p *parser) parse(requireContentLength bool) {
 				),
 				Msg: msg.String(),
 			}
-			p.errs <- p.terminalErr
-			break
+			p.setError(termErr)
+			p.errs <- termErr
+			continue
 		}
 
 		if strings.TrimSpace(body) != "" {
 			msg.SetBody(body, false)
 		}
 		p.output <- msg
-	}
-
-	if !p.streamed {
-		// We're in unstreamed mode, so we created a bodyLengths ElasticChan which
-		// needs to be disposed.
-		close(p.bodyLengths.In)
 	}
 	return
 }
@@ -813,7 +810,7 @@ parseLoop:
 // (SIP messages containing multiple headers of the same type can express them as a
 // single header containing a comma-separated argument list).
 func (p *parser) parseHeader(headerText string) (headers []core.Header, err error) {
-	p.Log().Debugf("parser %p parsing header \"%s\"", p, headerText)
+	p.Log().Debugf("%s parsing header \"%s\"", p, headerText)
 	headers = make([]core.Header, 0)
 
 	colonIdx := strings.Index(headerText, ":")
@@ -831,7 +828,7 @@ func (p *parser) parseHeader(headerText string) (headers []core.Header, err erro
 	} else {
 		// We have no registered parser for this header type,
 		// so we encapsulate the header data in a GenericHeader struct.
-		p.Log().Debugf("parser %p has no parser for header type %s", p, fieldName)
+		p.Log().Debugf("%s has no parser for header type %s", p, fieldName)
 		header := core.GenericHeader{
 			HeaderName: fieldName,
 			Contents:   fieldText,

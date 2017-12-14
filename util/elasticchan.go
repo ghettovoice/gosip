@@ -15,6 +15,7 @@ type ElasticChan struct {
 	buffer  []interface{}
 	stopped bool
 	logger  log.LocalLogger
+	done    chan struct{}
 }
 
 // Initialise the Elastic channel, and start the management goroutine.
@@ -23,16 +24,23 @@ func (c *ElasticChan) Init() {
 	c.Out = make(chan interface{}, c_ELASTIC_CHANSIZE)
 	c.buffer = make([]interface{}, 0)
 	c.logger = log.NewSafeLocalLogger()
+	c.done = make(chan struct{})
 }
 
 func (c *ElasticChan) Run() {
 	go c.manage()
 }
 
-func (c *ElasticChan) Reset() {
-	c.buffer = make([]interface{}, 0)
-	c.In = make(chan interface{}, c_ELASTIC_CHANSIZE)
-	c.Out = make(chan interface{}, c_ELASTIC_CHANSIZE)
+func (c *ElasticChan) Stop() {
+	select {
+	case <-c.done:
+		return
+	default:
+	}
+	c.Log().Debugf("stopping ElasticChan %p", c)
+	close(c.In)
+	<-c.done
+	c.Log().Debugf("ElasticChan %p stopped", c)
 }
 
 func (c *ElasticChan) Log() log.Logger {
@@ -47,6 +55,7 @@ func (c *ElasticChan) SetLog(logger log.Logger) {
 // Also poll sending buffered signals out over the output chan.
 // TODO: add cancel chan
 func (c *ElasticChan) manage() {
+	defer close(c.done)
 	for {
 		if len(c.buffer) > 0 {
 			// The buffer has something in it, so try to send as well as
@@ -55,10 +64,10 @@ func (c *ElasticChan) manage() {
 			select {
 			case in, ok := <-c.In:
 				if !ok {
-					c.Log().Debugf("chan %p will dispose", c)
+					c.Log().Debugf("ElasticChan %p will dispose", c)
 					break
 				}
-				c.Log().Debugf("chan %p gets '%v'", c, in)
+				c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
 				c.buffer = append(c.buffer, in)
 			case c.Out <- c.buffer[0]:
 				c.Log().Debugf("chan %p sends '%v'", c, c.buffer[0])
@@ -69,10 +78,10 @@ func (c *ElasticChan) manage() {
 			// Just wait to receive.
 			in, ok := <-c.In
 			if !ok {
-				c.Log().Debugf("chan %p will dispose", c)
+				c.Log().Debugf("ElasticChan %p will dispose", c)
 				break
 			}
-			c.Log().Debugf("chan %p gets '%v'", c, in)
+			c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
 			c.buffer = append(c.buffer, in)
 		}
 	}
@@ -81,10 +90,10 @@ func (c *ElasticChan) manage() {
 }
 
 func (c *ElasticChan) dispose() {
-	c.Log().Debugf("chan %p disposing...", c)
+	c.Log().Debugf("ElasticChan %p disposing...", c)
 	for len(c.buffer) > 0 {
 		c.Out <- c.buffer[0]
 		c.buffer = c.buffer[1:]
 	}
-	c.Log().Debugf("chan %p disposed", c)
+	c.Log().Debugf("ElasticChan %p disposed", c)
 }

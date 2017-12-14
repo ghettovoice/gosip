@@ -152,7 +152,7 @@ var _ = Describe("UdpProtocol", func() {
 		}
 	}
 
-	Context(fmt.Sprintf("listening 2 target: %s, %s", localTarget1, localTarget2), func() {
+	PContext(fmt.Sprintf("listening 2 target: %s, %s", localTarget1, localTarget2), func() {
 		var client1, client2, client3 net.Conn
 		BeforeEach(func() {
 			Expect(protocol.Listen(localTarget1)).To(Succeed())

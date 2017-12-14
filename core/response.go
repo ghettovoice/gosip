@@ -46,10 +46,14 @@ func NewResponse(
 	res.SetReason(reason)
 
 	if strings.TrimSpace(body) != "" {
-		res.SetBody(body, true)
+		res.SetBody(body, false)
 	}
 
 	return res
+}
+
+func (res *response) Short() string {
+	return fmt.Sprintf("Response%s", res.message.Short())
 }
 
 func (res *response) StatusCode() StatusCode {

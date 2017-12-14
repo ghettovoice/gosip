@@ -1088,7 +1088,6 @@ func TestUnstreamedParse2(t *testing.T) {
 		// Steps each have: Input, result, sent error, returned error
 		{"INVITE sip:bob@biloxi.com SIP/2.0\r\n" +
 			"CSeq: 13 INVITE\r\n" +
-			fmt.Sprintf("Content-Length: %d\r\n", len(body)) +
 			"\r\n" +
 			body,
 			core.NewRequest(
@@ -1120,7 +1119,6 @@ func TestUnstreamedParse3(t *testing.T) {
 		// Steps each have: Input, result, sent error, returned error
 		{"SIP/2.0 200 OK\r\n" +
 			"CSeq: 2 INVITE\r\n" +
-			fmt.Sprintf("Content-Length: %d\r\n", len(body)) +
 			"\r\n" +
 			body,
 			core.NewResponse(
@@ -1142,6 +1140,7 @@ func TestUnstreamedParse4(t *testing.T) {
 	callId := core.CallId("cheesecake1729")
 	maxForwards := core.MaxForwards(65)
 	body := "Everything is awesome."
+	contentLength := core.ContentLength(len(body))
 	test := ParserTest{false, []parserTestStep{
 		// Steps each have: Input, result, sent error, returned error
 		{"SIP/2.0 200 OK\r\n" +
@@ -1159,6 +1158,7 @@ func TestUnstreamedParse4(t *testing.T) {
 					&core.CSeq{SeqNo: 2, MethodName: core.INVITE},
 					&callId,
 					&maxForwards,
+					&contentLength,
 				},
 				"Everything is awesome.",
 			),
@@ -1182,7 +1182,6 @@ func TestUnstreamedParse5(t *testing.T) {
 			"Call-ID:\tcheesecake1729\r\n" +
 			"Max-Forwards:\t\r\n" +
 			"\t63\r\n" +
-			fmt.Sprintf("Content-Length: %d\r\n", len(body)) +
 			"\r\n" +
 			body,
 			core.NewResponse(
@@ -1239,6 +1238,46 @@ func TestUnstreamedParse7(t *testing.T) {
 				"SIP/2.0",
 				[]core.Header{},
 				"",
+			),
+			nil,
+			nil},
+	}}
+
+	test.Test(t)
+}
+
+// Test multiple messages
+func TestUnstreamedParse8(t *testing.T) {
+	test := ParserTest{false, []parserTestStep{
+		{"ACK sip:foo@bar.com SIP/2.0\r\n" +
+			"\r\n",
+			core.NewRequest(
+				core.ACK,
+				&core.SipUri{
+					IsEncrypted: false,
+					User:        core.String{Str: "foo"},
+					Password:    nil,
+					Host:        "bar.com",
+					Port:        nil,
+					UriParams:   noParams,
+					Headers:     noParams,
+				},
+				"SIP/2.0",
+				[]core.Header{},
+				"",
+			),
+			nil,
+			nil},
+		{"SIP/2.0 200 OK\r\n" +
+			"CSeq: 2 INVITE\r\n" +
+			"\r\n" +
+			"Everything is awesome.",
+			core.NewResponse(
+				"SIP/2.0",
+				200,
+				"OK",
+				[]core.Header{&core.CSeq{SeqNo: 2, MethodName: core.INVITE}},
+				"Everything is awesome.",
 			),
 			nil,
 			nil},

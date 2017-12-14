@@ -3,12 +3,12 @@ package transport_test
 import (
 	"fmt"
 	"net"
-	"sync"
+	"strings"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
+	"github.com/ghettovoice/gosip/util"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -24,45 +24,25 @@ var _ = Describe("ConnectionHandler", func() {
 	)
 	addr := &mockAddr{"tcp", localAddr1}
 	key := transport.ConnectionKey(addr.String())
-	noParams := core.NewParams()
-	callId := core.CallId("call-1234567890")
-	tag := core.String{"qwerty"}
-	body := "Hello world!"
-	inviteMsg := core.NewRequest(
-		"INVITE",
-		&core.SipUri{
-			User:      core.String{"bob"},
-			Host:      "far-far-away.com",
-			UriParams: noParams,
-			Headers:   noParams,
-		},
-		"SIP/2.0",
-		[]core.Header{
-			&core.FromHeader{
-				DisplayName: core.String{"bob"},
-				Address: &core.SipUri{
-					User:      core.String{"bob"},
-					Host:      "far-far-away.com",
-					UriParams: noParams,
-					Headers:   noParams,
-				},
-				Params: noParams,
-			},
-			&core.ToHeader{
-				DisplayName: core.String{"alice"},
-				Address: &core.SipUri{
-					User:      core.String{"alice"},
-					Host:      "wonderland.com",
-					UriParams: noParams,
-					Headers:   noParams,
-				},
-				Params: core.NewParams().Add("tag", tag),
-			},
-			&callId,
-		},
-		body,
-	)
-	//bullshit := "This is bullshit!\r\n"
+	inviteMsg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
+		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
+		"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
+		"Content-Length: 12\r\n" +
+		"\r\n" +
+		"Hello world!"
+	malformedMsg1 := "BYE sip:bob@biloxi.com SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP pc33.atlanta.com;branch=z9hG4bK776asdhds\r\n" +
+		"From: \"Bob\" <sip:bob@biloxi.com>\r\n" +
+		"To: \"Alice\" <sip:alice@atlanta.com>;tag=1928301774\r\n" +
+		"\r\n" +
+		"Message without content length\r\n"
+	malformedMsg2 := "BULLSHIT sip:bob@bullshit.com SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP pc33.bullshit.com;branch=z9hG4bK776asdhds\r\n" +
+		"To: <sip:hell@bullshit.com>\r\n" +
+		"From: <sip:thepit@atlanta.com>;tag=1928301774\r\n" +
+		"\r\n"
+	bullshit := "This is bullshit!\r\n"
 
 	timing.MockMode = true
 
@@ -133,8 +113,7 @@ var _ = Describe("ConnectionHandler", func() {
 	})
 
 	Context("serving connection", func() {
-		var wg *sync.WaitGroup
-		var ttl time.Duration
+		var ttl time.Duration = 0
 
 		BeforeEach(func() {
 			output = make(chan *transport.IncomingMessage)
@@ -144,12 +123,10 @@ var _ = Describe("ConnectionHandler", func() {
 			client = &mockConn{c1, c1.LocalAddr(), addr}
 			server = &mockConn{c2, addr, c2.RemoteAddr()}
 			conn = transport.NewConnection(server)
-			wg = new(sync.WaitGroup)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
 			handler.Cancel()
-			wg.Wait()
 			client.Close()
 			server.Close()
 			close(output)
@@ -158,29 +135,44 @@ var _ = Describe("ConnectionHandler", func() {
 		})
 		JustBeforeEach(func() {
 			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
-			wg.Add(1)
-			go handler.Serve(wg.Done)
+			go handler.Serve(util.Noop)
 		})
 
 		Context("when new data arrives", func() {
-			BeforeEach(func() {
-				wg.Add(1)
+			JustBeforeEach(func() {
 				go func() {
-					defer wg.Done()
-					Expect(client.Write([]byte(inviteMsg.String()))).To(Equal(len(inviteMsg.String())))
-					//time.Sleep(time.Millisecond)
-					//Expect(client.Write([]byte(bullshit))).To(Equal(len(bullshit)))
+					Expect(client.Write([]byte(inviteMsg))).To(Equal(len(inviteMsg)))
 					time.Sleep(time.Millisecond)
-					Expect(client.Write([]byte(inviteMsg.String()))).To(Equal(len(inviteMsg.String())))
+					Expect(client.Write([]byte(bullshit))).To(Equal(len(bullshit)))
+					time.Sleep(time.Millisecond)
+					Expect(client.Write([]byte(malformedMsg1))).To(Equal(len(malformedMsg1)))
+					time.Sleep(time.Millisecond)
+					Expect(client.Write([]byte(malformedMsg2))).To(Equal(len(malformedMsg2)))
+					time.Sleep(time.Millisecond)
+					Expect(client.Write([]byte(inviteMsg))).To(Equal(len(inviteMsg)))
 				}()
-				time.Sleep(time.Millisecond)
 			})
 
-			It("should read, parse and pipe to output", func() {
-				By("first message arrives")
+			It("should read, parse and pipe to output", func(done Done) {
+				By("first message arrives on output")
 				assertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
-				By("second message arrives")
+				By("bullshit arrives and ignored")
+				time.Sleep(time.Millisecond)
+				By("malformed message 1 arrives on errs")
+				assertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
+				By("malformed message 2 arrives on errs")
+				assertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
+				By("second message arrives on output")
 				assertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
+				//for i := 0; i < 10; i++ {
+				//	select {
+				//	case msg := <-output:
+				//		fmt.Printf("-------------------------------\n%s\n-------------------------------------\n", msg)
+				//	case err := <-errs:
+				//		fmt.Printf("-------------------------------\n%s\n-------------------------------------\n", err)
+				//	}
+				//}
+				close(done)
 			})
 		})
 
@@ -217,7 +209,7 @@ var _ = Describe("ConnectionHandler", func() {
 			})
 		})
 
-		Context("when gets cancel", func() {
+		Context("when gets cancel signal", func() {
 			BeforeEach(func() {
 				ttl = 0
 			})
@@ -225,45 +217,29 @@ var _ = Describe("ConnectionHandler", func() {
 				JustBeforeEach(func() {
 					handler.Cancel()
 				})
-				It("should resolve Done chan", func() {
-					select {
-					case <-handler.Done():
-					case <-time.After(100 * time.Millisecond):
-						Fail("timed out")
-					}
-				})
+				It("should resolve Done chan", func(done Done) {
+					<-handler.Done()
+					close(done)
+				}, 3)
 			})
 			Context("by global cancel signal", func() {
-				BeforeEach(func() {
+				JustBeforeEach(func() {
 					close(cancel)
 				})
-				It("should resolve Done chan", func() {
-					select {
-					case <-handler.Done():
-					case <-time.After(100 * time.Millisecond):
-						Fail("timed out")
-					}
-				})
+				It("should resolve Done chan", func(done Done) {
+					<-handler.Done()
+					close(done)
+				}, 3)
 			})
 			Context("by connection Close() or socket error", func() {
-				BeforeEach(func() {
+				JustBeforeEach(func() {
 					conn.Close()
 				})
-				It("should send error and resolve Done chan", func() {
-					select {
-					case err := <-errs:
-						Expect(err).To(HaveOccurred())
-						Expect(err.Error()).To(ContainSubstring("read/write on closed pipe"))
-					case <-time.After(100 * time.Millisecond):
-						Fail("timed out")
-					}
-
-					select {
-					case <-handler.Done():
-					case <-time.After(100 * time.Millisecond):
-						Fail("timed out")
-					}
-				})
+				It("should send error and resolve Done chan", func(done Done) {
+					assertIncomingErrorArrived(errs, "io: read/write on closed pipe")
+					<-handler.Done()
+					close(done)
+				}, 3)
 			})
 		})
 	})
@@ -282,112 +258,25 @@ var _ = Describe("ConnectionPool", func() {
 	key1 := transport.ConnectionKey(addr1.String())
 	key2 := transport.ConnectionKey(addr2.String())
 	key3 := transport.ConnectionKey(addr3.String())
-	noParams := core.NewParams()
-	callId1 := core.CallId("call-1")
-	callId2 := core.CallId("call-2")
-	callId3 := core.CallId("call-3")
-	msg1 := core.NewRequest(
-		core.INVITE,
-		&core.SipUri{
-			User:      core.String{"bob"},
-			Host:      "far-far-away.com",
-			UriParams: noParams,
-			Headers:   noParams,
-		},
-		"SIP/2.0",
-		[]core.Header{
-			&core.FromHeader{
-				DisplayName: core.String{"bob"},
-				Address: &core.SipUri{
-					User:      core.String{"bob"},
-					Host:      "far-far-away.com",
-					UriParams: noParams,
-					Headers:   noParams,
-				},
-				Params: noParams,
-			},
-			&core.ToHeader{
-				DisplayName: core.String{"alice"},
-				Address: &core.SipUri{
-					User:      core.String{"alice"},
-					Host:      "wonderland.com",
-					UriParams: noParams,
-					Headers:   noParams,
-				},
-				Params: core.NewParams().Add("tag", core.String{"msg-1"}),
-			},
-			&callId1,
-		},
-		"Hello world!",
-	)
-	msg2 := core.NewRequest(
-		core.BYE,
-		&core.SipUri{
-			User:      core.String{"bob"},
-			Host:      "far-far-away.com",
-			UriParams: noParams,
-			Headers:   noParams,
-		},
-		"SIP/2.0",
-		[]core.Header{
-			&core.FromHeader{
-				DisplayName: core.String{"bob"},
-				Address: &core.SipUri{
-					User:      core.String{"bob"},
-					Host:      "far-far-away.com",
-					UriParams: noParams,
-					Headers:   noParams,
-				},
-				Params: noParams,
-			},
-			&core.ToHeader{
-				DisplayName: core.String{"alice"},
-				Address: &core.SipUri{
-					User:      core.String{"alice"},
-					Host:      "wonderland.com",
-					UriParams: noParams,
-					Headers:   noParams,
-				},
-				Params: core.NewParams().Add("tag", core.String{"msg-2"}),
-			},
-			&callId2,
-		},
-		"Bye!",
-	)
-	msg3 := core.NewRequest(
-		core.NOTIFY,
-		&core.SipUri{
-			User:      core.String{"bob"},
-			Host:      "far-far-away.com",
-			UriParams: noParams,
-			Headers:   noParams,
-		},
-		"SIP/2.0",
-		[]core.Header{
-			&core.FromHeader{
-				DisplayName: core.String{"bob"},
-				Address: &core.SipUri{
-					User:      core.String{"bob"},
-					Host:      "far-far-away.com",
-					UriParams: noParams,
-					Headers:   noParams,
-				},
-				Params: noParams,
-			},
-			&core.ToHeader{
-				DisplayName: core.String{"alice"},
-				Address: &core.SipUri{
-					User:      core.String{"alice"},
-					Host:      "wonderland.com",
-					UriParams: noParams,
-					Headers:   noParams,
-				},
-				Params: core.NewParams().Add("tag", core.String{"msg-3"}),
-			},
-			&callId3,
-		},
-		"What's up, dude?",
-	)
+	msg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
+		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
+		"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
+		"Content-Length: 12\r\n" +
+		"\r\n" +
+		"Hello world!"
+	msg2 := "BYE sip:bob@far-far-away.com SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
+		"To: \"Alice\" <sip:bob@far-far-away.com>\r\n" +
+		"From: \"Bob\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
+		"Content-Length: 4\r\n" +
+		"\r\n" +
+		"Bye!"
+	msg3 := "SIP/2.0 200 OK\r\n" +
+		"CSeq: 2 INVITE\r\n" +
+		"Call-ID: cheesecake1729\r\n" +
+		"Max-Forwards: 65\r\n" +
+		"\r\n"
 
 	timing.MockMode = true
 
@@ -620,22 +509,24 @@ var _ = Describe("ConnectionPool", func() {
 			})
 
 			Context("received error from connection server1", func() {
-				BeforeEach(func() {
+				BeforeEach(func(done Done) {
 					server1.Close()
-					select {
-					case err = <-errs:
-					case <-time.After(100 * time.Millisecond):
-						Fail("timed out")
-					}
-				})
+					err = <-errs
+					close(done)
+				}, 3)
 
-				It("should send error to errs chan", func() {
-					Expect(err.Error()).To(ContainSubstring("read/write on closed pipe"))
+				It("should send io error", func() {
+					Expect(err.Error()).To(ContainSubstring("io: read/write on closed pipe"))
 					if err, ok := err.(transport.Error); ok {
 						Expect(err.Network()).To(BeTrue())
 					} else {
 						Fail("error from failed connection must be of transport.Error type")
 					}
+				})
+				It("should send error of transport.Error type and network indicator", func() {
+					err, ok := err.(transport.Error)
+					Expect(ok).To(BeTrue())
+					Expect(err.Network()).To(BeTrue())
 				})
 
 				ShouldBeEmpty()
@@ -661,14 +552,11 @@ var _ = Describe("ConnectionPool", func() {
 			})
 
 			Context("after connection server1 expiry time", func() {
-				BeforeEach(func() {
+				BeforeEach(func(done Done) {
 					timing.Elapse(ttl + time.Nanosecond)
-					select {
-					case err = <-errs:
-					case <-time.After(100 * time.Millisecond):
-						Fail("timed out")
-					}
-				})
+					err = <-errs
+					close(done)
+				}, 3)
 				It("should send Expire error", func() {
 					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s expired", server1)))
 				})
@@ -685,84 +573,50 @@ var _ = Describe("ConnectionPool", func() {
 				Expect(pool.Put(key1, server1, 0)).ToNot(HaveOccurred())
 				Expect(pool.Put(key2, server2, ttl2)).ToNot(HaveOccurred())
 				Expect(pool.Put(key3, server3, ttl3)).ToNot(HaveOccurred())
-				time.Sleep(time.Millisecond)
 			})
 
-			writeTo := func(conn transport.Connection, msg core.Message) {
-				data := []byte(msg.String())
-				Expect(conn.Write(data)).To(Equal(len(data)))
-			}
-			readMsg := func(expected core.Message, client transport.Connection, server transport.Connection) {
-				select {
-				case incomingMsg := <-output:
-					Expect(incomingMsg).ToNot(BeNil())
-					Expect(incomingMsg.Msg).ToNot(BeNil())
-					Expect(incomingMsg.Msg.String()).To(Equal(expected.String()))
-					Expect(incomingMsg.LAddr.String()).To(Equal(server.LocalAddr().String()))
-					Expect(incomingMsg.RAddr.String()).To(Equal(client.LocalAddr().String()))
-				case <-time.After(100 * time.Millisecond):
-					Fail("timed out")
-				}
-			}
-			readErr := func(expected string) {
-				select {
-				case err := <-errs:
-					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring(expected))
-				case <-time.After(100 * time.Millisecond):
-					Fail("timed out")
-				}
-			}
-
-			It("should serve connections", func() {
-				wg := new(sync.WaitGroup)
-				wg.Add(3)
-				go func() {
-					defer wg.Done()
-					time.Sleep(50 * time.Millisecond)
-					writeTo(client1, msg1)
-				}()
-				go func() {
-					defer wg.Done()
-					time.Sleep(10 * time.Millisecond)
-					writeTo(client2, msg2)
-					time.Sleep(20 * time.Millisecond)
-					timing.Elapse(ttl2 + time.Nanosecond)
-				}()
-				go func() {
-					defer wg.Done()
-					time.Sleep(20 * time.Millisecond)
-					writeTo(client3, msg3)
-					time.Sleep(20 * time.Millisecond)
-					server3.Close()
-				}()
-				By("server2 receives msg2")
-				readMsg(msg2, client2, server2)
-				By("server3 receives msg3")
-				readMsg(msg3, client3, server3)
-				By("server2 expires")
-				readErr(fmt.Sprintf("%s expired", server2))
-				By("server3 falls")
-				readErr("read/write on closed pipe")
-				By("server1 receives msg1")
-				readMsg(msg1, client1, server1)
-
-				wg.Wait()
+			Context("when new data arrives from clients", func() {
+				BeforeEach(func() {
+					go func() {
+						time.Sleep(50 * time.Millisecond)
+						assertWriteToSucceed(client1, []byte(msg1))
+					}()
+					go func() {
+						time.Sleep(10 * time.Millisecond)
+						assertWriteToSucceed(client2, []byte(msg2))
+						time.Sleep(20 * time.Millisecond)
+						timing.Elapse(ttl2 + time.Nanosecond)
+					}()
+					go func() {
+						time.Sleep(20 * time.Millisecond)
+						assertWriteToSucceed(client3, []byte(msg3))
+						time.Sleep(20 * time.Millisecond)
+						server3.Close()
+					}()
+				})
+				It("should pipe handlers to self outputs", func(done Done) {
+					By(fmt.Sprintf("message msg2 arrives %s -> %s", server2.RemoteAddr(), server2.LocalAddr()))
+					assertIncomingMessageArrived(output, msg2, server2.LocalAddr().String(), client2.LocalAddr().String())
+					By(fmt.Sprintf("malformed message msg3 arrives %s -> %s", server3.RemoteAddr(), server3.LocalAddr()))
+					assertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
+					By("server2 expired error arrives")
+					assertIncomingErrorArrived(errs, fmt.Sprintf("%s expired", server2))
+					By("server3 falls with error")
+					assertIncomingErrorArrived(errs, fmt.Sprintf("read pipe->%s: io: read/write on closed pipe", server3.LocalAddr()))
+					By(fmt.Sprintf("message msg1 arrives %s -> %s", server1.RemoteAddr(), server1.LocalAddr()))
+					assertIncomingMessageArrived(output, msg1, server1.LocalAddr().String(), server1.RemoteAddr().String())
+					close(done)
+				}, 3)
 			})
 
 			Context("got cancel signal", func() {
 				BeforeEach(func() {
-					time.Sleep(time.Millisecond)
 					close(cancel)
 				})
-				It("should gracefully stop", func() {
-					select {
-					case <-pool.Done():
-						AssertIsEmpty()
-					case <-time.After(100 * time.Millisecond):
-						Fail("timed out")
-					}
-				})
+				It("should gracefully stop", func(done Done) {
+					<-pool.Done()
+					close(done)
+				}, 3)
 			})
 		})
 	})
@@ -770,18 +624,27 @@ var _ = Describe("ConnectionPool", func() {
 
 func assertIncomingMessageArrived(
 	fromCh <-chan *transport.IncomingMessage,
-	expectedMessage core.Message,
+	expectedMessage string,
 	expectedLocalAddr string,
 	expectedRemoteAddr string,
 ) {
-	select {
-	case incomingMsg := <-fromCh:
-		Expect(incomingMsg).ToNot(BeNil())
-		Expect(incomingMsg.Msg).ToNot(BeNil())
-		Expect(incomingMsg.Msg.String()).To(Equal(expectedMessage.String()))
-		Expect(incomingMsg.LAddr.String()).To(Equal(expectedLocalAddr))
-		Expect(incomingMsg.RAddr.String()).To(Equal(expectedRemoteAddr))
-	case <-time.After(100 * time.Millisecond):
-		Fail("timed out")
-	}
+	incomingMsg := <-fromCh
+	Expect(incomingMsg).ToNot(BeNil())
+	Expect(incomingMsg.Msg).ToNot(BeNil())
+	Expect(incomingMsg.Msg.String()).To(Equal(strings.Trim(expectedMessage, "\r\n")))
+	Expect(incomingMsg.LAddr).To(Equal(expectedLocalAddr))
+	Expect(incomingMsg.RAddr).To(Equal(expectedRemoteAddr))
+}
+
+func assertIncomingErrorArrived(
+	fromCh <-chan error,
+	expected string,
+) {
+	err := <-fromCh
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring(expected))
+}
+
+func assertWriteToSucceed(conn net.Conn, data []byte) {
+	Expect(conn.Write(data)).To(Equal(len(data)))
 }

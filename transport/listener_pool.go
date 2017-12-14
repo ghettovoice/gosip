@@ -95,14 +95,7 @@ func NewListenerPool(output chan<- Connection, errs chan<- error, cancel <-chan 
 }
 
 func (pool *listenerPool) String() string {
-	var name string
-	if pool == nil {
-		name = "<nil>"
-	} else {
-		name = fmt.Sprintf("%p", pool)
-	}
-
-	return fmt.Sprintf("listener pool %s", name)
+	return fmt.Sprintf("ListenerPool %p", pool)
 }
 
 func (pool *listenerPool) Log() log.Logger {
@@ -217,10 +210,10 @@ func (pool *listenerPool) Length() int {
 func (pool *listenerPool) serveStore(wg *sync.WaitGroup) {
 	defer func() {
 		defer wg.Done()
-		pool.Log().Infof("%s stop serving store", pool)
+		pool.Log().Infof("%s stops serve store routine", pool)
 		pool.dispose()
 	}()
-	pool.Log().Infof("%s start serving store", pool)
+	pool.Log().Infof("%s starts serve store routine", pool)
 
 	for {
 		select {
@@ -255,10 +248,10 @@ func (pool *listenerPool) dispose() {
 func (pool *listenerPool) serveHandlers(wg *sync.WaitGroup) {
 	defer func() {
 		defer wg.Done()
-		pool.Log().Infof("%s stop serving handlers", pool)
+		pool.Log().Infof("%s stops serve handlers routine", pool)
 		close(pool.done)
 	}()
-	pool.Log().Infof("%s start serving handlers", pool)
+	pool.Log().Infof("%s starts serve handlers routine", pool)
 
 	for {
 		select {
@@ -448,24 +441,23 @@ func NewListenerHandler(
 }
 
 func (handler *listenerHandler) String() string {
-	var name, addition string
 	if handler == nil {
-		name = "<nil>"
-	} else {
-		name = fmt.Sprintf("%p", handler)
-		parts := make([]string, 0)
-		if handler.Key() != "" {
-			parts = append(parts, fmt.Sprintf("key %s", handler.Key()))
-		}
-		if handler.Listener() != nil {
-			parts = append(parts, fmt.Sprintf("listener %p", handler.Listener()))
-		}
-		if len(parts) > 0 {
-			addition = " (" + strings.Join(parts, ", ") + ")"
-		}
+		return "ListenerHandler <nil>"
+	}
+	var info string
+	parts := make([]string, 0)
+	if handler.Key() != "" {
+		parts = append(parts, fmt.Sprintf("key %s", handler.Key()))
+	}
+	if handler.Listener() != nil {
+		parts = append(parts, fmt.Sprintf("%s listener %p on %s", listenerNetwork(handler.Listener()),
+			handler.Listener(), handler.Listener().Addr()))
+	}
+	if len(parts) > 0 {
+		info = " (" + strings.Join(parts, ", ") + ")"
 	}
 
-	return fmt.Sprintf("listener handler %s%s", name, addition)
+	return fmt.Sprintf("ListenerHandler %p %s", handler, info)
 }
 
 func (handler *listenerHandler) Log() log.Logger {
@@ -489,10 +481,10 @@ func (handler *listenerHandler) Listener() net.Listener {
 func (handler *listenerHandler) Serve(done func()) {
 	defer func() {
 		defer done()
-		handler.Log().Infof("%s stop serving", handler)
+		handler.Log().Infof("%s stops serve listener routine", handler)
 		close(handler.done)
 	}()
-	handler.Log().Infof("%s begin serving", handler)
+	handler.Log().Infof("%s begins serve listener routine", handler)
 
 	conns := make(chan Connection)
 	errs := make(chan error)
@@ -517,12 +509,12 @@ func (handler *listenerHandler) Serve(done func()) {
 func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan<- Connection, errs chan<- error) {
 	defer func() {
 		defer wg.Done()
-		handler.Log().Debugf("%s stop accepting connections", handler)
+		handler.Log().Debugf("%s stops accept connections routine", handler)
 		handler.Listener().Close()
 		close(conns)
 		close(errs)
 	}()
-	handler.Log().Debugf("%s begin accepting connections", handler)
+	handler.Log().Debugf("%s begins accept connections routine", handler)
 
 	for {
 		// wait for the new connection
@@ -552,9 +544,9 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Connection, errs <-chan error) {
 	defer func() {
 		defer wg.Done()
-		handler.Log().Debugf("%s stop piping outputs", handler)
+		handler.Log().Debugf("%s stops pipe outputs routine", handler)
 	}()
-	handler.Log().Debugf("%s begin piping outputs", handler)
+	handler.Log().Debugf("%s begins pipe outputs routine", handler)
 
 	for {
 		select {
@@ -588,7 +580,8 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 				handler.Log().Debugf("%s received error %s; pass it up", handler, err)
 
 				if _, ok := err.(*ListenerHandlerError); !ok {
-					err = &ListenerHandlerError{err, handler.Key(), handler.String()}
+					err = &ListenerHandlerError{err, handler.Key(), handler.String(),
+						listenerNetwork(handler.Listener()), handler.Listener().Addr().String()}
 				}
 				handler.errs <- err
 			}
@@ -612,4 +605,15 @@ func (handler *listenerHandler) Cancel() {
 // Done returns channel that resolves when handler gracefully completes it work.
 func (handler *listenerHandler) Done() <-chan struct{} {
 	return handler.done
+}
+
+func listenerNetwork(ls net.Listener) string {
+	switch ls.(type) {
+	case *net.TCPListener:
+		return "tcp"
+	case *net.UnixListener:
+		return "unix"
+	default:
+		return ""
+	}
 }

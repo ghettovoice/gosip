@@ -58,19 +58,14 @@ func NewConnection(
 }
 
 func (conn *connection) String() string {
-	var name, network string
 	if conn == nil {
-		name = "<nil>"
-		network = ""
-	} else {
-		name = fmt.Sprintf("%p", conn)
-		network = conn.Network() + " "
+		return "Connection <nil>"
 	}
 
 	return fmt.Sprintf(
-		"%sconnection %s (laddr %v, raddr %v)",
-		network,
-		name,
+		"Connection %p (net %s, laddr %v, raddr %v)",
+		conn,
+		conn.Network(),
 		conn.LocalAddr(),
 		conn.RemoteAddr(),
 	)
@@ -131,9 +126,9 @@ func (conn *connection) Read(buf []byte) (int, error) {
 	}
 
 	conn.Log().Debugf(
-		"received %d bytes from %s",
-		num,
+		"%s received %d bytes",
 		conn,
+		num,
 	)
 
 	return num, err
@@ -161,9 +156,9 @@ func (conn *connection) Write(buf []byte) (int, error) {
 	}
 
 	conn.Log().Debugf(
-		"written %d bytes to %s",
-		num,
+		"%s written %d bytes",
 		conn,
+		num,
 	)
 
 	return num, err

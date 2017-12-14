@@ -293,7 +293,11 @@ func (msg *message) StartLine() string {
 }
 
 func (msg *message) Short() string {
-	s := msg.StartLine()
+	if msg == nil {
+		return "<nil>"
+	}
+
+	s := "Message " + msg.StartLine()
 	parts := make([]string, 0)
 	if cseq, ok := msg.CSeq(); ok {
 		parts = append(parts, fmt.Sprintf("%s", cseq))
@@ -307,6 +311,7 @@ func (msg *message) Short() string {
 	if to, ok := msg.To(); ok {
 		parts = append(parts, fmt.Sprintf("%s", to))
 	}
+	parts = append(parts, fmt.Sprintf("ptr %p", msg))
 	if len(parts) > 0 {
 		s += " (" + strings.Join(parts, ", ") + ")"
 	}

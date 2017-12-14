@@ -35,6 +35,10 @@ func NewTcpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 	return tcp
 }
 
+func (tcp *tcpProtocol) String() string {
+	return fmt.Sprintf("Tcp%s", tcp.protocol)
+}
+
 func (tcp *tcpProtocol) SetLog(logger log.Logger) {
 	tcp.protocol.SetLog(logger)
 	tcp.listeners.SetLog(tcp.Log())

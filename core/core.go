@@ -55,11 +55,10 @@ func (err *BrokenMessageError) Error() string {
 		return "<nil>"
 	}
 
-	s := "BrokenMessageError"
+	s := "BrokenMessageError: " + err.Err.Error()
 	if err.Msg != "" {
-		s += fmt.Sprintf(" with message '%s'", err.Msg)
+		s += fmt.Sprintf("\nMessage dump:\n%s", err.Msg)
 	}
-	s += ": " + err.Err.Error()
 
 	return s
 }
@@ -77,11 +76,10 @@ func (err *MalformedMessageError) Error() string {
 		return "<nil>"
 	}
 
-	s := "MalformedMessageError"
+	s := "MalformedMessageError: " + err.Err.Error()
 	if err.Msg != "" {
-		s += fmt.Sprintf(" with message '%s'", err.Msg)
+		s += fmt.Sprintf("\nMessage dump:\n%s", err.Msg)
 	}
-	s += ": " + err.Err.Error()
 
 	return s
 }
@@ -98,11 +96,10 @@ func (err *UnsupportedMessageError) Error() string {
 		return "<nil>"
 	}
 
-	s := "UnsupportedMessageError"
+	s := "UnsupportedMessageError: " + err.Err.Error()
 	if err.Msg != "" {
-		s += fmt.Sprintf(" '%s'", err.Msg)
+		s += fmt.Sprintf("\nMessage dump:\n%s", err.Msg)
 	}
-	s += ": " + err.Err.Error()
 
 	return s
 }

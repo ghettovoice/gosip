@@ -4,6 +4,7 @@ package util
 import (
 	"crypto/rand"
 	"fmt"
+	"sync"
 )
 
 // Check two string pointers for equality as follows:
@@ -56,3 +57,27 @@ func Coalesce(arg1 interface{}, arg2 interface{}, args ...interface{}) interface
 }
 
 func Noop() {}
+
+func MergeErrs(chs ...<-chan error) <-chan error {
+	wg := new(sync.WaitGroup)
+	out := make(chan error)
+
+	pipe := func(ch <-chan error) {
+		defer wg.Done()
+		for err := range ch {
+			out <- err
+		}
+	}
+
+	wg.Add(len(chs))
+	for _, ch := range chs {
+		go pipe(ch)
+	}
+
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out
+}
