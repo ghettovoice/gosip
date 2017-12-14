@@ -276,6 +276,7 @@ func (pool *connectionPool) serveHandlers(wg *sync.WaitGroup) {
 	for {
 		select {
 		case incomingMsg, ok := <-pool.hmess:
+			// cancel signal, serveStore exists
 			if !ok {
 				return
 			}
@@ -286,6 +287,7 @@ func (pool *connectionPool) serveHandlers(wg *sync.WaitGroup) {
 			pool.Log().Debugf("%s received %s %p", pool, incomingMsg.Msg.Short(), incomingMsg.Msg)
 			pool.output <- incomingMsg
 		case err, ok := <-pool.herrs:
+			// cancel signal, serveStore exists
 			if !ok {
 				return
 			}
@@ -301,7 +303,7 @@ func (pool *connectionPool) serveHandlers(wg *sync.WaitGroup) {
 						if handler.Expired() {
 							// connection expired
 							pool.Log().Warnf("%s notified that %s expired, drop it", pool, handler)
-							pool.drop(handler.Key(), true)
+							pool.Drop(handler.Key())
 						} else {
 							// Due to a race condition, the socket has been updated since this expiry happened.
 							// Ignore the expiry since we already have a new socket for this address.
@@ -311,7 +313,7 @@ func (pool *connectionPool) serveHandlers(wg *sync.WaitGroup) {
 					} else if lerr.Network() {
 						// connection broken or closed
 						pool.Log().Warnf("%s received network error: %s; drop %s", pool, lerr, handler)
-						pool.drop(handler.Key(), false)
+						pool.Drop(handler.Key())
 					} else {
 						// syntax errors, malformed message errors and other
 						pool.Log().Debugf("%s received error: %s", pool, lerr)
@@ -577,7 +579,7 @@ func (handler *connectionHandler) Serve(done func()) {
 	errs := make(chan error)
 	parser := syntax.NewParser(messages, errs, handler.Connection().Streamed())
 	parser.SetLog(handler.Log())
-
+	// watch for cancel
 	go func() {
 		select {
 		case <-handler.cancel:
@@ -586,7 +588,7 @@ func (handler *connectionHandler) Serve(done func()) {
 		case <-handler.canceled:
 		}
 	}()
-
+	// start connection serving
 	wg := new(sync.WaitGroup)
 	wg.Add(2)
 	go handler.readConnection(wg, parser, messages, errs)
@@ -607,7 +609,6 @@ func (handler *connectionHandler) readConnection(
 		handler.Connection().Close()
 		parser.Stop()
 		// wait for parser dispose
-		time.Sleep(time.Millisecond)
 		close(messages)
 		close(errs)
 	}()
@@ -633,8 +634,6 @@ func (handler *connectionHandler) readConnection(
 			return
 		}
 
-		handler.SetLog(handler.Connection().Log())
-		parser.SetLog(handler.Log())
 		pkt := append([]byte{}, buf[:num]...)
 		if _, err := parser.Write(pkt); err != nil {
 			errs <- err
@@ -715,10 +714,11 @@ func (handler *connectionHandler) pipeOutputs(
 			if err != nil {
 				handler.Log().Debugf("%s received error %s; pass it up", handler, err)
 
-				if _, ok := err.(core.MessageError); ok {
+				if _, ok := err.(syntax.Error); ok {
 					// parser/syntax errors, broken or malformed message
 					handler.Log().Warnf("%s reset %s due to parser error: %s", handler, parser, err)
 					parser.Reset()
+					continue
 				}
 
 				if _, ok = err.(*ConnectionHandlerError); !ok {

@@ -285,7 +285,7 @@ func (pool *listenerPool) serveHandlers(wg *sync.WaitGroup) {
 					if lerr.Network() {
 						// listener broken or closed, should be dropped
 						pool.Log().Warnf("%s received network error: %s; drop %s", pool, lerr, handler)
-						pool.drop(lerr.Key, false)
+						pool.Drop(lerr.Key)
 					} else {
 						// other
 						pool.Log().Debugf("%s received error: %s", pool, lerr)
@@ -496,7 +496,7 @@ func (handler *listenerHandler) Serve(done func()) {
 
 	conns := make(chan Connection)
 	errs := make(chan error)
-
+	// watch for cancel signal
 	go func() {
 		select {
 		case <-handler.cancel:

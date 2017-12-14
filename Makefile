@@ -9,6 +9,8 @@ install:
 	go install $(LDFLAGS)
 
 test: test-core test-syntax test-timing test-transport
+	cd $$GOPATH/src/$(PKG_NAME); \
+	go test -race $(GOFLAGS)
 
 test-%:
 	cd $$GOPATH/src/$(PKG_NAME); \

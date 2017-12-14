@@ -163,7 +163,7 @@ func (p *parser) Log() log.Logger {
 }
 
 func (p *parser) SetLog(logger log.Logger) {
-	p.logger.SetLog(logger.WithField("parser", fmt.Sprintf("%p", p)))
+	p.logger.SetLog(logger.WithField("parser", p.String()))
 	p.bodyLengths.SetLog(p.Log())
 	p.input.SetLog(p.Log())
 }
@@ -195,7 +195,7 @@ func (p *parser) Write(data []byte) (int, error) {
 // The parser will not release its resources until Stop() is called,
 // even if the parser object itself is garbage collected.
 func (p *parser) Stop() {
-	// TODO implement graceful teardown, wati for ElasticChan
+	// TODO implement graceful teardown, wait for ElasticChan
 	p.Log().Debugf("stopping %s", p)
 	p.stopped = true
 	p.input.Stop()

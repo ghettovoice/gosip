@@ -62,10 +62,13 @@ var _ = Describe("ConnectionHandler", func() {
 		},
 		body,
 	)
+	//bullshit := "This is bullshit!\r\n"
 
 	timing.MockMode = true
 
 	Context("just initialized", func() {
+		var ttl time.Duration
+
 		BeforeEach(func() {
 			output = make(chan *transport.IncomingMessage)
 			errs = make(chan error)
@@ -76,8 +79,15 @@ var _ = Describe("ConnectionHandler", func() {
 			conn = transport.NewConnection(server)
 		})
 		AfterEach(func() {
+			defer func() { recover() }()
 			client.Close()
 			server.Close()
+			close(output)
+			close(errs)
+			close(cancel)
+		})
+		JustBeforeEach(func() {
+			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
 		})
 
 		HasCorrectKeyAndConn := func() {
@@ -91,7 +101,7 @@ var _ = Describe("ConnectionHandler", func() {
 
 		Context("with TTL = 0", func() {
 			BeforeEach(func() {
-				handler = transport.NewConnectionHandler(key, conn, 0, output, errs, cancel)
+				ttl = 0
 			})
 			HasCorrectKeyAndConn()
 			It("should have ZERO expiry time", func() {
@@ -106,9 +116,8 @@ var _ = Describe("ConnectionHandler", func() {
 		Context("with TTL > 0", func() {
 			var expectedExpire time.Time
 			BeforeEach(func() {
-				ttl := 100 * time.Millisecond
+				ttl = 100 * time.Millisecond
 				expectedExpire = time.Now().Add(ttl)
-				handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
 			})
 			HasCorrectKeyAndConn()
 			It("should set expiry time to Now() + 0.1 * time.Second", func() {
@@ -125,6 +134,8 @@ var _ = Describe("ConnectionHandler", func() {
 
 	Context("serving connection", func() {
 		var wg *sync.WaitGroup
+		var ttl time.Duration
+
 		BeforeEach(func() {
 			output = make(chan *transport.IncomingMessage)
 			errs = make(chan error)
@@ -133,56 +144,50 @@ var _ = Describe("ConnectionHandler", func() {
 			client = &mockConn{c1, c1.LocalAddr(), addr}
 			server = &mockConn{c2, addr, c2.RemoteAddr()}
 			conn = transport.NewConnection(server)
+			wg = new(sync.WaitGroup)
+		})
+		AfterEach(func() {
+			defer func() { recover() }()
+			handler.Cancel()
+			wg.Wait()
+			client.Close()
+			server.Close()
+			close(output)
+			close(errs)
+			close(cancel)
+		})
+		JustBeforeEach(func() {
+			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
+			wg.Add(1)
+			go handler.Serve(wg.Done)
 		})
 
 		Context("when new data arrives", func() {
-			var incomingMsg *transport.IncomingMessage
 			BeforeEach(func() {
-				handler = transport.NewConnectionHandler(key, conn, 0, output, errs, cancel)
-
-				wg = new(sync.WaitGroup)
-				wg.Add(2)
-				go handler.Serve(wg.Done)
+				wg.Add(1)
 				go func() {
 					defer wg.Done()
+					Expect(client.Write([]byte(inviteMsg.String()))).To(Equal(len(inviteMsg.String())))
+					//time.Sleep(time.Millisecond)
+					//Expect(client.Write([]byte(bullshit))).To(Equal(len(bullshit)))
+					time.Sleep(time.Millisecond)
 					Expect(client.Write([]byte(inviteMsg.String()))).To(Equal(len(inviteMsg.String())))
 				}()
 				time.Sleep(time.Millisecond)
 			})
-			AfterEach(func() {
-				handler.Cancel()
-				wg.Wait()
-				client.Close()
-			})
 
 			It("should read, parse and pipe to output", func() {
-				select {
-				case incomingMsg = <-output:
-					Expect(incomingMsg).ToNot(BeNil())
-					Expect(incomingMsg.Msg).ToNot(BeNil())
-					Expect(incomingMsg.Msg.String()).To(Equal(inviteMsg.String()))
-					Expect(incomingMsg.LAddr.String()).To(Equal(conn.LocalAddr().String()))
-					Expect(incomingMsg.RAddr.String()).To(Equal(client.LocalAddr().String()))
-				case <-time.After(100 * time.Millisecond):
-					Fail("timed put")
-				}
+				By("first message arrives")
+				assertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
+				By("second message arrives")
+				assertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
 			})
 		})
 
 		Context("with TTL = 0", func() {
 			BeforeEach(func() {
-				handler = transport.NewConnectionHandler(key, conn, 0, output, errs, cancel)
-				wg = new(sync.WaitGroup)
-				wg.Add(1)
-				go handler.Serve(wg.Done)
-				time.Sleep(time.Millisecond)
+				ttl = 0
 			})
-			AfterEach(func() {
-				handler.Cancel()
-				wg.Wait()
-				client.Close()
-			})
-
 			It("should never expire", func() {
 				timing.Elapse(time.Duration(time.Unix(1<<63-1, 0).Nanosecond()))
 				select {
@@ -195,23 +200,10 @@ var _ = Describe("ConnectionHandler", func() {
 			})
 		})
 
-		Context("with TTL > 0", func() {
-			var ttl time.Duration
-
+		Context("with TTL = 0.1 * time.Millisecond", func() {
 			BeforeEach(func() {
 				ttl = 100 * time.Millisecond
-				handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
-				wg = new(sync.WaitGroup)
-				wg.Add(1)
-				go handler.Serve(wg.Done)
-				time.Sleep(time.Millisecond)
 			})
-			AfterEach(func() {
-				handler.Cancel()
-				wg.Wait()
-				client.Close()
-			})
-
 			It("should fire expire error after 0.1 * time.Second", func() {
 				timing.Elapse(ttl + time.Nanosecond)
 				select {
@@ -225,29 +217,12 @@ var _ = Describe("ConnectionHandler", func() {
 			})
 		})
 
-		Context("receives cancel", func() {
-			var wg *sync.WaitGroup
+		Context("when gets cancel", func() {
 			BeforeEach(func() {
-				output = make(chan *transport.IncomingMessage)
-				errs = make(chan error)
-				cancel = make(chan struct{})
-				c1, c2 := net.Pipe()
-				client = &mockConn{c1, c1.LocalAddr(), addr}
-				server = &mockConn{c2, addr, c2.RemoteAddr()}
-				conn = transport.NewConnection(server)
-				handler = transport.NewConnectionHandler(key, conn, 0, output, errs, cancel)
-				wg = new(sync.WaitGroup)
-				wg.Add(1)
-				go handler.Serve(wg.Done)
-				time.Sleep(time.Millisecond)
+				ttl = 0
 			})
-			AfterEach(func() {
-				wg.Wait()
-				client.Close()
-			})
-
 			Context("by Cancel() call", func() {
-				BeforeEach(func() {
+				JustBeforeEach(func() {
 					handler.Cancel()
 				})
 				It("should resolve Done chan", func() {
@@ -792,3 +767,21 @@ var _ = Describe("ConnectionPool", func() {
 		})
 	})
 })
+
+func assertIncomingMessageArrived(
+	fromCh <-chan *transport.IncomingMessage,
+	expectedMessage core.Message,
+	expectedLocalAddr string,
+	expectedRemoteAddr string,
+) {
+	select {
+	case incomingMsg := <-fromCh:
+		Expect(incomingMsg).ToNot(BeNil())
+		Expect(incomingMsg.Msg).ToNot(BeNil())
+		Expect(incomingMsg.Msg.String()).To(Equal(expectedMessage.String()))
+		Expect(incomingMsg.LAddr.String()).To(Equal(expectedLocalAddr))
+		Expect(incomingMsg.RAddr.String()).To(Equal(expectedRemoteAddr))
+	case <-time.After(100 * time.Millisecond):
+		Fail("timed out")
+	}
+}
