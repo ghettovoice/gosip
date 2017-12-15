@@ -73,7 +73,9 @@ func (t *mockTimer) Reset(d time.Duration) bool {
 
 	t.EndTime = currentTimeMock.Add(d)
 	if d > 0 {
+		mockTimerMu.Lock()
 		mockTimers = append(mockTimers, t)
+		mockTimerMu.Unlock()
 	} else {
 		// The new timer has an expiry time of 0.
 		// Fire it right away, and don't bother tracking it.
@@ -102,7 +104,9 @@ func NewTimer(d time.Duration) Timer {
 		if d == 0 {
 			t.Chan <- currentTimeMock
 		} else {
+			mockTimerMu.Lock()
 			mockTimers = append(mockTimers, &t)
+			mockTimerMu.Unlock()
 		}
 		return &t
 	} else {
@@ -123,7 +127,9 @@ func AfterFunc(d time.Duration, f func()) Timer {
 			go f()
 			t.Chan <- currentTimeMock
 		} else {
+			mockTimerMu.Lock()
 			mockTimers = append(mockTimers, &t)
+			mockTimerMu.Unlock()
 		}
 		return &t
 	} else {
@@ -143,6 +149,7 @@ func Elapse(d time.Duration) {
 	currentTimeMock = currentTimeMock.Add(d)
 
 	// Fire any timers whose time has come up.
+	mockTimerMu.Lock()
 	for _, t := range mockTimers {
 		t.fired = false
 		if !t.EndTime.After(currentTimeMock) {
@@ -160,6 +167,7 @@ func Elapse(d time.Duration) {
 			t.fired = true
 		}
 	}
+	mockTimerMu.Unlock()
 
 	// Stop tracking any fired timers.
 	remainingTimers := make([]*mockTimer, 0)
