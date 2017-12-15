@@ -16,6 +16,9 @@ test-%:
 	cd $$GOPATH/src/$(PKG_NAME); \
 	go test -race $(GOFLAGS) ./$*
 
+test-ginkgo:
+	ginkgo -r --randomizeAllSpecs --randomizeSuites --failOnPending --cover --trace --race --compilers=2
+
 format:
 	cd $$GOPATH/src/$(PKG_NAME); \
 	go fmt -w *.go

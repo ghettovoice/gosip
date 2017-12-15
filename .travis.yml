@@ -1,0 +1,9 @@
+language: go
+go:
+  - 1.9
+install:
+  - go get -v github.com/onsi/ginkgo/ginkgo
+  - go get -v github.com/onsi/gomega
+  - go get -v -t ./...
+  - export PATH=$PATH:$HOME/gopath/bin
+script:  make test-ginkgo
