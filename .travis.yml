@@ -7,7 +7,7 @@ install:
   - go get -v -t ./...
   - export PATH=$PATH:$HOME/gopath/bin
 script:
-  -make test-ginkgo
+  - make test-ginkgo
 branches:
   only:
     - master
