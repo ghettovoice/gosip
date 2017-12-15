@@ -457,7 +457,7 @@ func (handler *listenerHandler) String() string {
 		info = " (" + strings.Join(parts, ", ") + ")"
 	}
 
-	return fmt.Sprintf("ListenerHandler %p %s", handler, info)
+	return fmt.Sprintf("ListenerHandler %p%s", handler, info)
 }
 
 func (handler *listenerHandler) Log() log.Logger {

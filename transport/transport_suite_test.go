@@ -81,6 +81,49 @@ func createPacketClientServer(network string, addr string) (net.Conn, net.Conn) 
 	return client, server.(net.Conn)
 }
 
+func createClient(network string, raddr string, laddr string) net.Conn {
+	network = strings.ToLower(network)
+
+	switch network {
+	case "udp":
+		la, err := net.ResolveUDPAddr(network, laddr)
+		Expect(err).ToNot(HaveOccurred())
+		ra, err := net.ResolveUDPAddr(network, raddr)
+		Expect(err).ToNot(HaveOccurred())
+
+		client, err := net.DialUDP(network, la, ra)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(client).ToNot(BeNil())
+
+		return client
+	case "tcp":
+		la, err := net.ResolveTCPAddr(network, laddr)
+		Expect(err).ToNot(HaveOccurred())
+		ra, err := net.ResolveTCPAddr(network, raddr)
+		Expect(err).ToNot(HaveOccurred())
+
+		client, err := net.DialTCP(network, la, ra)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(client).ToNot(BeNil())
+
+		return client
+	default:
+		Fail("unsupported network " + network)
+	}
+
+	client, err := net.Dial(network, raddr)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(client).ToNot(BeNil())
+
+	return client
+}
+
+func writeToConn(conn net.Conn, data []byte) {
+	num, err := conn.Write(data)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(num).To(Equal(len(data)))
+}
+
 type mockListener struct {
 	addr        net.Addr
 	connections chan net.Conn
@@ -154,4 +197,27 @@ func (conn *mockConn) LocalAddr() net.Addr {
 
 func (conn *mockConn) RemoteAddr() net.Addr {
 	return conn.remoteAddr
+}
+
+func assertIncomingMessageArrived(
+	fromCh <-chan *transport.IncomingMessage,
+	expectedMessage string,
+	expectedLocalAddr string,
+	expectedRemoteAddr string,
+) {
+	incomingMsg := <-fromCh
+	Expect(incomingMsg).ToNot(BeNil())
+	Expect(incomingMsg.Msg).ToNot(BeNil())
+	Expect(strings.Trim(incomingMsg.Msg.String(), " \r\n")).To(Equal(strings.Trim(expectedMessage, " \r\n")))
+	Expect(incomingMsg.LAddr).To(Equal(expectedLocalAddr))
+	Expect(incomingMsg.RAddr).To(Equal(expectedRemoteAddr))
+}
+
+func assertIncomingErrorArrived(
+	fromCh <-chan error,
+	expected string,
+) {
+	err := <-fromCh
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring(expected))
 }

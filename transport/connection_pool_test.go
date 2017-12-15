@@ -3,7 +3,6 @@ package transport_test
 import (
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/ghettovoice/gosip/timing"
@@ -141,15 +140,15 @@ var _ = Describe("ConnectionHandler", func() {
 		Context("when new data arrives", func() {
 			JustBeforeEach(func() {
 				go func() {
-					Expect(client.Write([]byte(inviteMsg))).To(Equal(len(inviteMsg)))
+					writeToConn(client, []byte(inviteMsg))
 					time.Sleep(time.Millisecond)
-					Expect(client.Write([]byte(bullshit))).To(Equal(len(bullshit)))
+					writeToConn(client, []byte(bullshit))
 					time.Sleep(time.Millisecond)
-					Expect(client.Write([]byte(malformedMsg1))).To(Equal(len(malformedMsg1)))
+					writeToConn(client, []byte(malformedMsg1))
 					time.Sleep(time.Millisecond)
-					Expect(client.Write([]byte(malformedMsg2))).To(Equal(len(malformedMsg2)))
+					writeToConn(client, []byte(malformedMsg2))
 					time.Sleep(time.Millisecond)
-					Expect(client.Write([]byte(inviteMsg))).To(Equal(len(inviteMsg)))
+					writeToConn(client, []byte(inviteMsg))
 				}()
 			})
 
@@ -274,7 +273,7 @@ var _ = Describe("ConnectionPool", func() {
 		"Bye!"
 	msg3 := "SIP/2.0 200 OK\r\n" +
 		"CSeq: 2 INVITE\r\n" +
-		"Call-ID: cheesecake1729\r\n" +
+		"Call-Id: cheesecake1729\r\n" +
 		"Max-Forwards: 65\r\n" +
 		"\r\n"
 
@@ -579,22 +578,22 @@ var _ = Describe("ConnectionPool", func() {
 				BeforeEach(func() {
 					go func() {
 						time.Sleep(50 * time.Millisecond)
-						assertWriteToSucceed(client1, []byte(msg1))
+						writeToConn(client1, []byte(msg1))
 					}()
 					go func() {
 						time.Sleep(10 * time.Millisecond)
-						assertWriteToSucceed(client2, []byte(msg2))
+						writeToConn(client2, []byte(msg2))
 						time.Sleep(20 * time.Millisecond)
 						timing.Elapse(ttl2 + time.Nanosecond)
 					}()
 					go func() {
 						time.Sleep(20 * time.Millisecond)
-						assertWriteToSucceed(client3, []byte(msg3))
+						writeToConn(client3, []byte(msg3))
 						time.Sleep(20 * time.Millisecond)
 						server3.Close()
 					}()
 				})
-				It("should pipe handlers to self outputs", func(done Done) {
+				It("should pipe handler outputs to self outputs", func(done Done) {
 					By(fmt.Sprintf("message msg2 arrives %s -> %s", server2.RemoteAddr(), server2.LocalAddr()))
 					assertIncomingMessageArrived(output, msg2, server2.LocalAddr().String(), client2.LocalAddr().String())
 					By(fmt.Sprintf("malformed message msg3 arrives %s -> %s", server3.RemoteAddr(), server3.LocalAddr()))
@@ -621,30 +620,3 @@ var _ = Describe("ConnectionPool", func() {
 		})
 	})
 })
-
-func assertIncomingMessageArrived(
-	fromCh <-chan *transport.IncomingMessage,
-	expectedMessage string,
-	expectedLocalAddr string,
-	expectedRemoteAddr string,
-) {
-	incomingMsg := <-fromCh
-	Expect(incomingMsg).ToNot(BeNil())
-	Expect(incomingMsg.Msg).ToNot(BeNil())
-	Expect(incomingMsg.Msg.String()).To(Equal(strings.Trim(expectedMessage, "\r\n")))
-	Expect(incomingMsg.LAddr).To(Equal(expectedLocalAddr))
-	Expect(incomingMsg.RAddr).To(Equal(expectedRemoteAddr))
-}
-
-func assertIncomingErrorArrived(
-	fromCh <-chan error,
-	expected string,
-) {
-	err := <-fromCh
-	Expect(err).To(HaveOccurred())
-	Expect(err.Error()).To(ContainSubstring(expected))
-}
-
-func assertWriteToSucceed(conn net.Conn, data []byte) {
-	Expect(conn.Write(data)).To(Equal(len(data)))
-}

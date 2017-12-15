@@ -507,20 +507,19 @@ func (handler *connectionHandler) String() string {
 		info = " (" + strings.Join(parts, ", ") + ")"
 	}
 
-	return fmt.Sprintf("ConnectionHandler %p %s", handler, info)
+	return fmt.Sprintf("ConnectionHandler %p%s", handler, info)
 }
 
 func (handler *connectionHandler) Log() log.Logger {
 	return handler.logger.Log().WithFields(map[string]interface{}{
-		"conn":  handler.Connection().String(),
-		"raddr": fmt.Sprintf("%v", handler.Connection().RemoteAddr()),
+		"conn-handler": handler.String(),
+		"conn":         handler.Connection().String(),
+		"raddr":        fmt.Sprintf("%v", handler.Connection().RemoteAddr()),
 	})
 }
 
 func (handler *connectionHandler) SetLog(logger log.Logger) {
-	handler.logger.SetLog(logger.WithFields(map[string]interface{}{
-		"conn-handler": handler.String(),
-	}))
+	handler.logger.SetLog(logger)
 }
 
 func (handler *connectionHandler) Key() ConnectionKey {
@@ -591,8 +590,10 @@ func (handler *connectionHandler) readConnection() (<-chan core.Message, <-chan 
 	errs := make(chan error)
 	streamed := handler.Connection().Streamed()
 	parser := syntax.NewParser(msgs, errs, streamed)
+	parser.SetLog(handler.Log())
 	if !streamed {
 		handler.addrs.Init()
+		handler.addrs.SetLog(handler.Log())
 		handler.addrs.Run()
 	}
 
@@ -633,6 +634,7 @@ func (handler *connectionHandler) readConnection() (<-chan core.Message, <-chan 
 				return
 			}
 			// parse received data
+			parser.SetLog(handler.Log())
 			if _, err := parser.Write(append([]byte{}, buf[:num]...)); err == nil {
 				if !streamed {
 					handler.addrs.In <- fmt.Sprintf("%v", handler.Connection().RemoteAddr())
@@ -645,78 +647,6 @@ func (handler *connectionHandler) readConnection() (<-chan core.Message, <-chan 
 
 	return msgs, errs
 }
-
-//func (handler *connectionHandler) parsePackets(wg *sync.WaitGroup, pkts <-chan []byte, errs chan<- error) <-chan core.Message {
-//	// output channels
-//	msgs := make(chan core.Message)
-//	// parser errors chan
-//	perrs := make(chan error)
-//	// parser factory
-//	createParser := func(out chan<- core.Message, errs chan<- error) syntax.Parser {
-//		parser := syntax.NewParser(out, errs, handler.Connection().Streamed())
-//		parser.SetLog(handler.Log())
-//		return parser
-//	}
-//
-//	go func() {
-//		var parser syntax.Parser
-//		parser = createParser(msgs, perrs)
-//
-//		defer func() {
-//			defer wg.Done()
-//			handler.Log().Debugf("%s stops parse packets routine", handler)
-//			parser.Stop()
-//			close(perrs)
-//			close(msgs)
-//		}()
-//
-//		handler.Log().Debugf("%s begins parse packets routine", handler)
-//
-//		for {
-//			select {
-//			case pkt, ok := <-pkts:
-//				if !ok {
-//					// connection was closed
-//					return
-//				}
-//				if pkt == nil {
-//					continue
-//				}
-//				go parser.Write(pkt)
-//			case err := <-perrs:
-//				if err == nil {
-//					continue
-//				}
-//				// check for parser/syntax errors or broken message
-//				reset := false
-//				silent := false
-//				if _, ok := err.(syntax.Error); ok {
-//					reset = true
-//					silent = true
-//				}
-//				if err, ok := err.(core.MessageError); ok {
-//					reset = true
-//					if err.Broken() {
-//						silent = true
-//					}
-//				}
-//				if reset {
-//					handler.Log().Warnf("%s resets parser due to syntax error: %s", handler, err)
-//					parser.Reset()
-//					//parser.Stop()
-//					//parser = createParser(msgs, perrs)
-//				}
-//				if silent {
-//					continue
-//				}
-//				// malformed message, invalid headers & etc.
-//				errs <- err
-//			}
-//		}
-//	}()
-//
-//	return msgs
-//}
 
 func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-chan error) {
 	streamed := handler.Connection().Streamed()
@@ -785,7 +715,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 			if !ok {
 				return
 			}
-			handler.Log().Debugf("%s sends message %s; pass it up", handler, msg.Short())
+			handler.Log().Debugf("%s received message %s; pass it up", handler, msg.Short())
 			handler.output <- &IncomingMessage{
 				msg,
 				handler.Connection().LocalAddr().String(),
@@ -811,7 +741,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 				}
 				handler.Log().Warnf("%s ignores error %s", handler, err)
 			} else {
-				handler.Log().Warnf("%s sends error %s; pass it up", handler, err)
+				handler.Log().Warnf("%s received error %s; pass it up", handler, err)
 				err = &ConnectionHandlerError{
 					err,
 					handler.Key(),

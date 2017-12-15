@@ -118,3 +118,4 @@ fabric.properties
 
 ### App rules
 out
+*.coverprofile

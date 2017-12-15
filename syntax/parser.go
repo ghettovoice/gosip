@@ -197,7 +197,7 @@ func (p *parser) Write(data []byte) (int, error) {
 
 	if !p.streamed {
 		l := getBodyLength(data)
-		p.bodyLengths.In <- l
+		p.bodyLengths.In <- []int{l, len(data)}
 	}
 
 	p.input.Write(data)
@@ -242,7 +242,7 @@ func (p *parser) parse(requireContentLength bool) {
 			p.Log().Debugf("%s stopped: %s", p, err)
 			break
 		}
-
+		p.Log().Debugf("%s starts reading start line", p)
 		var termErr error
 		if isRequest(startLine) {
 			method, recipient, sipVersion, err := parseRequestLine(startLine)
@@ -263,14 +263,21 @@ func (p *parser) parse(requireContentLength bool) {
 		}
 
 		if termErr != nil {
+			p.Log().Debugf("%s failed to read start line '%s'", p, startLine)
 			termErr = InvalidStartLineError(fmt.Sprintf("%s failed to parse first line of message: %s", p, termErr))
 			p.setError(termErr)
 			p.errs <- termErr
+			if !p.streamed {
+				slice := (<-p.bodyLengths.Out).([]int)
+				skip := slice[1] - len(startLine) - 2
+				p.Log().Debugf("%s skips %d - %d - 2 = %d bytes", p, slice[1], len(startLine), skip)
+				p.input.NextChunk(skip)
+			}
 			continue
 		}
 
 		msg.SetLog(p.Log())
-
+		p.Log().Debugf("%s starts reading headers", p)
 		// Parse the header section.
 		// Headers can be split across lines (marked by whitespace at the start of subsequent lines),
 		// so store lines into a buffer, and then flush and parse it when we hit the end of the header.
@@ -363,10 +370,12 @@ func (p *parser) parse(requireContentLength bool) {
 			contentLength = int(*(contentLengthHeaders[0].(*core.ContentLength)))
 		} else {
 			// We're not in streaming mode, so the Write method should have calculated the length of the body for us.
-			contentLength = (<-p.bodyLengths.Out).(int)
+			slice := (<-p.bodyLengths.Out).([]int)
+			contentLength = slice[0]
 		}
 
 		// Extract the message body.
+		p.Log().Debugf("%s reads body with length = %d bytes", p, contentLength)
 		body, err := p.input.NextChunk(contentLength)
 		if err != nil {
 			termErr := &core.BrokenMessageError{
@@ -1038,8 +1047,7 @@ func parseViaHeader(headerName string, headerText string) (
 		parts := strings.Split(section, "/")
 
 		if len(parts) < 3 {
-			err = fmt.Errorf("not enough protocol parts in via header: '%s'",
-				parts)
+			err = fmt.Errorf("not enough protocol parts in via header: '%s'", parts)
 			return
 		}
 

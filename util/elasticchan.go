@@ -70,7 +70,7 @@ func (c *ElasticChan) manage() {
 				c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
 				c.buffer = append(c.buffer, in)
 			case c.Out <- c.buffer[0]:
-				c.Log().Debugf("chan %p sends '%v'", c, c.buffer[0])
+				c.Log().Debugf("ElasticChan %p sends '%v'", c, c.buffer[0])
 				c.buffer = c.buffer[1:]
 			}
 		} else {
