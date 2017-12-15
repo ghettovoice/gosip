@@ -6,4 +6,10 @@ install:
   - go get -v github.com/onsi/gomega
   - go get -v -t ./...
   - export PATH=$PATH:$HOME/gopath/bin
-script:  make test-ginkgo
+script:
+  -make test-ginkgo
+branches:
+  only:
+    - master
+    - dev
+    - develop
