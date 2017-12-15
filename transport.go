@@ -139,7 +139,7 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 	if !ok {
 		return &core.MalformedMessageError{
 			Err: fmt.Errorf("missing 'Via' header"),
-			Msg: msg,
+			Msg: msg.String(),
 		}
 	}
 
@@ -148,7 +148,7 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 	case core.Request:
 		msgLen := len(msg.String())
 		// rewrite sent-by host
-		viaHop.Host = tp.hostaddr
+		viaHop.Host = tp.hostAddr
 
 		if strings.ToLower(viaHop.Transport) == "udp" && msgLen > int(transport.MTU)-200 {
 			nets = append(nets, transport.DefaultProtocol, viaHop.Transport)
@@ -209,14 +209,13 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 				msg.Short(),
 				msg,
 			),
-			Msg: msg,
+			Msg: msg.String(),
 		}
 	}
 }
 
 func (tp *stdTransport) Stop() {
 	tp.Log().Infof("stop transport")
-	close(tp.stop)
 	tp.wg.Wait()
 
 	tp.Log().Debugf("disposing output channels")
@@ -274,7 +273,7 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 			return
 		}
 
-		if viaHop.Host != tp.hostaddr {
+		if viaHop.Host != tp.hostAddr {
 			tp.Log().Warnf(
 				"discarding unexpected response '%s' %p from %s to %s over %s: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
@@ -284,7 +283,7 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 				incomingMsg.LAddr,
 				protocol,
 				viaHop.Host,
-				tp.hostaddr,
+				tp.hostAddr,
 			)
 			return
 		}
@@ -300,32 +299,26 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 					viaHop,
 					protocol,
 				),
-				Msg: msg,
+				Msg: msg.String(),
 			}
 
-			select {
-			case tp.errs <- err:
-			case <-tp.stop:
-			}
+			tp.errs <- err
 			return
 		}
 
-		rhost, _, err := net.SplitHostPort(incomingMsg.RAddr.String())
+		rhost, _, err := net.SplitHostPort(incomingMsg.RAddr)
 		if err != nil {
 			err = &transport.ProtocolError{
 				Err: fmt.Errorf(
 					"failed to extract remote host from source address %s of the incoming request '%s' %p",
-					incomingMsg.RAddr.String(),
+					incomingMsg.RAddr,
 					msg.Short(),
 					msg,
 				),
 				Op:       "extract remote host",
-				Protocol: protocol,
+				Protocol: protocol.String(),
 			}
-			select {
-			case tp.errs <- err:
-			case <-tp.stop:
-			}
+			tp.errs <- err
 			return
 		}
 		if viaHop.Host != rhost {
@@ -359,10 +352,7 @@ func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage
 		msg,
 	)
 	// pass up message
-	select {
-	case tp.output <- msg:
-	case <-tp.stop:
-	}
+	tp.output <- msg
 }
 
 // handles protocol errors
@@ -376,10 +366,7 @@ func (tp *stdTransport) onProtocolError(err error, protocol transport.Protocol) 
 	)
 
 	// pass up error
-	select {
-	case tp.errs <- err:
-	case <-tp.stop:
-	}
+	tp.errs <- err
 }
 
 type protocolKey string
