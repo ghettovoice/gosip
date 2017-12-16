@@ -342,7 +342,7 @@ func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Dur
 	}
 	// wrap to handler
 	handler := NewConnectionHandler(key, conn, ttl, pool.hmess, pool.herrs, pool.cancel)
-	pool.Log().Debugf("put %s to %s", handler, pool)
+	pool.Log().Debugf("put %s to %s with TTL = %s", handler, pool, ttl)
 	// lock store
 	pool.mu.Lock()
 	// update store

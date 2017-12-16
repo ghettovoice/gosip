@@ -28,7 +28,7 @@ func NewUdpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 }
 
 func (udp *udpProtocol) String() string {
-	return fmt.Sprintf("Udp%s", udp.protocol)
+	return fmt.Sprintf("Udp%s", udp.protocol.String())
 }
 
 func (udp *udpProtocol) SetLog(logger log.Logger) {

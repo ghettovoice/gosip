@@ -36,7 +36,7 @@ func NewTcpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 }
 
 func (tcp *tcpProtocol) String() string {
-	return fmt.Sprintf("Tcp%s", tcp.protocol)
+	return fmt.Sprintf("Tcp%s", tcp.protocol.String())
 }
 
 func (tcp *tcpProtocol) SetLog(logger log.Logger) {
@@ -52,19 +52,16 @@ func (tcp *tcpProtocol) Done() <-chan struct{} {
 // piping new connections to connection pool for serving
 func (tcp *tcpProtocol) pipePools() {
 	defer func() {
-		tcp.Log().Debugf("stop %s managing", tcp)
+		tcp.Log().Infof("%s stops pipe pools", tcp)
 		close(tcp.conns)
 	}()
-	tcp.Log().Debugf("start %s managing", tcp)
+	tcp.Log().Infof("%s starts pipe pools", tcp)
 
 	for {
 		select {
 		case <-tcp.listeners.Done():
 			return
-		case conn, ok := <-tcp.conns:
-			if !ok {
-				return
-			}
+		case conn := <-tcp.conns:
 			if err := tcp.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
 				tcp.Log().Errorf("%s failed to put new %s to %s: %s", tcp, conn, tcp.connections, err)
