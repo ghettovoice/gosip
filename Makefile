@@ -5,19 +5,26 @@ GOFLAGS=
 
 install:
 	cd $$GOPATH/src/$(PKG_NAME); \
-	go get -v -t ./...; \
-	go install $(LDFLAGS)
+	go get -v github.com/onsi/ginkgo/ginkgo; \
+  go get -v github.com/onsi/gomega; \
+  go get -v -t ./...; \
+  go install $(LDFLAGS)
 
-test: test-core test-syntax test-timing test-transport
+test:
 	cd $$GOPATH/src/$(PKG_NAME); \
-	go test -race $(GOFLAGS)
+	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --succinct --progress
 
 test-%:
 	cd $$GOPATH/src/$(PKG_NAME); \
-	go test -race $(GOFLAGS) ./$*
+	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --progress ./$*
 
-test-ginkgo:
-	ginkgo -r --randomizeAllSpecs --randomizeSuites --failOnPending --cover --trace --race --compilers=2 --succinct --progress
+test-watch:
+	cd $$GOPATH/src/$(PKG_NAME); \
+	ginkgo watch -r --trace --race
+
+test-watch-%:
+	cd $$GOPATH/src/$(PKG_NAME); \
+	ginkgo watch -r --trace --race ./$*
 
 format:
 	cd $$GOPATH/src/$(PKG_NAME); \
