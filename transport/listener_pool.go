@@ -86,10 +86,8 @@ func NewListenerPool(output chan<- Connection, errs chan<- error, cancel <-chan 
 		mu:      new(sync.RWMutex),
 	}
 
-	wg := new(sync.WaitGroup)
-	wg.Add(2)
-	go pool.serveStore(wg)
-	go pool.serveHandlers(wg)
+	go pool.serveStore()
+	go pool.serveHandlers()
 
 	return pool
 }
@@ -207,9 +205,8 @@ func (pool *listenerPool) Length() int {
 	return len(pool.allKeys())
 }
 
-func (pool *listenerPool) serveStore(wg *sync.WaitGroup) {
+func (pool *listenerPool) serveStore() {
 	defer func() {
-		defer wg.Done()
 		pool.Log().Infof("%s stops serve store routine", pool)
 		pool.dispose()
 	}()
@@ -245,9 +242,8 @@ func (pool *listenerPool) dispose() {
 	close(pool.drops)
 }
 
-func (pool *listenerPool) serveHandlers(wg *sync.WaitGroup) {
+func (pool *listenerPool) serveHandlers() {
 	defer func() {
-		defer wg.Done()
 		pool.Log().Infof("%s stops serve handlers routine", pool)
 		close(pool.done)
 	}()

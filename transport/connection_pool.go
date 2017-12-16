@@ -98,10 +98,8 @@ func NewConnectionPool(output chan<- *IncomingMessage, errs chan<- error, cancel
 		mu:      new(sync.RWMutex),
 	}
 
-	wg := new(sync.WaitGroup)
-	wg.Add(2)
-	go pool.serveStore(wg)
-	go pool.serveHandlers(wg)
+	go pool.serveStore()
+	go pool.serveHandlers()
 
 	return pool
 }
@@ -221,9 +219,8 @@ func (pool *connectionPool) Length() int {
 	return len(pool.allKeys())
 }
 
-func (pool *connectionPool) serveStore(wg *sync.WaitGroup) {
+func (pool *connectionPool) serveStore() {
 	defer func() {
-		defer wg.Done()
 		pool.Log().Infof("%s stops serve store routine", pool)
 		pool.dispose()
 	}()
@@ -259,9 +256,8 @@ func (pool *connectionPool) dispose() {
 	close(pool.drops)
 }
 
-func (pool *connectionPool) serveHandlers(wg *sync.WaitGroup) {
+func (pool *connectionPool) serveHandlers() {
 	defer func() {
-		defer wg.Done()
 		pool.Log().Infof("%s stops serve handlers routine", pool)
 		close(pool.done)
 	}()
@@ -656,6 +652,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 		} else {
 			// use non-blocking read because remote address already should be here
 			// or error occurred in read connection goroutine
+			// TODO: fix this, sometimes it returns nil
 			select {
 			case v := <-handler.addrs.Out:
 				return v.(string)
@@ -720,6 +717,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 				msg,
 				handler.Connection().LocalAddr().String(),
 				getRemoteAddr(),
+				handler.Connection().Network(),
 			}
 		case err, ok := <-errs:
 			// cancel signal

@@ -26,6 +26,13 @@ type Protocol interface {
 	String() string
 }
 
+type ProtocolFactory func(
+	network string,
+	output chan<- *IncomingMessage,
+	errs chan<- error,
+	cancel <-chan struct{},
+) (Protocol, error)
+
 type protocol struct {
 	logger   log.LocalLogger
 	network  string

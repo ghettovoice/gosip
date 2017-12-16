@@ -33,24 +33,51 @@ func (err AlreadyRegisteredProtocolError) Error() string {
 // Transport layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Transport interface {
 	log.LocalLogger
-	Register(protocol transport.Protocol) error
+	core.Awaiting
 	// Listen starts listening on `addr` for each registered protocol.
 	Listen(network string, target *transport.Target) error
 	// Send sends message on suitable protocol.
 	Send(network string, target *transport.Target, msg core.Message) error
-	// Stops all protocols
-	Stop()
 	String() string
+}
+
+var protocolFactory transport.ProtocolFactory = func(
+	network string,
+	output chan<- *transport.IncomingMessage,
+	errs chan<- error,
+	cancel <-chan struct{},
+) (transport.Protocol, error) {
+	switch network {
+	case "udp":
+		return transport.NewUdpProtocol(output, errs, cancel), nil
+	case "tcp":
+		return transport.NewTcpProtocol(output, errs, cancel), nil
+	default:
+		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
+	}
+}
+
+// SetProtocolFactory replaces default protocol factory
+func SetProtocolFactory(factory transport.ProtocolFactory) {
+	protocolFactory = factory
+}
+
+// ProtocolFactory returns default protocol factory
+func ProtocolFactory() transport.ProtocolFactory {
+	return protocolFactory
 }
 
 // Transport layer implementation.
 type stdTransport struct {
-	hostAddr  string
-	protocols *protocolPool
 	logger    log.LocalLogger
+	hostAddr  string
+	protocols *protocolStore
 	output    chan<- core.Message
 	errs      chan<- error
+	cancel    <-chan struct{}
+	done      chan struct{}
 	wg        *sync.WaitGroup
+	msgs      chan *transport.IncomingMessage
 }
 
 // NewTransport creates transport layer.
@@ -62,27 +89,12 @@ func NewTransport(hostAddr string, output chan<- core.Message, errs chan<- error
 		output:    output,
 		errs:      errs,
 		wg:        new(sync.WaitGroup),
-		protocols: NewProtocolPool(),
+		protocols: NewProtocolStore(),
+		done:      make(chan struct{}),
+		msgs:      make(chan *transport.IncomingMessage),
 	}
-	// todo tmp, fix later
-	incomingMessage := make(chan *transport.IncomingMessage)
-	// predefined protocols
-	tp.Register(transport.NewTcpProtocol(incomingMessage, errs, cancel))
-	tp.Register(transport.NewUdpProtocol(incomingMessage, errs, cancel))
-	// TODO implement TLS
-
+	go tp.serveProtocols()
 	return tp
-}
-
-func (tp *stdTransport) Register(protocol transport.Protocol) error {
-	if _, ok := tp.protocols.Get(protocolKey(protocol.Network())); ok {
-		return AlreadyRegisteredProtocolError(fmt.Sprintf("%s already registered", protocol))
-	}
-
-	protocol.SetLog(tp.Log())
-	tp.protocols.Add(protocolKey(protocol.Network()), protocol)
-
-	return nil
 }
 
 func (tp *stdTransport) String() string {
@@ -93,7 +105,7 @@ func (tp *stdTransport) String() string {
 		addr = fmt.Sprintf("%p", tp)
 	}
 
-	return fmt.Sprintf("transport layer %s", addr)
+	return fmt.Sprintf("Transport %s", addr)
 }
 
 func (tp *stdTransport) Log() log.Logger {
@@ -107,29 +119,23 @@ func (tp *stdTransport) SetLog(logger log.Logger) {
 	}
 }
 
+func (tp *stdTransport) Done() <-chan struct{} {
+	return tp.done
+}
+
 func (tp *stdTransport) Listen(network string, target *transport.Target) error {
+	// todo try with separate goroutine/outputs for each protocol
 	protocol, ok := tp.protocols.Get(protocolKey(network))
 	if !ok {
-		return UnsupportedProtocolError(fmt.Sprintf(
-			"protocol %s is not registered in %s",
-			network,
-			tp,
-		))
+		protocol, err := protocolFactory(network, tp.msgs, tp.errs, tp.cancel)
+		if err != nil {
+			return err
+		}
+		tp.protocols.Put(protocolKey(protocol.Network()), protocol)
 	}
 
 	target = transport.FillTargetHostAndPort(network, target)
-	tp.Log().Infof("begin listening on %s", target)
-
-	if err := protocol.Listen(target); err != nil {
-		// return error right away to be more explicitly
-		return err
-	}
-
-	// start protocol output forwarding goroutine
-	tp.wg.Add(1)
-	go tp.serveProtocol(protocol, tp.wg)
-
-	return nil
+	return protocol.Listen(target)
 }
 
 func (tp *stdTransport) Send(network string, target *transport.Target, msg core.Message) error {
@@ -149,7 +155,7 @@ func (tp *stdTransport) Send(network string, target *transport.Target, msg core.
 		msgLen := len(msg.String())
 		// rewrite sent-by host
 		viaHop.Host = tp.hostAddr
-
+		// todo check for reliable/non-reliable
 		if strings.ToLower(viaHop.Transport) == "udp" && msgLen > int(transport.MTU)-200 {
 			nets = append(nets, transport.DefaultProtocol, viaHop.Transport)
 		} else {
@@ -160,11 +166,7 @@ func (tp *stdTransport) Send(network string, target *transport.Target, msg core.
 		for _, nt := range nets {
 			protocol, ok := tp.protocols.Get(protocolKey(nt))
 			if !ok {
-				err = UnsupportedProtocolError(fmt.Sprintf(
-					"protocol %s is not registered in %s",
-					network,
-					tp,
-				))
+				err = UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 				continue
 			}
 			// rewrite sent-by transport
@@ -181,16 +183,12 @@ func (tp *stdTransport) Send(network string, target *transport.Target, msg core.
 		}
 
 		return err
-	// RFC 3261 - 18.2.2.
+		// RFC 3261 - 18.2.2.
 	case core.Response:
 		// resolve protocol from Via
 		protocol, ok := tp.protocols.Get(protocolKey(viaHop.Transport))
 		if !ok {
-			return UnsupportedProtocolError(fmt.Sprintf(
-				"protocol %s is not registered in %s",
-				network,
-				tp,
-			))
+			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 		}
 		// override target with values from Response headers
 		// resolve host, port from Via
@@ -204,203 +202,179 @@ func (tp *stdTransport) Send(network string, target *transport.Target, msg core.
 		return protocol.Send(target, msg)
 	default:
 		return &core.UnsupportedMessageError{
-			Err: fmt.Errorf(
-				"failed to send unsupported message '%s' %p",
-				msg.Short(),
-				msg,
-			),
+			Err: fmt.Errorf("unsupported message %s", msg.Short()),
 			Msg: msg.String(),
 		}
 	}
 }
 
-func (tp *stdTransport) Stop() {
-	tp.Log().Infof("stop transport")
-	tp.wg.Wait()
+func (tp *stdTransport) serveProtocols() {
+	defer func() {
+		tp.Log().Infof("%s stops serves protocols", tp)
+		tp.dispose()
+		close(tp.done)
+	}()
+	tp.Log().Infof("%s begins serve protocols", tp)
 
-	tp.Log().Debugf("disposing output channels")
-	close(tp.output)
-	close(tp.errs)
+	for {
+		select {
+		case <-tp.cancel:
+			tp.Log().Warnf("%s received cancel signal", tp)
+			return
+		case incomingMsg := <-tp.msgs:
+			tp.onIncomingMessage(incomingMsg)
+		}
+	}
 }
 
-func (tp *stdTransport) serveProtocol(protocol transport.Protocol, wg *sync.WaitGroup) {
-	defer func() {
-		wg.Done()
-		tp.Log().Infof("stop forwarding of %s protocol %p outputs", protocol.Network(), protocol)
-	}()
-	tp.Log().Infof("begin forwarding of %s protocol %p outputs", protocol.Network(), protocol)
-
-	//for {
-	//	select {
-	//	case <-tp.stop: // transport stop was called
-	//		return
-	//		// forward incoming message
-	//	case incomingMsg := <-protocol.Output():
-	//		tp.onProtocolMessage(incomingMsg, protocol)
-	//		// forward errors
-	//	case err := <-protocol.Errors():
-	//		tp.onProtocolError(err, protocol)
-	//	}
-	//}
+func (tp *stdTransport) dispose() {
+	// wait for protocols
+	protocols := tp.protocols.All()
+	wg := new(sync.WaitGroup)
+	wg.Add(len(protocols))
+	for _, protocol := range protocols {
+		tp.protocols.Drop(protocolKey(protocol.Network()))
+		go func(wg *sync.WaitGroup, protocol transport.Protocol) {
+			defer wg.Done()
+			<-protocol.Done()
+		}(wg, protocol)
+	}
+	wg.Wait()
+	close(tp.msgs)
 }
 
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
-func (tp *stdTransport) onProtocolMessage(incomingMsg *transport.IncomingMessage, protocol transport.Protocol) {
-	tp.Log().Debugf(
-		"%s received message '%s' %p from %s",
-		tp,
-		incomingMsg.Msg.Short(),
-		incomingMsg.Msg,
-		protocol,
-	)
+func (tp *stdTransport) onIncomingMessage(incomingMsg *transport.IncomingMessage) {
+	tp.Log().Debugf("%s received %s", tp, incomingMsg)
 
 	msg := incomingMsg.Msg
 	switch incomingMsg.Msg.(type) {
-	// incoming Response
 	case core.Response:
+		// incoming Response
 		// RFC 3261 - 18.1.2. - Receiving Responses.
 		viaHop, ok := msg.ViaHop()
 		if !ok {
 			tp.Log().Warnf(
-				"discarding malformed response '%s' %p from %s to %s over %s: empty or malformed 'Via' header",
+				"%s discards malformed response %s %s -> %s over %s: empty or malformed 'Via' header",
+				tp,
 				msg.Short(),
-				msg,
 				incomingMsg.RAddr,
 				incomingMsg.LAddr,
-				protocol,
+				incomingMsg.Network,
 			)
 			return
 		}
 
 		if viaHop.Host != tp.hostAddr {
 			tp.Log().Warnf(
-				"discarding unexpected response '%s' %p from %s to %s over %s: 'sent-by' in the first 'Via' header "+
+				"%s discards unexpected response %s %s -> %s over %s: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
+				tp,
 				msg.Short(),
-				msg,
 				incomingMsg.RAddr,
 				incomingMsg.LAddr,
-				protocol,
+				incomingMsg.Network,
 				viaHop.Host,
 				tp.hostAddr,
 			)
 			return
 		}
-		// incoming Request
 	case core.Request:
+		// incoming Request
 		// RFC 3261 - 18.2.1. - Receiving Request.
 		viaHop, ok := msg.ViaHop()
 		if !ok {
 			// pass up errors on malformed requests, UA may response on it with 4xx code
 			err := &core.MalformedMessageError{
-				Err: fmt.Errorf(
-					"empty or malformed 'Via' header %s; protocol: %s",
-					viaHop,
-					protocol,
-				),
+				Err: fmt.Errorf("empty or malformed 'Via' header %s", viaHop),
 				Msg: msg.String(),
 			}
-
 			tp.errs <- err
 			return
 		}
 
 		rhost, _, err := net.SplitHostPort(incomingMsg.RAddr)
 		if err != nil {
-			err = &transport.ProtocolError{
-				Err: fmt.Errorf(
-					"failed to extract remote host from source address %s of the incoming request '%s' %p",
-					incomingMsg.RAddr,
-					msg.Short(),
-					msg,
-				),
-				Op:       "extract remote host",
-				Protocol: protocol.String(),
+			err = &net.OpError{
+				Err: fmt.Errorf("invalid remote address %s of the incoming request %s",
+					incomingMsg.RAddr, msg.Short()),
+				Op:  "extract remote host",
+				Net: incomingMsg.Network,
 			}
 			tp.errs <- err
 			return
 		}
 		if viaHop.Host != rhost {
-			tp.Log().Infof(
-				"host %s from the first 'Via' header differs from the actual source address %s of the message '%s' %p: "+
+			tp.Log().Debugf(
+				"host %s from the first 'Via' header differs from the actual source address %s of the message %s: "+
 					"'received' parameter will be added",
 				viaHop.Host,
 				rhost,
 				msg.Short(),
-				msg,
 			)
 			viaHop.Params.Add("received", core.String{rhost})
 		}
 	default:
 		// unsupported message received, log and discard
 		tp.Log().Warnf(
-			"received unsupported message '%s' %p from %s to %s over %s",
+			"%s received unsupported message %s %s -> %s over %s",
+			tp,
 			msg.Short(),
-			msg,
 			incomingMsg.RAddr,
 			incomingMsg.LAddr,
-			protocol,
+			incomingMsg.Network,
 		)
 		return
 	}
 
-	tp.Log().Debugf(
-		"%s passing up message '%s' %p",
-		tp,
-		msg.Short(),
-		msg,
-	)
+	tp.Log().Debugf("%s passing up %s", tp, msg.Short())
 	// pass up message
 	tp.output <- msg
-}
-
-// handles protocol errors
-// should be called inside goroutine for non-blocking forwarding
-func (tp *stdTransport) onProtocolError(err error, protocol transport.Protocol) {
-	tp.Log().Debugf(
-		"%s received error '%s' from %s, passing it up",
-		tp,
-		err,
-		protocol,
-	)
-
-	// pass up error
-	tp.errs <- err
 }
 
 type protocolKey string
 
 // Thread-safe protocols pool.
-type protocolPool struct {
-	lock  *sync.RWMutex
-	store map[protocolKey]transport.Protocol
+type protocolStore struct {
+	mu        *sync.RWMutex
+	protocols map[protocolKey]transport.Protocol
 }
 
-func NewProtocolPool() *protocolPool {
-	return &protocolPool{
-		lock:  new(sync.RWMutex),
-		store: make(map[protocolKey]transport.Protocol),
+func NewProtocolStore() *protocolStore {
+	return &protocolStore{
+		mu:        new(sync.RWMutex),
+		protocols: make(map[protocolKey]transport.Protocol),
 	}
 }
 
-func (pool *protocolPool) Add(key protocolKey, protocol transport.Protocol) {
-	pool.lock.Lock()
-	pool.store[key] = protocol
-	pool.lock.Unlock()
+func (store *protocolStore) Put(key protocolKey, protocol transport.Protocol) {
+	store.mu.Lock()
+	store.protocols[key] = protocol
+	store.mu.Unlock()
 }
 
-func (pool *protocolPool) Get(key protocolKey) (transport.Protocol, bool) {
-	pool.lock.RLock()
-	defer pool.lock.RUnlock()
-	protocol, ok := pool.store[key]
+func (store *protocolStore) Get(key protocolKey) (transport.Protocol, bool) {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	protocol, ok := store.protocols[key]
 	return protocol, ok
 }
 
-func (pool *protocolPool) All() []transport.Protocol {
+func (store *protocolStore) Drop(key protocolKey) bool {
+	if _, ok := store.Get(key); !ok {
+		return false
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	delete(store.protocols, key)
+	return true
+}
+
+func (store *protocolStore) All() []transport.Protocol {
 	all := make([]transport.Protocol, 0)
-	for key := range pool.store {
-		if protocol, ok := pool.Get(key); ok {
+	for key := range store.protocols {
+		if protocol, ok := store.Get(key); ok {
 			all = append(all, protocol)
 		}
 	}

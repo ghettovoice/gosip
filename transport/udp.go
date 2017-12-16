@@ -58,6 +58,7 @@ func (udp *udpProtocol) Listen(target *Target) error {
 			udp.String(),
 		}
 	}
+	udp.Log().Infof("%s begins listening on %s", udp, target)
 	// register new connection
 	conn := NewConnection(udpConn)
 	conn.SetLog(udp.Log())

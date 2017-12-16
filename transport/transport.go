@@ -27,7 +27,8 @@ type IncomingMessage struct {
 	// Local address to which message arrived
 	LAddr string
 	// Remote address from which message arrived
-	RAddr string
+	RAddr   string
+	Network string
 }
 
 func (msg *IncomingMessage) String() string {
@@ -36,6 +37,9 @@ func (msg *IncomingMessage) String() string {
 	}
 	s := "IncomingMessage " + msg.Msg.Short()
 	parts := make([]string, 0)
+	if msg.Network != "" {
+		parts = append(parts, "net "+msg.Network)
+	}
 	if msg.LAddr != "" {
 		parts = append(parts, "laddr "+msg.LAddr)
 	}

@@ -88,9 +88,10 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 			tcp.String(),
 		}
 	}
+	tcp.Log().Infof("%s begins listening on %s", tcp, target)
 	// index listeners by local address
 	// should live infinitely
-	tcp.listeners.Put(ListenerKey(listener.Addr().String()), listener)
+	err = tcp.listeners.Put(ListenerKey(listener.Addr().String()), listener)
 
 	return err // should be nil here
 }
