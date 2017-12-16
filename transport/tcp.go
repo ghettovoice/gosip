@@ -36,7 +36,7 @@ func NewTcpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 }
 
 func (tcp *tcpProtocol) String() string {
-	return fmt.Sprintf("Tcp%s", tcp.protocol)
+	return fmt.Sprintf("Tcp%s", tcp.protocol.String())
 }
 
 func (tcp *tcpProtocol) SetLog(logger log.Logger) {
@@ -52,19 +52,16 @@ func (tcp *tcpProtocol) Done() <-chan struct{} {
 // piping new connections to connection pool for serving
 func (tcp *tcpProtocol) pipePools() {
 	defer func() {
-		tcp.Log().Debugf("stop %s managing", tcp)
+		tcp.Log().Infof("%s stops pipe pools", tcp)
 		close(tcp.conns)
 	}()
-	tcp.Log().Debugf("start %s managing", tcp)
+	tcp.Log().Infof("%s starts pipe pools", tcp)
 
 	for {
 		select {
 		case <-tcp.listeners.Done():
 			return
-		case conn, ok := <-tcp.conns:
-			if !ok {
-				return
-			}
+		case conn := <-tcp.conns:
 			if err := tcp.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
 				tcp.Log().Errorf("%s failed to put new %s to %s: %s", tcp, conn, tcp.connections, err)
@@ -105,7 +102,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg core.Message) error {
 	tcp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), target.Addr(), msg)
 
 	// validate remote address
-	if target.Host == "" || target.Host == DefaultHost {
+	if target.Host == "" {
 		return &ProtocolError{
 			fmt.Errorf("invalid remote host resolved %s", target.Host),
 			"resolve destination address",
@@ -146,16 +143,10 @@ func (tcp *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 
 func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
 	network := strings.ToLower(tcp.Network())
-	laddr := &net.TCPAddr{
-		IP:   net.IP(DefaultHost),
-		Port: int(DefaultUdpPort),
-		Zone: "",
-	}
-
 	conn, err := tcp.connections.Get(ConnectionKey(raddr.String()))
 	if err != nil {
 		tcp.Log().Debugf("connection for address %s not found; create a new one", raddr)
-		tcpConn, err := net.DialTCP(network, laddr, raddr)
+		tcpConn, err := net.DialTCP(network, nil, raddr)
 		if err != nil {
 			return nil, &ProtocolError{
 				fmt.Errorf("failed to create connection to remote address %s: %s", raddr, err),

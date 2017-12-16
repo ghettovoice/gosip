@@ -3,6 +3,7 @@ package transport
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/ghettovoice/gosip/core"
@@ -50,9 +51,8 @@ func (msg *IncomingMessage) String() string {
 
 // Target endpoint
 type Target struct {
-	Protocol string
-	Host     string
-	Port     *core.Port
+	Host string
+	Port *core.Port
 }
 
 func (trg *Target) Addr() string {
@@ -69,8 +69,6 @@ func (trg *Target) Addr() string {
 
 	if trg.Port != nil {
 		port = *trg.Port
-	} else {
-		port = DefaultPort(trg.Protocol)
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)
@@ -80,14 +78,24 @@ func (trg *Target) String() string {
 	if trg == nil {
 		return "Target <nil>"
 	}
-	var prc string
-	if strings.TrimSpace(trg.Protocol) != "" {
-		prc = strings.ToUpper(trg.Protocol)
-	} else {
-		prc = DefaultProtocol
-	}
+	return fmt.Sprintf("Target %s", trg.Addr())
+}
 
-	return fmt.Sprintf("Target %s %s", prc, trg.Addr())
+func NewTarget(host string, port int) *Target {
+	cport := core.Port(port)
+	return &Target{host, &cport}
+}
+
+func NewTargetFromAddr(addr string) (*Target, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	iport, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, err
+	}
+	return NewTarget(host, iport), nil
 }
 
 // DefaultPort returns protocol default port by network.
@@ -105,14 +113,12 @@ func DefaultPort(protocol string) core.Port {
 }
 
 // Fills endpoint target with default values.
-func FillTargetHostAndPort(protocol string, target *Target) *Target {
-	target.Protocol = protocol
-
+func FillTargetHostAndPort(network string, target *Target) *Target {
 	if strings.TrimSpace(target.Host) == "" {
 		target.Host = DefaultHost
 	}
 	if target.Port == nil {
-		p := DefaultPort(target.Protocol)
+		p := DefaultPort(network)
 		target.Port = &p
 	}
 

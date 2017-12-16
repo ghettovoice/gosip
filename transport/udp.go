@@ -28,7 +28,7 @@ func NewUdpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-
 }
 
 func (udp *udpProtocol) String() string {
-	return fmt.Sprintf("Udp%s", udp.protocol)
+	return fmt.Sprintf("Udp%s", udp.protocol.String())
 }
 
 func (udp *udpProtocol) SetLog(logger log.Logger) {
@@ -74,7 +74,7 @@ func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
 	udp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), target.Addr(), msg)
 
 	// validate remote address
-	if target.Host == "" || target.Host == DefaultHost {
+	if target.Host == "" {
 		return &ProtocolError{
 			fmt.Errorf("invalid remote host resolved %s", target.Host),
 			"resolve destination address",
@@ -89,12 +89,7 @@ func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
 	}
 
 	network := strings.ToLower(udp.Network())
-	laddr := &net.UDPAddr{
-		IP:   net.IP(DefaultHost),
-		Port: int(DefaultUdpPort),
-		Zone: "",
-	}
-	udpConn, err := net.DialUDP(network, laddr, raddr)
+	udpConn, err := net.DialUDP(network, nil, raddr)
 	if err != nil {
 		return &ProtocolError{
 			fmt.Errorf("failed to create connection to remote address %s: %s", raddr, err),

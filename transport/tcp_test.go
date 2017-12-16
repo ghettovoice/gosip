@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("UdpProtocol", func() {
+var _ = Describe("TcpProtocol", func() {
 	var (
 		output                    chan *transport.IncomingMessage
 		errs                      chan error
@@ -23,8 +23,8 @@ var _ = Describe("UdpProtocol", func() {
 		wg                        *sync.WaitGroup
 	)
 
-	network := "udp"
-	port1 := 9050
+	network := "tcp"
+	port1 := 9060
 	port2 := port1 + 1
 	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
 	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
@@ -49,11 +49,12 @@ var _ = Describe("UdpProtocol", func() {
 		"CSeq: 2 INVITE\r\n" +
 		"Call-Id: cheesecake1729\r\n" +
 		"Max-Forwards: 65\r\n" +
+		"Content-Length: 0\r\n" +
 		"\r\n"
 	broken := "BROKEN from hell.com SIP/2.0\r\n" +
 		"Via: HELL\r\n" +
 		"\r\n" +
-		"THIS MESSAGE FROM HELL!"
+		"THIS MESSAGE FROM HELL!\r\n"
 	bullshit := "This is bullshit!\r\n"
 
 	timing.MockMode = true
@@ -75,7 +76,7 @@ var _ = Describe("UdpProtocol", func() {
 		output = make(chan *transport.IncomingMessage)
 		errs = make(chan error)
 		cancel = make(chan struct{})
-		protocol = transport.NewUdpProtocol(output, errs, cancel)
+		protocol = transport.NewTcpProtocol(output, errs, cancel)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
@@ -92,18 +93,18 @@ var _ = Describe("UdpProtocol", func() {
 	}, 3)
 
 	Context("just initialized", func() {
-		It("should has Network = UDP", func() {
-			Expect(protocol.Network()).To(Equal("UDP"))
+		It("should has Network = TCP", func() {
+			Expect(protocol.Network()).To(Equal("TCP"))
 		})
-		It("should not be reliable", func() {
-			Expect(protocol.Reliable()).To(BeFalse())
+		It("should be reliable", func() {
+			Expect(protocol.Reliable()).To(BeTrue())
 		})
-		It("should not be streamed", func() {
-			Expect(protocol.Streamed()).To(BeFalse())
+		It("should be streamed", func() {
+			Expect(protocol.Streamed()).To(BeTrue())
 		})
 	})
 
-	Context(fmt.Sprintf("listens 2 targets: %s, %s", localTarget1, localTarget2), func() {
+	Context(fmt.Sprintf("listens 2 target: %s, %s", localTarget1, localTarget2), func() {
 		BeforeEach(func() {
 			Expect(protocol.Listen(localTarget1)).To(Succeed())
 			Expect(protocol.Listen(localTarget2)).To(Succeed())
@@ -164,12 +165,8 @@ var _ = Describe("UdpProtocol", func() {
 		})
 
 		Context("when client1 sends invite request", func() {
-			var server1 net.PacketConn
-			var err error
 			BeforeEach(func() {
-				client1 = createClient(network, localTarget1.Addr(), clientAddr2)
-				server1, err = net.ListenPacket(network, clientAddr1)
-				Expect(err).ToNot(HaveOccurred())
+				client1 = createClient(network, localTarget1.Addr(), clientAddr1)
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
@@ -177,12 +174,9 @@ var _ = Describe("UdpProtocol", func() {
 					writeToConn(client1, []byte(msg1))
 				}()
 			})
-			AfterEach(func() {
-				server1.Close()
-			})
 			It("should receive message and response with 200 OK", func(done Done) {
 				By("msg1 arrives")
-				assertIncomingMessageArrived(output, msg1, localTarget1.Addr(), clientAddr2)
+				assertIncomingMessageArrived(output, msg1, localTarget1.Addr(), clientAddr1)
 
 				By("prepare response 200 OK")
 				clientTarget, err := transport.NewTargetFromAddr(clientAddr1)
@@ -208,7 +202,7 @@ var _ = Describe("UdpProtocol", func() {
 					buf := make([]byte, 65535)
 					By("client server waiting 200 OK")
 					for {
-						num, err := server1.(net.Conn).Read(buf)
+						num, err := client1.Read(buf)
 						Expect(err).ToNot(HaveOccurred())
 						Expect(num).To(Equal(len(msg.String())))
 						data := append([]byte{}, buf[:num]...)

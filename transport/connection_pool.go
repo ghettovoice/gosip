@@ -342,7 +342,7 @@ func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Dur
 	}
 	// wrap to handler
 	handler := NewConnectionHandler(key, conn, ttl, pool.hmess, pool.herrs, pool.cancel)
-	pool.Log().Debugf("put %s to %s", handler, pool)
+	pool.Log().Debugf("put %s to %s with TTL = %s", handler, pool, ttl)
 	// lock store
 	pool.mu.Lock()
 	// update store
@@ -715,7 +715,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 			if !ok {
 				return
 			}
-			handler.Log().Debugf("%s received message %s; pass it up", handler, msg.Short())
+			handler.Log().Infof("%s received message %s; pass it up", handler, msg.Short())
 			handler.output <- &IncomingMessage{
 				msg,
 				handler.Connection().LocalAddr().String(),
@@ -740,18 +740,19 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 					<-handler.addrs.Out
 				}
 				handler.Log().Warnf("%s ignores error %s", handler, err)
-			} else {
-				handler.Log().Warnf("%s received error %s; pass it up", handler, err)
-				err = &ConnectionHandlerError{
-					err,
-					handler.Key(),
-					handler.String(),
-					handler.Connection().Network(),
-					fmt.Sprintf("%v", handler.Connection().LocalAddr()),
-					getRemoteAddr(),
-				}
-				handler.errs <- err
+				continue
 			}
+
+			handler.Log().Debugf("%s received error %s; pass it up", handler, err)
+			err = &ConnectionHandlerError{
+				err,
+				handler.Key(),
+				handler.String(),
+				handler.Connection().Network(),
+				fmt.Sprintf("%v", handler.Connection().LocalAddr()),
+				getRemoteAddr(),
+			}
+			handler.errs <- err
 		}
 	}
 }
