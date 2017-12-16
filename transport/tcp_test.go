@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
@@ -159,6 +160,57 @@ var _ = Describe("TcpProtocol", func() {
 				//		fmt.Printf("\n-------------------------------\n%s\n-------------------------------------\n\n", err)
 				//	}
 				//}
+				close(done)
+			}, 3)
+		})
+
+		Context("when client1 sends invite request", func() {
+			BeforeEach(func() {
+				client1 = createClient(network, localTarget1.Addr(), clientAddr1)
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					time.Sleep(100 * time.Millisecond)
+					writeToConn(client1, []byte(msg1))
+				}()
+			})
+			It("should receive message and response with 200 OK", func(done Done) {
+				By("msg1 arrives")
+				assertIncomingMessageArrived(output, msg1, localTarget1.Addr(), clientAddr1)
+
+				By("prepare response 200 OK")
+				clientTarget, err := transport.NewTargetFromAddr(clientAddr1)
+				Expect(clientTarget).ToNot(BeNil())
+				Expect(err).ToNot(HaveOccurred())
+				msg := core.NewResponse(
+					"SIP/2.0",
+					200,
+					"OK",
+					[]core.Header{
+						&core.CSeq{2, core.INVITE},
+					},
+					"")
+				twg := new(sync.WaitGroup)
+				twg.Add(2)
+				go func() {
+					defer twg.Done()
+					By("sends response 200 OK")
+					Expect(protocol.Send(clientTarget, msg)).To(Succeed())
+				}()
+				go func() {
+					defer twg.Done()
+					buf := make([]byte, 65535)
+					By("client server waiting 200 OK")
+					for {
+						num, err := client1.Read(buf)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(num).To(Equal(len(msg.String())))
+						data := append([]byte{}, buf[:num]...)
+						Expect(string(data)).To(Equal(msg.String()))
+						return
+					}
+				}()
+				twg.Wait()
 				close(done)
 			}, 3)
 		})

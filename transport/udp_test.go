@@ -170,7 +170,6 @@ var _ = Describe("UdpProtocol", func() {
 				client1 = createClient(network, localTarget1.Addr(), clientAddr2)
 				server1, err = net.ListenPacket(network, clientAddr1)
 				Expect(err).ToNot(HaveOccurred())
-
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
