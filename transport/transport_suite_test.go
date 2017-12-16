@@ -44,6 +44,7 @@ func TestTransport(t *testing.T) {
 // Helpers
 //----------------------------------
 func createStreamClientServer(network string, addr string) (net.Conn, net.Conn) {
+	network = strings.ToLower(network)
 	ln, err := net.Listen(network, addr)
 	if err != nil {
 		Fail(err.Error())
@@ -68,6 +69,7 @@ func createStreamClientServer(network string, addr string) (net.Conn, net.Conn) 
 }
 
 func createPacketClientServer(network string, addr string) (net.Conn, net.Conn) {
+	network = strings.ToLower(network)
 	server, err := net.ListenPacket(network, addr)
 	if err != nil {
 		Fail(err.Error())
@@ -84,10 +86,14 @@ func createPacketClientServer(network string, addr string) (net.Conn, net.Conn) 
 func createClient(network string, raddr string, laddr string) net.Conn {
 	network = strings.ToLower(network)
 
+	var err error
 	switch network {
 	case "udp":
-		la, err := net.ResolveUDPAddr(network, laddr)
-		Expect(err).ToNot(HaveOccurred())
+		var la *net.UDPAddr
+		if laddr != "" {
+			la, err = net.ResolveUDPAddr(network, laddr)
+			Expect(err).ToNot(HaveOccurred())
+		}
 		ra, err := net.ResolveUDPAddr(network, raddr)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -97,8 +103,11 @@ func createClient(network string, raddr string, laddr string) net.Conn {
 
 		return client
 	case "tcp":
-		la, err := net.ResolveTCPAddr(network, laddr)
-		Expect(err).ToNot(HaveOccurred())
+		var la *net.TCPAddr
+		if laddr != "" {
+			la, err = net.ResolveTCPAddr(network, laddr)
+			Expect(err).ToNot(HaveOccurred())
+		}
 		ra, err := net.ResolveTCPAddr(network, raddr)
 		Expect(err).ToNot(HaveOccurred())
 

@@ -102,7 +102,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg core.Message) error {
 	tcp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), target.Addr(), msg)
 
 	// validate remote address
-	if target.Host == "" || target.Host == DefaultHost {
+	if target.Host == "" {
 		return &ProtocolError{
 			fmt.Errorf("invalid remote host resolved %s", target.Host),
 			"resolve destination address",
@@ -143,16 +143,10 @@ func (tcp *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 
 func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
 	network := strings.ToLower(tcp.Network())
-	laddr := &net.TCPAddr{
-		IP:   net.IP(DefaultHost),
-		Port: int(DefaultUdpPort),
-		Zone: "",
-	}
-
 	conn, err := tcp.connections.Get(ConnectionKey(raddr.String()))
 	if err != nil {
 		tcp.Log().Debugf("connection for address %s not found; create a new one", raddr)
-		tcpConn, err := net.DialTCP(network, laddr, raddr)
+		tcpConn, err := net.DialTCP(network, nil, raddr)
 		if err != nil {
 			return nil, &ProtocolError{
 				fmt.Errorf("failed to create connection to remote address %s: %s", raddr, err),

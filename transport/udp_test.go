@@ -24,10 +24,10 @@ var _ = Describe("UdpProtocol", func() {
 	)
 
 	network := "udp"
-	port1 := core.Port(9050)
+	port1 := 9050
 	port2 := port1 + 1
-	localTarget1 := &transport.Target{network, transport.DefaultHost, &port1}
-	localTarget2 := &transport.Target{network, transport.DefaultHost, &port2}
+	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
+	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
 	clientAddr1 := "127.0.0.1:9001"
 	clientAddr2 := "127.0.0.1:9002"
 	clientAddr3 := "127.0.0.1:9003"
@@ -103,14 +103,14 @@ var _ = Describe("UdpProtocol", func() {
 		})
 	})
 
-	Context(fmt.Sprintf("listening 2 targets: %s, %s", localTarget1, localTarget2), func() {
+	Context(fmt.Sprintf("listens 2 targets: %s, %s", localTarget1, localTarget2), func() {
 		BeforeEach(func() {
 			Expect(protocol.Listen(localTarget1)).To(Succeed())
 			Expect(protocol.Listen(localTarget2)).To(Succeed())
 			time.Sleep(time.Millisecond)
 		})
 
-		Context("3 clients connects and sends data", func() {
+		Context("when 3 clients connects and sends data", func() {
 			BeforeEach(func() {
 				client1 = createClient(network, localTarget1.Addr(), clientAddr1)
 				client2 = createClient(network, localTarget2.Addr(), clientAddr2)
@@ -163,7 +163,66 @@ var _ = Describe("UdpProtocol", func() {
 			}, 3)
 		})
 
-		Context("after cancel signal", func() {
+		Context("when client1 sends invite request", func() {
+			var server1 net.PacketConn
+			var err error
+			BeforeEach(func() {
+				client1 = createClient(network, localTarget1.Addr(), clientAddr2)
+				server1, err = net.ListenPacket(network, clientAddr1)
+				Expect(err).ToNot(HaveOccurred())
+
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					time.Sleep(100 * time.Millisecond)
+					writeToConn(client1, []byte(msg1))
+				}()
+			})
+			AfterEach(func() {
+				server1.Close()
+			})
+			It("should receive message and response with 200 OK", func(done Done) {
+				By("msg1 arrives")
+				assertIncomingMessageArrived(output, msg1, localTarget1.Addr(), clientAddr2)
+
+				By("prepare response 200 OK")
+				clientTarget, err := transport.NewTargetFromAddr(clientAddr1)
+				Expect(clientTarget).ToNot(BeNil())
+				Expect(err).ToNot(HaveOccurred())
+				msg := core.NewResponse(
+					"SIP/2.0",
+					200,
+					"OK",
+					[]core.Header{
+						&core.CSeq{2, core.INVITE},
+					},
+					"")
+				twg := new(sync.WaitGroup)
+				twg.Add(2)
+				go func() {
+					defer twg.Done()
+					By("sends response 200 OK")
+					Expect(protocol.Send(clientTarget, msg)).To(Succeed())
+				}()
+				go func() {
+					defer twg.Done()
+					buf := make([]byte, 65535)
+					By("client server waiting 200 OK")
+					for {
+						num, err := server1.(net.Conn).Read(buf)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(num).To(Equal(len(msg.String())))
+						data := append([]byte{}, buf[:num]...)
+						Expect(string(data)).To(Equal(msg.String()))
+						return
+					}
+				}()
+				twg.Wait()
+				close(done)
+			}, 3)
+		})
+
+		Context("after cancel signal received", func() {
 			BeforeEach(func() {
 				time.Sleep(time.Millisecond)
 				close(cancel)

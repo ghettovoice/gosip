@@ -35,9 +35,9 @@ type Transport interface {
 	log.LocalLogger
 	Register(protocol transport.Protocol) error
 	// Listen starts listening on `addr` for each registered protocol.
-	Listen(target *transport.Target) error
+	Listen(network string, target *transport.Target) error
 	// Send sends message on suitable protocol.
-	Send(target *transport.Target, msg core.Message) error
+	Send(network string, target *transport.Target, msg core.Message) error
 	// Stops all protocols
 	Stop()
 	String() string
@@ -107,17 +107,17 @@ func (tp *stdTransport) SetLog(logger log.Logger) {
 	}
 }
 
-func (tp *stdTransport) Listen(target *transport.Target) error {
-	protocol, ok := tp.protocols.Get(protocolKey(target.Protocol))
+func (tp *stdTransport) Listen(network string, target *transport.Target) error {
+	protocol, ok := tp.protocols.Get(protocolKey(network))
 	if !ok {
 		return UnsupportedProtocolError(fmt.Sprintf(
 			"protocol %s is not registered in %s",
-			target.Protocol,
+			network,
 			tp,
 		))
 	}
 
-	target = transport.FillTargetHostAndPort(target.Protocol, target)
+	target = transport.FillTargetHostAndPort(network, target)
 	tp.Log().Infof("begin listening on %s", target)
 
 	if err := protocol.Listen(target); err != nil {
@@ -132,7 +132,7 @@ func (tp *stdTransport) Listen(target *transport.Target) error {
 	return nil
 }
 
-func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
+func (tp *stdTransport) Send(network string, target *transport.Target, msg core.Message) error {
 	nets := make([]string, 0)
 
 	viaHop, ok := msg.ViaHop()
@@ -162,7 +162,7 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 			if !ok {
 				err = UnsupportedProtocolError(fmt.Sprintf(
 					"protocol %s is not registered in %s",
-					target.Protocol,
+					network,
 					tp,
 				))
 				continue
@@ -188,7 +188,7 @@ func (tp *stdTransport) Send(target *transport.Target, msg core.Message) error {
 		if !ok {
 			return UnsupportedProtocolError(fmt.Sprintf(
 				"protocol %s is not registered in %s",
-				target.Protocol,
+				network,
 				tp,
 			))
 		}

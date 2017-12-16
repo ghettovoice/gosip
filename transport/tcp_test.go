@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
@@ -24,10 +23,10 @@ var _ = Describe("TcpProtocol", func() {
 	)
 
 	network := "tcp"
-	port1 := core.Port(9060)
+	port1 := 9060
 	port2 := port1 + 1
-	localTarget1 := &transport.Target{network, transport.DefaultHost, &port1}
-	localTarget2 := &transport.Target{network, transport.DefaultHost, &port2}
+	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
+	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
 	clientAddr1 := "127.0.0.1:9001"
 	clientAddr2 := "127.0.0.1:9002"
 	clientAddr3 := "127.0.0.1:9003"
@@ -104,14 +103,14 @@ var _ = Describe("TcpProtocol", func() {
 		})
 	})
 
-	Context(fmt.Sprintf("listening 2 target: %s, %s", localTarget1, localTarget2), func() {
+	Context(fmt.Sprintf("listens 2 target: %s, %s", localTarget1, localTarget2), func() {
 		BeforeEach(func() {
 			Expect(protocol.Listen(localTarget1)).To(Succeed())
 			Expect(protocol.Listen(localTarget2)).To(Succeed())
 			time.Sleep(time.Millisecond)
 		})
 
-		Context("3 clients connects and sends data", func() {
+		Context("when 3 clients connects and sends data", func() {
 			BeforeEach(func() {
 				client1 = createClient(network, localTarget1.Addr(), clientAddr1)
 				client2 = createClient(network, localTarget2.Addr(), clientAddr2)
@@ -164,7 +163,7 @@ var _ = Describe("TcpProtocol", func() {
 			}, 3)
 		})
 
-		Context("after cancel signal", func() {
+		Context("after cancel signal received", func() {
 			BeforeEach(func() {
 				time.Sleep(time.Millisecond)
 				close(cancel)
