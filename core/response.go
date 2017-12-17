@@ -122,3 +122,32 @@ func (res *response) IsServerError() bool {
 func (res *response) IsGlobalError() bool {
 	return res.StatusCode() >= 600
 }
+
+// RFC 3261 - 8.2.6
+func NewResponseFromRequest(
+	req Request,
+	statusCode StatusCode,
+	reason string,
+	body string,
+) Response {
+	res := NewResponse(
+		req.SipVersion(),
+		statusCode,
+		reason,
+		[]Header{},
+		body,
+	)
+	res.SetLog(req.Log())
+
+	CopyHeaders("Via", req, res)
+	CopyHeaders("From", req, res)
+	CopyHeaders("To", req, res)
+	CopyHeaders("Call-ID", req, res)
+	CopyHeaders("CSeq", req, res)
+
+	if statusCode == 100 {
+		CopyHeaders("Timestamp", req, res)
+	}
+
+	return res
+}

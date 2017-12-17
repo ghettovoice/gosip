@@ -1,4 +1,4 @@
-package txs
+package transaction
 
 import (
 	"fmt"
@@ -7,9 +7,10 @@ import (
 
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/transp"
+	"github.com/ghettovoice/gosip/transport"
 )
 
+// Layer serves client and server transactions.
 type Layer interface {
 	log.LocalLogger
 	core.Cancellable
@@ -20,7 +21,7 @@ type Layer interface {
 
 type layer struct {
 	logger       log.LocalLogger
-	tpl          transp.Layer
+	tpl          transport.Layer
 	msgs         chan *IncomingMessage
 	errs         chan error
 	terrs        chan error
@@ -29,7 +30,7 @@ type layer struct {
 	transactions *transactionStore
 }
 
-func NewLayer(tpl transp.Layer) Layer {
+func NewLayer(tpl transport.Layer) Layer {
 	txl := &layer{
 		tpl:          tpl,
 		msgs:         make(chan *IncomingMessage),
@@ -86,7 +87,32 @@ func (txl *layer) Errors() <-chan error {
 }
 
 func (txl *layer) Send(addr string, msg core.Message) error {
-	return nil
+	txl.Log().Debugf("%s sends %s", txl, msg.Short())
+
+	var err error
+	switch msg := msg.(type) {
+	case core.Response:
+		tx, err := txl.getServerTx(msg)
+		if err != nil {
+			return err
+		}
+		return tx.Respond(msg)
+	case core.Request:
+		tx := NewClientTx()
+		err = txl.tpl.Send(addr, msg)
+		if err != nil {
+			return err
+		}
+		err = txl.putClientTx(tx)
+		if err != nil {
+			return err
+		}
+	default:
+		return &core.UnsupportedMessageError{
+			fmt.Errorf("%s got unsupported message %s", txl, msg.Short()),
+			msg.String(),
+		}
+	}
 }
 
 func (txl *layer) serveTransactions() {
@@ -97,7 +123,7 @@ func (txl *layer) serveTransactions() {
 		wg := new(sync.WaitGroup)
 		wg.Add(len(txs))
 		for _, tx := range txs {
-			go func(tx Transaction) {
+			go func(tx Tx) {
 				defer wg.Done()
 				<-tx.Done()
 			}(tx)
@@ -114,13 +140,15 @@ func (txl *layer) serveTransactions() {
 			if !ok {
 				return
 			}
-			terr, ok := err.(TransactionError)
+			// all errors from Tx should be wrapped to TxError
+			terr, ok := err.(TxError)
 			if !ok {
 				continue
 			}
 
 			txl.transactions.drop(terr.Key())
-			if terr.Terminated() { // transaction terminated
+			// transaction terminated or timed out
+			if terr.Terminated() || terr.Timeout() {
 				continue
 			}
 
@@ -133,6 +161,7 @@ func (txl *layer) listenMessages() {
 	wg := new(sync.WaitGroup)
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
+		// wait for message handlers
 		wg.Wait()
 		close(txl.terrs)
 	}()
@@ -147,8 +176,9 @@ func (txl *layer) listenMessages() {
 			if !ok {
 				return
 			}
+			// start handle goroutine
 			wg.Add(1)
-			go func(incomingMsg *transp.IncomingMessage) {
+			go func(incomingMsg *transport.IncomingMessage) {
 				defer wg.Done()
 				txl.Log().Infof("%s received %s", txl, incomingMsg)
 
@@ -166,27 +196,18 @@ func (txl *layer) listenMessages() {
 	}
 }
 
-func (txl *layer) handleRequest(incomingReq *transp.IncomingMessage) {
+func (txl *layer) handleRequest(incomingReq *transport.IncomingMessage) {
 	// todo error handling!
 	req := incomingReq.Msg.(core.Request)
 	tx, err := txl.getServerTx(req)
 	if err != nil {
 		txl.Log().Debugf("%s creates new server transaction for %s", txl, incomingReq)
 		dest := incomingReq.RAddr
-		tx = NewServerTransaction(req, dest, txl.tpl, txl.msgs, txl.terrs, txl.canceled)
-		// RFC 3261 8.2.6.1
-		// UASs SHOULD NOT issue a provisional response for a non-INVITE request.
-		// Rather, UASs SHOULD generate a final response to a non-INVITE request as soon as possible.
-		if req.IsInvite() {
-			// Send a 100 Trying immediately.
-			// Technically we shouldn't do this if we trust the user to do it within 200ms,
-			// but I'm not sure how to handle that situation right now.
-			// Explicitly don't do this for ACKs; 2xx ACKs are their own transaction but
-			// don't engender a provisional response - we just pass them up to the user
-			// to handle at the dialog scope.
-			txl.sendPresumptiveTrying(tx)
+		tx, err = NewServerTx(req, dest, txl.tpl, txl.msgs, txl.terrs, txl.canceled)
+		if err != nil {
+			txl.Log().Error(err)
+			return
 		}
-
 		// put tx to store, to match retransmitting requests later
 		// todo check RFC for ACK
 		txl.putServerTx(tx)
@@ -198,15 +219,15 @@ func (txl *layer) handleRequest(incomingReq *transp.IncomingMessage) {
 	}
 }
 
-func (txl *layer) sendPresumptiveTrying(tx ServerTransaction) {
-	tx.Log().Infof("%s sends '100 Trying' auto response on %s", txl, tx)
-	// Pretend the user sent us a 100 to send.
-	if err := tx.Trying(); err != nil {
-		tx.Log().Error(err)
-	}
-}
+//func (txl *layer) sendPresumptiveTrying(tx ServerTx) {
+//	tx.Log().Infof("%s sends '100 Trying' auto response on %s", txl, tx)
+//	// Pretend the user sent us a 100 to send.
+//	if err := tx.Trying(); err != nil {
+//		tx.Log().Error(err)
+//	}
+//}
 
-func (txl *layer) handleResponse(incomingRes *transp.IncomingMessage) {
+func (txl *layer) handleResponse(incomingRes *transport.IncomingMessage) {
 	res := incomingRes.Msg.(core.Response)
 	tx, err := txl.getClientTx(res)
 	if err != nil {
@@ -220,7 +241,7 @@ func (txl *layer) handleResponse(incomingRes *transp.IncomingMessage) {
 }
 
 // RFC 17.1.3.
-func (txl *layer) getClientTx(res core.Response) (ClientTransaction, error) {
+func (txl *layer) getClientTx(res core.Response) (ClientTx, error) {
 	txl.Log().Debugf("%s searches client transaction by %s", txl, res.Short())
 
 	key, err := makeClientTxKey(res)
@@ -235,7 +256,7 @@ func (txl *layer) getClientTx(res core.Response) (ClientTransaction, error) {
 	}
 
 	switch tx := tx.(type) {
-	case ClientTransaction:
+	case ClientTx:
 		return tx, nil
 	default:
 		return nil, fmt.Errorf("%s failed to match %s to client transaction: found %s is not a client transaction",
@@ -243,7 +264,7 @@ func (txl *layer) getClientTx(res core.Response) (ClientTransaction, error) {
 	}
 }
 
-func (txl *layer) putClientTx(tx ClientTransaction) error {
+func (txl *layer) putClientTx(tx ClientTx) error {
 	txl.Log().Debugf("%s puts %s to store", txl, tx)
 
 	key, err := makeClientTxKey(tx.Origin())
@@ -256,7 +277,7 @@ func (txl *layer) putClientTx(tx ClientTransaction) error {
 	return nil
 }
 
-func (txl *layer) dropClientTx(tx ClientTransaction) error {
+func (txl *layer) dropClientTx(tx ClientTx) error {
 	txl.Log().Debugf("%s drops %s from store", txl, tx)
 
 	key, err := makeClientTxKey(tx.Origin())
@@ -270,7 +291,7 @@ func (txl *layer) dropClientTx(tx ClientTransaction) error {
 }
 
 // RFC 17.2.3.
-func (txl *layer) getServerTx(req core.Request) (ServerTransaction, error) {
+func (txl *layer) getServerTx(req core.Request) (ServerTx, error) {
 	txl.Log().Debugf("%s searches server transaction by %s", txl, req.Short())
 
 	key, err := makeServerTxKey(req)
@@ -285,7 +306,7 @@ func (txl *layer) getServerTx(req core.Request) (ServerTransaction, error) {
 	}
 
 	switch tx := tx.(type) {
-	case ServerTransaction:
+	case ServerTx:
 		return tx, nil
 	default:
 		return nil, fmt.Errorf("%s failed to match %s to server transaction: found %s is not server transaction",
@@ -293,7 +314,7 @@ func (txl *layer) getServerTx(req core.Request) (ServerTransaction, error) {
 	}
 }
 
-func (txl *layer) putServerTx(tx ServerTransaction) error {
+func (txl *layer) putServerTx(tx ServerTx) error {
 	txl.Log().Debugf("%s puts %s to store", txl, tx)
 
 	key, err := makeServerTxKey(tx.Origin())
@@ -306,7 +327,7 @@ func (txl *layer) putServerTx(tx ServerTransaction) error {
 	return nil
 }
 
-func (txl *layer) dropServerTx(tx ServerTransaction) error {
+func (txl *layer) dropServerTx(tx ServerTx) error {
 	txl.Log().Debugf("%s drops %s from store", txl, tx)
 
 	key, err := makeServerTxKey(tx.Origin())
@@ -319,8 +340,8 @@ func (txl *layer) dropServerTx(tx ServerTransaction) error {
 	return nil
 }
 
-// makeServerTxKey creates server transaction key for matching retransmitting requests - RFC 3261 17.2.3.
-func makeServerTxKey(req core.Request) (TransactionKey, error) {
+// makeServerTxKey creates server commonTx key for matching retransmitting requests - RFC 3261 17.2.3.
+func makeServerTxKey(req core.Request) (TxKey, error) {
 	var sep = "$"
 
 	firstViaHop, ok := req.ViaHop()
@@ -350,7 +371,7 @@ func makeServerTxKey(req core.Request) (TransactionKey, error) {
 
 	// RFC 3261 compliant
 	if isRFC3261 {
-		return TransactionKey(strings.Join([]string{
+		return TxKey(strings.Join([]string{
 			branch.String(),
 			firstViaHop.Host,              // branch
 			fmt.Sprint(*firstViaHop.Port), // sent-by
@@ -366,23 +387,23 @@ func makeServerTxKey(req core.Request) (TransactionKey, error) {
 	if !ok {
 		return "", fmt.Errorf("'tag' param not found in 'From' header of %s", req.Short())
 	}
-	callId, ok := req.CallId()
+	callId, ok := req.CallID()
 	if !ok {
-		return "", fmt.Errorf("'Call-Id' header not found in %s", req.Short())
+		return "", fmt.Errorf("'Call-ID' header not found in %s", req.Short())
 	}
 
-	return TransactionKey(strings.Join([]string{
+	return TxKey(strings.Join([]string{
 		req.Recipient().String(), // request-uri
 		fromTag.String(),         // from tag
-		callId.String(),          // call-id
+		callId.String(),          // Call-ID
 		string(method),           // cseq method
 		fmt.Sprint(cseq.SeqNo),   // cseq num
 		firstViaHop.String(),     // top Via
 	}, sep)), nil
 }
 
-// makeClientTxKey creates client transaction key for matching responses - RFC 3261 17.1.3.
-func makeClientTxKey(msg core.Message) (TransactionKey, error) {
+// makeClientTxKey creates client commonTx key for matching responses - RFC 3261 17.1.3.
+func makeClientTxKey(msg core.Message) (TxKey, error) {
 	var sep = "$"
 
 	cseq, ok := msg.CSeq()
@@ -406,7 +427,7 @@ func makeClientTxKey(msg core.Message) (TransactionKey, error) {
 		return "", fmt.Errorf("'branch' not found or empty in 'Via' header of %s", msg.Short())
 	}
 
-	return TransactionKey(strings.Join([]string{
+	return TxKey(strings.Join([]string{
 		branch.String(),
 		string(method),
 	}, sep)), nil
@@ -414,30 +435,30 @@ func makeClientTxKey(msg core.Message) (TransactionKey, error) {
 
 type transactionStore struct {
 	mu           *sync.RWMutex
-	transactions map[TransactionKey]Transaction
+	transactions map[TxKey]Tx
 }
 
 func newTransactionStore() *transactionStore {
 	return &transactionStore{
 		mu:           new(sync.RWMutex),
-		transactions: make(map[TransactionKey]Transaction),
+		transactions: make(map[TxKey]Tx),
 	}
 }
 
-func (store *transactionStore) put(key TransactionKey, tx Transaction) {
+func (store *transactionStore) put(key TxKey, tx Tx) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.transactions[key] = tx
 }
 
-func (store *transactionStore) get(key TransactionKey) (Transaction, bool) {
+func (store *transactionStore) get(key TxKey) (Tx, bool) {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	tx, ok := store.transactions[key]
 	return tx, ok
 }
 
-func (store *transactionStore) drop(key TransactionKey) bool {
+func (store *transactionStore) drop(key TxKey) bool {
 	if _, ok := store.get(key); !ok {
 		return false
 	}
@@ -447,8 +468,8 @@ func (store *transactionStore) drop(key TransactionKey) bool {
 	return true
 }
 
-func (store *transactionStore) all() []Transaction {
-	all := make([]Transaction, 0)
+func (store *transactionStore) all() []Tx {
+	all := make([]Tx, 0)
 	for key := range store.transactions {
 		if tx, ok := store.get(key); ok {
 			all = append(all, tx)

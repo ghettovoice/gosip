@@ -73,8 +73,8 @@ type Message interface {
 	SetBody(body string, setContentLength bool)
 
 	/* Helper getters for common headers */
-	// CallId returns 'Call-Id' header.
-	CallId() (*CallId, bool)
+	// CallID returns 'Call-ID' header.
+	CallID() (*CallID, bool)
 	// Via returns the top 'Via' header field.
 	Via() (ViaHeader, bool)
 	// ViaHop returns the first segment of the top 'Via' header.
@@ -192,12 +192,12 @@ func (hs *headers) CloneHeaders() []Header {
 	return hdrs
 }
 
-func (hs *headers) CallId() (*CallId, bool) {
-	hdrs := hs.GetHeaders("Call-Id")
+func (hs *headers) CallID() (*CallID, bool) {
+	hdrs := hs.GetHeaders("Call-ID")
 	if len(hdrs) == 0 {
 		return nil, false
 	}
-	callId, ok := hdrs[0].(*CallId)
+	callId, ok := hdrs[0].(*CallID)
 	if !ok {
 		return nil, false
 	}
@@ -302,7 +302,7 @@ func (msg *message) Short() string {
 	if cseq, ok := msg.CSeq(); ok {
 		parts = append(parts, fmt.Sprintf("%s", cseq))
 	}
-	if callId, ok := msg.CallId(); ok {
+	if callId, ok := msg.CallID(); ok {
 		parts = append(parts, fmt.Sprintf("%s", callId))
 	}
 	if from, ok := msg.From(); ok {
@@ -369,8 +369,8 @@ func (msg *message) SetLog(logger log.Logger) {
 func (msg *message) logFields() map[string]interface{} {
 	fields := make(map[string]interface{})
 	fields["msg"] = fmt.Sprintf("%p", msg)
-	// add Call-Id
-	if callId, ok := msg.CallId(); ok {
+	// add Call-ID
+	if callId, ok := msg.CallID(); ok {
 		fields[strings.ToLower(callId.Name())] = string(*callId)
 	}
 	// add Via

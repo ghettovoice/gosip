@@ -60,7 +60,7 @@ func defaultHeaderParsers() map[string]HeaderParser {
 		"f":              parseAddressHeader,
 		"contact":        parseAddressHeader,
 		"m":              parseAddressHeader,
-		"call-id":        parseCallId,
+		"Call-ID":        parseCallId,
 		"cseq":           parseCSeq,
 		"via":            parseViaHeader,
 		"v":              parseViaHeader,
@@ -1010,22 +1010,22 @@ func parseCSeq(headerName string, headerText string) (
 	return
 }
 
-// Parse a string representation of a Call-Id header, returning a slice of at most one CallId.
+// Parse a string representation of a Call-ID header, returning a slice of at most one CallID.
 func parseCallId(headerName string, headerText string) (
 	headers []core.Header, err error) {
 	headerText = strings.TrimSpace(headerText)
-	var callId = core.CallId(headerText)
+	var callId = core.CallID(headerText)
 
 	if strings.ContainsAny(string(callId), abnfWs) {
-		err = fmt.Errorf("unexpected whitespace in CallId header body '%s'", headerText)
+		err = fmt.Errorf("unexpected whitespace in CallID header body '%s'", headerText)
 		return
 	}
 	if strings.Contains(string(callId), ";") {
-		err = fmt.Errorf("unexpected semicolon in CallId header body '%s'", headerText)
+		err = fmt.Errorf("unexpected semicolon in CallID header body '%s'", headerText)
 		return
 	}
 	if len(string(callId)) == 0 {
-		err = fmt.Errorf("empty Call-Id body")
+		err = fmt.Errorf("empty Call-ID body")
 		return
 	}
 

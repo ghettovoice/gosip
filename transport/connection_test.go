@@ -1,4 +1,4 @@
-package transp_test
+package transport_test
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/testutils"
-	"github.com/ghettovoice/gosip/transp"
+	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -20,7 +20,7 @@ var _ = Describe("Connection", func() {
 					cUdpConn.Close()
 					sUdpConn.Close()
 				}()
-				conn := transp.NewConnection(sUdpConn)
+				conn := transport.NewConnection(sUdpConn)
 
 				Expect(conn.Network()).To(Equal("UDP"))
 				Expect(conn.Streamed()).To(BeFalse(), "UDP should be non-streamed")
@@ -39,7 +39,7 @@ var _ = Describe("Connection", func() {
 					cTcpConn.Close()
 					sTcpConn.Close()
 				}()
-				conn := transp.NewConnection(sTcpConn)
+				conn := transport.NewConnection(sTcpConn)
 
 				Expect(conn.Network()).To(Equal("TCP"))
 				Expect(conn.Streamed()).To(BeTrue())
@@ -64,8 +64,8 @@ var _ = Describe("Connection", func() {
 					sUdpConn.Close()
 				}()
 
-				sConn := transp.NewConnection(sUdpConn)
-				cConn := transp.NewConnection(cUdpConn)
+				sConn := transport.NewConnection(sUdpConn)
+				cConn := transport.NewConnection(cUdpConn)
 
 				wg := new(sync.WaitGroup)
 				wg.Add(1)

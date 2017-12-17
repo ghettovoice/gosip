@@ -1,5 +1,4 @@
-// net package implements SIP transport layer.
-package transp
+package transport
 
 import (
 	"fmt"
@@ -24,6 +23,7 @@ type Layer interface {
 	// Send sends message on suitable protocol.
 	Send(addr string, msg core.Message) error
 	String() string
+	IsReliable(network string) bool
 }
 
 var protocolFactory ProtocolFactory = func(
@@ -133,6 +133,13 @@ func (tpl *layer) Errors() <-chan error {
 	return tpl.errs
 }
 
+func (tpl *layer) IsReliable(network string) bool {
+	if protocol, ok := tpl.protocols.get(protocolKey(network)); ok && protocol.Reliable() {
+		return true
+	}
+	return false
+}
+
 func (tpl *layer) Listen(network string, addr string) error {
 	// todo try with separate goroutine/outputs for each protocol
 	protocol, ok := tpl.protocols.get(protocolKey(network))
@@ -219,8 +226,8 @@ func (tpl *layer) Send(addr string, msg core.Message) error {
 		return protocol.Send(target, msg)
 	default:
 		return &core.UnsupportedMessageError{
-			Err: fmt.Errorf("unsupported message %s", msg.Short()),
-			Msg: msg.String(),
+			fmt.Errorf("unsupported message %s", msg.Short()),
+			msg.String(),
 		}
 	}
 }

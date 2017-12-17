@@ -1,4 +1,4 @@
-package transp_test
+package transport_test
 
 import (
 	"fmt"
@@ -9,26 +9,26 @@ import (
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
-	"github.com/ghettovoice/gosip/transp"
+	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("TcpProtocol", func() {
+var _ = Describe("UdpProtocol", func() {
 	var (
-		output                    chan *transp.IncomingMessage
+		output                    chan *transport.IncomingMessage
 		errs                      chan error
 		cancel                    chan struct{}
-		protocol                  transp.Protocol
+		protocol                  transport.Protocol
 		client1, client2, client3 net.Conn
 		wg                        *sync.WaitGroup
 	)
 
-	network := "tcp"
-	port1 := 9060
+	network := "udp"
+	port1 := 9050
 	port2 := port1 + 1
-	localTarget1 := transp.NewTarget(transp.DefaultHost, port1)
-	localTarget2 := transp.NewTarget(transp.DefaultHost, port2)
+	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
+	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
 	clientAddr1 := "127.0.0.1:9001"
 	clientAddr2 := "127.0.0.1:9002"
 	clientAddr3 := "127.0.0.1:9003"
@@ -48,14 +48,13 @@ var _ = Describe("TcpProtocol", func() {
 		"Bye!"
 	msg3 := "SIP/2.0 200 OK\r\n" +
 		"CSeq: 2 INVITE\r\n" +
-		"Call-Id: cheesecake1729\r\n" +
+		"Call-ID: cheesecake1729\r\n" +
 		"Max-Forwards: 65\r\n" +
-		"Content-Length: 0\r\n" +
 		"\r\n"
 	broken := "BROKEN from hell.com SIP/2.0\r\n" +
 		"Via: HELL\r\n" +
 		"\r\n" +
-		"THIS MESSAGE FROM HELL!\r\n"
+		"THIS MESSAGE FROM HELL!"
 	bullshit := "This is bullshit!\r\n"
 
 	timing.MockMode = true
@@ -74,10 +73,10 @@ var _ = Describe("TcpProtocol", func() {
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)
-		output = make(chan *transp.IncomingMessage)
+		output = make(chan *transport.IncomingMessage)
 		errs = make(chan error)
 		cancel = make(chan struct{})
-		protocol = transp.NewTcpProtocol(output, errs, cancel)
+		protocol = transport.NewUdpProtocol(output, errs, cancel)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
@@ -94,18 +93,18 @@ var _ = Describe("TcpProtocol", func() {
 	}, 3)
 
 	Context("just initialized", func() {
-		It("should has Network = TCP", func() {
-			Expect(protocol.Network()).To(Equal("TCP"))
+		It("should has Network = UDP", func() {
+			Expect(protocol.Network()).To(Equal("UDP"))
 		})
-		It("should be reliable", func() {
-			Expect(protocol.Reliable()).To(BeTrue())
+		It("should not be reliable", func() {
+			Expect(protocol.Reliable()).To(BeFalse())
 		})
-		It("should be streamed", func() {
-			Expect(protocol.Streamed()).To(BeTrue())
+		It("should not be streamed", func() {
+			Expect(protocol.Streamed()).To(BeFalse())
 		})
 	})
 
-	Context(fmt.Sprintf("listens 2 target: %s, %s", localTarget1, localTarget2), func() {
+	Context(fmt.Sprintf("listens 2 targets: %s, %s", localTarget1, localTarget2), func() {
 		BeforeEach(func() {
 			Expect(protocol.Listen(localTarget1)).To(Succeed())
 			Expect(protocol.Listen(localTarget2)).To(Succeed())
@@ -166,8 +165,12 @@ var _ = Describe("TcpProtocol", func() {
 		})
 
 		Context("when client1 sends invite request", func() {
+			var server1 net.PacketConn
+			var err error
 			BeforeEach(func() {
 				client1 = testutils.CreateClient(network, localTarget1.Addr(), clientAddr1)
+				server1, err = net.ListenPacket(network, clientAddr1)
+				Expect(err).ToNot(HaveOccurred())
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
@@ -175,12 +178,15 @@ var _ = Describe("TcpProtocol", func() {
 					testutils.WriteToConn(client1, []byte(msg1))
 				}()
 			})
+			AfterEach(func() {
+				server1.Close()
+			})
 			It("should receive message and response with 200 OK", func(done Done) {
 				By("msg1 arrives")
 				testutils.AssertIncomingMessageArrived(output, msg1, localTarget1.Addr(), client1.LocalAddr().String())
 
 				By("prepare response 200 OK")
-				clientTarget, err := transp.NewTargetFromAddr(client1.LocalAddr().String())
+				clientTarget, err := transport.NewTargetFromAddr(clientAddr1)
 				Expect(clientTarget).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
 				msg := core.NewResponse(
@@ -203,7 +209,7 @@ var _ = Describe("TcpProtocol", func() {
 					buf := make([]byte, 65535)
 					By("client server waiting 200 OK")
 					for {
-						num, err := client1.Read(buf)
+						num, err := server1.(net.Conn).Read(buf)
 						Expect(err).ToNot(HaveOccurred())
 						Expect(num).To(Equal(len(msg.String())))
 						data := append([]byte{}, buf[:num]...)

@@ -491,16 +491,16 @@ func (contact *ContactHeader) Clone() Header {
 	}
 }
 
-// CallId - 'Call-Id' header.
-type CallId string
+// CallID - 'Call-ID' header.
+type CallID string
 
-func (callId CallId) String() string {
-	return "Call-Id: " + (string)(callId)
+func (callId CallID) String() string {
+	return "Call-ID: " + (string)(callId)
 }
 
-func (callId *CallId) Name() string { return "Call-Id" }
+func (callId *CallID) Name() string { return "Call-ID" }
 
-func (callId *CallId) Clone() Header {
+func (callId *CallID) Clone() Header {
 	temp := *callId
 	return &temp
 }

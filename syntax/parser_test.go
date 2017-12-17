@@ -962,18 +962,18 @@ func TestCSeqs(t *testing.T) {
 
 func TestCallIds(t *testing.T) {
 	doTests([]test{
-		{callIdInput("Call-ID: fdlknfa32bse3yrbew23bf"), &callIdResult{pass, core.CallId("fdlknfa32bse3yrbew23bf")}},
-		{callIdInput("Call-ID : fdlknfa32bse3yrbew23bf"), &callIdResult{pass, core.CallId("fdlknfa32bse3yrbew23bf")}},
-		{callIdInput("Call-ID  : fdlknfa32bse3yrbew23bf"), &callIdResult{pass, core.CallId("fdlknfa32bse3yrbew23bf")}},
-		{callIdInput("Call-ID\t: fdlknfa32bse3yrbew23bf"), &callIdResult{pass, core.CallId("fdlknfa32bse3yrbew23bf")}},
-		{callIdInput("Call-ID: banana"), &callIdResult{pass, core.CallId("banana")}},
-		{callIdInput("calL-id: banana"), &callIdResult{pass, core.CallId("banana")}},
-		{callIdInput("calL-id: 1banana"), &callIdResult{pass, core.CallId("1banana")}},
-		{callIdInput("Call-ID:"), &callIdResult{fail, core.CallId("")}},
-		{callIdInput("Call-ID: banana spaghetti"), &callIdResult{fail, core.CallId("")}},
-		{callIdInput("Call-ID: banana\tspaghetti"), &callIdResult{fail, core.CallId("")}},
-		{callIdInput("Call-ID: banana;spaghetti"), &callIdResult{fail, core.CallId("")}},
-		{callIdInput("Call-ID: banana;spaghetti=tasty"), &callIdResult{fail, core.CallId("")}},
+		{callIdInput("Call-ID: fdlknfa32bse3yrbew23bf"), &callIdResult{pass, core.CallID("fdlknfa32bse3yrbew23bf")}},
+		{callIdInput("Call-ID : fdlknfa32bse3yrbew23bf"), &callIdResult{pass, core.CallID("fdlknfa32bse3yrbew23bf")}},
+		{callIdInput("Call-ID  : fdlknfa32bse3yrbew23bf"), &callIdResult{pass, core.CallID("fdlknfa32bse3yrbew23bf")}},
+		{callIdInput("Call-ID\t: fdlknfa32bse3yrbew23bf"), &callIdResult{pass, core.CallID("fdlknfa32bse3yrbew23bf")}},
+		{callIdInput("Call-ID: banana"), &callIdResult{pass, core.CallID("banana")}},
+		{callIdInput("Call-ID: banana"), &callIdResult{pass, core.CallID("banana")}},
+		{callIdInput("Call-ID: 1banana"), &callIdResult{pass, core.CallID("1banana")}},
+		{callIdInput("Call-ID:"), &callIdResult{fail, core.CallID("")}},
+		{callIdInput("Call-ID: banana spaghetti"), &callIdResult{fail, core.CallID("")}},
+		{callIdInput("Call-ID: banana\tspaghetti"), &callIdResult{fail, core.CallID("")}},
+		{callIdInput("Call-ID: banana;spaghetti"), &callIdResult{fail, core.CallID("")}},
+		{callIdInput("Call-ID: banana;spaghetti=tasty"), &callIdResult{fail, core.CallID("")}},
 	}, t)
 }
 
@@ -1137,7 +1137,7 @@ func TestUnstreamedParse3(t *testing.T) {
 
 // Test unstreamed parsing with more than one header.
 func TestUnstreamedParse4(t *testing.T) {
-	callId := core.CallId("cheesecake1729")
+	callId := core.CallID("cheesecake1729")
 	maxForwards := core.MaxForwards(65)
 	body := "Everything is awesome."
 	contentLength := core.ContentLength(len(body))
@@ -1171,7 +1171,7 @@ func TestUnstreamedParse4(t *testing.T) {
 
 // Test unstreamed parsing with whitespace and line breaks.
 func TestUnstreamedParse5(t *testing.T) {
-	callId := core.CallId("cheesecake1729")
+	callId := core.CallID("cheesecake1729")
 	maxForwards := core.MaxForwards(63)
 	body := "Everything is awesome."
 	test := ParserTest{false, []parserTestStep{
@@ -1870,17 +1870,17 @@ func (data callIdInput) String() string {
 func (data callIdInput) evaluate() result {
 	headers, err := parseHeader(string(data))
 	if len(headers) == 1 {
-		return &callIdResult{err, *(headers[0].(*core.CallId))}
+		return &callIdResult{err, *(headers[0].(*core.CallID))}
 	} else if len(headers) == 0 {
-		return &callIdResult{err, core.CallId("")}
+		return &callIdResult{err, core.CallID("")}
 	} else {
-		panic(fmt.Sprintf("Multiple headers returned by core.CallId test: %s", string(data)))
+		panic(fmt.Sprintf("Multiple headers returned by core.CallID test: %s", string(data)))
 	}
 }
 
 type callIdResult struct {
 	err    error
-	header core.CallId
+	header core.CallID
 }
 
 func (expected callIdResult) equals(other result) (equal bool, reason string) {

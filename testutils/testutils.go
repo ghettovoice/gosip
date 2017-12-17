@@ -5,7 +5,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/ghettovoice/gosip/transp"
+	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -171,11 +171,11 @@ func (conn *MockConn) RemoteAddr() net.Addr {
 }
 
 func AssertIncomingMessageArrived(
-	fromCh <-chan *transp.IncomingMessage,
+	fromCh <-chan *transport.IncomingMessage,
 	expectedMessage string,
 	expectedLocalAddr string,
 	expectedRemoteAddr string,
-) *transp.IncomingMessage {
+) *transport.IncomingMessage {
 	incomingMsg := <-fromCh
 	Expect(incomingMsg).ToNot(BeNil())
 	Expect(incomingMsg.Msg).ToNot(BeNil())

@@ -1,4 +1,5 @@
-package transp
+// transport package implements SIP transport layer.
+package transport
 
 import (
 	"fmt"
@@ -22,7 +23,7 @@ const (
 	DefaultTlsPort core.Port = 5061
 )
 
-// Incoming message with meta info: remote addr, local addr & etc.
+// IncomingMessage is an message with meta info: remote addr, local addr & etc.
 type IncomingMessage struct {
 	// SIP message
 	Msg core.Message
@@ -53,6 +54,16 @@ func (msg *IncomingMessage) String() string {
 	}
 
 	return s
+}
+
+func (msg *IncomingMessage) IsRequest() bool {
+	_, ok := msg.Msg.(core.Request)
+	return ok
+}
+
+func (msg *IncomingMessage) IsResponse() bool {
+	_, ok := msg.Msg.(core.Response)
+	return ok
 }
 
 // Target endpoint

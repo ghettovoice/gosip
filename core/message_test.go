@@ -34,7 +34,7 @@ var port6060 Port = 6060
 var noParams = NewParams()
 
 func TestMessage_String(t *testing.T) {
-	callId := CallId("call-1234567890")
+	callId := CallID("call-1234567890")
 
 	doTests([]stringTest{
 		{
@@ -76,7 +76,7 @@ func TestMessage_String(t *testing.T) {
 			"INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 				"To: \"bob\" <sip:bob@far-far-away.com>\r\n" +
 				"From: \"alice\" <sip:alice@wonderland.com>;tag=qwerty\r\n" +
-				"Call-Id: call-1234567890\r\n" +
+				"Call-ID: call-1234567890\r\n" +
 				"\r\n",
 		},
 	}, t)
@@ -541,9 +541,9 @@ func TestHeaders_String(t *testing.T) {
 
 		// Various simple headers.
 		{
-			"Call-Id Header",
-			CallId("call-id-1"),
-			"Call-Id: call-id-1",
+			"Call-ID Header",
+			CallID("Call-ID-1"),
+			"Call-ID: Call-ID-1",
 		},
 		{
 			"CSeq Header",

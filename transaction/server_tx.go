@@ -1,86 +1,106 @@
-package txs
+package transaction
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/discoviking/fsm"
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/timing"
-	"github.com/ghettovoice/gosip/transp"
+	"github.com/ghettovoice/gosip/transport"
 )
 
-type ServerTransaction interface {
-	Transaction
+type ServerTx interface {
+	Tx
 	Respond(res core.Response) error
-	Trying(hdrs ...core.Header) error
-	Ok(hdrs ...core.Header) error
 }
 
-type serverTransaction struct {
-	transaction
-	lastErr error
-	timer_g timing.Timer
-	timer_h timing.Timer
-	timer_i timing.Timer
+type serverTx struct {
+	commonTx
+	timer_g      timing.Timer
+	timer_g_time time.Duration
+	timer_h      timing.Timer
+	timer_i      timing.Timer
+	timer_i_time time.Duration
+	timer_j      timing.Timer
+	reliable     bool
 }
 
-func NewServerTransaction(
+func NewServerTx(
 	origin core.Request,
 	dest string,
-	tpl transp.Layer,
+	tpl transport.Layer,
 	msgs chan<- *IncomingMessage,
 	errs chan<- error,
 	cancel <-chan struct{},
-) ServerTransaction {
-	tx := new(serverTransaction)
+) (ServerTx, error) {
+	key, err := makeServerTxKey(origin)
+	if err != nil {
+		return nil, err
+	}
+
+	tx := new(serverTx)
+	tx.key = key
 	tx.origin = origin
 	tx.dest = dest
 	tx.tpl = tpl
 	tx.msgs = msgs
 	tx.errs = errs
 	tx.cancel = cancel
+	if viaHop, ok := tx.Origin().ViaHop(); ok {
+		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
+	}
+	if tx.reliable {
+		tx.timer_g_time = Timer_G
+		tx.timer_i_time = Timer_I
+	} else {
+		tx.timer_i_time = 0
+	}
 	tx.initFSM()
 
-	return tx
+	return tx, nil
 }
 
-func (tx *serverTransaction) String() string {
-	return fmt.Sprintf("Server%s", tx.transaction.String())
+func (tx *serverTx) String() string {
+	return fmt.Sprintf("Server%s", tx.commonTx.String())
 }
 
-func (tx *serverTransaction) Receive(msg *transp.IncomingMessage) error {
+func (tx *serverTx) Receive(msg *transport.IncomingMessage) error {
 	req, ok := msg.Msg.(core.Request)
 	if !ok {
-		return &UnexpectedMessageError{
+		return &core.UnexpectedMessageError{
 			fmt.Errorf("%s recevied unexpected %s", tx, msg),
-			msg.String(),
+			req.String(),
 		}
 	}
 
 	var input = fsm.NO_INPUT
 	switch {
+	case req == tx.Origin():
+		// initial receive
+		tx.msgs <- &IncomingMessage{msg, tx}
+		// RFC 3261 - 17.2.1
+		if req.IsInvite() {
+			// todo set as timer, reset in Respond
+			time.AfterFunc(200*time.Millisecond, func() {
+				tx.Respond(core.NewResponseFromRequest(req, 100, "Trying", ""))
+			})
+		}
 	case req.Method() == tx.Origin().Method():
 		input = server_input_request
 	case req.IsAck(): // ACK for non-2xx response
 		input = server_input_ack
 	default:
-		return &UnexpectedMessageError{
-			fmt.Errorf("invalid message %s correlated to %s", req.Short(), tx),
-			msg.String(),
+		return &core.UnexpectedMessageError{
+			fmt.Errorf("invalid %s correlated to %s", msg, tx),
+			req.String(),
 		}
 	}
 
-	tx.msgs <- &IncomingMessage{msg, tx}
-
-	err := tx.fsm.Spin(input)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return tx.fsm.Spin(input)
 }
 
-func (tx *serverTransaction) Respond(res core.Response) error {
+func (tx *serverTx) Respond(res core.Response) error {
 	tx.lastResp = res
 
 	var input fsm.Input
@@ -94,60 +114,6 @@ func (tx *serverTransaction) Respond(res core.Response) error {
 	}
 
 	return tx.fsm.Spin(input)
-}
-
-func (tx *serverTransaction) Trying(hdrs ...core.Header) error {
-	trying := core.NewResponse(
-		tx.Origin().SipVersion(),
-		100,
-		"Trying",
-		[]core.Header{},
-		"",
-	)
-	trying.SetLog(tx.Log())
-
-	core.CopyHeaders("Via", tx.Origin(), trying)
-	core.CopyHeaders("From", tx.origin, trying)
-	core.CopyHeaders("To", tx.origin, trying)
-	core.CopyHeaders("Call-Id", tx.origin, trying)
-	core.CopyHeaders("CSeq", tx.origin, trying)
-	// RFC 3261 - 8.2.6.1
-	// Any Timestamp header field present in the request MUST be copied into this 100 (Trying) response.
-	// TODO delay?
-	core.CopyHeaders("Timestamp", tx.origin, trying)
-	// additional custom headers
-	for _, h := range hdrs {
-		trying.AppendHeader(h)
-	}
-
-	// change FSM to send provisional response
-	tx.lastResp = trying
-	return tx.fsm.Spin(server_input_user_1xx)
-}
-
-func (tx *serverTransaction) Ok(hdrs ...core.Header) error {
-	ok := core.NewResponse(
-		tx.Origin().SipVersion(),
-		200,
-		"OK",
-		[]core.Header{},
-		"",
-	)
-	ok.SetLog(tx.Log())
-
-	core.CopyHeaders("Via", tx.Origin(), ok)
-	core.CopyHeaders("From", tx.origin, ok)
-	core.CopyHeaders("To", tx.origin, ok)
-	core.CopyHeaders("Call-Id", tx.origin, ok)
-	core.CopyHeaders("CSeq", tx.origin, ok)
-	// additional custom headers
-	for _, h := range hdrs {
-		ok.AppendHeader(h)
-	}
-
-	// change FSM to send provisional response
-	tx.lastResp = ok
-	return tx.fsm.Spin(server_input_user_2xx)
 }
 
 // FSM States
@@ -169,12 +135,13 @@ const (
 	server_input_timer_g
 	server_input_timer_h
 	server_input_timer_i
+	server_input_timer_j
 	server_input_transport_err
 	server_input_delete
 )
 
 // Choose the right FSM init function depending on request method.
-func (tx *serverTransaction) initFSM() {
+func (tx *serverTx) initFSM() {
 	if tx.Origin().IsInvite() {
 		tx.initInviteFSM()
 	} else {
@@ -182,7 +149,7 @@ func (tx *serverTransaction) initFSM() {
 	}
 }
 
-func (tx *serverTransaction) initInviteFSM() {
+func (tx *serverTx) initInviteFSM() {
 	// Define States
 	tx.Log().Debugf("%s initialises INVITE FSM", tx)
 
@@ -193,7 +160,7 @@ func (tx *serverTransaction) initInviteFSM() {
 			server_input_request:       {server_state_proceeding, tx.act_respond},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_terminated, tx.act_respond_delete},
-			server_input_user_300_plus: {server_state_completed, tx.act_respond},
+			server_input_user_300_plus: {server_state_completed, tx.act_respond_complete},
 			server_input_transport_err: {server_state_terminated, tx.act_trans_err},
 		},
 	}
@@ -203,11 +170,11 @@ func (tx *serverTransaction) initInviteFSM() {
 		Index: server_state_completed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_completed, tx.act_respond},
-			server_input_ack:           {server_state_confirmed, fsm.NO_ACTION},
+			server_input_ack:           {server_state_confirmed, tx.act_confirm},
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
-			server_input_timer_g:       {server_state_completed, tx.act_respond},
+			server_input_timer_g:       {server_state_completed, tx.act_respond_complete},
 			server_input_timer_h:       {server_state_terminated, tx.act_timeout},
 			server_input_transport_err: {server_state_terminated, tx.act_trans_err},
 		},
@@ -222,6 +189,7 @@ func (tx *serverTransaction) initInviteFSM() {
 			server_input_user_2xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_confirmed, fsm.NO_ACTION},
 			server_input_timer_i:       {server_state_terminated, tx.act_delete},
+			//server_input_timer_g:       {server_state_confirmed, fsm.NO_ACTION},
 		},
 	}
 
@@ -253,7 +221,7 @@ func (tx *serverTransaction) initInviteFSM() {
 	tx.fsm = fsm_
 }
 
-func (tx *serverTransaction) initNonInviteFSM() {
+func (tx *serverTx) initNonInviteFSM() {
 	// Define States
 	tx.Log().Debugf("%s initialises non-INVITE FSM", tx)
 
@@ -288,7 +256,7 @@ func (tx *serverTransaction) initNonInviteFSM() {
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
-			server_input_timer_h:       {server_state_terminated, tx.act_timeout},
+			server_input_timer_j:       {server_state_terminated, tx.act_timeout},
 			server_input_transport_err: {server_state_terminated, tx.act_trans_err},
 		},
 	}
@@ -301,7 +269,7 @@ func (tx *serverTransaction) initNonInviteFSM() {
 			server_input_user_1xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_terminated, fsm.NO_ACTION},
-			server_input_timer_h:       {server_state_terminated, fsm.NO_ACTION},
+			server_input_timer_j:       {server_state_terminated, fsm.NO_ACTION},
 			server_input_delete:        {server_state_terminated, tx.act_delete},
 		},
 	}
@@ -323,7 +291,7 @@ func (tx *serverTransaction) initNonInviteFSM() {
 
 // Define actions.
 // Send response
-func (tx *serverTransaction) act_respond() fsm.Input {
+func (tx *serverTx) act_respond() fsm.Input {
 	tx.lastErr = tx.tpl.Send(tx.Destination(), tx.lastResp)
 	if tx.lastErr != nil {
 		return server_input_transport_err
@@ -332,24 +300,54 @@ func (tx *serverTransaction) act_respond() fsm.Input {
 	return fsm.NO_INPUT
 }
 
-// Send final response
-func (tx *serverTransaction) act_final() fsm.Input {
-	err := tx.tpl.Send(tx.Destination(), tx.lastResp)
-	if err != nil {
+func (tx *serverTx) act_respond_complete() fsm.Input {
+	tx.lastErr = tx.tpl.Send(tx.Destination(), tx.lastResp)
+	if tx.lastErr != nil {
 		return server_input_transport_err
 	}
 
-	// Start timer J (we just reuse timer h)
-	tx.timer_h = timing.AfterFunc(64*T1, func() {
-		tx.fsm.Spin(server_input_timer_h)
+	if !tx.reliable {
+		if tx.timer_g == nil {
+			tx.timer_g = timing.AfterFunc(tx.timer_g_time, func() {
+				tx.Log().Debugf("%s, timer_g fired", tx)
+				tx.fsm.Spin(server_input_timer_g)
+			})
+		} else {
+			tx.timer_g_time *= 2
+			if tx.timer_g_time > T2 {
+				tx.timer_g_time = T2
+			}
+			tx.timer_g.Reset(tx.timer_g_time)
+		}
+	}
+	if tx.timer_h == nil {
+		tx.timer_h = timing.AfterFunc(Timer_H, func() {
+			tx.Log().Debugf("%s, timer_h fired", tx)
+			tx.fsm.Spin(server_input_timer_h)
+		})
+	}
+
+	return fsm.NO_INPUT
+}
+
+// Send final response
+func (tx *serverTx) act_final() fsm.Input {
+	tx.lastErr = tx.tpl.Send(tx.Destination(), tx.lastResp)
+	if tx.lastErr != nil {
+		return server_input_transport_err
+	}
+
+	tx.timer_j = timing.AfterFunc(Timer_J, func() {
+		tx.Log().Debugf("%s, timer_j fired")
+		tx.fsm.Spin(server_input_timer_j)
 	})
 
 	return fsm.NO_INPUT
 }
 
 // Inform user of transport error
-func (tx *serverTransaction) act_trans_err() fsm.Input {
-	tx.errs <- &TransactionTransportError{
+func (tx *serverTx) act_trans_err() fsm.Input {
+	tx.errs <- &TxTransportError{
 		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp, tx.lastErr),
 		tx.Key(),
 		tx.String(),
@@ -358,8 +356,8 @@ func (tx *serverTransaction) act_trans_err() fsm.Input {
 }
 
 // Inform user of timeout error
-func (tx *serverTransaction) act_timeout() fsm.Input {
-	tx.errs <- &TransactionTimeoutError{
+func (tx *serverTx) act_timeout() fsm.Input {
+	tx.errs <- &TxTimeoutError{
 		fmt.Errorf("%s timed out", tx),
 		tx.Key(),
 		tx.String(),
@@ -368,8 +366,8 @@ func (tx *serverTransaction) act_timeout() fsm.Input {
 }
 
 // Just delete the transaction.
-func (tx *serverTransaction) act_delete() fsm.Input {
-	tx.errs <- &TransactionTerminatedError{
+func (tx *serverTx) act_delete() fsm.Input {
+	tx.errs <- &TxTerminatedError{
 		fmt.Errorf("%s terminated", tx),
 		tx.Key(),
 		tx.String(),
@@ -378,8 +376,8 @@ func (tx *serverTransaction) act_delete() fsm.Input {
 }
 
 // Send response and delete the transaction.
-func (tx *serverTransaction) act_respond_delete() fsm.Input {
-	tx.errs <- &TransactionTerminatedError{
+func (tx *serverTx) act_respond_delete() fsm.Input {
+	tx.errs <- &TxTerminatedError{
 		fmt.Errorf("%s terminated", tx),
 		tx.Key(),
 		tx.String(),
@@ -389,5 +387,14 @@ func (tx *serverTransaction) act_respond_delete() fsm.Input {
 	if tx.lastErr != nil {
 		return server_input_transport_err
 	}
+
+	return fsm.NO_INPUT
+}
+
+func (tx *serverTx) act_confirm() fsm.Input {
+	tx.timer_i = timing.AfterFunc(Timer_I, func() {
+		tx.Log().Debugf("%s, timer_i fired")
+		tx.fsm.Spin(server_input_timer_i)
+	})
 	return fsm.NO_INPUT
 }

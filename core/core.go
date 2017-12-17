@@ -110,6 +110,26 @@ func (err *UnsupportedMessageError) Error() string {
 	return s
 }
 
+type UnexpectedMessageError struct {
+	Err error
+	Msg string
+}
+
+func (err *UnexpectedMessageError) Broken() bool    { return false }
+func (err *UnexpectedMessageError) Malformed() bool { return false }
+func (err *UnexpectedMessageError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+
+	s := "UnexpectedMessageError: " + err.Err.Error()
+	if err.Msg != "" {
+		s += fmt.Sprintf("\nMessage dump:\n%s", err.Msg)
+	}
+
+	return s
+}
+
 // Cancellable can be canceled through cancel method
 type Cancellable interface {
 	Cancel()

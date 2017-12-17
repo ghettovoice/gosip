@@ -1,4 +1,4 @@
-package transp_test
+package transport_test
 
 import (
 	"fmt"
@@ -8,14 +8,14 @@ import (
 
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/testutils"
-	"github.com/ghettovoice/gosip/transp"
+	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("TransportLayer", func() {
 	var (
-		tpl    transp.Layer
+		tpl    transport.Layer
 		wg     *sync.WaitGroup
 		client net.Conn
 	)
@@ -27,7 +27,7 @@ var _ = Describe("TransportLayer", func() {
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)
-		tpl = transp.NewLayer(hostAddr)
+		tpl = transport.NewLayer(hostAddr)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
@@ -89,7 +89,7 @@ var _ = Describe("TransportLayer", func() {
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest *transp.IncomingMessage
+				var incomingRequest *transport.IncomingMessage
 				var response core.Message
 
 				BeforeEach(func() {
@@ -105,7 +105,7 @@ var _ = Describe("TransportLayer", func() {
 					core.CopyHeaders("Via", incomingRequest.Msg, response)
 					core.CopyHeaders("From", incomingRequest.Msg, response)
 					core.CopyHeaders("To", incomingRequest.Msg, response)
-					core.CopyHeaders("Call-Id", incomingRequest.Msg, response)
+					core.CopyHeaders("Call-ID", incomingRequest.Msg, response)
 					core.CopyHeaders("CSeq", incomingRequest.Msg, response)
 				})
 
@@ -172,7 +172,7 @@ var _ = Describe("TransportLayer", func() {
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest *transp.IncomingMessage
+				var incomingRequest *transport.IncomingMessage
 				var response core.Message
 
 				BeforeEach(func() {
@@ -188,7 +188,7 @@ var _ = Describe("TransportLayer", func() {
 					core.CopyHeaders("Via", incomingRequest.Msg, response)
 					core.CopyHeaders("From", incomingRequest.Msg, response)
 					core.CopyHeaders("To", incomingRequest.Msg, response)
-					core.CopyHeaders("Call-Id", incomingRequest.Msg, response)
+					core.CopyHeaders("Call-ID", incomingRequest.Msg, response)
 					core.CopyHeaders("CSeq", incomingRequest.Msg, response)
 				})
 
