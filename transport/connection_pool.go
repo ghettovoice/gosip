@@ -292,17 +292,17 @@ func (pool *connectionPool) serveHandlers() {
 					if lerr.Expired() {
 						if handler.Expired() {
 							// connection expired
-							pool.Log().Warnf("%s notified that %s expired, drop it", pool, handler)
+							pool.Log().Warnf("%s notified that %s expired, drop it and go further", pool, handler)
 							pool.Drop(handler.Key())
 						} else {
 							// Due to a race condition, the socket has been updated since this expiry happened.
 							// Ignore the expiry since we already have a new socket for this address.
 							pool.Log().Warnf("ignore spurious expiry of %s in %s", handler, pool)
-							continue
 						}
+						continue
 					} else if lerr.Network() {
 						// connection broken or closed
-						pool.Log().Warnf("%s received network error: %s; drop %s", pool, lerr, handler)
+						pool.Log().Warnf("%s received network error: %s; drop %s and pass up", pool, lerr, handler)
 						pool.Drop(handler.Key())
 					} else {
 						// syntax errors, malformed message errors and other
@@ -315,7 +315,7 @@ func (pool *connectionPool) serveHandlers() {
 				}
 			} else {
 				// all other possible errors
-				pool.Log().Debugf("%s received error: %s", pool, err)
+				pool.Log().Debugf("%s received error: %s; pass up", pool, err)
 			}
 			pool.errs <- err
 		}

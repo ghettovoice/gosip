@@ -551,14 +551,10 @@ var _ = Describe("ConnectionPool", func() {
 			})
 
 			Context("after connection server1 expiry time", func() {
-				BeforeEach(func(done Done) {
+				BeforeEach(func() {
 					timing.Elapse(ttl + time.Nanosecond)
-					err = <-errs
-					close(done)
+					time.Sleep(time.Millisecond)
 				}, 3)
-				It("should send Expire error", func() {
-					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s expired", server1)))
-				})
 				ShouldBeEmpty()
 			})
 		})
@@ -598,8 +594,8 @@ var _ = Describe("ConnectionPool", func() {
 					assertIncomingMessageArrived(output, msg2, server2.LocalAddr().String(), client2.LocalAddr().String())
 					By(fmt.Sprintf("malformed message msg3 arrives %s -> %s", server3.RemoteAddr(), server3.LocalAddr()))
 					assertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
-					By("server2 expired error arrives")
-					assertIncomingErrorArrived(errs, fmt.Sprintf("%s expired", server2))
+					By("server2 expired error arrives and ignored")
+					time.Sleep(time.Millisecond)
 					By("server3 falls with error")
 					assertIncomingErrorArrived(errs, fmt.Sprintf("read pipe->%s: io: read/write on closed pipe", server3.LocalAddr()))
 					By(fmt.Sprintf("message msg1 arrives %s -> %s", server1.RemoteAddr(), server1.LocalAddr()))
