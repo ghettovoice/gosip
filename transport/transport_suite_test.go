@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
@@ -209,7 +210,7 @@ func (conn *mockConn) RemoteAddr() net.Addr {
 }
 
 func assertIncomingMessageArrived(
-	fromCh <-chan *transport.IncomingMessage,
+	fromCh <-chan *core.IncomingMessage,
 	expectedMessage string,
 	expectedLocalAddr string,
 	expectedRemoteAddr string,

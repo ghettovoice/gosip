@@ -4,39 +4,31 @@ import (
 	"sync"
 
 	"github.com/ghettovoice/gosip"
-	"github.com/ghettovoice/gosip/core"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Transport", func() {
 	var (
-		output chan core.Message
-		errs   chan error
-		cancel chan struct{}
-		tp     gosip.Transport
-		wg     *sync.WaitGroup
+		tp gosip.Transport
+		wg *sync.WaitGroup
 	)
+	hostAddr := "192.168.0.1:5060"
 
 	BeforeEach(func() {
-		output = make(chan core.Message)
-		errs = make(chan error)
-		cancel = make(chan struct{})
+		wg = new(sync.WaitGroup)
+		tp = gosip.NewTransport(hostAddr)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
-		select {
-		case <-cancel:
-		default:
-			close(cancel)
-		}
+		tp.Cancel()
 		<-tp.Done()
-		close(output)
-		close(errs)
 		close(done)
 	}, 3)
 
 	Context("just initialized", func() {
-
+		It("should has correct host address", func() {
+			Expect(tp.HostAddr()).To(Equal(hostAddr))
+		})
 	})
 })

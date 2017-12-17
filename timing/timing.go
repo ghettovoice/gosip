@@ -146,7 +146,9 @@ func Sleep(d time.Duration) {
 // This function can only be called in Mock Mode, otherwise we will panic.
 func Elapse(d time.Duration) {
 	requireMockMode()
+	mockTimerMu.Lock()
 	currentTimeMock = currentTimeMock.Add(d)
+	mockTimerMu.Unlock()
 
 	// Fire any timers whose time has come up.
 	mockTimerMu.Lock()

@@ -2,6 +2,7 @@ package transport
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -68,11 +69,11 @@ type connectionPool struct {
 	hwg     *sync.WaitGroup
 	store   map[ConnectionKey]ConnectionHandler
 	keys    []ConnectionKey
-	output  chan<- *IncomingMessage
+	output  chan<- *core.IncomingMessage
 	errs    chan<- error
 	cancel  <-chan struct{}
 	done    chan struct{}
-	hmess   chan *IncomingMessage
+	hmess   chan *core.IncomingMessage
 	herrs   chan error
 	gets    chan *connectionRequest
 	updates chan *connectionRequest
@@ -80,7 +81,7 @@ type connectionPool struct {
 	mu      *sync.RWMutex
 }
 
-func NewConnectionPool(output chan<- *IncomingMessage, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
+func NewConnectionPool(output chan<- *core.IncomingMessage, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
 	pool := &connectionPool{
 		logger:  log.NewSafeLocalLogger(),
 		hwg:     new(sync.WaitGroup),
@@ -90,7 +91,7 @@ func NewConnectionPool(output chan<- *IncomingMessage, errs chan<- error, cancel
 		errs:    errs,
 		cancel:  cancel,
 		done:    make(chan struct{}),
-		hmess:   make(chan *IncomingMessage),
+		hmess:   make(chan *core.IncomingMessage),
 		herrs:   make(chan error),
 		gets:    make(chan *connectionRequest),
 		updates: make(chan *connectionRequest),
@@ -285,39 +286,48 @@ func (pool *connectionPool) serveHandlers() {
 				continue
 			}
 			// on ConnectionHandleError we should drop handler in some cases
-			// all other possible errors passed up
-			if lerr, ok := err.(*ConnectionHandlerError); ok {
-				if handler, gerr := pool.get(lerr.Key); gerr == nil {
-					// handler expired, drop it from pool and continue without emitting error
-					if lerr.Expired() {
-						if handler.Expired() {
-							// connection expired
-							pool.Log().Warnf("%s notified that %s expired, drop it and go further", pool, handler)
-							pool.Drop(handler.Key())
-						} else {
-							// Due to a race condition, the socket has been updated since this expiry happened.
-							// Ignore the expiry since we already have a new socket for this address.
-							pool.Log().Warnf("ignore spurious expiry of %s in %s", handler, pool)
-						}
-						continue
-					} else if lerr.Network() {
-						// connection broken or closed
-						pool.Log().Warnf("%s received network error: %s; drop %s and pass up", pool, lerr, handler)
-						pool.Drop(handler.Key())
-					} else {
-						// syntax errors, malformed message errors and other
-						pool.Log().Debugf("%s received error: %s", pool, lerr)
-					}
-				} else {
-					// ignore, handler already dropped out
-					pool.Log().Debugf("ignore error from already dropped out handler %s: %s", lerr.Key, lerr)
-					continue
-				}
-			} else {
+			// all other possible errors ignored because in pool.herrs should be only ConnectionHandlerErrors
+			// so ConnectionPool passes up only Network (when connection falls) and MalformedMessage errors
+			herr, ok := err.(*ConnectionHandlerError)
+			if !ok {
 				// all other possible errors
-				pool.Log().Debugf("%s received error: %s; pass up", pool, err)
+				pool.Log().Warnf("%s ignores non-handler error: %s", pool, err)
+				continue
 			}
-			pool.errs <- err
+			handler, gerr := pool.get(herr.Key)
+			if gerr != nil {
+				// ignore, handler already dropped out
+				pool.Log().Warnf("ignore error from already dropped out handler %s: %s", herr.Key, herr)
+				continue
+			}
+
+			if herr.Expired() {
+				// handler expired, drop it from pool and continue without emitting error
+				if handler.Expired() {
+					// connection expired
+					pool.Log().Warnf("%s notified that %s expired, drop it and go further", pool, handler)
+					pool.Drop(handler.Key())
+				} else {
+					// Due to a race condition, the socket has been updated since this expiry happened.
+					// Ignore the expiry since we already have a new socket for this address.
+					pool.Log().Warnf("ignore spurious expiry of %s in %s", handler, pool)
+				}
+				continue
+			} else if herr.Err == io.EOF {
+				// remote endpoint closed
+				pool.Log().Warnf("%s received EOF error: %s; drop %s and go further", pool, herr, handler)
+				pool.Drop(handler.Key())
+				continue
+			} else if herr.Network() {
+				// connection broken or closed
+				pool.Log().Warnf("%s received network error: %s; drop %s and pass up", pool, herr, handler)
+				pool.Drop(handler.Key())
+			} else {
+				// syntax errors, malformed message errors and other
+				pool.Log().Debugf("%s received error: %s", pool, herr)
+			}
+			// send initial error
+			pool.errs <- herr.Err
 		}
 	}
 }
@@ -446,8 +456,9 @@ type connectionHandler struct {
 	key        ConnectionKey
 	connection Connection
 	timer      timing.Timer
+	ttl        time.Duration
 	expiry     time.Time
-	output     chan<- *IncomingMessage
+	output     chan<- *core.IncomingMessage
 	errs       chan<- error
 	cancel     <-chan struct{}
 	canceled   chan struct{}
@@ -459,7 +470,7 @@ func NewConnectionHandler(
 	key ConnectionKey,
 	conn Connection,
 	ttl time.Duration,
-	output chan<- *IncomingMessage,
+	output chan<- *core.IncomingMessage,
 	errs chan<- error,
 	cancel <-chan struct{},
 ) ConnectionHandler {
@@ -472,6 +483,7 @@ func NewConnectionHandler(
 		cancel:     cancel,
 		canceled:   make(chan struct{}),
 		done:       make(chan struct{}),
+		ttl:        ttl,
 	}
 	handler.SetLog(conn.Log())
 	//handler.Update(ttl)
@@ -629,13 +641,12 @@ func (handler *connectionHandler) readConnection() (<-chan core.Message, <-chan 
 				errs <- err
 				return
 			}
+			if !streamed {
+				handler.addrs.In <- fmt.Sprintf("%v", handler.Connection().RemoteAddr())
+			}
 			// parse received data
 			parser.SetLog(handler.Log())
-			if _, err := parser.Write(append([]byte{}, buf[:num]...)); err == nil {
-				if !streamed {
-					handler.addrs.In <- fmt.Sprintf("%v", handler.Connection().RemoteAddr())
-				}
-			} else {
+			if _, err := parser.Write(append([]byte{}, buf[:num]...)); err != nil {
 				errs <- err
 			}
 		}
@@ -656,7 +667,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 			select {
 			case v := <-handler.addrs.Out:
 				return v.(string)
-			default:
+			case <-time.After(time.Second):
 				return "<nil>"
 			}
 		}
@@ -713,11 +724,15 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 				return
 			}
 			handler.Log().Infof("%s received message %s; pass it up", handler, msg.Short())
-			handler.output <- &IncomingMessage{
+			handler.output <- &core.IncomingMessage{
 				msg,
 				handler.Connection().LocalAddr().String(),
 				getRemoteAddr(),
 				handler.Connection().Network(),
+			}
+			if !handler.Expiry().IsZero() {
+				handler.expiry = time.Now().Add(handler.ttl)
+				handler.timer.Reset(handler.ttl)
 			}
 		case err, ok := <-errs:
 			// cancel signal
@@ -740,6 +755,12 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 				handler.Log().Warnf("%s ignores error %s", handler, err)
 				continue
 			}
+			var raddr string
+			if _, ok := err.(net.Error); ok {
+				raddr = fmt.Sprintf("%v", handler.Connection().RemoteAddr())
+			} else {
+				raddr = getRemoteAddr()
+			}
 
 			handler.Log().Debugf("%s received error %s; pass it up", handler, err)
 			err = &ConnectionHandlerError{
@@ -748,7 +769,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 				handler.String(),
 				handler.Connection().Network(),
 				fmt.Sprintf("%v", handler.Connection().LocalAddr()),
-				getRemoteAddr(),
+				raddr,
 			}
 			handler.errs <- err
 		}

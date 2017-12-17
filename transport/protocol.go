@@ -28,7 +28,7 @@ type Protocol interface {
 
 type ProtocolFactory func(
 	network string,
-	output chan<- *IncomingMessage,
+	output chan<- *core.IncomingMessage,
 	errs chan<- error,
 	cancel <-chan struct{},
 ) (Protocol, error)

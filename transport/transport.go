@@ -2,6 +2,7 @@ package transport
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -19,39 +20,6 @@ const (
 	DefaultTcpPort core.Port = 5060
 	DefaultTlsPort core.Port = 5061
 )
-
-// Incoming message with meta info: remote addr, local addr & etc.
-type IncomingMessage struct {
-	// SIP message
-	Msg core.Message
-	// Local address to which message arrived
-	LAddr string
-	// Remote address from which message arrived
-	RAddr   string
-	Network string
-}
-
-func (msg *IncomingMessage) String() string {
-	if msg == nil {
-		return "IncomingMessage <nil>"
-	}
-	s := "IncomingMessage " + msg.Msg.Short()
-	parts := make([]string, 0)
-	if msg.Network != "" {
-		parts = append(parts, "net "+msg.Network)
-	}
-	if msg.LAddr != "" {
-		parts = append(parts, "laddr "+msg.LAddr)
-	}
-	if msg.RAddr != "" {
-		parts = append(parts, "raddr "+msg.RAddr)
-	}
-	if len(parts) > 0 {
-		s += " (" + strings.Join(parts, ", ") + ")"
-	}
-
-	return s
-}
 
 // Target endpoint
 type Target struct {
@@ -138,7 +106,7 @@ type Error interface {
 
 func isNetwork(err error) bool {
 	_, ok := err.(net.Error)
-	return ok
+	return ok || err == io.EOF || err == io.ErrClosedPipe
 }
 func isTimeout(err error) bool {
 	e, ok := err.(net.Error)
@@ -161,6 +129,7 @@ func isExpired(err error) bool {
 type ConnectionError struct {
 	Err    error
 	Op     string
+	Net    string
 	Source string
 	Dest   string
 	Conn   string
@@ -195,15 +164,6 @@ func (err *ConnectionError) Error() string {
 
 	return s
 }
-
-type CancelError string
-
-func (err CancelError) Network() bool   { return false }
-func (err CancelError) Timeout() bool   { return false }
-func (err CancelError) Temporary() bool { return false }
-func (err CancelError) Canceled() bool  { return true }
-func (err CancelError) Expired() bool   { return false }
-func (err CancelError) Error() string   { return "CancelError: " + string(err) }
 
 type ExpireError string
 

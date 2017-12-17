@@ -119,6 +119,7 @@ func (conn *connection) Read(buf []byte) (int, error) {
 		return num, &ConnectionError{
 			err,
 			"read",
+			conn.Network(),
 			fmt.Sprintf("%v", conn.RemoteAddr()),
 			fmt.Sprintf("%v", conn.LocalAddr()),
 			conn.String(),
@@ -149,6 +150,7 @@ func (conn *connection) Write(buf []byte) (int, error) {
 		return num, &ConnectionError{
 			err,
 			"write",
+			conn.Network(),
 			fmt.Sprintf("%v", conn.RemoteAddr()),
 			fmt.Sprintf("%v", conn.LocalAddr()),
 			conn.String(),
@@ -183,6 +185,7 @@ func (conn *connection) Close() error {
 		return &ConnectionError{
 			err,
 			"close",
+			conn.Network(),
 			"",
 			"",
 			conn.String(),
