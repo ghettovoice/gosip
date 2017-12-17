@@ -1111,7 +1111,7 @@ func parseViaHeader(headerName string, headerText string) (
 		via = append(via, &hop)
 	}
 
-	headers = []core.Header{&via}
+	headers = []core.Header{via}
 	return
 }
 

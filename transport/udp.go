@@ -71,8 +71,8 @@ func (udp *udpProtocol) Listen(target *Target) error {
 func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
 	target = FillTargetHostAndPort(udp.Network(), target)
 
-	udp.Log().Infof("sending message '%s' to %s", msg.Short(), target.Addr())
-	udp.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), target.Addr(), msg)
+	udp.Log().Infof("%s sends message '%s' to %s", udp, msg.Short(), target.Addr())
+	udp.Log().Debugf("%s sends message '%s' to %s:\r\n%s", udp, msg.Short(), target.Addr(), msg)
 
 	// validate remote address
 	if target.Host == "" {

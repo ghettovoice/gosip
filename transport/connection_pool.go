@@ -2,7 +2,6 @@ package transport
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"strings"
 	"sync"
@@ -313,7 +312,7 @@ func (pool *connectionPool) serveHandlers() {
 					pool.Log().Warnf("ignore spurious expiry of %s in %s", handler, pool)
 				}
 				continue
-			} else if herr.Err == io.EOF {
+			} else if herr.EOF() {
 				// remote endpoint closed
 				pool.Log().Warnf("%s received EOF error: %s; drop %s and go further", pool, herr, handler)
 				pool.Drop(handler.Key())

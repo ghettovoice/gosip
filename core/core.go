@@ -8,6 +8,9 @@ import (
 type Port uint16
 
 func (port *Port) Clone() *Port {
+	if port == nil {
+		return nil
+	}
 	newPort := *port
 	return &newPort
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -212,6 +213,13 @@ func (err *ConnectionHandlerError) Timeout() bool   { return isTimeout(err.Err) 
 func (err *ConnectionHandlerError) Temporary() bool { return isTemporary(err.Err) }
 func (err *ConnectionHandlerError) Canceled() bool  { return isCanceled(err.Err) }
 func (err *ConnectionHandlerError) Expired() bool   { return isExpired(err.Err) }
+func (err *ConnectionHandlerError) EOF() bool {
+	if err.Err == io.EOF {
+		return true
+	}
+	ok, _ := regexp.MatchString("(?i)eof", err.Err.Error())
+	return ok
+}
 func (err *ConnectionHandlerError) Error() string {
 	if err == nil {
 		return "<nil>"

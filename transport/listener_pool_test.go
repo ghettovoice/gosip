@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -16,11 +17,11 @@ var _ = Describe("ListenerHandler", func() {
 		output  chan transport.Connection
 		errs    chan error
 		cancel  chan struct{}
-		ls      *mockListener
+		ls      *testutils.MockListener
 		handler transport.ListenerHandler
 		wg      *sync.WaitGroup
 	)
-	addr := &mockAddr{"tcp", localAddr1}
+	addr := &testutils.MockAddr{"tcp", localAddr1}
 	key := transport.ListenerKey(addr.String())
 	str := "Hello world!"
 
@@ -29,7 +30,7 @@ var _ = Describe("ListenerHandler", func() {
 			output = make(chan transport.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			ls = NewMockListener(addr)
+			ls = testutils.NewMockListener(addr)
 			handler = transport.NewListenerHandler(key, ls, output, errs, cancel)
 		})
 
@@ -46,7 +47,7 @@ var _ = Describe("ListenerHandler", func() {
 			output = make(chan transport.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			ls = NewMockListener(addr)
+			ls = testutils.NewMockListener(addr)
 			handler = transport.NewListenerHandler(key, ls, output, errs, cancel)
 
 			wg = new(sync.WaitGroup)
@@ -140,9 +141,9 @@ var _ = Describe("ListenerPool", func() {
 	str1 := "Hello world!"
 	str2 := "Bye!"
 	str3 := "What's up, dude?"
-	addr1 := &mockAddr{"tcp", localAddr1}
-	addr2 := &mockAddr{"tcp", localAddr2}
-	addr3 := &mockAddr{"tcp", localAddr3}
+	addr1 := &testutils.MockAddr{"tcp", localAddr1}
+	addr2 := &testutils.MockAddr{"tcp", localAddr2}
+	addr3 := &testutils.MockAddr{"tcp", localAddr3}
 	key1 := transport.ListenerKey(addr1.String())
 	key2 := transport.ListenerKey(addr2.String())
 	key3 := transport.ListenerKey(addr3.String())
@@ -186,7 +187,7 @@ var _ = Describe("ListenerPool", func() {
 		})
 
 		It("should decline Put", func() {
-			err = pool.Put(key1, NewMockListener(addr1))
+			err = pool.Put(key1, testutils.NewMockListener(addr1))
 			Expect(err.Error()).To(ContainSubstring(expected))
 			Expect(pool.Length()).To(Equal(0))
 		})
@@ -224,9 +225,9 @@ var _ = Describe("ListenerPool", func() {
 			cancel = make(chan struct{})
 			pool = transport.NewListenerPool(output, errs, cancel)
 
-			ls1 = NewMockListener(addr1)
-			ls2 = NewMockListener(addr2)
-			ls3 = NewMockListener(addr3)
+			ls1 = testutils.NewMockListener(addr1)
+			ls2 = testutils.NewMockListener(addr2)
+			ls3 = testutils.NewMockListener(addr3)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -300,7 +301,7 @@ var _ = Describe("ListenerPool", func() {
 
 			Context("put another listener with the same key1", func() {
 				BeforeEach(func() {
-					err = pool.Put(key1, NewMockListener(addr3))
+					err = pool.Put(key1, testutils.NewMockListener(addr3))
 				})
 				It("should return Duplicate error", func() {
 					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s already has key %s", pool, key1)))
@@ -402,19 +403,19 @@ var _ = Describe("ListenerPool", func() {
 				Expect(pool.Length()).To(Equal(3))
 			})
 
-			sendTo := func(ls *mockListener, addr net.Addr, str string) {
+			sendTo := func(ls *testutils.MockListener, addr net.Addr, str string) {
 				client, err := ls.Dial("tcp", addr)
 				Expect(err).ToNot(HaveOccurred())
 				defer client.Close()
 
 				Expect(client.Write([]byte(str))).To(Equal(len(str)))
 			}
-			readConn := func(ls *mockListener, expected string) {
+			readConn := func(ls *testutils.MockListener, expected string) {
 				buf := make([]byte, 65535)
 				select {
 				case conn := <-output:
 					Expect(conn).ToNot(BeNil())
-					Expect(conn.LocalAddr().String()).To(Equal(ls.addr.String()))
+					Expect(conn.LocalAddr().String()).To(Equal(ls.Addr().String()))
 
 					num, err := conn.Read(buf)
 					Expect(err).ToNot(HaveOccurred())
@@ -438,32 +439,32 @@ var _ = Describe("ListenerPool", func() {
 				wg.Add(3)
 				go func() {
 					defer wg.Done()
-					sendTo(ls1.(*mockListener), ls1.Addr(), str1)
+					sendTo(ls1.(*testutils.MockListener), ls1.Addr(), str1)
 					time.Sleep(50 * time.Millisecond)
-					sendTo(ls1.(*mockListener), ls1.Addr(), str2)
+					sendTo(ls1.(*testutils.MockListener), ls1.Addr(), str2)
 				}()
 				go func() {
 					defer wg.Done()
 					time.Sleep(10 * time.Millisecond)
-					sendTo(ls2.(*mockListener), ls2.Addr(), str3)
+					sendTo(ls2.(*testutils.MockListener), ls2.Addr(), str3)
 					time.Sleep(10 * time.Millisecond)
 					ls2.Close()
 				}()
 				go func() {
 					defer wg.Done()
 					time.Sleep(60 * time.Millisecond)
-					sendTo(ls3.(*mockListener), ls3.Addr(), str3)
+					sendTo(ls3.(*testutils.MockListener), ls3.Addr(), str3)
 				}()
 				By("ls1 accepts connection from addr1")
-				readConn(ls1.(*mockListener), str1)
+				readConn(ls1.(*testutils.MockListener), str1)
 				By("ls2 accepts connection from addr2")
-				readConn(ls2.(*mockListener), str3)
+				readConn(ls2.(*testutils.MockListener), str3)
 				By("ls2 falls")
 				readErr("listener closed")
 				By("ls1 accepts connection")
-				readConn(ls1.(*mockListener), str2)
+				readConn(ls1.(*testutils.MockListener), str2)
 				By("ls3 accepts connection")
-				readConn(ls3.(*mockListener), str3)
+				readConn(ls3.(*testutils.MockListener), str3)
 
 				wg.Wait()
 			})

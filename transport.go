@@ -30,8 +30,8 @@ func (err AlreadyRegisteredProtocolError) Error() string {
 	return "AlreadyRegisteredProtocolError: " + string(err)
 }
 
-// Transport layer is responsible for the actual transmission of messages - RFC 3261 - 18.
-type Transport interface {
+// TransportLayer layer is responsible for the actual transmission of messages - RFC 3261 - 18.
+type TransportLayer interface {
 	log.LocalLogger
 	core.Cancellable
 	core.Awaiting
@@ -39,9 +39,9 @@ type Transport interface {
 	Messages() <-chan *core.IncomingMessage
 	Errors() <-chan error
 	// Listen starts listening on `addr` for each registered protocol.
-	Listen(network string, target *transport.Target) error
+	Listen(network string, addr string) error
 	// Send sends message on suitable protocol.
-	Send(network string, target *transport.Target, msg core.Message) error
+	Send(network string, addr string, msg core.Message) error
 	String() string
 }
 
@@ -51,7 +51,7 @@ var protocolFactory transport.ProtocolFactory = func(
 	errs chan<- error,
 	cancel <-chan struct{},
 ) (transport.Protocol, error) {
-	switch network {
+	switch strings.ToLower(network) {
 	case "udp":
 		return transport.NewUdpProtocol(output, errs, cancel), nil
 	case "tcp":
@@ -71,8 +71,8 @@ func ProtocolFactory() transport.ProtocolFactory {
 	return protocolFactory
 }
 
-// Transport layer implementation.
-type stdTransport struct {
+// TransportLayer implementation.
+type transportLayer struct {
 	logger    log.LocalLogger
 	hostAddr  string
 	protocols *protocolStore
@@ -85,10 +85,10 @@ type stdTransport struct {
 	wg        *sync.WaitGroup
 }
 
-// NewTransport creates transport layer.
+// NewTransportLayer creates transport layer.
 // 	- hostAddr - current server host address (IP or FQDN)
-func NewTransport(hostAddr string) Transport {
-	tp := &stdTransport{
+func NewTransportLayer(hostAddr string) TransportLayer {
+	tpl := &transportLayer{
 		logger:    log.NewSafeLocalLogger(),
 		hostAddr:  hostAddr,
 		wg:        new(sync.WaitGroup),
@@ -100,74 +100,86 @@ func NewTransport(hostAddr string) Transport {
 		cancel:    make(chan struct{}),
 		done:      make(chan struct{}),
 	}
-	go tp.serveProtocols()
-	return tp
+	go tpl.serveProtocols()
+	return tpl
 }
 
-func (tp *stdTransport) String() string {
+func (tpl *transportLayer) String() string {
 	var addr string
-	if tp == nil {
+	if tpl == nil {
 		addr = "<nil>"
 	} else {
-		addr = fmt.Sprintf("%p", tp)
+		addr = fmt.Sprintf("%p", tpl)
 	}
 
-	return fmt.Sprintf("Transport %s", addr)
+	return fmt.Sprintf("TransportLayer %s", addr)
 }
 
-func (tp *stdTransport) Log() log.Logger {
-	return tp.logger.Log()
+func (tpl *transportLayer) Log() log.Logger {
+	return tpl.logger.Log()
 }
 
-func (tp *stdTransport) SetLog(logger log.Logger) {
-	tp.logger.SetLog(logger.WithField("transport-ptr", fmt.Sprintf("%p", tp)))
-	for _, protocol := range tp.protocols.All() {
-		protocol.SetLog(tp.Log())
+func (tpl *transportLayer) SetLog(logger log.Logger) {
+	tpl.logger.SetLog(logger.WithField("tp-layer", fmt.Sprintf("%p", tpl)))
+	for _, protocol := range tpl.protocols.All() {
+		protocol.SetLog(tpl.Log())
 	}
 }
 
-func (tp *stdTransport) HostAddr() string {
-	return tp.hostAddr
+func (tpl *transportLayer) HostAddr() string {
+	return tpl.hostAddr
 }
 
-func (tp *stdTransport) Cancel() {
-	close(tp.cancel)
+func (tpl *transportLayer) Cancel() {
+	select {
+	case <-tpl.cancel:
+	default:
+		close(tpl.cancel)
+	}
 }
 
-func (tp *stdTransport) Done() <-chan struct{} {
-	return tp.done
+func (tpl *transportLayer) Done() <-chan struct{} {
+	return tpl.done
 }
 
-func (tp *stdTransport) Messages() <-chan *core.IncomingMessage {
-	return tp.msgs
+func (tpl *transportLayer) Messages() <-chan *core.IncomingMessage {
+	return tpl.msgs
 }
 
-func (tp *stdTransport) Errors() <-chan error {
-	return tp.errs
+func (tpl *transportLayer) Errors() <-chan error {
+	return tpl.errs
 }
 
-func (tp *stdTransport) Listen(network string, target *transport.Target) error {
+func (tpl *transportLayer) Listen(network string, addr string) error {
 	// todo try with separate goroutine/outputs for each protocol
-	protocol, ok := tp.protocols.Get(protocolKey(network))
+	protocol, ok := tpl.protocols.Get(protocolKey(network))
 	if !ok {
-		protocol, err := protocolFactory(network, tp.pmsgs, tp.perrs, tp.cancel)
+		var err error
+		protocol, err = protocolFactory(network, tpl.pmsgs, tpl.perrs, tpl.cancel)
 		if err != nil {
 			return err
 		}
-		tp.protocols.Put(protocolKey(protocol.Network()), protocol)
+		tpl.protocols.Put(protocolKey(protocol.Network()), protocol)
 	}
-
+	target, err := transport.NewTargetFromAddr(addr)
+	if err != nil {
+		return err
+	}
 	target = transport.FillTargetHostAndPort(network, target)
 	return protocol.Listen(target)
 }
 
-func (tp *stdTransport) Send(network string, target *transport.Target, msg core.Message) error {
+func (tpl *transportLayer) Send(network string, addr string, msg core.Message) error {
 	nets := make([]string, 0)
+	target, err := transport.NewTargetFromAddr(addr)
+	if err != nil {
+		return err
+	}
 
 	viaHop, ok := msg.ViaHop()
 	if !ok {
 		return &core.MalformedMessageError{
-			Err: fmt.Errorf("missing 'Via' header"),
+			Err: fmt.Errorf("missing required 'Via' header"),
 			Msg: msg.String(),
 		}
 	}
@@ -177,7 +189,7 @@ func (tp *stdTransport) Send(network string, target *transport.Target, msg core.
 	case core.Request:
 		msgLen := len(msg.String())
 		// rewrite sent-by host
-		viaHop.Host = tp.HostAddr()
+		viaHop.Host = tpl.HostAddr()
 		// todo check for reliable/non-reliable
 		if strings.ToLower(viaHop.Transport) == "udp" && msgLen > int(transport.MTU)-200 {
 			nets = append(nets, transport.DefaultProtocol, viaHop.Transport)
@@ -187,7 +199,7 @@ func (tp *stdTransport) Send(network string, target *transport.Target, msg core.
 
 		var err error
 		for _, nt := range nets {
-			protocol, ok := tp.protocols.Get(protocolKey(nt))
+			protocol, ok := tpl.protocols.Get(protocolKey(nt))
 			if !ok {
 				err = UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 				continue
@@ -209,13 +221,12 @@ func (tp *stdTransport) Send(network string, target *transport.Target, msg core.
 		// RFC 3261 - 18.2.2.
 	case core.Response:
 		// resolve protocol from Via
-		protocol, ok := tp.protocols.Get(protocolKey(viaHop.Transport))
+		protocol, ok := tpl.protocols.Get(protocolKey(viaHop.Transport))
 		if !ok {
 			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 		}
 		// override target with values from Response headers
 		// resolve host, port from Via
-		target = new(transport.Target)
 		if received, ok := viaHop.Params.Get("received"); ok {
 			target.Host = received.String()
 		} else {
@@ -231,51 +242,51 @@ func (tp *stdTransport) Send(network string, target *transport.Target, msg core.
 	}
 }
 
-func (tp *stdTransport) serveProtocols() {
+func (tpl *transportLayer) serveProtocols() {
 	defer func() {
-		tp.Log().Infof("%s stops serves protocols", tp)
-		tp.dispose()
-		close(tp.done)
+		tpl.Log().Infof("%s stops serves protocols", tpl)
+		tpl.dispose()
+		close(tpl.done)
 	}()
-	tp.Log().Infof("%s begins serve protocols", tp)
+	tpl.Log().Infof("%s begins serve protocols", tpl)
 
 	for {
 		select {
-		case <-tp.cancel:
-			tp.Log().Warnf("%s received cancel signal", tp)
+		case <-tpl.cancel:
+			tpl.Log().Warnf("%s received cancel signal", tpl)
 			return
-		case msg := <-tp.pmsgs:
-			tp.handleMessage(msg)
-		case err := <-tp.perrs:
-			tp.handlerError(err)
+		case msg := <-tpl.pmsgs:
+			tpl.handleMessage(msg)
+		case err := <-tpl.perrs:
+			tpl.handlerError(err)
 		}
 	}
 }
 
-func (tp *stdTransport) dispose() {
-	tp.Log().Debugf("%s disposing...")
+func (tpl *transportLayer) dispose() {
+	tpl.Log().Debugf("%s disposing...")
 	// wait for protocols
-	protocols := tp.protocols.All()
+	protocols := tpl.protocols.All()
 	wg := new(sync.WaitGroup)
 	wg.Add(len(protocols))
 	for _, protocol := range protocols {
-		tp.protocols.Drop(protocolKey(protocol.Network()))
+		tpl.protocols.Drop(protocolKey(protocol.Network()))
 		go func(wg *sync.WaitGroup, protocol transport.Protocol) {
 			defer wg.Done()
 			<-protocol.Done()
 		}(wg, protocol)
 	}
 	wg.Wait()
-	close(tp.pmsgs)
-	close(tp.perrs)
-	close(tp.msgs)
-	close(tp.errs)
+	close(tpl.pmsgs)
+	close(tpl.perrs)
+	close(tpl.msgs)
+	close(tpl.errs)
 }
 
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
-func (tp *stdTransport) handleMessage(incomingMsg *core.IncomingMessage) {
-	tp.Log().Debugf("%s received %s", tp, incomingMsg)
+func (tpl *transportLayer) handleMessage(incomingMsg *core.IncomingMessage) {
+	tpl.Log().Debugf("%s received %s", tpl, incomingMsg)
 
 	msg := incomingMsg.Msg
 	switch incomingMsg.Msg.(type) {
@@ -284,9 +295,9 @@ func (tp *stdTransport) handleMessage(incomingMsg *core.IncomingMessage) {
 		// RFC 3261 - 18.1.2. - Receiving Responses.
 		viaHop, ok := msg.ViaHop()
 		if !ok {
-			tp.Log().Warnf(
+			tpl.Log().Warnf(
 				"%s discards malformed response %s %s -> %s over %s: empty or malformed 'Via' header",
-				tp,
+				tpl,
 				msg.Short(),
 				incomingMsg.RAddr,
 				incomingMsg.LAddr,
@@ -295,17 +306,17 @@ func (tp *stdTransport) handleMessage(incomingMsg *core.IncomingMessage) {
 			return
 		}
 
-		if viaHop.Host != tp.HostAddr() {
-			tp.Log().Warnf(
+		if viaHop.Host != tpl.HostAddr() {
+			tpl.Log().Warnf(
 				"%s discards unexpected response %s %s -> %s over %s: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
-				tp,
+				tpl,
 				msg.Short(),
 				incomingMsg.RAddr,
 				incomingMsg.LAddr,
 				incomingMsg.Network,
 				viaHop.Host,
-				tp.HostAddr(),
+				tpl.HostAddr(),
 			)
 			return
 		}
@@ -319,8 +330,8 @@ func (tp *stdTransport) handleMessage(incomingMsg *core.IncomingMessage) {
 				Err: fmt.Errorf("empty or malformed required 'Via' header %s", viaHop),
 				Msg: msg.String(),
 			}
-			tp.Log().Debugf("%s passes up %s", tp, err)
-			tp.errs <- err
+			tpl.Log().Debugf("%s passes up %s", tpl, err)
+			tpl.errs <- err
 			return
 		}
 
@@ -332,12 +343,12 @@ func (tp *stdTransport) handleMessage(incomingMsg *core.IncomingMessage) {
 				Op:  "extract remote host",
 				Net: incomingMsg.Network,
 			}
-			tp.Log().Debugf("%s passes up %s", tp, err)
-			tp.errs <- err
+			tpl.Log().Debugf("%s passes up %s", tpl, err)
+			tpl.errs <- err
 			return
 		}
 		if viaHop.Host != rhost {
-			tp.Log().Debugf(
+			tpl.Log().Debugf(
 				"host %s from the first 'Via' header differs from the actual source address %s of the message %s: "+
 					"'received' parameter will be added",
 				viaHop.Host,
@@ -348,9 +359,9 @@ func (tp *stdTransport) handleMessage(incomingMsg *core.IncomingMessage) {
 		}
 	default:
 		// unsupported message received, log and discard
-		tp.Log().Warnf(
+		tpl.Log().Warnf(
 			"%s discards unsupported message %s %s -> %s over %s",
-			tp,
+			tpl,
 			msg.Short(),
 			incomingMsg.RAddr,
 			incomingMsg.LAddr,
@@ -359,22 +370,22 @@ func (tp *stdTransport) handleMessage(incomingMsg *core.IncomingMessage) {
 		return
 	}
 
-	tp.Log().Debugf("%s passes up %s", tp, incomingMsg)
+	tpl.Log().Debugf("%s passes up %s", tpl, incomingMsg)
 	// pass up message
-	tp.msgs <- incomingMsg
+	tpl.msgs <- incomingMsg
 }
 
-func (tp *stdTransport) handlerError(err error) {
-	tp.Log().Debugf("%s received %s", tp, err)
+func (tpl *transportLayer) handlerError(err error) {
+	tpl.Log().Debugf("%s received %s", tpl, err)
 	// TODO: implement re-connection strategy for listeners
 	if err, ok := err.(transport.Error); ok {
 		// currently log and ignore
-		tp.Log().Error(err)
+		tpl.Log().Error(err)
 		return
 	}
 	// core.Message errors
-	tp.Log().Debugf("%s passes up %s", tp, err)
-	tp.errs <- err
+	tpl.Log().Debugf("%s passes up %s", tpl, err)
+	tpl.errs <- err
 }
 
 type protocolKey string

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
 	"github.com/ghettovoice/gosip/util"
@@ -22,7 +23,7 @@ var _ = Describe("ConnectionHandler", func() {
 		conn           transport.Connection
 		handler        transport.ConnectionHandler
 	)
-	addr := &mockAddr{"tcp", localAddr1}
+	addr := &testutils.MockAddr{"tcp", localAddr1}
 	key := transport.ConnectionKey(addr.String())
 	inviteMsg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
@@ -54,8 +55,8 @@ var _ = Describe("ConnectionHandler", func() {
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
-			client = &mockConn{c1, c1.LocalAddr(), addr}
-			server = &mockConn{c2, addr, c2.RemoteAddr()}
+			client = &testutils.MockConn{c1, c1.LocalAddr(), addr}
+			server = &testutils.MockConn{c2, addr, c2.RemoteAddr()}
 			conn = transport.NewConnection(server)
 		})
 		AfterEach(func() {
@@ -120,8 +121,8 @@ var _ = Describe("ConnectionHandler", func() {
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
-			client = &mockConn{c1, c1.LocalAddr(), addr}
-			server = &mockConn{c2, addr, c2.RemoteAddr()}
+			client = &testutils.MockConn{c1, c1.LocalAddr(), addr}
+			server = &testutils.MockConn{c2, addr, c2.RemoteAddr()}
 			conn = transport.NewConnection(server)
 		})
 		AfterEach(func() {
@@ -141,29 +142,29 @@ var _ = Describe("ConnectionHandler", func() {
 		Context("when new data arrives", func() {
 			JustBeforeEach(func() {
 				go func() {
-					writeToConn(client, []byte(inviteMsg))
+					testutils.WriteToConn(client, []byte(inviteMsg))
 					time.Sleep(time.Millisecond)
-					writeToConn(client, []byte(bullshit))
+					testutils.WriteToConn(client, []byte(bullshit))
 					time.Sleep(time.Millisecond)
-					writeToConn(client, []byte(malformedMsg1))
+					testutils.WriteToConn(client, []byte(malformedMsg1))
 					time.Sleep(time.Millisecond)
-					writeToConn(client, []byte(malformedMsg2))
+					testutils.WriteToConn(client, []byte(malformedMsg2))
 					time.Sleep(time.Millisecond)
-					writeToConn(client, []byte(inviteMsg))
+					testutils.WriteToConn(client, []byte(inviteMsg))
 				}()
 			})
 
 			It("should read, parse and pipe to output", func(done Done) {
 				By("first message arrives on output")
-				assertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
+				testutils.AssertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
 				By("bullshit arrives and ignored")
 				time.Sleep(time.Millisecond)
 				By("malformed message 1 arrives on errs")
-				assertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
+				testutils.AssertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
 				By("malformed message 2 arrives on errs")
-				assertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
+				testutils.AssertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
 				By("second message arrives on output")
-				assertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
+				testutils.AssertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
 				//for i := 0; i < 10; i++ {
 				//	select {
 				//	case msg := <-output:
@@ -236,7 +237,7 @@ var _ = Describe("ConnectionHandler", func() {
 					conn.Close()
 				})
 				It("should send error and resolve Done chan", func(done Done) {
-					assertIncomingErrorArrived(errs, "io: read/write on closed pipe")
+					testutils.AssertIncomingErrorArrived(errs, "io: read/write on closed pipe")
 					<-handler.Done()
 					close(done)
 				}, 3)
@@ -252,9 +253,9 @@ var _ = Describe("ConnectionPool", func() {
 		cancel chan struct{}
 		pool   transport.ConnectionPool
 	)
-	addr1 := &mockAddr{"tcp", localAddr1}
-	addr2 := &mockAddr{"tcp", localAddr2}
-	addr3 := &mockAddr{"tcp", localAddr3}
+	addr1 := &testutils.MockAddr{"tcp", localAddr1}
+	addr2 := &testutils.MockAddr{"tcp", localAddr2}
+	addr3 := &testutils.MockAddr{"tcp", localAddr3}
 	key1 := transport.ConnectionKey(addr1.String())
 	key2 := transport.ConnectionKey(addr2.String())
 	key3 := transport.ConnectionKey(addr3.String())
@@ -316,8 +317,8 @@ var _ = Describe("ConnectionPool", func() {
 			expected = fmt.Sprintf("%s canceled", pool)
 
 			c1, c2 := net.Pipe()
-			client = &mockConn{c1, c1.LocalAddr(), addr1}
-			server = &mockConn{c2, addr1, c2.RemoteAddr()}
+			client = &testutils.MockConn{c1, c1.LocalAddr(), addr1}
+			server = &testutils.MockConn{c2, addr1, c2.RemoteAddr()}
 
 			close(cancel)
 			time.Sleep(time.Millisecond)
@@ -358,8 +359,8 @@ var _ = Describe("ConnectionPool", func() {
 
 		createConn := func(addr net.Addr) (transport.Connection, transport.Connection) {
 			c1, c2 := net.Pipe()
-			client := transport.NewConnection(&mockConn{c1, c1.LocalAddr(), addr})
-			server := transport.NewConnection(&mockConn{c2, addr, c2.RemoteAddr()})
+			client := transport.NewConnection(&testutils.MockConn{c1, c1.LocalAddr(), addr})
+			server := transport.NewConnection(&testutils.MockConn{c2, addr, c2.RemoteAddr()})
 			return client, server
 		}
 
@@ -575,32 +576,32 @@ var _ = Describe("ConnectionPool", func() {
 				BeforeEach(func() {
 					go func() {
 						time.Sleep(50 * time.Millisecond)
-						writeToConn(client1, []byte(msg1))
+						testutils.WriteToConn(client1, []byte(msg1))
 					}()
 					go func() {
 						time.Sleep(10 * time.Millisecond)
-						writeToConn(client2, []byte(msg2))
+						testutils.WriteToConn(client2, []byte(msg2))
 						time.Sleep(20 * time.Millisecond)
 						timing.Elapse(ttl2 + time.Nanosecond)
 					}()
 					go func() {
 						time.Sleep(20 * time.Millisecond)
-						writeToConn(client3, []byte(msg3))
+						testutils.WriteToConn(client3, []byte(msg3))
 						time.Sleep(20 * time.Millisecond)
 						server3.Close()
 					}()
 				})
 				It("should pipe handler outputs to self outputs", func(done Done) {
 					By(fmt.Sprintf("message msg2 arrives %s -> %s", server2.RemoteAddr(), server2.LocalAddr()))
-					assertIncomingMessageArrived(output, msg2, server2.LocalAddr().String(), client2.LocalAddr().String())
+					testutils.AssertIncomingMessageArrived(output, msg2, server2.LocalAddr().String(), client2.LocalAddr().String())
 					By(fmt.Sprintf("malformed message msg3 arrives %s -> %s", server3.RemoteAddr(), server3.LocalAddr()))
-					assertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
+					testutils.AssertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
 					By("server2 expired error arrives and ignored")
 					time.Sleep(time.Millisecond)
 					By("server3 falls with error")
-					assertIncomingErrorArrived(errs, fmt.Sprintf("read pipe->%s: io: read/write on closed pipe", server3.LocalAddr()))
+					testutils.AssertIncomingErrorArrived(errs, fmt.Sprintf("read pipe->%s: io: read/write on closed pipe", server3.LocalAddr()))
 					By(fmt.Sprintf("message msg1 arrives %s -> %s", server1.RemoteAddr(), server1.LocalAddr()))
-					assertIncomingMessageArrived(output, msg1, server1.LocalAddr().String(), server1.RemoteAddr().String())
+					testutils.AssertIncomingMessageArrived(output, msg1, server1.LocalAddr().String(), server1.RemoteAddr().String())
 					close(done)
 				}, 3)
 			})

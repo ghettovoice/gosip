@@ -76,7 +76,7 @@ type Message interface {
 	// CallId returns 'Call-Id' header.
 	CallId() (*CallId, bool)
 	// Via returns the top 'Via' header field.
-	Via() (*ViaHeader, bool)
+	Via() (ViaHeader, bool)
 	// ViaHop returns the first segment of the top 'Via' header.
 	ViaHop() (*ViaHop, bool)
 	// From returns 'From' header field.
@@ -204,12 +204,12 @@ func (hs *headers) CallId() (*CallId, bool) {
 	return callId, true
 }
 
-func (hs *headers) Via() (*ViaHeader, bool) {
+func (hs *headers) Via() (ViaHeader, bool) {
 	hdrs := hs.GetHeaders("Via")
 	if len(hdrs) == 0 {
 		return nil, false
 	}
-	via, ok := hdrs[0].(*ViaHeader)
+	via, ok := (hdrs[0]).(ViaHeader)
 	if !ok {
 		return nil, false
 	}
@@ -222,7 +222,7 @@ func (hs *headers) ViaHop() (*ViaHop, bool) {
 	if !ok {
 		return nil, false
 	}
-	hops := []*ViaHop(*via)
+	hops := []*ViaHop(via)
 	if len(hops) == 0 {
 		return nil, false
 	}
@@ -424,4 +424,13 @@ func (msg *IncomingMessage) String() string {
 	}
 
 	return s
+}
+
+// Copy all headers of one type from one message to another.
+// Appending to any headers that were already there.
+func CopyHeaders(name string, from, to Message) {
+	name = strings.ToLower(name)
+	for _, h := range from.GetHeaders(name) {
+		to.AppendHeader(h.Clone())
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -14,7 +15,7 @@ var _ = Describe("Connection", func() {
 	Describe("construct", func() {
 		Context("from net.UDPConn", func() {
 			It("should set connection params", func() {
-				cUdpConn, sUdpConn := createPacketClientServer("udp", localAddr1)
+				cUdpConn, sUdpConn := testutils.CreatePacketClientServer("udp", localAddr1)
 				defer func() {
 					cUdpConn.Close()
 					sUdpConn.Close()
@@ -33,7 +34,7 @@ var _ = Describe("Connection", func() {
 
 		Context("from net.TCPConn", func() {
 			It("should set connection params", func() {
-				cTcpConn, sTcpConn := createStreamClientServer("tcp", localAddr1)
+				cTcpConn, sTcpConn := testutils.CreateStreamClientServer("tcp", localAddr1)
 				defer func() {
 					cTcpConn.Close()
 					sTcpConn.Close()
@@ -57,7 +58,7 @@ var _ = Describe("Connection", func() {
 
 		Context("with net.UDPConn", func() {
 			It("should read and write data", func() {
-				cUdpConn, sUdpConn := createPacketClientServer("udp", localAddr1)
+				cUdpConn, sUdpConn := testutils.CreatePacketClientServer("udp", localAddr1)
 				defer func() {
 					cUdpConn.Close()
 					sUdpConn.Close()

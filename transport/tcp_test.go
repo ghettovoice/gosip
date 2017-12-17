@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
@@ -113,45 +114,45 @@ var _ = Describe("TcpProtocol", func() {
 
 		Context("when 3 clients connects and sends data", func() {
 			BeforeEach(func() {
-				client1 = createClient(network, localTarget1.Addr(), clientAddr1)
-				client2 = createClient(network, localTarget2.Addr(), clientAddr2)
-				client3 = createClient(network, localTarget1.Addr(), clientAddr3)
+				client1 = testutils.CreateClient(network, localTarget1.Addr(), clientAddr1)
+				client2 = testutils.CreateClient(network, localTarget2.Addr(), clientAddr2)
+				client3 = testutils.CreateClient(network, localTarget1.Addr(), clientAddr3)
 				wg.Add(3)
 				go func() {
 					defer wg.Done()
 					time.Sleep(time.Millisecond)
-					writeToConn(client1, []byte(msg1))
+					testutils.WriteToConn(client1, []byte(msg1))
 				}()
 				go func() {
 					defer wg.Done()
 					time.Sleep(100 * time.Millisecond)
-					writeToConn(client2, []byte(msg2))
+					testutils.WriteToConn(client2, []byte(msg2))
 					time.Sleep(200 * time.Millisecond)
-					writeToConn(client2, []byte(bullshit))
+					testutils.WriteToConn(client2, []byte(bullshit))
 					time.Sleep(200 * time.Millisecond)
-					writeToConn(client2, []byte(msg2))
+					testutils.WriteToConn(client2, []byte(msg2))
 				}()
 				go func() {
 					defer wg.Done()
 					time.Sleep(50 * time.Millisecond)
-					writeToConn(client3, []byte(broken))
+					testutils.WriteToConn(client3, []byte(broken))
 					time.Sleep(100 * time.Millisecond)
-					writeToConn(client3, []byte(msg3))
+					testutils.WriteToConn(client3, []byte(msg3))
 				}()
 			})
 			It("should pipe incoming messages and errors", func(done Done) {
-				By(fmt.Sprintf("msg1 arrives on output from client1 %s -> %s", clientAddr1, localTarget1.Addr()))
-				assertIncomingMessageArrived(output, msg1, localTarget1.Addr(), clientAddr1)
-				By(fmt.Sprintf("broken message arrives from client3 and ignored %s -> %s", clientAddr3, localTarget1.Addr()))
+				By(fmt.Sprintf("msg1 arrives on output from client1 %s -> %s", client1.LocalAddr().String(), localTarget1.Addr()))
+				testutils.AssertIncomingMessageArrived(output, msg1, localTarget1.Addr(), client1.LocalAddr().String())
+				By(fmt.Sprintf("broken message arrives from client3 and ignored %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
 				time.Sleep(time.Millisecond)
-				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", clientAddr2, localTarget2.Addr()))
-				assertIncomingMessageArrived(output, msg2, localTarget2.Addr(), clientAddr2)
-				By(fmt.Sprintf("msg3 arrives on output from client3 %s -> %s", clientAddr3, localTarget1.Addr()))
-				assertIncomingMessageArrived(output, msg3, localTarget1.Addr(), clientAddr3)
-				By(fmt.Sprintf("bullshit arrives from client2 and ignored %s -> %s", clientAddr2, localTarget2.Addr()))
+				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
+				testutils.AssertIncomingMessageArrived(output, msg2, localTarget2.Addr(), client2.LocalAddr().String())
+				By(fmt.Sprintf("msg3 arrives on output from client3 %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
+				testutils.AssertIncomingMessageArrived(output, msg3, localTarget1.Addr(), client3.LocalAddr().String())
+				By(fmt.Sprintf("bullshit arrives from client2 and ignored %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
 				time.Sleep(time.Millisecond)
-				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", clientAddr2, localTarget2.Addr()))
-				assertIncomingMessageArrived(output, msg2, localTarget2.Addr(), clientAddr2)
+				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
+				testutils.AssertIncomingMessageArrived(output, msg2, localTarget2.Addr(), client2.LocalAddr().String())
 				//for i := 0; i < 4; i++ {
 				//	select {
 				//	case msg := <-output:
@@ -166,20 +167,20 @@ var _ = Describe("TcpProtocol", func() {
 
 		Context("when client1 sends invite request", func() {
 			BeforeEach(func() {
-				client1 = createClient(network, localTarget1.Addr(), clientAddr1)
+				client1 = testutils.CreateClient(network, localTarget1.Addr(), clientAddr1)
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
 					time.Sleep(100 * time.Millisecond)
-					writeToConn(client1, []byte(msg1))
+					testutils.WriteToConn(client1, []byte(msg1))
 				}()
 			})
 			It("should receive message and response with 200 OK", func(done Done) {
 				By("msg1 arrives")
-				assertIncomingMessageArrived(output, msg1, localTarget1.Addr(), clientAddr1)
+				testutils.AssertIncomingMessageArrived(output, msg1, localTarget1.Addr(), client1.LocalAddr().String())
 
 				By("prepare response 200 OK")
-				clientTarget, err := transport.NewTargetFromAddr(clientAddr1)
+				clientTarget, err := transport.NewTargetFromAddr(client1.LocalAddr().String())
 				Expect(clientTarget).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
 				msg := core.NewResponse(

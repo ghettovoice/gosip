@@ -1022,32 +1022,32 @@ func TestViaHeaders(t *testing.T) {
 	fooEqSlashBar := core.NewParams().Add("foo", core.String{Str: "//bar"})
 	singleFoo := core.NewParams().Add("foo", nil)
 	doTests([]test{
-		{viaInput("Via: SIP/2.0/UDP pc33.atlanta.com"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
-		{viaInput("Via: bAzz/fooo/BAAR pc33.atlanta.com"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"bAzz", "fooo", "BAAR", "pc33.atlanta.com", nil, noParams}}}},
-		{viaInput("Via: SIP/2.0/UDP pc33.atlanta.com"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
-		{viaInput("Via: SIP /\t2.0 / UDP pc33.atlanta.com"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
-		{viaInput("Via: SIP /\n 2.0 / UDP pc33.atlanta.com"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
-		{viaInput("Via:\tSIP/2.0/UDP pc33.atlanta.com"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
-		{viaInput("Via:\n SIP/2.0/UDP pc33.atlanta.com"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
-		{viaInput("Via: SIP/2.0/UDP box:5060"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, noParams}}}},
-		{viaInput("Via: SIP/2.0/UDP box;foo=bar"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", nil, fooEqBar}}}},
-		{viaInput("Via: SIP/2.0/UDP box:5060;foo=bar"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, fooEqBar}}}},
-		{viaInput("Via: SIP/2.0/UDP box:5060;foo"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, singleFoo}}}},
-		{viaInput("Via: SIP/2.0/UDP box:5060;foo=//bar"), &viaResult{pass, &core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, fooEqSlashBar}}}},
-		{viaInput("Via: /2.0/UDP box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: SIP//UDP box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: SIP/2.0/ box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via:  /2.0/UDP box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: SIP/ /UDP box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: SIP/2.0/  box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: \t/2.0/UDP box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: SIP/\t/UDP box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: SIP/2.0/\t  box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via:"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: "), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via:\t"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: box:5060"), &viaResult{fail, &core.ViaHeader{}}},
-		{viaInput("Via: box:5060;foo=bar"), &viaResult{fail, &core.ViaHeader{}}},
+		{viaInput("Via: SIP/2.0/UDP pc33.atlanta.com"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
+		{viaInput("Via: bAzz/fooo/BAAR pc33.atlanta.com"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"bAzz", "fooo", "BAAR", "pc33.atlanta.com", nil, noParams}}}},
+		{viaInput("Via: SIP/2.0/UDP pc33.atlanta.com"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
+		{viaInput("Via: SIP /\t2.0 / UDP pc33.atlanta.com"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
+		{viaInput("Via: SIP /\n 2.0 / UDP pc33.atlanta.com"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
+		{viaInput("Via:\tSIP/2.0/UDP pc33.atlanta.com"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
+		{viaInput("Via:\n SIP/2.0/UDP pc33.atlanta.com"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "pc33.atlanta.com", nil, noParams}}}},
+		{viaInput("Via: SIP/2.0/UDP box:5060"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, noParams}}}},
+		{viaInput("Via: SIP/2.0/UDP box;foo=bar"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", nil, fooEqBar}}}},
+		{viaInput("Via: SIP/2.0/UDP box:5060;foo=bar"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, fooEqBar}}}},
+		{viaInput("Via: SIP/2.0/UDP box:5060;foo"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, singleFoo}}}},
+		{viaInput("Via: SIP/2.0/UDP box:5060;foo=//bar"), &viaResult{pass, core.ViaHeader{&core.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, fooEqSlashBar}}}},
+		{viaInput("Via: /2.0/UDP box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: SIP//UDP box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: SIP/2.0/ box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via:  /2.0/UDP box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: SIP/ /UDP box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: SIP/2.0/  box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: \t/2.0/UDP box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: SIP/\t/UDP box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: SIP/2.0/\t  box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via:"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: "), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via:\t"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: box:5060"), &viaResult{fail, core.ViaHeader{}}},
+		{viaInput("Via: box:5060;foo=bar"), &viaResult{fail, core.ViaHeader{}}},
 	}, t)
 }
 
@@ -1975,9 +1975,9 @@ func (data viaInput) String() string {
 func (data viaInput) evaluate() result {
 	headers, err := parseHeader(string(data))
 	if len(headers) == 0 {
-		return &viaResult{err, &core.ViaHeader{}}
+		return &viaResult{err, core.ViaHeader{}}
 	} else if len(headers) == 1 {
-		return &viaResult{err, headers[0].(*core.ViaHeader)}
+		return &viaResult{err, headers[0].(core.ViaHeader)}
 	} else {
 		panic("got more than one via header on test " + data)
 	}
@@ -1985,7 +1985,7 @@ func (data viaInput) evaluate() result {
 
 type viaResult struct {
 	err    error
-	header *core.ViaHeader
+	header core.ViaHeader
 }
 
 func (expected *viaResult) equals(other result) (equal bool, reason string) {
@@ -1996,17 +1996,17 @@ func (expected *viaResult) equals(other result) (equal bool, reason string) {
 		return false, "unexpected success - got: " + actual.header.String()
 	} else if expected.err != nil {
 		// Got an error, and were expecting one - return with no further checks.
-	} else if len(*expected.header) != len(*actual.header) {
+	} else if len(expected.header) != len(actual.header) {
 		return false,
 			fmt.Sprintf("unexpected number of entries: expected %d; got %d.\n"+
 				"expected the following entries: %s\n"+
 				"got the following entries: %s",
-				len(*expected.header), len(*actual.header),
+				len(expected.header), len(actual.header),
 				expected.header.String(), actual.header.String())
 	}
 
-	for idx, expectedHop := range *expected.header {
-		actualHop := (*actual.header)[idx]
+	for idx, expectedHop := range expected.header {
+		actualHop := (actual.header)[idx]
 		if expectedHop.ProtocolName != actualHop.ProtocolName {
 			return false, fmt.Sprintf("unexpected protocol name '%s' in via entry %d - expected '%s'",
 				actualHop.ProtocolName, idx, expectedHop.ProtocolName)
