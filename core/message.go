@@ -393,39 +393,6 @@ func (msg *message) logFields() map[string]interface{} {
 	return fields
 }
 
-// Incoming message with meta info: remote addr, local addr & etc.
-type IncomingMessage struct {
-	// SIP message
-	Msg Message
-	// Local address to which message arrived
-	LAddr string
-	// Remote address from which message arrived
-	RAddr   string
-	Network string
-}
-
-func (msg *IncomingMessage) String() string {
-	if msg == nil {
-		return "IncomingMessage <nil>"
-	}
-	s := "IncomingMessage " + msg.Msg.Short()
-	parts := make([]string, 0)
-	if msg.Network != "" {
-		parts = append(parts, "net "+msg.Network)
-	}
-	if msg.LAddr != "" {
-		parts = append(parts, "laddr "+msg.LAddr)
-	}
-	if msg.RAddr != "" {
-		parts = append(parts, "raddr "+msg.RAddr)
-	}
-	if len(parts) > 0 {
-		s += " (" + strings.Join(parts, ", ") + ")"
-	}
-
-	return s
-}
-
 // Copy all headers of one type from one message to another.
 // Appending to any headers that were already there.
 func CopyHeaders(name string, from, to Message) {

@@ -14,7 +14,7 @@ type tlsProtocol struct {
 	conns       chan Connection
 }
 
-func NewTlsProtocol(output chan<- *core.IncomingMessage, errs chan<- error, cancel <-chan struct{}) Protocol {
+func NewTlsProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-chan struct{}) Protocol {
 	tls := new(tlsProtocol)
 	tls.network = "tls"
 	tls.reliable = true

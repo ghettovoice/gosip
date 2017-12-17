@@ -2,6 +2,9 @@ package core
 
 import (
 	"fmt"
+	"strings"
+
+	"github.com/ghettovoice/gossip/utils"
 )
 
 // Port number
@@ -114,4 +117,14 @@ type Cancellable interface {
 
 type Awaiting interface {
 	Done() <-chan struct{}
+}
+
+const RFC3261BranchMagicCookie = "z9hG4bK"
+
+// GenerateBranch returns random unique branch ID.
+func GenerateBranch() string {
+	return strings.Join([]string{
+		RFC3261BranchMagicCookie,
+		utils.RandStr(16),
+	}, "")
 }

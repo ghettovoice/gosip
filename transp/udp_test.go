@@ -16,7 +16,7 @@ import (
 
 var _ = Describe("UdpProtocol", func() {
 	var (
-		output                    chan *core.IncomingMessage
+		output                    chan *transp.IncomingMessage
 		errs                      chan error
 		cancel                    chan struct{}
 		protocol                  transp.Protocol
@@ -73,7 +73,7 @@ var _ = Describe("UdpProtocol", func() {
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)
-		output = make(chan *core.IncomingMessage)
+		output = make(chan *transp.IncomingMessage)
 		errs = make(chan error)
 		cancel = make(chan struct{})
 		protocol = transp.NewUdpProtocol(output, errs, cancel)

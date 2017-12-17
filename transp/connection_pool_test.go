@@ -5,7 +5,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transp"
@@ -16,7 +15,7 @@ import (
 
 var _ = Describe("ConnectionHandler", func() {
 	var (
-		output         chan *core.IncomingMessage
+		output         chan *transp.IncomingMessage
 		errs           chan error
 		cancel         chan struct{}
 		client, server net.Conn
@@ -51,7 +50,7 @@ var _ = Describe("ConnectionHandler", func() {
 		var ttl time.Duration
 
 		BeforeEach(func() {
-			output = make(chan *core.IncomingMessage)
+			output = make(chan *transp.IncomingMessage)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
@@ -117,7 +116,7 @@ var _ = Describe("ConnectionHandler", func() {
 		var ttl time.Duration = 0
 
 		BeforeEach(func() {
-			output = make(chan *core.IncomingMessage)
+			output = make(chan *transp.IncomingMessage)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
@@ -248,7 +247,7 @@ var _ = Describe("ConnectionHandler", func() {
 
 var _ = Describe("ConnectionPool", func() {
 	var (
-		output chan *core.IncomingMessage
+		output chan *transp.IncomingMessage
 		errs   chan error
 		cancel chan struct{}
 		pool   transp.ConnectionPool
@@ -293,7 +292,7 @@ var _ = Describe("ConnectionPool", func() {
 
 	Context("just initialized", func() {
 		BeforeEach(func() {
-			output = make(chan *core.IncomingMessage)
+			output = make(chan *transp.IncomingMessage)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			pool = transp.NewConnectionPool(output, errs, cancel)
@@ -310,7 +309,7 @@ var _ = Describe("ConnectionPool", func() {
 		)
 
 		BeforeEach(func() {
-			output = make(chan *core.IncomingMessage)
+			output = make(chan *transp.IncomingMessage)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			pool = transp.NewConnectionPool(output, errs, cancel)
@@ -365,7 +364,7 @@ var _ = Describe("ConnectionPool", func() {
 		}
 
 		BeforeEach(func() {
-			output = make(chan *core.IncomingMessage)
+			output = make(chan *transp.IncomingMessage)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			pool = transp.NewConnectionPool(output, errs, cancel)

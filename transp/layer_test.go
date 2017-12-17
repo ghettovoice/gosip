@@ -1,4 +1,4 @@
-package gosip_test
+package transp_test
 
 import (
 	"fmt"
@@ -6,16 +6,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/testutils"
+	"github.com/ghettovoice/gosip/transp"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("TransportLayer", func() {
 	var (
-		tpl    gosip.TransportLayer
+		tpl    transp.Layer
 		wg     *sync.WaitGroup
 		client net.Conn
 	)
@@ -27,7 +27,7 @@ var _ = Describe("TransportLayer", func() {
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)
-		tpl = gosip.NewTransportLayer(hostAddr)
+		tpl = transp.NewLayer(hostAddr)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
@@ -89,7 +89,7 @@ var _ = Describe("TransportLayer", func() {
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest *core.IncomingMessage
+				var incomingRequest *transp.IncomingMessage
 				var response core.Message
 
 				BeforeEach(func() {
@@ -127,7 +127,7 @@ var _ = Describe("TransportLayer", func() {
 					}()
 					time.Sleep(time.Second)
 					By(fmt.Sprintf("tpl sends response to %s", clientAddr))
-					Expect(tpl.Send(network, clientAddr, response)).ToNot(HaveOccurred())
+					Expect(tpl.Send(clientAddr, response)).ToNot(HaveOccurred())
 
 					twg.Wait()
 					close(done)
@@ -172,7 +172,7 @@ var _ = Describe("TransportLayer", func() {
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest *core.IncomingMessage
+				var incomingRequest *transp.IncomingMessage
 				var response core.Message
 
 				BeforeEach(func() {
@@ -211,7 +211,7 @@ var _ = Describe("TransportLayer", func() {
 					}()
 					time.Sleep(time.Second)
 					By(fmt.Sprintf("tpl sends response to %s", incomingRequest.RAddr))
-					Expect(tpl.Send(network, incomingRequest.RAddr, response)).ToNot(HaveOccurred())
+					Expect(tpl.Send(incomingRequest.RAddr, response)).ToNot(HaveOccurred())
 
 					twg.Wait()
 					close(done)

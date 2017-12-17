@@ -68,11 +68,11 @@ type connectionPool struct {
 	hwg     *sync.WaitGroup
 	store   map[ConnectionKey]ConnectionHandler
 	keys    []ConnectionKey
-	output  chan<- *core.IncomingMessage
+	output  chan<- *IncomingMessage
 	errs    chan<- error
 	cancel  <-chan struct{}
 	done    chan struct{}
-	hmess   chan *core.IncomingMessage
+	hmess   chan *IncomingMessage
 	herrs   chan error
 	gets    chan *connectionRequest
 	updates chan *connectionRequest
@@ -80,7 +80,7 @@ type connectionPool struct {
 	mu      *sync.RWMutex
 }
 
-func NewConnectionPool(output chan<- *core.IncomingMessage, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
+func NewConnectionPool(output chan<- *IncomingMessage, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
 	pool := &connectionPool{
 		logger:  log.NewSafeLocalLogger(),
 		hwg:     new(sync.WaitGroup),
@@ -90,7 +90,7 @@ func NewConnectionPool(output chan<- *core.IncomingMessage, errs chan<- error, c
 		errs:    errs,
 		cancel:  cancel,
 		done:    make(chan struct{}),
-		hmess:   make(chan *core.IncomingMessage),
+		hmess:   make(chan *IncomingMessage),
 		herrs:   make(chan error),
 		gets:    make(chan *connectionRequest),
 		updates: make(chan *connectionRequest),
@@ -457,7 +457,7 @@ type connectionHandler struct {
 	timer      timing.Timer
 	ttl        time.Duration
 	expiry     time.Time
-	output     chan<- *core.IncomingMessage
+	output     chan<- *IncomingMessage
 	errs       chan<- error
 	cancel     <-chan struct{}
 	canceled   chan struct{}
@@ -469,7 +469,7 @@ func NewConnectionHandler(
 	key ConnectionKey,
 	conn Connection,
 	ttl time.Duration,
-	output chan<- *core.IncomingMessage,
+	output chan<- *IncomingMessage,
 	errs chan<- error,
 	cancel <-chan struct{},
 ) ConnectionHandler {
@@ -723,7 +723,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 				return
 			}
 			handler.Log().Infof("%s received message %s; pass it up", handler, msg.Short())
-			handler.output <- &core.IncomingMessage{
+			handler.output <- &IncomingMessage{
 				msg,
 				handler.Connection().LocalAddr().String(),
 				getRemoteAddr(),

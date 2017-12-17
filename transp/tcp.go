@@ -17,7 +17,7 @@ type tcpProtocol struct {
 	conns       chan Connection
 }
 
-func NewTcpProtocol(output chan<- *core.IncomingMessage, errs chan<- error, cancel <-chan struct{}) Protocol {
+func NewTcpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-chan struct{}) Protocol {
 	tcp := new(tcpProtocol)
 	tcp.network = "tcp"
 	tcp.reliable = true

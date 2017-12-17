@@ -6,6 +6,7 @@ import (
 	"github.com/discoviking/fsm"
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/transp"
 )
 
 type Transaction interface {
@@ -13,6 +14,7 @@ type Transaction interface {
 	Origin() core.Request
 	Receive(msg core.Message) error
 	Delete() error
+	Destination() string
 	IsInvite() bool
 	IsAck() bool
 	String() string
@@ -20,9 +22,12 @@ type Transaction interface {
 
 type transaction struct {
 	logger   log.LocalLogger
+	txl      Layer
 	fsm      *fsm.FSM
 	origin   core.Request
 	lastResp core.Response
+	tpl      transp.Layer
+	dest     string
 }
 
 func (tx *transaction) String() string {
@@ -45,6 +50,10 @@ func (tx *transaction) SetLog(logger log.Logger) {
 
 func (tx *transaction) Origin() core.Request {
 	return tx.origin
+}
+
+func (tx *transaction) Destination() string {
+	return tx.dest
 }
 
 func (tx *transaction) IsInvite() bool {

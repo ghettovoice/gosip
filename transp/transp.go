@@ -22,6 +22,39 @@ const (
 	DefaultTlsPort core.Port = 5061
 )
 
+// Incoming message with meta info: remote addr, local addr & etc.
+type IncomingMessage struct {
+	// SIP message
+	Msg core.Message
+	// Local address to which message arrived
+	LAddr string
+	// Remote address from which message arrived
+	RAddr   string
+	Network string
+}
+
+func (msg *IncomingMessage) String() string {
+	if msg == nil {
+		return "IncomingMessage <nil>"
+	}
+	s := "IncomingMessage " + msg.Msg.Short()
+	parts := make([]string, 0)
+	if msg.Network != "" {
+		parts = append(parts, "net "+msg.Network)
+	}
+	if msg.LAddr != "" {
+		parts = append(parts, "laddr "+msg.LAddr)
+	}
+	if msg.RAddr != "" {
+		parts = append(parts, "raddr "+msg.RAddr)
+	}
+	if len(parts) > 0 {
+		s += " (" + strings.Join(parts, ", ") + ")"
+	}
+
+	return s
+}
+
 // Target endpoint
 type Target struct {
 	Host string
@@ -305,4 +338,13 @@ func (err *PoolError) Error() string {
 	s += ": " + err.Err.Error()
 
 	return s
+}
+
+type UnsupportedProtocolError string
+
+func (err UnsupportedProtocolError) Network() bool   { return false }
+func (err UnsupportedProtocolError) Timeout() bool   { return false }
+func (err UnsupportedProtocolError) Temporary() bool { return false }
+func (err UnsupportedProtocolError) Error() string {
+	return "UnsupportedProtocolError: " + string(err)
 }
