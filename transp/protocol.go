@@ -1,4 +1,4 @@
-package transport
+package transp
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ const (
 	sockTTL         = time.Hour
 )
 
-// Protocol implements network specific transport features.
+// Protocol implements network specific features.
 type Protocol interface {
 	log.LocalLogger
 	core.Awaiting

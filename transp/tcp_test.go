@@ -1,4 +1,4 @@
-package transport_test
+package transp_test
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
-	"github.com/ghettovoice/gosip/transport"
+	"github.com/ghettovoice/gosip/transp"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -19,7 +19,7 @@ var _ = Describe("TcpProtocol", func() {
 		output                    chan *core.IncomingMessage
 		errs                      chan error
 		cancel                    chan struct{}
-		protocol                  transport.Protocol
+		protocol                  transp.Protocol
 		client1, client2, client3 net.Conn
 		wg                        *sync.WaitGroup
 	)
@@ -27,8 +27,8 @@ var _ = Describe("TcpProtocol", func() {
 	network := "tcp"
 	port1 := 9060
 	port2 := port1 + 1
-	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
-	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
+	localTarget1 := transp.NewTarget(transp.DefaultHost, port1)
+	localTarget2 := transp.NewTarget(transp.DefaultHost, port2)
 	clientAddr1 := "127.0.0.1:9001"
 	clientAddr2 := "127.0.0.1:9002"
 	clientAddr3 := "127.0.0.1:9003"
@@ -77,7 +77,7 @@ var _ = Describe("TcpProtocol", func() {
 		output = make(chan *core.IncomingMessage)
 		errs = make(chan error)
 		cancel = make(chan struct{})
-		protocol = transport.NewTcpProtocol(output, errs, cancel)
+		protocol = transp.NewTcpProtocol(output, errs, cancel)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
@@ -180,7 +180,7 @@ var _ = Describe("TcpProtocol", func() {
 				testutils.AssertIncomingMessageArrived(output, msg1, localTarget1.Addr(), client1.LocalAddr().String())
 
 				By("prepare response 200 OK")
-				clientTarget, err := transport.NewTargetFromAddr(client1.LocalAddr().String())
+				clientTarget, err := transp.NewTargetFromAddr(client1.LocalAddr().String())
 				Expect(clientTarget).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
 				msg := core.NewResponse(

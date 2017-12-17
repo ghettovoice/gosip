@@ -1,4 +1,4 @@
-package transport_test
+package transp_test
 
 import (
 	"fmt"
@@ -7,31 +7,31 @@ import (
 	"time"
 
 	"github.com/ghettovoice/gosip/testutils"
-	"github.com/ghettovoice/gosip/transport"
+	"github.com/ghettovoice/gosip/transp"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("ListenerHandler", func() {
 	var (
-		output  chan transport.Connection
+		output  chan transp.Connection
 		errs    chan error
 		cancel  chan struct{}
 		ls      *testutils.MockListener
-		handler transport.ListenerHandler
+		handler transp.ListenerHandler
 		wg      *sync.WaitGroup
 	)
 	addr := &testutils.MockAddr{"tcp", localAddr1}
-	key := transport.ListenerKey(addr.String())
+	key := transp.ListenerKey(addr.String())
 	str := "Hello world!"
 
 	Context("just initialized", func() {
 		BeforeEach(func() {
-			output = make(chan transport.Connection)
+			output = make(chan transp.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			ls = testutils.NewMockListener(addr)
-			handler = transport.NewListenerHandler(key, ls, output, errs, cancel)
+			handler = transp.NewListenerHandler(key, ls, output, errs, cancel)
 		})
 
 		It("has ListenerKey", func() {
@@ -44,11 +44,11 @@ var _ = Describe("ListenerHandler", func() {
 
 	Context("serving listener", func() {
 		BeforeEach(func() {
-			output = make(chan transport.Connection)
+			output = make(chan transp.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			ls = testutils.NewMockListener(addr)
-			handler = transport.NewListenerHandler(key, ls, output, errs, cancel)
+			handler = transp.NewListenerHandler(key, ls, output, errs, cancel)
 
 			wg = new(sync.WaitGroup)
 			wg.Add(1)
@@ -133,10 +133,10 @@ var _ = Describe("ListenerHandler", func() {
 
 var _ = Describe("ListenerPool", func() {
 	var (
-		output chan transport.Connection
+		output chan transp.Connection
 		errs   chan error
 		cancel chan struct{}
-		pool   transport.ListenerPool
+		pool   transp.ListenerPool
 	)
 	str1 := "Hello world!"
 	str2 := "Bye!"
@@ -144,9 +144,9 @@ var _ = Describe("ListenerPool", func() {
 	addr1 := &testutils.MockAddr{"tcp", localAddr1}
 	addr2 := &testutils.MockAddr{"tcp", localAddr2}
 	addr3 := &testutils.MockAddr{"tcp", localAddr3}
-	key1 := transport.ListenerKey(addr1.String())
-	key2 := transport.ListenerKey(addr2.String())
-	key3 := transport.ListenerKey(addr3.String())
+	key1 := transp.ListenerKey(addr1.String())
+	key2 := transp.ListenerKey(addr2.String())
+	key3 := transp.ListenerKey(addr3.String())
 
 	AssertIsEmpty := func() {
 		Expect(pool.Length()).To(Equal(0))
@@ -160,10 +160,10 @@ var _ = Describe("ListenerPool", func() {
 
 	Context("just initialized", func() {
 		BeforeEach(func() {
-			output = make(chan transport.Connection)
+			output = make(chan transp.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewListenerPool(output, errs, cancel)
+			pool = transp.NewListenerPool(output, errs, cancel)
 		})
 
 		ShouldBeEmpty()
@@ -176,10 +176,10 @@ var _ = Describe("ListenerPool", func() {
 		)
 
 		BeforeEach(func() {
-			output = make(chan transport.Connection)
+			output = make(chan transp.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewListenerPool(output, errs, cancel)
+			pool = transp.NewListenerPool(output, errs, cancel)
 			expected = fmt.Sprintf("%s canceled", pool)
 
 			close(cancel)
@@ -220,10 +220,10 @@ var _ = Describe("ListenerPool", func() {
 		)
 
 		BeforeEach(func() {
-			output = make(chan transport.Connection)
+			output = make(chan transp.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewListenerPool(output, errs, cancel)
+			pool = transp.NewListenerPool(output, errs, cancel)
 
 			ls1 = testutils.NewMockListener(addr1)
 			ls2 = testutils.NewMockListener(addr2)
@@ -375,7 +375,7 @@ var _ = Describe("ListenerPool", func() {
 
 				It("should send error to errs chan", func() {
 					Expect(err.Error()).To(ContainSubstring("listener closed"))
-					if err, ok := err.(transport.Error); ok {
+					if err, ok := err.(transp.Error); ok {
 						Expect(err.Network()).To(BeTrue())
 					} else {
 						Fail("error from failed listener must be of transport.Error type")

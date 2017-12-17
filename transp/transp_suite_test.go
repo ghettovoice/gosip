@@ -1,4 +1,4 @@
-package transport_test
+package transp_test
 
 import (
 	"fmt"
@@ -7,18 +7,18 @@ import (
 	"testing"
 
 	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/transport"
+	"github.com/ghettovoice/gosip/transp"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 var (
-	localAddr1 = fmt.Sprintf("%v:%v", transport.DefaultHost, transport.DefaultTcpPort)
-	localAddr2 = fmt.Sprintf("%v:%v", transport.DefaultHost, transport.DefaultTcpPort+1)
-	localAddr3 = fmt.Sprintf("%v:%v", transport.DefaultHost, transport.DefaultTcpPort+2)
+	localAddr1 = fmt.Sprintf("%v:%v", transp.DefaultHost, transp.DefaultTcpPort)
+	localAddr2 = fmt.Sprintf("%v:%v", transp.DefaultHost, transp.DefaultTcpPort+1)
+	localAddr3 = fmt.Sprintf("%v:%v", transp.DefaultHost, transp.DefaultTcpPort+2)
 )
 
-func TestTransport(t *testing.T) {
+func TestTransp(t *testing.T) {
 	// setup logger
 	lvl := log.ErrorLevel
 	forceColor := true
@@ -35,5 +35,5 @@ func TestTransport(t *testing.T) {
 	// setup Ginkgo
 	RegisterFailHandler(Fail)
 	RegisterTestingT(t)
-	RunSpecs(t, "Transport Suite")
+	RunSpecs(t, "Transp Suite")
 }

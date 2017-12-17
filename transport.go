@@ -9,7 +9,7 @@ import (
 
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/transport"
+	"github.com/ghettovoice/gosip/transp"
 )
 
 type UnsupportedProtocolError string
@@ -19,15 +19,6 @@ func (err UnsupportedProtocolError) Timeout() bool   { return false }
 func (err UnsupportedProtocolError) Temporary() bool { return false }
 func (err UnsupportedProtocolError) Error() string {
 	return "UnsupportedProtocolError: " + string(err)
-}
-
-type AlreadyRegisteredProtocolError string
-
-func (err AlreadyRegisteredProtocolError) Network() bool   { return false }
-func (err AlreadyRegisteredProtocolError) Timeout() bool   { return false }
-func (err AlreadyRegisteredProtocolError) Temporary() bool { return false }
-func (err AlreadyRegisteredProtocolError) Error() string {
-	return "AlreadyRegisteredProtocolError: " + string(err)
 }
 
 // TransportLayer layer is responsible for the actual transmission of messages - RFC 3261 - 18.
@@ -45,29 +36,29 @@ type TransportLayer interface {
 	String() string
 }
 
-var protocolFactory transport.ProtocolFactory = func(
+var protocolFactory transp.ProtocolFactory = func(
 	network string,
 	output chan<- *core.IncomingMessage,
 	errs chan<- error,
 	cancel <-chan struct{},
-) (transport.Protocol, error) {
+) (transp.Protocol, error) {
 	switch strings.ToLower(network) {
 	case "udp":
-		return transport.NewUdpProtocol(output, errs, cancel), nil
+		return transp.NewUdpProtocol(output, errs, cancel), nil
 	case "tcp":
-		return transport.NewTcpProtocol(output, errs, cancel), nil
+		return transp.NewTcpProtocol(output, errs, cancel), nil
 	default:
 		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 	}
 }
 
 // SetProtocolFactory replaces default protocol factory
-func SetProtocolFactory(factory transport.ProtocolFactory) {
+func SetProtocolFactory(factory transp.ProtocolFactory) {
 	protocolFactory = factory
 }
 
 // ProtocolFactory returns default protocol factory
-func ProtocolFactory() transport.ProtocolFactory {
+func ProtocolFactory() transp.ProtocolFactory {
 	return protocolFactory
 }
 
@@ -161,17 +152,17 @@ func (tpl *transportLayer) Listen(network string, addr string) error {
 		}
 		tpl.protocols.Put(protocolKey(protocol.Network()), protocol)
 	}
-	target, err := transport.NewTargetFromAddr(addr)
+	target, err := transp.NewTargetFromAddr(addr)
 	if err != nil {
 		return err
 	}
-	target = transport.FillTargetHostAndPort(network, target)
+	target = transp.FillTargetHostAndPort(network, target)
 	return protocol.Listen(target)
 }
 
 func (tpl *transportLayer) Send(network string, addr string, msg core.Message) error {
 	nets := make([]string, 0)
-	target, err := transport.NewTargetFromAddr(addr)
+	target, err := transp.NewTargetFromAddr(addr)
 	if err != nil {
 		return err
 	}
@@ -191,8 +182,8 @@ func (tpl *transportLayer) Send(network string, addr string, msg core.Message) e
 		// rewrite sent-by host
 		viaHop.Host = tpl.HostAddr()
 		// todo check for reliable/non-reliable
-		if strings.ToLower(viaHop.Transport) == "udp" && msgLen > int(transport.MTU)-200 {
-			nets = append(nets, transport.DefaultProtocol, viaHop.Transport)
+		if strings.ToLower(viaHop.Transport) == "udp" && msgLen > int(transp.MTU)-200 {
+			nets = append(nets, transp.DefaultProtocol, viaHop.Transport)
 		} else {
 			nets = append(nets, viaHop.Transport)
 		}
@@ -207,7 +198,7 @@ func (tpl *transportLayer) Send(network string, addr string, msg core.Message) e
 			// rewrite sent-by transport
 			viaHop.Transport = nt
 			// rewrite sent-by port
-			defPort := transport.DefaultPort(nt)
+			defPort := transp.DefaultPort(nt)
 			if viaHop.Port == nil {
 				viaHop.Port = &defPort
 			}
@@ -271,7 +262,7 @@ func (tpl *transportLayer) dispose() {
 	wg.Add(len(protocols))
 	for _, protocol := range protocols {
 		tpl.protocols.Drop(protocolKey(protocol.Network()))
-		go func(wg *sync.WaitGroup, protocol transport.Protocol) {
+		go func(wg *sync.WaitGroup, protocol transp.Protocol) {
 			defer wg.Done()
 			<-protocol.Done()
 		}(wg, protocol)
@@ -378,7 +369,7 @@ func (tpl *transportLayer) handleMessage(incomingMsg *core.IncomingMessage) {
 func (tpl *transportLayer) handlerError(err error) {
 	tpl.Log().Debugf("%s received %s", tpl, err)
 	// TODO: implement re-connection strategy for listeners
-	if err, ok := err.(transport.Error); ok {
+	if err, ok := err.(transp.Error); ok {
 		// currently log and ignore
 		tpl.Log().Error(err)
 		return
@@ -393,23 +384,23 @@ type protocolKey string
 // Thread-safe protocols pool.
 type protocolStore struct {
 	mu        *sync.RWMutex
-	protocols map[protocolKey]transport.Protocol
+	protocols map[protocolKey]transp.Protocol
 }
 
 func NewProtocolStore() *protocolStore {
 	return &protocolStore{
 		mu:        new(sync.RWMutex),
-		protocols: make(map[protocolKey]transport.Protocol),
+		protocols: make(map[protocolKey]transp.Protocol),
 	}
 }
 
-func (store *protocolStore) Put(key protocolKey, protocol transport.Protocol) {
+func (store *protocolStore) Put(key protocolKey, protocol transp.Protocol) {
 	store.mu.Lock()
 	store.protocols[key] = protocol
 	store.mu.Unlock()
 }
 
-func (store *protocolStore) Get(key protocolKey) (transport.Protocol, bool) {
+func (store *protocolStore) Get(key protocolKey) (transp.Protocol, bool) {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	protocol, ok := store.protocols[key]
@@ -426,8 +417,8 @@ func (store *protocolStore) Drop(key protocolKey) bool {
 	return true
 }
 
-func (store *protocolStore) All() []transport.Protocol {
-	all := make([]transport.Protocol, 0)
+func (store *protocolStore) All() []transp.Protocol {
+	all := make([]transp.Protocol, 0)
 	for key := range store.protocols {
 		if protocol, ok := store.Get(key); ok {
 			all = append(all, protocol)

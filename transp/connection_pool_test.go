@@ -1,4 +1,4 @@
-package transport_test
+package transp_test
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
-	"github.com/ghettovoice/gosip/transport"
+	"github.com/ghettovoice/gosip/transp"
 	"github.com/ghettovoice/gosip/util"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -20,11 +20,11 @@ var _ = Describe("ConnectionHandler", func() {
 		errs           chan error
 		cancel         chan struct{}
 		client, server net.Conn
-		conn           transport.Connection
-		handler        transport.ConnectionHandler
+		conn           transp.Connection
+		handler        transp.ConnectionHandler
 	)
 	addr := &testutils.MockAddr{"tcp", localAddr1}
-	key := transport.ConnectionKey(addr.String())
+	key := transp.ConnectionKey(addr.String())
 	inviteMsg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
 		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
@@ -57,7 +57,7 @@ var _ = Describe("ConnectionHandler", func() {
 			c1, c2 := net.Pipe()
 			client = &testutils.MockConn{c1, c1.LocalAddr(), addr}
 			server = &testutils.MockConn{c2, addr, c2.RemoteAddr()}
-			conn = transport.NewConnection(server)
+			conn = transp.NewConnection(server)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -68,7 +68,7 @@ var _ = Describe("ConnectionHandler", func() {
 			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
+			handler = transp.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
 		})
 
 		HasCorrectKeyAndConn := func() {
@@ -123,7 +123,7 @@ var _ = Describe("ConnectionHandler", func() {
 			c1, c2 := net.Pipe()
 			client = &testutils.MockConn{c1, c1.LocalAddr(), addr}
 			server = &testutils.MockConn{c2, addr, c2.RemoteAddr()}
-			conn = transport.NewConnection(server)
+			conn = transp.NewConnection(server)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -135,7 +135,7 @@ var _ = Describe("ConnectionHandler", func() {
 			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
+			handler = transp.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
 			go handler.Serve(util.Noop)
 		})
 
@@ -251,14 +251,14 @@ var _ = Describe("ConnectionPool", func() {
 		output chan *core.IncomingMessage
 		errs   chan error
 		cancel chan struct{}
-		pool   transport.ConnectionPool
+		pool   transp.ConnectionPool
 	)
 	addr1 := &testutils.MockAddr{"tcp", localAddr1}
 	addr2 := &testutils.MockAddr{"tcp", localAddr2}
 	addr3 := &testutils.MockAddr{"tcp", localAddr3}
-	key1 := transport.ConnectionKey(addr1.String())
-	key2 := transport.ConnectionKey(addr2.String())
-	key3 := transport.ConnectionKey(addr3.String())
+	key1 := transp.ConnectionKey(addr1.String())
+	key2 := transp.ConnectionKey(addr2.String())
+	key3 := transp.ConnectionKey(addr3.String())
 	msg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
 		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
@@ -296,7 +296,7 @@ var _ = Describe("ConnectionPool", func() {
 			output = make(chan *core.IncomingMessage)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewConnectionPool(output, errs, cancel)
+			pool = transp.NewConnectionPool(output, errs, cancel)
 		})
 
 		ShouldBeEmpty()
@@ -313,7 +313,7 @@ var _ = Describe("ConnectionPool", func() {
 			output = make(chan *core.IncomingMessage)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewConnectionPool(output, errs, cancel)
+			pool = transp.NewConnectionPool(output, errs, cancel)
 			expected = fmt.Sprintf("%s canceled", pool)
 
 			c1, c2 := net.Pipe()
@@ -325,7 +325,7 @@ var _ = Describe("ConnectionPool", func() {
 		})
 
 		It("should decline Put", func() {
-			err = pool.Put(key1, transport.NewConnection(server), 0)
+			err = pool.Put(key1, transp.NewConnection(server), 0)
 			Expect(err.Error()).To(ContainSubstring(expected))
 			Expect(pool.Length()).To(Equal(0))
 		})
@@ -353,14 +353,14 @@ var _ = Describe("ConnectionPool", func() {
 	Context("that working", func() {
 		var (
 			err                                                         error
-			client1, server1, client2, server2, client3, server3, conn4 transport.Connection
+			client1, server1, client2, server2, client3, server3, conn4 transp.Connection
 			//wg *sync.WaitGroup
 		)
 
-		createConn := func(addr net.Addr) (transport.Connection, transport.Connection) {
+		createConn := func(addr net.Addr) (transp.Connection, transp.Connection) {
 			c1, c2 := net.Pipe()
-			client := transport.NewConnection(&testutils.MockConn{c1, c1.LocalAddr(), addr})
-			server := transport.NewConnection(&testutils.MockConn{c2, addr, c2.RemoteAddr()})
+			client := transp.NewConnection(&testutils.MockConn{c1, c1.LocalAddr(), addr})
+			server := transp.NewConnection(&testutils.MockConn{c2, addr, c2.RemoteAddr()})
 			return client, server
 		}
 
@@ -368,7 +368,7 @@ var _ = Describe("ConnectionPool", func() {
 			output = make(chan *core.IncomingMessage)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewConnectionPool(output, errs, cancel)
+			pool = transp.NewConnectionPool(output, errs, cancel)
 
 			client1, server1 = createConn(addr1)
 			client2, server2 = createConn(addr2)
@@ -518,14 +518,14 @@ var _ = Describe("ConnectionPool", func() {
 
 				It("should send io error", func() {
 					Expect(err.Error()).To(ContainSubstring("io: read/write on closed pipe"))
-					if err, ok := err.(transport.Error); ok {
+					if err, ok := err.(transp.Error); ok {
 						Expect(err.Network()).To(BeTrue())
 					} else {
 						Fail("error from failed connection must be of transport.Error type")
 					}
 				})
 				It("should send error of transport.Error type and network indicator", func() {
-					err, ok := err.(transport.Error)
+					err, ok := err.(transp.Error)
 					Expect(ok).To(BeTrue())
 					Expect(err.Network()).To(BeTrue())
 				})
