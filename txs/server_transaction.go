@@ -6,26 +6,39 @@ import (
 	"github.com/discoviking/fsm"
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/timing"
-	"github.com/ghettovoice/gossip/base"
+	"github.com/ghettovoice/gosip/transp"
 )
 
 type ServerTransaction interface {
 	Transaction
 	Respond(res core.Response) error
+	Trying(hdrs ...core.Header) error
+	Ok(hdrs ...core.Header) error
 }
 
 type serverTransaction struct {
 	transaction
+	lastErr error
 	timer_g timing.Timer
 	timer_h timing.Timer
 	timer_i timing.Timer
 }
 
-func NewServerTransaction(txl Layer, origin core.Request, dest string) ServerTransaction {
+func NewServerTransaction(
+	origin core.Request,
+	dest string,
+	tpl transp.Layer,
+	msgs chan<- *IncomingMessage,
+	errs chan<- error,
+	cancel <-chan struct{},
+) ServerTransaction {
 	tx := new(serverTransaction)
-	tx.txl = txl
 	tx.origin = origin
 	tx.dest = dest
+	tx.tpl = tpl
+	tx.msgs = msgs
+	tx.errs = errs
+	tx.cancel = cancel
 	tx.initFSM()
 
 	return tx
@@ -35,30 +48,36 @@ func (tx *serverTransaction) String() string {
 	return fmt.Sprintf("Server%s", tx.transaction.String())
 }
 
-func (tx *serverTransaction) Receive(msg core.Message) error {
-	req, ok := msg.(core.Request)
+func (tx *serverTransaction) Receive(msg *transp.IncomingMessage) error {
+	req, ok := msg.Msg.(core.Request)
 	if !ok {
 		return &UnexpectedMessageError{
-			fmt.Errorf("%s recevied unexpected %s", tx, msg.Short()),
+			fmt.Errorf("%s recevied unexpected %s", tx, msg),
 			msg.String(),
 		}
 	}
 
-	var input fsm.Input = fsm.NO_INPUT
+	var input = fsm.NO_INPUT
 	switch {
 	case req.Method() == tx.Origin().Method():
 		input = server_input_request
 	case req.IsAck(): // ACK for non-2xx response
 		input = server_input_ack
-		tx.ack <- req
 	default:
 		return &UnexpectedMessageError{
-			fmt.Errorf("invalid message %s correlated to server transaction %p", req.Short(), tx),
+			fmt.Errorf("invalid message %s correlated to %s", req.Short(), tx),
 			msg.String(),
 		}
 	}
 
-	return tx.fsm.Spin(input)
+	tx.msgs <- &IncomingMessage{msg, tx}
+
+	err := tx.fsm.Spin(input)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (tx *serverTransaction) Respond(res core.Response) error {
@@ -305,8 +324,8 @@ func (tx *serverTransaction) initNonInviteFSM() {
 // Define actions.
 // Send response
 func (tx *serverTransaction) act_respond() fsm.Input {
-	err := tx.tpl.Send(tx.Destination(), tx.lastResp)
-	if err != nil {
+	tx.lastErr = tx.tpl.Send(tx.Destination(), tx.lastResp)
+	if tx.lastErr != nil {
 		return server_input_transport_err
 	}
 
@@ -330,28 +349,44 @@ func (tx *serverTransaction) act_final() fsm.Input {
 
 // Inform user of transport error
 func (tx *serverTransaction) act_trans_err() fsm.Input {
-	tx.tu_err <- errors.New("failed to send response")
+	tx.errs <- &TransactionTransportError{
+		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp, tx.lastErr),
+		tx.Key(),
+		tx.String(),
+	}
 	return server_input_delete
 }
 
 // Inform user of timeout error
-func (tx *ServerTransaction) act_timeout() fsm.Input {
-	tx.tu_err <- errors.New("transaction timed out")
+func (tx *serverTransaction) act_timeout() fsm.Input {
+	tx.errs <- &TransactionTimeoutError{
+		fmt.Errorf("%s timed out", tx),
+		tx.Key(),
+		tx.String(),
+	}
 	return server_input_delete
 }
 
 // Just delete the transaction.
-func (tx *ServerTransaction) act_delete() fsm.Input {
-	tx.Delete()
+func (tx *serverTransaction) act_delete() fsm.Input {
+	tx.errs <- &TransactionTerminatedError{
+		fmt.Errorf("%s terminated", tx),
+		tx.Key(),
+		tx.String(),
+	}
 	return fsm.NO_INPUT
 }
 
 // Send response and delete the transaction.
-func (tx *ServerTransaction) act_respond_delete() fsm.Input {
-	tx.Delete()
+func (tx *serverTransaction) act_respond_delete() fsm.Input {
+	tx.errs <- &TransactionTerminatedError{
+		fmt.Errorf("%s terminated", tx),
+		tx.Key(),
+		tx.String(),
+	}
 
-	err := tx.transport.Send(tx.dest, tx.lastResp)
-	if err != nil {
+	tx.lastErr = tx.tpl.Send(tx.dest, tx.lastResp)
+	if tx.lastErr != nil {
 		return server_input_transport_err
 	}
 	return fsm.NO_INPUT

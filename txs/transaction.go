@@ -9,11 +9,14 @@ import (
 	"github.com/ghettovoice/gosip/transp"
 )
 
+type TransactionKey string
+
 type Transaction interface {
 	log.LocalLogger
+	core.Awaiting
+	Key() TransactionKey
 	Origin() core.Request
-	Receive(msg core.Message) error
-	Delete() error
+	Receive(msg *transp.IncomingMessage) error
 	Destination() string
 	IsInvite() bool
 	IsAck() bool
@@ -22,12 +25,16 @@ type Transaction interface {
 
 type transaction struct {
 	logger   log.LocalLogger
-	txl      Layer
+	key      TransactionKey
 	fsm      *fsm.FSM
 	origin   core.Request
-	lastResp core.Response
-	tpl      transp.Layer
 	dest     string
+	tpl      transp.Layer
+	lastResp core.Response
+	msgs     chan<- *IncomingMessage
+	errs     chan<- error
+	cancel   <-chan struct{}
+	done     chan struct{}
 }
 
 func (tx *transaction) String() string {
@@ -62,4 +69,12 @@ func (tx *transaction) IsInvite() bool {
 
 func (tx *transaction) IsAck() bool {
 	return tx.Origin().IsAck()
+}
+
+func (tx *transaction) Done() <-chan struct{} {
+	return tx.done
+}
+
+func (tx *transaction) Key() TransactionKey {
+	return tx.key
 }

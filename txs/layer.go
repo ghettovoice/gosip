@@ -23,6 +23,7 @@ type layer struct {
 	tpl          transp.Layer
 	msgs         chan *IncomingMessage
 	errs         chan error
+	terrs        chan error
 	done         chan struct{}
 	canceled     chan struct{}
 	transactions *transactionStore
@@ -33,10 +34,12 @@ func NewLayer(tpl transp.Layer) Layer {
 		tpl:          tpl,
 		msgs:         make(chan *IncomingMessage),
 		errs:         make(chan error),
+		terrs:        make(chan error),
 		done:         make(chan struct{}),
 		canceled:     make(chan struct{}),
 		transactions: newTransactionStore(),
 	}
+	go txl.listenMessages()
 	go txl.serveTransactions()
 	return txl
 }
@@ -87,13 +90,53 @@ func (txl *layer) Send(addr string, msg core.Message) error {
 }
 
 func (txl *layer) serveTransactions() {
-	wg := new(sync.WaitGroup)
 	defer func() {
-		txl.Log().Infof("%s stops serve transactions", txl)
-		wg.Wait()
+		txl.Log().Infof("%s stops listen messages routine", txl)
+		// wait for transactions
+		txs := txl.transactions.all()
+		wg := new(sync.WaitGroup)
+		wg.Add(len(txs))
+		for _, tx := range txs {
+			go func(tx Transaction) {
+				defer wg.Done()
+				<-tx.Done()
+			}(tx)
+		}
+		close(txl.msgs)
+		close(txl.errs)
 		close(txl.done)
 	}()
-	txl.Log().Infof("%s starts serve transactions", txl)
+	txl.Log().Infof("%s starts serve transactions routine", txl)
+
+	for {
+		select {
+		case err, ok := <-txl.terrs:
+			if !ok {
+				return
+			}
+			terr, ok := err.(TransactionError)
+			if !ok {
+				continue
+			}
+
+			txl.transactions.drop(terr.Key())
+			if terr.Terminated() { // transaction terminated
+				continue
+			}
+
+			txl.errs <- terr.InitialError()
+		}
+	}
+}
+
+func (txl *layer) listenMessages() {
+	wg := new(sync.WaitGroup)
+	defer func() {
+		txl.Log().Infof("%s stops listen messages routine", txl)
+		wg.Wait()
+		close(txl.terrs)
+	}()
+	txl.Log().Infof("%s starts listen messages routine", txl)
 
 	for {
 		select {
@@ -124,52 +167,43 @@ func (txl *layer) serveTransactions() {
 }
 
 func (txl *layer) handleRequest(incomingReq *transp.IncomingMessage) {
+	// todo error handling!
 	req := incomingReq.Msg.(core.Request)
 	tx, err := txl.getServerTx(req)
-	if err == nil {
-		tx.Receive(req)
-		return
+	if err != nil {
+		txl.Log().Debugf("%s creates new server transaction for %s", txl, incomingReq)
+		dest := incomingReq.RAddr
+		tx = NewServerTransaction(req, dest, txl.tpl, txl.msgs, txl.terrs, txl.canceled)
+		// RFC 3261 8.2.6.1
+		// UASs SHOULD NOT issue a provisional response for a non-INVITE request.
+		// Rather, UASs SHOULD generate a final response to a non-INVITE request as soon as possible.
+		if req.IsInvite() {
+			// Send a 100 Trying immediately.
+			// Technically we shouldn't do this if we trust the user to do it within 200ms,
+			// but I'm not sure how to handle that situation right now.
+			// Explicitly don't do this for ACKs; 2xx ACKs are their own transaction but
+			// don't engender a provisional response - we just pass them up to the user
+			// to handle at the dialog scope.
+			txl.sendPresumptiveTrying(tx)
+		}
+
+		// put tx to store, to match retransmitting requests later
+		// todo check RFC for ACK
+		txl.putServerTx(tx)
 	}
 
-	txl.Log().Debugf("%s creates new server transaction for %s", txl, incomingReq)
-	// Use the remote address in the top Via header.  This is not correct behaviour.
-	// todo refactor later
-	port := core.Port(5060)
-	hop, ok := req.ViaHop()
-	if !ok {
-		tx.Log().Errorf("%s failed to process %s: %s; %s will be dropped", txl, incomingReq, err, tx)
-		return
+	err = tx.Receive(incomingReq)
+	if err != nil {
+		txl.Log().Error(err)
 	}
-
-	if hop.Port != nil {
-		port = *hop.Port
-	}
-
-	tx = NewServerTransaction(txl, req, fmt.Sprintf("%s:%d", hop.Host, port))
-	// RFC 3261 8.2.6.1
-	// UASs SHOULD NOT issue a provisional response for a non-INVITE request.
-	// Rather, UASs SHOULD generate a final response to a non-INVITE request as soon as possible.
-	if req.IsInvite() {
-		// Send a 100 Trying immediately.
-		// Technically we shouldn't do this if we trust the user to do it within 200ms,
-		// but I'm not sure how to handle that situation right now.
-		// Explicitly don't do this for ACKs; 2xx ACKs are their own transaction but
-		// don't engender a provisional response - we just pass them up to the user
-		// to handle at the dialog scope.
-		txl.sendPresumptiveTrying(tx)
-	}
-
-	// put tx to store, to match retransmitting requests later
-	// todo check RFC for ACK
-	txl.putServerTx(tx)
-
-	txl.msgs <- &IncomingMessage{incomingReq, tx}
 }
 
-func (txl *layer) sendPresumptiveTrying(tx *serverTransaction) {
+func (txl *layer) sendPresumptiveTrying(tx ServerTransaction) {
 	tx.Log().Infof("%s sends '100 Trying' auto response on %s", txl, tx)
 	// Pretend the user sent us a 100 to send.
-	tx.Trying()
+	if err := tx.Trying(); err != nil {
+		tx.Log().Error(err)
+	}
 }
 
 func (txl *layer) handleResponse(incomingRes *transp.IncomingMessage) {
@@ -182,7 +216,7 @@ func (txl *layer) handleResponse(incomingRes *transp.IncomingMessage) {
 		txl.msgs <- &IncomingMessage{incomingRes, nil}
 		return
 	}
-	tx.Receive(res)
+	tx.Receive(incomingRes)
 }
 
 // RFC 17.1.3.
@@ -285,10 +319,8 @@ func (txl *layer) dropServerTx(tx ServerTransaction) error {
 	return nil
 }
 
-type transactionKey string
-
 // makeServerTxKey creates server transaction key for matching retransmitting requests - RFC 3261 17.2.3.
-func makeServerTxKey(req core.Request) (transactionKey, error) {
+func makeServerTxKey(req core.Request) (TransactionKey, error) {
 	var sep = "$"
 
 	firstViaHop, ok := req.ViaHop()
@@ -318,7 +350,7 @@ func makeServerTxKey(req core.Request) (transactionKey, error) {
 
 	// RFC 3261 compliant
 	if isRFC3261 {
-		return transactionKey(strings.Join([]string{
+		return TransactionKey(strings.Join([]string{
 			branch.String(),
 			firstViaHop.Host,              // branch
 			fmt.Sprint(*firstViaHop.Port), // sent-by
@@ -339,7 +371,7 @@ func makeServerTxKey(req core.Request) (transactionKey, error) {
 		return "", fmt.Errorf("'Call-Id' header not found in %s", req.Short())
 	}
 
-	return transactionKey(strings.Join([]string{
+	return TransactionKey(strings.Join([]string{
 		req.Recipient().String(), // request-uri
 		fromTag.String(),         // from tag
 		callId.String(),          // call-id
@@ -350,7 +382,7 @@ func makeServerTxKey(req core.Request) (transactionKey, error) {
 }
 
 // makeClientTxKey creates client transaction key for matching responses - RFC 3261 17.1.3.
-func makeClientTxKey(msg core.Message) (transactionKey, error) {
+func makeClientTxKey(msg core.Message) (TransactionKey, error) {
 	var sep = "$"
 
 	cseq, ok := msg.CSeq()
@@ -374,7 +406,7 @@ func makeClientTxKey(msg core.Message) (transactionKey, error) {
 		return "", fmt.Errorf("'branch' not found or empty in 'Via' header of %s", msg.Short())
 	}
 
-	return transactionKey(strings.Join([]string{
+	return TransactionKey(strings.Join([]string{
 		branch.String(),
 		string(method),
 	}, sep)), nil
@@ -382,30 +414,30 @@ func makeClientTxKey(msg core.Message) (transactionKey, error) {
 
 type transactionStore struct {
 	mu           *sync.RWMutex
-	transactions map[transactionKey]Transaction
+	transactions map[TransactionKey]Transaction
 }
 
 func newTransactionStore() *transactionStore {
 	return &transactionStore{
 		mu:           new(sync.RWMutex),
-		transactions: make(map[transactionKey]Transaction),
+		transactions: make(map[TransactionKey]Transaction),
 	}
 }
 
-func (store *transactionStore) put(key transactionKey, tx Transaction) {
+func (store *transactionStore) put(key TransactionKey, tx Transaction) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.transactions[key] = tx
 }
 
-func (store *transactionStore) get(key transactionKey) (Transaction, bool) {
+func (store *transactionStore) get(key TransactionKey) (Transaction, bool) {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	tx, ok := store.transactions[key]
 	return tx, ok
 }
 
-func (store *transactionStore) drop(key transactionKey) bool {
+func (store *transactionStore) drop(key TransactionKey) bool {
 	if _, ok := store.get(key); !ok {
 		return false
 	}

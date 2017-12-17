@@ -48,9 +48,6 @@ func (msg *IncomingMessage) String() string {
 	return s
 }
 
-type Error interface {
-}
-
 type UnexpectedMessageError struct {
 	Err error
 	Msg string
@@ -67,6 +64,111 @@ func (err *UnexpectedMessageError) Error() string {
 	if err.Msg != "" {
 		s += fmt.Sprintf("\nMessage dump:\n%s", err.Msg)
 	}
+
+	return s
+}
+
+type TransactionError interface {
+	error
+	InitialError() error
+	Key() TransactionKey
+	Terminated() bool
+	Timeout() bool
+	Transport() bool
+}
+
+type TransactionTerminatedError struct {
+	Err   error
+	TxKey TransactionKey
+	Tx    string
+}
+
+func (err *TransactionTerminatedError) InitialError() error { return err.Err }
+func (err *TransactionTerminatedError) Terminated() bool    { return true }
+func (err *TransactionTerminatedError) Timeout() bool       { return false }
+func (err *TransactionTerminatedError) Transport() bool     { return false }
+func (err *TransactionTerminatedError) Key() TransactionKey { return err.TxKey }
+func (err *TransactionTerminatedError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+
+	s := "TransactionTerminatedError"
+	parts := make([]string, 0)
+	if err.TxKey != "" {
+		parts = append(parts, "key "+err.TxKey)
+	}
+	if err.Tx != "" {
+		parts = append(parts, "tx "+err.Tx)
+	}
+	if len(parts) > 0 {
+		s += " (" + strings.Join(parts, ", ") + ")"
+	}
+	s += ": " + err.Err.Error()
+
+	return s
+}
+
+type TransactionTimeoutError struct {
+	Err   error
+	TxKey TransactionKey
+	Tx    string
+}
+
+func (err *TransactionTimeoutError) InitialError() error { return err.Err }
+func (err *TransactionTimeoutError) Terminated() bool    { return false }
+func (err *TransactionTimeoutError) Timeout() bool       { return true }
+func (err *TransactionTimeoutError) Transport() bool     { return false }
+func (err *TransactionTimeoutError) Key() TransactionKey { return err.TxKey }
+func (err *TransactionTimeoutError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+
+	s := "TransactionTimeoutError"
+	parts := make([]string, 0)
+	if err.TxKey != "" {
+		parts = append(parts, "key "+err.TxKey)
+	}
+	if err.Tx != "" {
+		parts = append(parts, "tx "+err.Tx)
+	}
+	if len(parts) > 0 {
+		s += " (" + strings.Join(parts, ", ") + ")"
+	}
+	s += ": " + err.Err.Error()
+
+	return s
+}
+
+type TransactionTransportError struct {
+	Err   error
+	TxKey TransactionKey
+	Tx    string
+}
+
+func (err *TransactionTransportError) InitialError() error { return err.Err }
+func (err *TransactionTransportError) Terminated() bool    { return false }
+func (err *TransactionTransportError) Timeout() bool       { return false }
+func (err *TransactionTransportError) Transport() bool     { return true }
+func (err *TransactionTransportError) Key() TransactionKey { return err.TxKey }
+func (err *TransactionTransportError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+
+	s := "TransactionTransportError"
+	parts := make([]string, 0)
+	if err.TxKey != "" {
+		parts = append(parts, "key "+err.TxKey)
+	}
+	if err.Tx != "" {
+		parts = append(parts, "tx "+err.Tx)
+	}
+	if len(parts) > 0 {
+		s += " (" + strings.Join(parts, ", ") + ")"
+	}
+	s += ": " + err.Err.Error()
 
 	return s
 }
