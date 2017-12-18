@@ -43,6 +43,7 @@ var _ = Describe("ServerTx", func() {
 		var err error
 		var invite, trying, ok, notOk, ack, notOkAck core.Message
 		var inviteBranch string
+		wg := new(sync.WaitGroup)
 
 		BeforeEach(func() {
 			inviteBranch = core.GenerateBranch()
@@ -94,10 +95,15 @@ var _ = Describe("ServerTx", func() {
 			ackTxKey, err = transaction.MakeServerTxKey(ack)
 			Expect(err).ToNot(HaveOccurred())
 
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				By(fmt.Sprintf("UAC sends %s", invite.Short()))
 				tpl.InMsgs <- invite
 			}()
+		})
+		AfterEach(func() {
+			wg.Wait()
 		})
 
 		It("should open server tx and pass up TxMessage", func() {
@@ -128,10 +134,8 @@ var _ = Describe("ServerTx", func() {
 			})
 
 			It("should send in transaction", func(done Done) {
-				wg := new(sync.WaitGroup)
-				wg.Add(1)
 				go func() {
-					defer wg.Done()
+					defer close(done)
 					By(fmt.Sprintf("UAC waits %s", ok.Short()))
 					msg := <-tpl.OutMsgs
 					Expect(msg).ToNot(BeNil())
@@ -142,18 +146,19 @@ var _ = Describe("ServerTx", func() {
 				tx, err := txl.Send(ok)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(tx).To(Equal(invTx))
-
-				wg.Wait()
-				close(done)
 			})
 
 			Context("after 2xx OK was sent", func() {
+				wg := new(sync.WaitGroup)
 				BeforeEach(func() {
+					wg.Add(2)
 					go func() {
+						defer wg.Done()
 						By(fmt.Sprintf("UAS sends %s", ok.Short()))
 						Expect(txl.Send(ok)).To(Equal(invTx))
 					}()
 					go func() {
+						defer wg.Done()
 						By(fmt.Sprintf("UAC waits %s", ok.Short()))
 						msg := <-tpl.OutMsgs
 						Expect(msg).ToNot(BeNil())
@@ -163,6 +168,9 @@ var _ = Describe("ServerTx", func() {
 						By(fmt.Sprintf("UAC sends %s", ack.Short()))
 						tpl.InMsgs <- ack
 					}()
+				})
+				AfterEach(func() {
+					wg.Wait()
 				})
 
 				It("should receive ACK in separate transaction", func(done Done) {
@@ -179,12 +187,16 @@ var _ = Describe("ServerTx", func() {
 			})
 
 			Context("after 3xx was sent", func() {
+				wg := new(sync.WaitGroup)
 				BeforeEach(func() {
+					wg.Add(2)
 					go func() {
+						defer wg.Done()
 						By(fmt.Sprintf("UAS sends %s", notOk.Short()))
 						Expect(txl.Send(notOk)).To(Equal(invTx))
 					}()
 					go func() {
+						defer wg.Done()
 						By(fmt.Sprintf("UAC waits %s", notOk.Short()))
 						msg := <-tpl.OutMsgs
 						Expect(msg).ToNot(BeNil())
@@ -194,6 +206,9 @@ var _ = Describe("ServerTx", func() {
 						By(fmt.Sprintf("UAC sends %s", notOkAck.Short()))
 						tpl.InMsgs <- notOkAck
 					}()
+					AfterEach(func() {
+						wg.Wait()
+					})
 
 					It("should not pass up ACK", func() {
 						select {

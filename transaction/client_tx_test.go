@@ -1,6 +1,7 @@
 package transaction_test
 
 import (
+	"sync"
 	"time"
 
 	"github.com/ghettovoice/gosip/core"
@@ -87,11 +88,6 @@ var _ = Describe("ClientTx", func() {
 				"",
 				"",
 			})
-
-			inviteTxKey, err = transaction.MakeClientTxKey(invite)
-			Expect(err).ToNot(HaveOccurred())
-			ackTxKey, err = transaction.MakeClientTxKey(ack)
-			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("should send INVITE request", func(done Done) {
@@ -102,14 +98,22 @@ var _ = Describe("ClientTx", func() {
 				Expect(msg.String()).To(Equal(invite.String()))
 			}()
 
+			inviteTxKey, err = transaction.MakeClientTxKey(invite)
+			Expect(err).ToNot(HaveOccurred())
+			ackTxKey, err = transaction.MakeClientTxKey(ack)
+			Expect(err).ToNot(HaveOccurred())
+
 			tx, err := txl.Send(invite)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tx.Key()).To(Equal(inviteTxKey))
 		})
 
 		Context("receives 200 OK on INVITE", func() {
+			wg := new(sync.WaitGroup)
 			BeforeEach(func() {
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					msg := <-tpl.OutMsgs
 					Expect(msg).ToNot(BeNil())
 					Expect(msg.String()).To(Equal(invite.String()))
@@ -123,6 +127,9 @@ var _ = Describe("ClientTx", func() {
 
 				invTx, err = txl.Send(invite)
 				Expect(err).ToNot(HaveOccurred())
+			})
+			AfterEach(func() {
+				wg.Wait()
 			})
 
 			It("should receive responses in INVITE tx", func() {
@@ -140,8 +147,12 @@ var _ = Describe("ClientTx", func() {
 		})
 
 		Context("receives 400 Bad Request on INVITE", func() {
+			wg := new(sync.WaitGroup)
+
 			BeforeEach(func() {
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					var msg core.Message
 					msg = <-tpl.OutMsgs
 					Expect(msg).ToNot(BeNil())
@@ -162,6 +173,9 @@ var _ = Describe("ClientTx", func() {
 
 				invTx, err = txl.Send(invite)
 				Expect(err).ToNot(HaveOccurred())
+			})
+			AfterEach(func() {
+				wg.Wait()
 			})
 
 			It("should receive responses in INVITE tx and send ACK", func() {
