@@ -110,8 +110,13 @@ var _ = Describe("ServerTx", func() {
 		})
 
 		Context("when INVITE server tx created", func() {
+			var invTx transaction.ServerTx
 			BeforeEach(func() {
-				<-txl.Messages()
+				msg := <-txl.Messages()
+				Expect(msg).ToNot(BeNil())
+				tx, ok := msg.Tx().(transaction.ServerTx)
+				Expect(ok).To(BeTrue())
+				invTx = tx
 			})
 
 			It("should send 100 Trying after Timer_1xx fired", func() {
@@ -134,17 +139,19 @@ var _ = Describe("ServerTx", func() {
 				}()
 
 				By(fmt.Sprintf("UAS sends %s", ok.Short()))
-				Expect(txl.Send(ok)).To(Succeed())
+				tx, err := txl.Send(ok)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(tx).To(Equal(invTx))
 
 				wg.Wait()
 				close(done)
 			})
 
-			Context("after 2xx Ok was sent", func() {
+			Context("after 2xx OK was sent", func() {
 				BeforeEach(func() {
 					go func() {
 						By(fmt.Sprintf("UAS sends %s", ok.Short()))
-						Expect(txl.Send(ok)).To(Succeed())
+						Expect(txl.Send(ok)).To(Equal(invTx))
 					}()
 					go func() {
 						By(fmt.Sprintf("UAC waits %s", ok.Short()))
@@ -165,6 +172,7 @@ var _ = Describe("ServerTx", func() {
 					Expect(msg.String()).To(Equal(ack.String()))
 					Expect(msg.Tx()).ToNot(BeNil())
 					Expect(msg.Tx().Key()).To(Equal(ackTxKey))
+					Expect(msg.Tx()).ToNot(Equal(invTx))
 
 					close(done)
 				})
@@ -174,7 +182,7 @@ var _ = Describe("ServerTx", func() {
 				BeforeEach(func() {
 					go func() {
 						By(fmt.Sprintf("UAS sends %s", notOk.Short()))
-						Expect(txl.Send(notOk)).To(Succeed())
+						Expect(txl.Send(notOk)).To(Equal(invTx))
 					}()
 					go func() {
 						By(fmt.Sprintf("UAC waits %s", notOk.Short()))
@@ -186,58 +194,16 @@ var _ = Describe("ServerTx", func() {
 						By(fmt.Sprintf("UAC sends %s", notOkAck.Short()))
 						tpl.InMsgs <- notOkAck
 					}()
+
+					It("should not pass up ACK", func() {
+						select {
+						case <-txl.Messages():
+							Fail("should not get here")
+						case <-time.After(900 * time.Millisecond):
+						}
+					})
 				})
 			})
 		})
-
-		PIt("should open server tx, send 100 Trying response, then 200 OK", func(done Done) {
-			wg := new(sync.WaitGroup)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-
-				var msg core.Message
-				By(fmt.Sprintf("UAC sends %s", invite.Short()))
-				tpl.InMsgs <- invite
-
-				By(fmt.Sprintf("UAC waits %s", trying.Short()))
-				msg = <-tpl.OutMsgs
-				Expect(msg).ToNot(BeNil())
-				Expect(msg.String()).To(Equal(trying.String()))
-
-				By(fmt.Sprintf("UAC waits %s", ok.Short()))
-				msg = <-tpl.OutMsgs
-				Expect(msg).ToNot(BeNil())
-				Expect(msg.String()).To(Equal(ok.String()))
-
-				By(fmt.Sprintf("UAC sends %s", ack.Short()))
-				tpl.InMsgs <- ack
-			}()
-
-			var msg transaction.TxMessage
-
-			By(fmt.Sprintf("UAS receives %s", invite.Short()))
-			msg = <-txl.Messages()
-			Expect(msg).ToNot(BeNil())
-			Expect(msg.String()).To(Equal(invite.String()))
-			Expect(msg.Tx()).ToNot(BeNil())
-			Expect(msg.Tx().Key()).To(Equal(inviteTxKey))
-
-			By(fmt.Sprintf("UAS send %s", trying.Short()))
-			time.Sleep(time.Second)
-
-			By(fmt.Sprintf("UAS sends %s", ok.Short()))
-			Expect(txl.Send(ok)).To(Succeed())
-
-			By(fmt.Sprintf("UAS receives %s", ack.Short()))
-			msg = <-txl.Messages()
-			Expect(msg).ToNot(BeNil())
-			Expect(msg.String()).To(Equal(ack.String()))
-			Expect(msg.Tx()).ToNot(BeNil())
-			Expect(msg.Tx().Key()).To(Equal(ackTxKey))
-
-			wg.Wait()
-			close(done)
-		}, 3)
 	})
 })

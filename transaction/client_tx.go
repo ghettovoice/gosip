@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/discoviking/fsm"
@@ -23,6 +24,7 @@ type clientTx struct {
 	timer_d_time time.Duration // Current duration of timer D.
 	timer_d      timing.Timer
 	reliable     bool
+	mu           *sync.RWMutex
 }
 
 func NewClientTx(
@@ -43,6 +45,7 @@ func NewClientTx(
 	tx.tpl = tpl
 	tx.msgs = msgs
 	tx.errs = errs
+	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
 	}
@@ -94,9 +97,9 @@ func (tx *clientTx) Receive(msg core.Message) error {
 			msg.String(),
 		}
 	}
-
+	tx.mu.Lock()
 	tx.lastResp = res
-
+	tx.mu.Unlock()
 	var input fsm.Input
 	switch {
 	case res.IsProvisional():
@@ -122,9 +125,9 @@ func (tx clientTx) ack() {
 
 	// Copy headers from original request.
 	// TODO: Safety
-	core.CopyHeaders("From", tx.origin, ack)
-	core.CopyHeaders("Call-ID", tx.origin, ack)
-	core.CopyHeaders("Route", tx.origin, ack)
+	core.CopyHeaders("From", tx.Origin(), ack)
+	core.CopyHeaders("Call-ID", tx.Origin(), ack)
+	core.CopyHeaders("Route", tx.Origin(), ack)
 	cseq, ok := tx.Origin().CSeq()
 	if !ok {
 		tx.Log().Errorf("failed to send ACK request on client transaction %p: %s", tx)
@@ -133,7 +136,7 @@ func (tx clientTx) ack() {
 	cseq = cseq.Clone().(*core.CSeq)
 	cseq.MethodName = core.ACK
 	ack.AppendHeader(cseq)
-	via, ok := tx.origin.Via()
+	via, ok := tx.Origin().Via()
 	if !ok {
 		tx.Log().Errorf("failed to send ACK request on client transaction %p: %s", tx)
 		return
@@ -330,8 +333,11 @@ func (tx *clientTx) resend() {
 }
 
 func (tx *clientTx) passUp() {
-	if tx.lastResp != nil {
-		tx.msgs <- &txMessage{tx.lastResp, tx}
+	tx.mu.RLock()
+	lastResp := tx.lastResp
+	tx.mu.RUnlock()
+	if lastResp != nil {
+		tx.msgs <- &txMessage{lastResp, tx}
 	}
 }
 

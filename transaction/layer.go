@@ -15,7 +15,7 @@ type Layer interface {
 	core.Cancellable
 	core.Awaiting
 	String() string
-	Send(msg core.Message) error
+	Send(msg core.Message) (Tx, error)
 	Transport() transport.Layer
 	Messages() <-chan TxMessage
 	Errors() <-chan error
@@ -94,7 +94,7 @@ func (txl *layer) Transport() transport.Layer {
 	return txl.tpl
 }
 
-func (txl *layer) Send(msg core.Message) error {
+func (txl *layer) Send(msg core.Message) (Tx, error) {
 	txl.Log().Debugf("%s sends %s", txl, msg.Short())
 
 	var tx Tx
@@ -103,20 +103,24 @@ func (txl *layer) Send(msg core.Message) error {
 	case core.Response:
 		tx, err = txl.getServerTx(msg)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return tx.(ServerTx).Respond(msg)
+		err = tx.(ServerTx).Respond(msg)
+		if err != nil {
+			return nil, err
+		}
+		return tx, nil
 	case core.Request:
 		tx, err = NewClientTx(msg, txl.tpl, txl.msgs, txl.terrs)
 		tx.SetLog(txl.Log())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		txl.transactions.put(tx.Key(), tx)
 		tx.Init()
-		return nil
+		return tx, nil
 	default:
-		return &core.UnsupportedMessageError{
+		return nil, &core.UnsupportedMessageError{
 			fmt.Errorf("%s got unsupported message %s", txl, msg.Short()),
 			msg.String(),
 		}
