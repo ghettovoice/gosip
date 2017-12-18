@@ -113,6 +113,11 @@ func (tx *serverTx) Receive(msg core.Message) error {
 func (tx *serverTx) Respond(res core.Response) error {
 	tx.lastResp = res
 
+	if tx.timer_1xx != nil {
+		tx.timer_1xx.Stop()
+		tx.timer_1xx = nil
+	}
+
 	var input fsm.Input
 	switch {
 	case res.IsProvisional():
