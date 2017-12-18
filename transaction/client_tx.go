@@ -6,6 +6,7 @@ import (
 
 	"github.com/discoviking/fsm"
 	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
 )
@@ -26,20 +27,19 @@ type clientTx struct {
 
 func NewClientTx(
 	origin core.Request,
-	dest string,
 	tpl transport.Layer,
-	msgs chan<- *IncomingMessage,
+	msgs chan<- TxMessage,
 	errs chan<- error,
 ) (ClientTx, error) {
-	key, err := makeClientTxKey(origin)
+	key, err := MakeClientTxKey(origin)
 	if err != nil {
 		return nil, err
 	}
 
 	tx := new(clientTx)
+	tx.logger = log.NewSafeLocalLogger()
 	tx.key = key
 	tx.origin = origin
-	tx.dest = dest
 	tx.tpl = tpl
 	tx.msgs = msgs
 	tx.errs = errs
@@ -77,7 +77,7 @@ func (tx *clientTx) Init() {
 		tx.fsm.Spin(client_input_timer_b)
 	})
 
-	if err := tx.tpl.Send(tx.Destination(), tx.Origin()); err != nil {
+	if err := tx.tpl.Send(tx.Origin()); err != nil {
 		tx.fsm.Spin(client_input_transport_err)
 	}
 }
@@ -86,8 +86,8 @@ func (tx *clientTx) String() string {
 	return fmt.Sprintf("Client%s", tx.commonTx.String())
 }
 
-func (tx *clientTx) Receive(msg *transport.IncomingMessage) error {
-	res, ok := msg.Message.(core.Response)
+func (tx *clientTx) Receive(msg core.Message) error {
+	res, ok := msg.(core.Response)
 	if !ok {
 		return &core.UnexpectedMessageError{
 			fmt.Errorf("%s recevied unexpected %s", tx, msg.Short()),
@@ -144,7 +144,7 @@ func (tx clientTx) ack() {
 	core.CopyHeaders("To", tx.lastResp, ack)
 
 	// Send the ACK.
-	err := tx.tpl.Send(tx.dest, ack)
+	err := tx.tpl.Send(ack)
 	if err != nil {
 		tx.Log().Warnf("failed to send ACK request on client transaction %p: %s", tx, err)
 		tx.lastErr = err
@@ -323,7 +323,7 @@ func (tx *clientTx) initNonInviteFSM() {
 
 func (tx *clientTx) resend() {
 	tx.Log().Infof("%s resend %v", tx, tx.Origin().Short())
-	tx.lastErr = tx.tpl.Send(tx.Destination(), tx.Origin())
+	tx.lastErr = tx.tpl.Send(tx.Origin())
 	if tx.lastErr != nil {
 		tx.fsm.Spin(client_input_transport_err)
 	}
@@ -331,14 +331,13 @@ func (tx *clientTx) resend() {
 
 func (tx *clientTx) passUp() {
 	if tx.lastResp != nil {
-		// todo use IncomingMessage in transactions
-		//tx.msgs <- &IncomingMessage{tx.lastResp, tx}
+		tx.msgs <- &txMessage{tx.lastResp, tx}
 	}
 }
 
 func (tx *clientTx) transportErr() {
 	tx.errs <- &TxTransportError{
-		fmt.Errorf("%s failed to send %s", tx, tx.lastResp),
+		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
 		tx.Key(),
 		tx.String(),
 	}
@@ -362,7 +361,7 @@ func (tx *clientTx) delete() {
 
 // Define actions
 func (tx *clientTx) act_invite_resend() fsm.Input {
-	tx.Log().Debugf("client transaction %p, act_invite_resend", tx)
+	tx.Log().Debugf("%s, act_invite_resend", tx)
 	tx.timer_a_time *= 2
 	tx.timer_a.Reset(tx.timer_a_time)
 	tx.resend()
@@ -370,7 +369,7 @@ func (tx *clientTx) act_invite_resend() fsm.Input {
 }
 
 func (tx *clientTx) act_non_invite_resend() fsm.Input {
-	tx.Log().Debugf("client transaction %p, act_non_invite_resend", tx)
+	tx.Log().Debugf("%s, act_non_invite_resend", tx)
 	tx.timer_a_time *= 2
 	// For non-INVITE, cap timer A at T2 seconds.
 	if tx.timer_a_time > T2 {
@@ -382,13 +381,13 @@ func (tx *clientTx) act_non_invite_resend() fsm.Input {
 }
 
 func (tx *clientTx) act_passup() fsm.Input {
-	tx.Log().Debugf("client transaction %p, act_passup", tx)
+	tx.Log().Debugf("%s, act_passup", tx)
 	tx.passUp()
 	return fsm.NO_INPUT
 }
 
 func (tx *clientTx) act_invite_final() fsm.Input {
-	tx.Log().Debugf("client transaction %p, act_invite_final", tx)
+	tx.Log().Debugf("%s, act_invite_final", tx)
 	tx.passUp()
 	tx.ack()
 	if tx.timer_d != nil {
@@ -401,7 +400,7 @@ func (tx *clientTx) act_invite_final() fsm.Input {
 }
 
 func (tx *clientTx) act_non_invite_final() fsm.Input {
-	tx.Log().Debugf("client transaction %p, act_non_invite_final", tx)
+	tx.Log().Debugf("%s, act_non_invite_final", tx)
 	tx.passUp()
 	if tx.timer_d != nil {
 		tx.timer_d.Stop()
@@ -413,31 +412,31 @@ func (tx *clientTx) act_non_invite_final() fsm.Input {
 }
 
 func (tx *clientTx) act_ack() fsm.Input {
-	tx.Log().Debugf("client transaction %p, act_ack", tx)
+	tx.Log().Debugf("%s, act_ack", tx)
 	tx.ack()
 	return fsm.NO_INPUT
 }
 
 func (tx *clientTx) act_trans_err() fsm.Input {
-	tx.Log().Debugf("client transaction %p, act_trans_err", tx)
+	tx.Log().Debugf("%s, act_trans_err", tx)
 	tx.transportErr()
 	return client_input_delete
 }
 
 func (tx *clientTx) act_timeout() fsm.Input {
-	tx.Log().Debugf("client transaction %p, act_timeout", tx)
+	tx.Log().Debugf("%s, act_timeout", tx)
 	tx.timeoutErr()
 	return client_input_delete
 }
 
 func (tx *clientTx) act_passup_delete() fsm.Input {
-	tx.Log().Debugf("client transaction %p, act_passup_delete", tx)
+	tx.Log().Debugf("%s, act_passup_delete", tx)
 	tx.passUp()
 	return client_input_delete
 }
 
 func (tx *clientTx) act_delete() fsm.Input {
-	tx.Log().Debugf("INVITE client transaction %p, act_delete", tx)
+	tx.Log().Debugf("INVITE %s, act_delete", tx)
 	tx.delete()
 	return fsm.NO_INPUT
 }

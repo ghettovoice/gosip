@@ -22,9 +22,9 @@ type Tx interface {
 	Key() TxKey
 	Origin() core.Request
 	// Receive receives message from transport layer.
-	Receive(msg *transport.IncomingMessage) error
-	Destination() string
+	Receive(msg core.Message) error
 	String() string
+	Transport() transport.Layer
 }
 
 type commonTx struct {
@@ -32,10 +32,9 @@ type commonTx struct {
 	key      TxKey
 	fsm      *fsm.FSM
 	origin   core.Request
-	dest     string
 	tpl      transport.Layer
 	lastResp core.Response
-	msgs     chan<- *IncomingMessage
+	msgs     chan<- TxMessage
 	errs     chan<- error
 	lastErr  error
 }
@@ -62,10 +61,10 @@ func (tx *commonTx) Origin() core.Request {
 	return tx.origin
 }
 
-func (tx *commonTx) Destination() string {
-	return tx.dest
-}
-
 func (tx *commonTx) Key() TxKey {
 	return tx.key
+}
+
+func (tx *commonTx) Transport() transport.Layer {
+	return tx.tpl
 }

@@ -122,7 +122,9 @@ func After(d time.Duration) <-chan time.Time {
 // See built-in time.AfterFunc() function.
 func AfterFunc(d time.Duration, f func()) Timer {
 	if MockMode {
+		mockTimerMu.Lock()
 		t := mockTimer{currentTimeMock.Add(d), make(chan time.Time, 1), false, f}
+		mockTimerMu.Unlock()
 		if d == 0 {
 			go f()
 			t.Chan <- currentTimeMock

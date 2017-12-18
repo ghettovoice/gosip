@@ -68,11 +68,11 @@ type connectionPool struct {
 	hwg     *sync.WaitGroup
 	store   map[ConnectionKey]ConnectionHandler
 	keys    []ConnectionKey
-	output  chan<- *IncomingMessage
+	output  chan<- core.Message
 	errs    chan<- error
 	cancel  <-chan struct{}
 	done    chan struct{}
-	hmess   chan *IncomingMessage
+	hmess   chan core.Message
 	herrs   chan error
 	gets    chan *connectionRequest
 	updates chan *connectionRequest
@@ -80,7 +80,7 @@ type connectionPool struct {
 	mu      *sync.RWMutex
 }
 
-func NewConnectionPool(output chan<- *IncomingMessage, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
+func NewConnectionPool(output chan<- core.Message, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
 	pool := &connectionPool{
 		logger:  log.NewSafeLocalLogger(),
 		hwg:     new(sync.WaitGroup),
@@ -90,7 +90,7 @@ func NewConnectionPool(output chan<- *IncomingMessage, errs chan<- error, cancel
 		errs:    errs,
 		cancel:  cancel,
 		done:    make(chan struct{}),
-		hmess:   make(chan *IncomingMessage),
+		hmess:   make(chan core.Message),
 		herrs:   make(chan error),
 		gets:    make(chan *connectionRequest),
 		updates: make(chan *connectionRequest),
@@ -265,17 +265,17 @@ func (pool *connectionPool) serveHandlers() {
 
 	for {
 		select {
-		case incomingMsg, ok := <-pool.hmess:
+		case msg, ok := <-pool.hmess:
 			// cancel signal, serveStore exists
 			if !ok {
 				return
 			}
-			if incomingMsg == nil {
+			if msg == nil {
 				continue
 			}
 
-			pool.Log().Debugf("%s received %s", pool, incomingMsg)
-			pool.output <- incomingMsg
+			pool.Log().Debugf("%s received %s", pool, msg)
+			pool.output <- msg
 		case err, ok := <-pool.herrs:
 			// cancel signal, serveStore exists
 			if !ok {
@@ -457,7 +457,7 @@ type connectionHandler struct {
 	timer      timing.Timer
 	ttl        time.Duration
 	expiry     time.Time
-	output     chan<- *IncomingMessage
+	output     chan<- core.Message
 	errs       chan<- error
 	cancel     <-chan struct{}
 	canceled   chan struct{}
@@ -469,7 +469,7 @@ func NewConnectionHandler(
 	key ConnectionKey,
 	conn Connection,
 	ttl time.Duration,
-	output chan<- *IncomingMessage,
+	output chan<- core.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
 ) ConnectionHandler {
@@ -741,17 +741,15 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 						msg.Short(), viaHop.Host, raddr)
 					viaHop.Params.Add("received", core.String{rhost})
 				}
+				if handler.Connection().Streamed() {
+					msg.SetSource(raddr)
+				}
 			case core.Response:
 				// Set Remote Address as response source
 				msg.SetSource(raddr)
 			}
 			// pass up
-			handler.output <- &IncomingMessage{
-				msg,
-				handler.Connection().LocalAddr().String(),
-				raddr,
-				handler.Connection().Network(),
-			}
+			handler.output <- msg
 			if !handler.Expiry().IsZero() {
 				handler.expiry = time.Now().Add(handler.ttl)
 				handler.timer.Reset(handler.ttl)

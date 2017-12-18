@@ -2,6 +2,7 @@
 package transaction
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,53 +10,44 @@ import (
 )
 
 const (
-	T1      = 500 * time.Millisecond
-	T2      = 4 * time.Second
-	T4      = 5 * time.Second
-	Timer_A = T1
-	Timer_B = 64 * T1
-	Timer_D = 32 * time.Second
-	Timer_E = T1
-	Timer_F = 64 * T1
-	Timer_G = T1
-	Timer_H = 64 * T1
-	Timer_I = T4
-	Timer_J = 64 * T1
-	Timer_K = T4
+	T1        = 500 * time.Millisecond
+	T2        = 4 * time.Second
+	T4        = 5 * time.Second
+	Timer_A   = T1
+	Timer_B   = 64 * T1
+	Timer_D   = 32 * time.Second
+	Timer_E   = T1
+	Timer_F   = 64 * T1
+	Timer_G   = T1
+	Timer_H   = 64 * T1
+	Timer_I   = T4
+	Timer_J   = 64 * T1
+	Timer_K   = T4
+	Timer_1xx = 200 * time.Millisecond
 )
 
-// IncomingMessage is an incoming message with related Tx
-type IncomingMessage struct {
+// TxMessage is an message with related Tx
+type TxMessage interface {
 	core.Message
-	Network string
-	LAddr   string
-	RAddr   string
-	Tx      Tx
+	Tx() Tx
+	SetTx(tx Tx)
 }
 
-func (msg *IncomingMessage) String() string {
-	if msg == nil {
-		return "IncomingMessage <nil>"
-	}
-	s := "IncomingMessage " + msg.Short()
-	parts := make([]string, 0)
-	if msg.Tx != nil {
-		parts = append(parts, "tx "+msg.Tx.String())
-	}
-	if msg.Network != "" {
-		parts = append(parts, "net "+msg.Network)
-	}
-	if msg.LAddr != "" {
-		parts = append(parts, "laddr "+msg.LAddr)
-	}
-	if msg.RAddr != "" {
-		parts = append(parts, "raddr "+msg.RAddr)
-	}
-	if len(parts) > 0 {
-		s += " (" + strings.Join(parts, ", ") + ")"
-	}
+type txMessage struct {
+	core.Message
+	tx Tx
+}
 
-	return s
+func (msg *txMessage) Short() string {
+	return fmt.Sprintf("Tx%s [%s]", msg.Message.Short(), msg.Tx())
+}
+
+func (msg *txMessage) Tx() Tx {
+	return msg.tx
+}
+
+func (msg *txMessage) SetTx(tx Tx) {
+	msg.tx = tx
 }
 
 type TxError interface {
@@ -161,4 +153,98 @@ func (err *TxTransportError) Error() string {
 	s += ": " + err.Err.Error()
 
 	return s
+}
+
+// MakeServerTxKey creates server commonTx key for matching retransmitting requests - RFC 3261 17.2.3.
+func MakeServerTxKey(msg core.Message) (TxKey, error) {
+	var sep = "$"
+
+	firstViaHop, ok := msg.ViaHop()
+	if !ok {
+		return "", fmt.Errorf("'Via' header not found or empty in %s", msg.Short())
+	}
+
+	cseq, ok := msg.CSeq()
+	if !ok {
+		return "", fmt.Errorf("'CSeq' header not found in %s", msg.Short())
+	}
+	method := cseq.MethodName
+	if method == core.ACK {
+		method = core.INVITE
+	}
+
+	var isRFC3261 bool
+	branch, ok := firstViaHop.Params.Get("branch")
+	if ok && branch.String() != "" &&
+		strings.HasPrefix(branch.String(), core.RFC3261BranchMagicCookie) &&
+		strings.TrimPrefix(branch.String(), core.RFC3261BranchMagicCookie) != "" {
+
+		isRFC3261 = true
+	} else {
+		isRFC3261 = false
+	}
+
+	// RFC 3261 compliant
+	if isRFC3261 {
+		return TxKey(strings.Join([]string{
+			branch.String(),               // branch
+			firstViaHop.Host,              // sent-by Host
+			fmt.Sprint(*firstViaHop.Port), // sent-by Port
+			string(method),                // request Method
+		}, sep)), nil
+	}
+	// RFC 2543 compliant
+	from, ok := msg.From()
+	if !ok {
+		return "", fmt.Errorf("'From' header not found in %s", msg.Short())
+	}
+	fromTag, ok := from.Params.Get("tag")
+	if !ok {
+		return "", fmt.Errorf("'tag' param not found in 'From' header of %s", msg.Short())
+	}
+	callId, ok := msg.CallID()
+	if !ok {
+		return "", fmt.Errorf("'Call-ID' header not found in %s", msg.Short())
+	}
+
+	return TxKey(strings.Join([]string{
+		// TODO: how to match core.Response in Send method to server tx? currently disabled
+		// msg.Recipient().String(), // request-uri
+		fromTag.String(),       // from tag
+		callId.String(),        // Call-ID
+		string(method),         // cseq method
+		fmt.Sprint(cseq.SeqNo), // cseq num
+		firstViaHop.String(),   // top Via
+	}, sep)), nil
+}
+
+// MakeClientTxKey creates client commonTx key for matching responses - RFC 3261 17.1.3.
+func MakeClientTxKey(msg core.Message) (TxKey, error) {
+	var sep = "$"
+
+	cseq, ok := msg.CSeq()
+	if !ok {
+		return "", fmt.Errorf("'CSeq' header not found in %s", msg.Short())
+	}
+	method := cseq.MethodName
+	if method == core.ACK {
+		method = core.INVITE
+	}
+
+	firstViaHop, ok := msg.ViaHop()
+	if !ok {
+		return "", fmt.Errorf("'Via' header not found or empty in %s", msg.Short())
+	}
+
+	branch, ok := firstViaHop.Params.Get("branch")
+	if !ok || len(branch.String()) == 0 ||
+		!strings.HasPrefix(branch.String(), core.RFC3261BranchMagicCookie) ||
+		len(strings.TrimPrefix(branch.String(), core.RFC3261BranchMagicCookie)) == 0 {
+		return "", fmt.Errorf("'branch' not found or empty in 'Via' header of %s", msg.Short())
+	}
+
+	return TxKey(strings.Join([]string{
+		branch.String(),
+		string(method),
+	}, sep)), nil
 }

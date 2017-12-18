@@ -53,14 +53,14 @@ var _ = Describe("TransportLayer", func() {
 			var err error
 			network := "udp"
 			msg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
-				"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
+				"Via: SIP/2.0/UDP pc33.far-far-away.com:" + fmt.Sprintf("%v", clientPort) + ";branch=z9hG4bK776asdhds\r\n" +
 				"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
 				"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 				"Content-Length: 12\r\n" +
 				"\r\n" +
 				"Hello world!"
 			expectedMsg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
-				"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds;received=%s\r\n" +
+				"Via: SIP/2.0/UDP pc33.far-far-away.com:" + fmt.Sprintf("%v", clientPort) + ";branch=z9hG4bK776asdhds;received=%s\r\n" +
 				"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
 				"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 				"Content-Length: 12\r\n" +
@@ -83,30 +83,24 @@ var _ = Describe("TransportLayer", func() {
 			})
 
 			It("should process request (add 'received' param) and emit on Message chan", func(done Done) {
-				testutils.AssertIncomingMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), localAddr1,
-					client.LocalAddr().String())
+				testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), clientAddr,
+					"far-far-away.com:5060")
 				close(done)
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest *transport.IncomingMessage
+				var incomingRequest core.Message
 				var response core.Message
 
 				BeforeEach(func() {
-					incomingRequest = testutils.AssertIncomingMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), localAddr1,
-						client.LocalAddr().String())
-					response = core.NewResponse(
-						incomingRequest.SipVersion(),
+					incomingRequest = testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost),
+						clientAddr, "far-far-away.com:5060")
+					response = core.NewResponseFromRequest(
+						incomingRequest.(core.Request),
 						200,
 						"OK",
-						[]core.Header{},
 						"",
 					)
-					core.CopyHeaders("Via", incomingRequest.Message, response)
-					core.CopyHeaders("From", incomingRequest.Message, response)
-					core.CopyHeaders("To", incomingRequest.Message, response)
-					core.CopyHeaders("Call-ID", incomingRequest.Message, response)
-					core.CopyHeaders("CSeq", incomingRequest.Message, response)
 				})
 
 				It("should send response to client without error", func(done Done) {
@@ -126,8 +120,8 @@ var _ = Describe("TransportLayer", func() {
 						}
 					}()
 					time.Sleep(time.Second)
-					By(fmt.Sprintf("tpl sends response to %s", clientAddr))
-					Expect(tpl.Send(clientAddr, response)).ToNot(HaveOccurred())
+					By(fmt.Sprintf("tpl sends response to %s", response.Destination()))
+					Expect(tpl.Send(response)).ToNot(HaveOccurred())
 
 					twg.Wait()
 					close(done)
@@ -138,14 +132,14 @@ var _ = Describe("TransportLayer", func() {
 		Context("when remote TCP client sends INVITE request", func() {
 			network := "tcp"
 			msg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
-				"Via: SIP/2.0/TCP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
+				"Via: SIP/2.0/TCP pc33.far-far-away.com:" + fmt.Sprintf("%v", clientPort) + ";branch=z9hG4bK776asdhds\r\n" +
 				"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
 				"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 				"Content-Length: 12\r\n" +
 				"\r\n" +
 				"Hello world!"
 			expectedMsg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
-				"Via: SIP/2.0/TCP pc33.far-far-away.com;branch=z9hG4bK776asdhds;received=%s\r\n" +
+				"Via: SIP/2.0/TCP pc33.far-far-away.com:" + fmt.Sprintf("%v", clientPort) + ";branch=z9hG4bK776asdhds;received=%s\r\n" +
 				"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
 				"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 				"Content-Length: 12\r\n" +
@@ -153,7 +147,7 @@ var _ = Describe("TransportLayer", func() {
 				"Hello world!"
 
 			BeforeEach(func() {
-				client = testutils.CreateClient(network, localAddr1, clientAddr)
+				client = testutils.CreateClient(network, localAddr1, "")
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
@@ -166,30 +160,24 @@ var _ = Describe("TransportLayer", func() {
 			})
 
 			It("should process request (add 'received' param) and emit on Message chan", func(done Done) {
-				testutils.AssertIncomingMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), localAddr1,
-					client.LocalAddr().String())
+				testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), client.LocalAddr().String(),
+					"far-far-away.com:5060")
 				close(done)
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest *transport.IncomingMessage
+				var incomingRequest core.Message
 				var response core.Message
 
 				BeforeEach(func() {
-					incomingRequest = testutils.AssertIncomingMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), localAddr1,
-						client.LocalAddr().String())
-					response = core.NewResponse(
-						incomingRequest.SipVersion(),
+					incomingRequest = testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost),
+						client.LocalAddr().String(), "far-far-away.com:5060")
+					response = core.NewResponseFromRequest(
+						incomingRequest.(core.Request),
 						200,
 						"OK",
-						[]core.Header{},
 						"",
 					)
-					core.CopyHeaders("Via", incomingRequest.Message, response)
-					core.CopyHeaders("From", incomingRequest.Message, response)
-					core.CopyHeaders("To", incomingRequest.Message, response)
-					core.CopyHeaders("Call-ID", incomingRequest.Message, response)
-					core.CopyHeaders("CSeq", incomingRequest.Message, response)
 				})
 
 				It("should send response to client without error", func(done Done) {
@@ -210,8 +198,8 @@ var _ = Describe("TransportLayer", func() {
 						}
 					}()
 					time.Sleep(time.Second)
-					By(fmt.Sprintf("tpl sends response to %s", incomingRequest.RAddr))
-					Expect(tpl.Send(incomingRequest.RAddr, response)).ToNot(HaveOccurred())
+					By(fmt.Sprintf("tpl sends response to %s", response.Destination()))
+					Expect(tpl.Send(response)).ToNot(HaveOccurred())
 
 					twg.Wait()
 					close(done)

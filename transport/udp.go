@@ -15,7 +15,7 @@ type udpProtocol struct {
 	connections ConnectionPool
 }
 
-func NewUdpProtocol(output chan<- *IncomingMessage, errs chan<- error, cancel <-chan struct{}) Protocol {
+func NewUdpProtocol(output chan<- core.Message, errs chan<- error, cancel <-chan struct{}) Protocol {
 	udp := new(udpProtocol)
 	udp.network = "udp"
 	udp.reliable = false

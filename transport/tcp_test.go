@@ -16,7 +16,7 @@ import (
 
 var _ = Describe("TcpProtocol", func() {
 	var (
-		output                    chan *transport.IncomingMessage
+		output                    chan core.Message
 		errs                      chan error
 		cancel                    chan struct{}
 		protocol                  transport.Protocol
@@ -29,9 +29,6 @@ var _ = Describe("TcpProtocol", func() {
 	port2 := port1 + 1
 	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
 	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
-	clientAddr1 := "127.0.0.1:9001"
-	clientAddr2 := "127.0.0.1:9002"
-	clientAddr3 := "127.0.0.1:9003"
 	msg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
 		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
@@ -61,6 +58,7 @@ var _ = Describe("TcpProtocol", func() {
 		"\r\n" +
 		"Bye!"
 	msg3 := "SIP/2.0 200 OK\r\n" +
+		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
 		"CSeq: 2 INVITE\r\n" +
 		"Call-ID: cheesecake1729\r\n" +
 		"Max-Forwards: 65\r\n" +
@@ -88,7 +86,7 @@ var _ = Describe("TcpProtocol", func() {
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)
-		output = make(chan *transport.IncomingMessage)
+		output = make(chan core.Message)
 		errs = make(chan error)
 		cancel = make(chan struct{})
 		protocol = transport.NewTcpProtocol(output, errs, cancel)
@@ -128,9 +126,9 @@ var _ = Describe("TcpProtocol", func() {
 
 		Context("when 3 clients connects and sends data", func() {
 			BeforeEach(func() {
-				client1 = testutils.CreateClient(network, localTarget1.Addr(), clientAddr1)
-				client2 = testutils.CreateClient(network, localTarget2.Addr(), clientAddr2)
-				client3 = testutils.CreateClient(network, localTarget1.Addr(), clientAddr3)
+				client1 = testutils.CreateClient(network, localTarget1.Addr(), "")
+				client2 = testutils.CreateClient(network, localTarget2.Addr(), "")
+				client3 = testutils.CreateClient(network, localTarget1.Addr(), "")
 				wg.Add(3)
 				go func() {
 					defer wg.Done()
@@ -156,17 +154,17 @@ var _ = Describe("TcpProtocol", func() {
 			})
 			It("should pipe incoming messages and errors", func(done Done) {
 				By(fmt.Sprintf("msg1 arrives on output from client1 %s -> %s", client1.LocalAddr().String(), localTarget1.Addr()))
-				testutils.AssertIncomingMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), localTarget1.Addr(), client1.LocalAddr().String())
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:5060")
 				By(fmt.Sprintf("broken message arrives from client3 and ignored %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertIncomingMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), localTarget2.Addr(), client2.LocalAddr().String())
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5060")
 				By(fmt.Sprintf("msg3 arrives on output from client3 %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
-				testutils.AssertIncomingMessageArrived(output, msg3, localTarget1.Addr(), client3.LocalAddr().String())
+				testutils.AssertMessageArrived(output, msg3, client3.LocalAddr().String(), "pc33.far-far-away.com:5060")
 				By(fmt.Sprintf("bullshit arrives from client2 and ignored %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertIncomingMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), localTarget2.Addr(), client2.LocalAddr().String())
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5060")
 				//for i := 0; i < 4; i++ {
 				//	select {
 				//	case msg := <-output:
@@ -181,7 +179,7 @@ var _ = Describe("TcpProtocol", func() {
 
 		Context("when client1 sends invite request", func() {
 			BeforeEach(func() {
-				client1 = testutils.CreateClient(network, localTarget1.Addr(), clientAddr1)
+				client1 = testutils.CreateClient(network, localTarget1.Addr(), "")
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
@@ -191,7 +189,7 @@ var _ = Describe("TcpProtocol", func() {
 			})
 			It("should receive message and response with 200 OK", func(done Done) {
 				By("msg1 arrives")
-				testutils.AssertIncomingMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), localTarget1.Addr(), client1.LocalAddr().String())
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:5060")
 
 				By("prepare response 200 OK")
 				clientTarget, err := transport.NewTargetFromAddr(client1.LocalAddr().String())

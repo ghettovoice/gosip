@@ -6,6 +6,7 @@ import (
 
 	"github.com/discoviking/fsm"
 	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
 )
@@ -23,25 +24,25 @@ type serverTx struct {
 	timer_i      timing.Timer
 	timer_i_time time.Duration
 	timer_j      timing.Timer
+	timer_1xx    timing.Timer
 	reliable     bool
 }
 
 func NewServerTx(
 	origin core.Request,
-	dest string,
 	tpl transport.Layer,
-	msgs chan<- *IncomingMessage,
+	msgs chan<- TxMessage,
 	errs chan<- error,
 ) (ServerTx, error) {
-	key, err := makeServerTxKey(origin)
+	key, err := MakeServerTxKey(origin)
 	if err != nil {
 		return nil, err
 	}
 
 	tx := new(serverTx)
+	tx.logger = log.NewSafeLocalLogger()
 	tx.key = key
 	tx.origin = origin
-	tx.dest = dest
 	tx.tpl = tpl
 	tx.msgs = msgs
 	tx.errs = errs
@@ -62,13 +63,14 @@ func (tx *serverTx) Init() {
 		tx.timer_i_time = Timer_I
 	}
 	// pass up request
-	//tx.msgs <- &IncomingMessage{
-	//	tx.Origin(),
-	//}
+	tx.Log().Debugf("%s pass up %s", tx, tx.Origin().Short())
+	tx.msgs <- &txMessage{tx.Origin(), tx}
 	// RFC 3261 - 17.2.1
 	if tx.Origin().IsInvite() {
+		tx.Log().Debugf("%s, set timer_1xx to %v", tx, Timer_1xx)
 		// todo set as timer, reset in Respond
-		time.AfterFunc(200*time.Millisecond, func() {
+		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
+			tx.Log().Debugf("%s, timer_1xx fired", tx)
 			tx.Respond(core.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
 		})
 	}
@@ -78,8 +80,8 @@ func (tx *serverTx) String() string {
 	return fmt.Sprintf("Server%s", tx.commonTx.String())
 }
 
-func (tx *serverTx) Receive(msg *transport.IncomingMessage) error {
-	req, ok := msg.Message.(core.Request)
+func (tx *serverTx) Receive(msg core.Message) error {
+	req, ok := msg.(core.Request)
 	if !ok {
 		return &core.UnexpectedMessageError{
 			fmt.Errorf("%s recevied unexpected %s", tx, msg),
@@ -292,10 +294,35 @@ func (tx *serverTx) initNonInviteFSM() {
 	tx.fsm = fsm_
 }
 
+func (tx *serverTx) transportErr() {
+	tx.errs <- &TxTransportError{
+		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
+		tx.Key(),
+		tx.String(),
+	}
+}
+
+func (tx *serverTx) timeoutErr() {
+	tx.errs <- &TxTimeoutError{
+		fmt.Errorf("%s timed out", tx),
+		tx.Key(),
+		tx.String(),
+	}
+}
+
+func (tx *serverTx) delete() {
+	tx.errs <- &TxTerminatedError{
+		fmt.Errorf("%s terminated", tx),
+		tx.Key(),
+		tx.String(),
+	}
+}
+
 // Define actions.
 // Send response
 func (tx *serverTx) act_respond() fsm.Input {
-	tx.lastErr = tx.tpl.Send(tx.Destination(), tx.lastResp)
+	tx.Log().Debugf("%s, act_respond %s", tx, tx.lastResp.Short())
+	tx.lastErr = tx.tpl.Send(tx.lastResp)
 	if tx.lastErr != nil {
 		return server_input_transport_err
 	}
@@ -304,7 +331,8 @@ func (tx *serverTx) act_respond() fsm.Input {
 }
 
 func (tx *serverTx) act_respond_complete() fsm.Input {
-	tx.lastErr = tx.tpl.Send(tx.Destination(), tx.lastResp)
+	tx.Log().Debugf("%s, act_respond_complete %s", tx, tx.lastResp.Short())
+	tx.lastErr = tx.tpl.Send(tx.lastResp)
 	if tx.lastErr != nil {
 		return server_input_transport_err
 	}
@@ -335,7 +363,7 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 
 // Send final response
 func (tx *serverTx) act_final() fsm.Input {
-	tx.lastErr = tx.tpl.Send(tx.Destination(), tx.lastResp)
+	tx.lastErr = tx.tpl.Send(tx.lastResp)
 	if tx.lastErr != nil {
 		return server_input_transport_err
 	}
@@ -350,43 +378,31 @@ func (tx *serverTx) act_final() fsm.Input {
 
 // Inform user of transport error
 func (tx *serverTx) act_trans_err() fsm.Input {
-	tx.errs <- &TxTransportError{
-		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp, tx.lastErr),
-		tx.Key(),
-		tx.String(),
-	}
+	tx.Log().Debugf("%s, act_trans_err", tx)
+	tx.transportErr()
 	return server_input_delete
 }
 
 // Inform user of timeout error
 func (tx *serverTx) act_timeout() fsm.Input {
-	tx.errs <- &TxTimeoutError{
-		fmt.Errorf("%s timed out", tx),
-		tx.Key(),
-		tx.String(),
-	}
+	tx.Log().Debugf("%s, act_timeout", tx)
+	tx.timeoutErr()
 	return server_input_delete
 }
 
 // Just delete the transaction.
 func (tx *serverTx) act_delete() fsm.Input {
-	tx.errs <- &TxTerminatedError{
-		fmt.Errorf("%s terminated", tx),
-		tx.Key(),
-		tx.String(),
-	}
+	tx.Log().Debugf("%s, act_delete", tx)
+	tx.delete()
 	return fsm.NO_INPUT
 }
 
 // Send response and delete the transaction.
 func (tx *serverTx) act_respond_delete() fsm.Input {
-	tx.errs <- &TxTerminatedError{
-		fmt.Errorf("%s terminated", tx),
-		tx.Key(),
-		tx.String(),
-	}
+	tx.Log().Debugf("%s, act_respond_delete", tx)
+	tx.delete()
 
-	tx.lastErr = tx.tpl.Send(tx.dest, tx.lastResp)
+	tx.lastErr = tx.tpl.Send(tx.lastResp)
 	if tx.lastErr != nil {
 		return server_input_transport_err
 	}
@@ -395,6 +411,7 @@ func (tx *serverTx) act_respond_delete() fsm.Input {
 }
 
 func (tx *serverTx) act_confirm() fsm.Input {
+	tx.Log().Debugf("%s, act_confirm")
 	tx.timer_i = timing.AfterFunc(Timer_I, func() {
 		tx.Log().Debugf("%s, timer_i fired")
 		tx.fsm.Spin(server_input_timer_i)

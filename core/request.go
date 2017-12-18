@@ -104,6 +104,10 @@ func (req *request) IsAck() bool {
 }
 
 func (req *request) Source() string {
+	if req.src != "" {
+		return req.src
+	}
+
 	viaHop, ok := req.ViaHop()
 	if !ok {
 		return ""
@@ -127,6 +131,10 @@ func (req *request) Source() string {
 }
 
 func (req *request) Destination() string {
+	if req.dest != "" {
+		return req.dest
+	}
+
 	uri, ok := req.Recipient().(*SipUri)
 	if !ok {
 		return ""

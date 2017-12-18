@@ -15,7 +15,6 @@ type Response interface {
 	SetStatusCode(code StatusCode)
 	Reason() string
 	SetReason(reason string)
-	SetSource(src string)
 	/* Common helpers */
 	IsProvisional() bool
 	IsSuccess() bool
@@ -29,7 +28,6 @@ type response struct {
 	message
 	status StatusCode
 	reason string
-	src    string
 }
 
 func NewResponse(
@@ -150,12 +148,9 @@ func NewResponseFromRequest(
 	if statusCode == 100 {
 		CopyHeaders("Timestamp", req, res)
 	}
+	res.SetDestination(req.Source())
 
 	return res
-}
-
-func (res *response) SetSource(src string) {
-	res.src = src
 }
 
 func (res *response) Source() string {
@@ -163,6 +158,10 @@ func (res *response) Source() string {
 }
 
 func (res *response) Destination() string {
+	if res.dest != "" {
+		return res.dest
+	}
+
 	viaHop, ok := res.ViaHop()
 	if !ok {
 		return ""

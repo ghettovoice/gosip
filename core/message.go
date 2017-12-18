@@ -89,7 +89,9 @@ type Message interface {
 
 	Transport() string
 	Source() string
+	SetSource(src string)
 	Destination() string
+	SetDestination(dest string)
 }
 
 // headers is a struct with methods to work with SIP headers.
@@ -290,6 +292,8 @@ type message struct {
 	body       string
 	logger     log.LocalLogger
 	startLine  func() string
+	src        string
+	dest       string
 }
 
 func (msg *message) StartLine() string {
@@ -403,6 +407,19 @@ func (msg *message) Transport() string {
 	} else {
 		return DefaultProtocol
 	}
+}
+
+func (msg *message) Source() string {
+	return msg.src
+}
+func (msg *message) SetSource(src string) {
+	msg.src = src
+}
+func (msg *message) Destination() string {
+	return msg.dest
+}
+func (msg *message) SetDestination(dest string) {
+	msg.dest = dest
 }
 
 // Copy all headers of one type from one message to another.

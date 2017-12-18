@@ -15,19 +15,19 @@ type Layer interface {
 	core.Cancellable
 	core.Awaiting
 	HostAddr() string
-	Messages() <-chan *IncomingMessage
+	Messages() <-chan core.Message
 	Errors() <-chan error
 	// Listen starts listening on `addr` for each registered protocol.
 	Listen(network string, addr string) error
 	// Send sends message on suitable protocol.
-	Send(addr string, msg core.Message) error
+	Send(msg core.Message) error
 	String() string
 	IsReliable(network string) bool
 }
 
 var protocolFactory ProtocolFactory = func(
 	network string,
-	output chan<- *IncomingMessage,
+	output chan<- core.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
 ) (Protocol, error) {
@@ -56,9 +56,9 @@ type layer struct {
 	logger    log.LocalLogger
 	hostAddr  string
 	protocols *protocolStore
-	msgs      chan *IncomingMessage
+	msgs      chan core.Message
 	errs      chan error
-	pmsgs     chan *IncomingMessage
+	pmsgs     chan core.Message
 	perrs     chan error
 	canceled  chan struct{}
 	done      chan struct{}
@@ -73,9 +73,9 @@ func NewLayer(hostAddr string) Layer {
 		hostAddr:  hostAddr,
 		wg:        new(sync.WaitGroup),
 		protocols: newProtocolStore(),
-		msgs:      make(chan *IncomingMessage),
+		msgs:      make(chan core.Message),
 		errs:      make(chan error),
-		pmsgs:     make(chan *IncomingMessage),
+		pmsgs:     make(chan core.Message),
 		perrs:     make(chan error),
 		canceled:  make(chan struct{}),
 		done:      make(chan struct{}),
@@ -124,7 +124,7 @@ func (tpl *layer) Done() <-chan struct{} {
 	return tpl.done
 }
 
-func (tpl *layer) Messages() <-chan *IncomingMessage {
+func (tpl *layer) Messages() <-chan core.Message {
 	return tpl.msgs
 }
 
@@ -158,9 +158,9 @@ func (tpl *layer) Listen(network string, addr string) error {
 	return protocol.Listen(target)
 }
 
-func (tpl *layer) Send(addr string, msg core.Message) error {
+func (tpl *layer) Send(msg core.Message) error {
 	nets := make([]string, 0)
-	target, err := NewTargetFromAddr(addr)
+	target, err := NewTargetFromAddr(msg.Destination())
 	if err != nil {
 		return err
 	}
@@ -274,11 +274,10 @@ func (tpl *layer) dispose() {
 
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
-func (tpl *layer) handleMessage(incomingMsg *IncomingMessage) {
-	tpl.Log().Debugf("%s received %s", tpl, incomingMsg)
+func (tpl *layer) handleMessage(msg core.Message) {
+	tpl.Log().Debugf("%s received %s", tpl, msg)
 
-	msg := incomingMsg.Message
-	switch incomingMsg.Message.(type) {
+	switch msg.(type) {
 	case core.Response:
 		// incoming Response
 		// RFC 3261 - 18.1.2. - Receiving Responses.
@@ -288,9 +287,9 @@ func (tpl *layer) handleMessage(incomingMsg *IncomingMessage) {
 					" equals to %s, but expected %s",
 				tpl,
 				msg.Short(),
-				incomingMsg.RAddr,
-				incomingMsg.LAddr,
-				incomingMsg.Network,
+				msg.Source(),
+				msg.Destination(),
+				msg.Transport(),
 				msg.Destination(),
 				tpl.HostAddr(),
 			)
@@ -305,16 +304,16 @@ func (tpl *layer) handleMessage(incomingMsg *IncomingMessage) {
 			"%s discards unsupported message %s %s -> %s over %s",
 			tpl,
 			msg.Short(),
-			incomingMsg.RAddr,
-			incomingMsg.LAddr,
-			incomingMsg.Network,
+			msg.Source(),
+			msg.Destination(),
+			msg.Transport(),
 		)
 		return
 	}
 
-	tpl.Log().Debugf("%s passes up %s", tpl, incomingMsg)
+	tpl.Log().Debugf("%s passes up %s", tpl, msg)
 	// pass up message
-	tpl.msgs <- incomingMsg
+	tpl.msgs <- msg
 }
 
 func (tpl *layer) handlerError(err error) {
@@ -370,10 +369,10 @@ func (store *protocolStore) drop(key protocolKey) bool {
 
 func (store *protocolStore) all() []Protocol {
 	all := make([]Protocol, 0)
-	for key := range store.protocols {
-		if protocol, ok := store.get(key); ok {
-			all = append(all, protocol)
-		}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	for _, protocol := range store.protocols {
+		all = append(all, protocol)
 	}
 
 	return all

@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
@@ -15,7 +16,7 @@ import (
 
 var _ = Describe("ConnectionHandler", func() {
 	var (
-		output         chan *transport.IncomingMessage
+		output         chan core.Message
 		errs           chan error
 		cancel         chan struct{}
 		client, server net.Conn
@@ -50,7 +51,7 @@ var _ = Describe("ConnectionHandler", func() {
 		var ttl time.Duration
 
 		BeforeEach(func() {
-			output = make(chan *transport.IncomingMessage)
+			output = make(chan core.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
@@ -116,7 +117,7 @@ var _ = Describe("ConnectionHandler", func() {
 		var ttl time.Duration = 0
 
 		BeforeEach(func() {
-			output = make(chan *transport.IncomingMessage)
+			output = make(chan core.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
@@ -155,7 +156,7 @@ var _ = Describe("ConnectionHandler", func() {
 
 			It("should read, parse and pipe to output", func(done Done) {
 				By("first message arrives on output")
-				testutils.AssertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
+				testutils.AssertMessageArrived(output, inviteMsg, "pipe", "far-far-away.com:5060")
 				By("bullshit arrives and ignored")
 				time.Sleep(time.Millisecond)
 				By("malformed message 1 arrives on errs")
@@ -163,7 +164,7 @@ var _ = Describe("ConnectionHandler", func() {
 				By("malformed message 2 arrives on errs")
 				testutils.AssertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
 				By("second message arrives on output")
-				testutils.AssertIncomingMessageArrived(output, inviteMsg, conn.LocalAddr().String(), conn.RemoteAddr().String())
+				testutils.AssertMessageArrived(output, inviteMsg, "pipe", "far-far-away.com:5060")
 				//for i := 0; i < 10; i++ {
 				//	select {
 				//	case msg := <-output:
@@ -247,7 +248,7 @@ var _ = Describe("ConnectionHandler", func() {
 
 var _ = Describe("ConnectionPool", func() {
 	var (
-		output chan *transport.IncomingMessage
+		output chan core.Message
 		errs   chan error
 		cancel chan struct{}
 		pool   transport.ConnectionPool
@@ -292,7 +293,7 @@ var _ = Describe("ConnectionPool", func() {
 
 	Context("just initialized", func() {
 		BeforeEach(func() {
-			output = make(chan *transport.IncomingMessage)
+			output = make(chan core.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			pool = transport.NewConnectionPool(output, errs, cancel)
@@ -309,7 +310,7 @@ var _ = Describe("ConnectionPool", func() {
 		)
 
 		BeforeEach(func() {
-			output = make(chan *transport.IncomingMessage)
+			output = make(chan core.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			pool = transport.NewConnectionPool(output, errs, cancel)
@@ -364,7 +365,7 @@ var _ = Describe("ConnectionPool", func() {
 		}
 
 		BeforeEach(func() {
-			output = make(chan *transport.IncomingMessage)
+			output = make(chan core.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			pool = transport.NewConnectionPool(output, errs, cancel)
@@ -592,7 +593,7 @@ var _ = Describe("ConnectionPool", func() {
 				})
 				It("should pipe handler outputs to self outputs", func(done Done) {
 					By(fmt.Sprintf("message msg2 arrives %s -> %s", server2.RemoteAddr(), server2.LocalAddr()))
-					testutils.AssertIncomingMessageArrived(output, msg2, server2.LocalAddr().String(), client2.LocalAddr().String())
+					testutils.AssertMessageArrived(output, msg2, "pipe", "far-far-away.com:5060")
 					By(fmt.Sprintf("malformed message msg3 arrives %s -> %s", server3.RemoteAddr(), server3.LocalAddr()))
 					testutils.AssertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
 					By("server2 expired error arrives and ignored")
@@ -600,7 +601,7 @@ var _ = Describe("ConnectionPool", func() {
 					By("server3 falls with error")
 					testutils.AssertIncomingErrorArrived(errs, fmt.Sprintf("read pipe->%s: io: read/write on closed pipe", server3.LocalAddr()))
 					By(fmt.Sprintf("message msg1 arrives %s -> %s", server1.RemoteAddr(), server1.LocalAddr()))
-					testutils.AssertIncomingMessageArrived(output, msg1, server1.LocalAddr().String(), server1.RemoteAddr().String())
+					testutils.AssertMessageArrived(output, msg1, "pipe", "far-far-away.com:5060")
 					close(done)
 				}, 3)
 			})
