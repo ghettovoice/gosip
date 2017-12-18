@@ -7,6 +7,15 @@ import (
 	"github.com/ghettovoice/gossip/utils"
 )
 
+const (
+	DefaultHost     = "127.0.0.1"
+	DefaultProtocol = "TCP"
+
+	DefaultUdpPort Port = 5060
+	DefaultTcpPort Port = 5060
+	DefaultTlsPort Port = 5061
+)
+
 // Port number
 type Port uint16
 
@@ -147,4 +156,18 @@ func GenerateBranch() string {
 		RFC3261BranchMagicCookie,
 		utils.RandStr(16),
 	}, "")
+}
+
+// DefaultPort returns protocol default port by network.
+func DefaultPort(protocol string) Port {
+	switch strings.ToLower(protocol) {
+	case "tls":
+		return DefaultTlsPort
+	case "tcp":
+		return DefaultTcpPort
+	case "udp":
+		return DefaultUdpPort
+	default:
+		return DefaultTcpPort
+	}
 }

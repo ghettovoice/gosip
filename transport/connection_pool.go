@@ -723,10 +723,33 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 				return
 			}
 			handler.Log().Infof("%s received message %s; pass it up", handler, msg.Short())
+			// add Remote Address
+			raddr := getRemoteAddr()
+			rhost, _, _ := net.SplitHostPort(raddr)
+			switch msg := msg.(type) {
+			case core.Request:
+				// RFC 3261 - 18.2.1
+				viaHop, ok := msg.ViaHop()
+				if !ok {
+					panic(123)
+					handler.Log().Warnf("%s ignores message without 'Via' header %s", handler, msg.Short())
+					continue
+				}
+				if rhost != "" && viaHop.Host != rhost {
+					handler.Log().Debugf("%s adds 'received' = %s param to 'Via' header of %s, "+
+						"because host %s from the first 'Via' header differs from the actual source address %s", handler, rhost,
+						msg.Short(), viaHop.Host, raddr)
+					viaHop.Params.Add("received", core.String{rhost})
+				}
+			case core.Response:
+				// Set Remote Address as response source
+				msg.SetSource(raddr)
+			}
+			// pass up
 			handler.output <- &IncomingMessage{
 				msg,
 				handler.Connection().LocalAddr().String(),
-				getRemoteAddr(),
+				raddr,
 				handler.Connection().Network(),
 			}
 			if !handler.Expiry().IsZero() {

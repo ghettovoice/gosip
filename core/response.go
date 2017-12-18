@@ -15,6 +15,7 @@ type Response interface {
 	SetStatusCode(code StatusCode)
 	Reason() string
 	SetReason(reason string)
+	SetSource(src string)
 	/* Common helpers */
 	IsProvisional() bool
 	IsSuccess() bool
@@ -28,6 +29,7 @@ type response struct {
 	message
 	status StatusCode
 	reason string
+	src    string
 }
 
 func NewResponse(
@@ -150,4 +152,35 @@ func NewResponseFromRequest(
 	}
 
 	return res
+}
+
+func (res *response) SetSource(src string) {
+	res.src = src
+}
+
+func (res *response) Source() string {
+	return res.src
+}
+
+func (res *response) Destination() string {
+	viaHop, ok := res.ViaHop()
+	if !ok {
+		return ""
+	}
+
+	var host string
+	var port Port
+	if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
+		host = received.String()
+	} else {
+		host = viaHop.Host
+	}
+
+	if viaHop.Port == nil {
+		port = DefaultPort(res.Transport())
+	} else {
+		port = *viaHop.Port
+	}
+
+	return fmt.Sprintf("%v:%v", host, port)
 }

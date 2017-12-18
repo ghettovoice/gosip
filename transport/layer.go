@@ -2,7 +2,6 @@ package transport
 
 import (
 	"fmt"
-	"net"
 	"strings"
 	"sync"
 
@@ -283,20 +282,7 @@ func (tpl *layer) handleMessage(incomingMsg *IncomingMessage) {
 	case core.Response:
 		// incoming Response
 		// RFC 3261 - 18.1.2. - Receiving Responses.
-		viaHop, ok := msg.ViaHop()
-		if !ok {
-			tpl.Log().Warnf(
-				"%s discards malformed response %s %s -> %s over %s: empty or malformed 'Via' header",
-				tpl,
-				msg.Short(),
-				incomingMsg.RAddr,
-				incomingMsg.LAddr,
-				incomingMsg.Network,
-			)
-			return
-		}
-
-		if viaHop.Host != tpl.HostAddr() {
+		if msg.Destination() != tpl.HostAddr() {
 			tpl.Log().Warnf(
 				"%s discards unexpected response %s %s -> %s over %s: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
@@ -305,48 +291,14 @@ func (tpl *layer) handleMessage(incomingMsg *IncomingMessage) {
 				incomingMsg.RAddr,
 				incomingMsg.LAddr,
 				incomingMsg.Network,
-				viaHop.Host,
+				msg.Destination(),
 				tpl.HostAddr(),
 			)
 			return
 		}
 	case core.Request:
 		// incoming Request
-		// RFC 3261 - 18.2.1. - Receiving Request.
-		viaHop, ok := msg.ViaHop()
-		if !ok {
-			// pass up errors on malformed requests, UA may response on it with 4xx code
-			err := &core.MalformedMessageError{
-				Err: fmt.Errorf("empty or malformed required 'Via' header %s", viaHop),
-				Msg: msg.String(),
-			}
-			tpl.Log().Debugf("%s passes up %s", tpl, err)
-			tpl.errs <- err
-			return
-		}
-
-		rhost, _, err := net.SplitHostPort(incomingMsg.RAddr)
-		if err != nil {
-			err = &net.OpError{
-				Err: fmt.Errorf("invalid remote address %s of the incoming request %s",
-					incomingMsg.RAddr, msg.Short()),
-				Op:  "extract remote host",
-				Net: incomingMsg.Network,
-			}
-			tpl.Log().Debugf("%s passes up %s", tpl, err)
-			tpl.errs <- err
-			return
-		}
-		if viaHop.Host != rhost {
-			tpl.Log().Debugf(
-				"host %s from the first 'Via' header differs from the actual source address %s of the message %s: "+
-					"'received' parameter will be added",
-				viaHop.Host,
-				rhost,
-				msg.Short(),
-			)
-			viaHop.Params.Add("received", core.String{rhost})
-		}
+		// RFC 3261 - 18.2.1. - Receiving Request. already done in ConnectionHandler
 	default:
 		// unsupported message received, log and discard
 		tpl.Log().Warnf(

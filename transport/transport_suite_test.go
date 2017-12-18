@@ -35,5 +35,5 @@ func TestTransport(t *testing.T) {
 	// setup Ginkgo
 	RegisterFailHandler(Fail)
 	RegisterTestingT(t)
-	RunSpecs(t, "Transp Suite")
+	RunSpecs(t, "Transport Suite")
 }

@@ -39,8 +39,22 @@ var _ = Describe("TcpProtocol", func() {
 		"Content-Length: 12\r\n" +
 		"\r\n" +
 		"Hello world!"
+	expectedMsg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds;received=%s\r\n" +
+		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
+		"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
+		"Content-Length: 12\r\n" +
+		"\r\n" +
+		"Hello world!"
 	msg2 := "BYE sip:bob@far-far-away.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
+		"To: \"Alice\" <sip:bob@far-far-away.com>\r\n" +
+		"From: \"Bob\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
+		"Content-Length: 4\r\n" +
+		"\r\n" +
+		"Bye!"
+	expectedMsg2 := "BYE sip:bob@far-far-away.com SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds;received=%s\r\n" +
 		"To: \"Alice\" <sip:bob@far-far-away.com>\r\n" +
 		"From: \"Bob\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 		"Content-Length: 4\r\n" +
@@ -142,17 +156,17 @@ var _ = Describe("TcpProtocol", func() {
 			})
 			It("should pipe incoming messages and errors", func(done Done) {
 				By(fmt.Sprintf("msg1 arrives on output from client1 %s -> %s", client1.LocalAddr().String(), localTarget1.Addr()))
-				testutils.AssertIncomingMessageArrived(output, msg1, localTarget1.Addr(), client1.LocalAddr().String())
+				testutils.AssertIncomingMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), localTarget1.Addr(), client1.LocalAddr().String())
 				By(fmt.Sprintf("broken message arrives from client3 and ignored %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertIncomingMessageArrived(output, msg2, localTarget2.Addr(), client2.LocalAddr().String())
+				testutils.AssertIncomingMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), localTarget2.Addr(), client2.LocalAddr().String())
 				By(fmt.Sprintf("msg3 arrives on output from client3 %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
 				testutils.AssertIncomingMessageArrived(output, msg3, localTarget1.Addr(), client3.LocalAddr().String())
 				By(fmt.Sprintf("bullshit arrives from client2 and ignored %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertIncomingMessageArrived(output, msg2, localTarget2.Addr(), client2.LocalAddr().String())
+				testutils.AssertIncomingMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), localTarget2.Addr(), client2.LocalAddr().String())
 				//for i := 0; i < 4; i++ {
 				//	select {
 				//	case msg := <-output:
@@ -177,7 +191,7 @@ var _ = Describe("TcpProtocol", func() {
 			})
 			It("should receive message and response with 200 OK", func(done Done) {
 				By("msg1 arrives")
-				testutils.AssertIncomingMessageArrived(output, msg1, localTarget1.Addr(), client1.LocalAddr().String())
+				testutils.AssertIncomingMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), localTarget1.Addr(), client1.LocalAddr().String())
 
 				By("prepare response 200 OK")
 				clientTarget, err := transport.NewTargetFromAddr(client1.LocalAddr().String())

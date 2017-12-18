@@ -102,3 +102,43 @@ func (req *request) IsInvite() bool {
 func (req *request) IsAck() bool {
 	return req.Method() == ACK
 }
+
+func (req *request) Source() string {
+	viaHop, ok := req.ViaHop()
+	if !ok {
+		return ""
+	}
+
+	var host string
+	var port Port
+	if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
+		host = received.String()
+	} else {
+		host = viaHop.Host
+	}
+
+	if viaHop.Port == nil {
+		port = DefaultPort(req.Transport())
+	} else {
+		port = *viaHop.Port
+	}
+
+	return fmt.Sprintf("%v:%v", host, port)
+}
+
+func (req *request) Destination() string {
+	uri, ok := req.Recipient().(*SipUri)
+	if !ok {
+		return ""
+	}
+
+	host := uri.Host
+	var port Port
+	if uri.Port == nil {
+		port = DefaultPort(req.Transport())
+	} else {
+		port = *uri.Port
+	}
+
+	return fmt.Sprintf("%v:%v", host, port)
+}

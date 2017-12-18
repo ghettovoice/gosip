@@ -86,6 +86,10 @@ type Message interface {
 	// CSeq returns 'CSeq' header field.
 	CSeq() (*CSeq, bool)
 	ContentLength() (*ContentLength, bool)
+
+	Transport() string
+	Source() string
+	Destination() string
 }
 
 // headers is a struct with methods to work with SIP headers.
@@ -391,6 +395,14 @@ func (msg *message) logFields() map[string]interface{} {
 	}
 
 	return fields
+}
+
+func (msg *message) Transport() string {
+	if viaHop, ok := msg.ViaHop(); ok {
+		return viaHop.Transport
+	} else {
+		return DefaultProtocol
+	}
 }
 
 // Copy all headers of one type from one message to another.
