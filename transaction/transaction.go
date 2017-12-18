@@ -31,6 +31,7 @@ type TxMessage interface {
 	core.Message
 	Tx() Tx
 	SetTx(tx Tx)
+	Origin() core.Message
 	IsRequest() bool
 	IsResponse() bool
 }
@@ -41,7 +42,7 @@ type txMessage struct {
 }
 
 func (msg *txMessage) Short() string {
-	return fmt.Sprintf("Tx%s [%s]", msg.Message.Short(), msg.Tx())
+	return fmt.Sprintf("Tx%s [%s]", msg.Origin().Short(), msg.Tx())
 }
 
 func (msg *txMessage) Tx() Tx {
@@ -53,12 +54,16 @@ func (msg *txMessage) SetTx(tx Tx) {
 }
 
 func (msg *txMessage) IsRequest() bool {
-	_, ok := msg.Message.(core.Request)
+	_, ok := msg.Origin().(core.Request)
 	return ok
 }
 func (msg *txMessage) IsResponse() bool {
-	_, ok := msg.Message.(core.Response)
+	_, ok := msg.Origin().(core.Response)
 	return ok
+}
+
+func (msg *txMessage) Origin() core.Message {
+	return msg.Message
 }
 
 type TxError interface {
