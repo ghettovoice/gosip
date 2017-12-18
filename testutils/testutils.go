@@ -178,8 +178,8 @@ func AssertIncomingMessageArrived(
 ) *transport.IncomingMessage {
 	incomingMsg := <-fromCh
 	Expect(incomingMsg).ToNot(BeNil())
-	Expect(incomingMsg.Msg).ToNot(BeNil())
-	Expect(strings.Trim(incomingMsg.Msg.String(), " \r\n")).To(Equal(strings.Trim(expectedMessage, " \r\n")))
+	Expect(incomingMsg.Message).ToNot(BeNil())
+	Expect(strings.Trim(incomingMsg.Message.String(), " \r\n")).To(Equal(strings.Trim(expectedMessage, " \r\n")))
 	Expect(incomingMsg.LAddr).To(Equal(expectedLocalAddr))
 	Expect(incomingMsg.RAddr).To(Equal(expectedRemoteAddr))
 	return incomingMsg

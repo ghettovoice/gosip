@@ -26,7 +26,7 @@ const (
 // IncomingMessage is an message with meta info: remote addr, local addr & etc.
 type IncomingMessage struct {
 	// SIP message
-	Msg core.Message
+	core.Message
 	// Local address to which message arrived
 	LAddr string
 	// Remote address from which message arrived
@@ -38,7 +38,7 @@ func (msg *IncomingMessage) String() string {
 	if msg == nil {
 		return "IncomingMessage <nil>"
 	}
-	s := "IncomingMessage " + msg.Msg.Short()
+	s := "IncomingMessage " + msg.Short()
 	parts := make([]string, 0)
 	if msg.Network != "" {
 		parts = append(parts, "net "+msg.Network)
@@ -57,12 +57,12 @@ func (msg *IncomingMessage) String() string {
 }
 
 func (msg *IncomingMessage) IsRequest() bool {
-	_, ok := msg.Msg.(core.Request)
+	_, ok := msg.Message.(core.Request)
 	return ok
 }
 
 func (msg *IncomingMessage) IsResponse() bool {
-	_, ok := msg.Msg.(core.Response)
+	_, ok := msg.Message.(core.Response)
 	return ok
 }
 

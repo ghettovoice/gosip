@@ -96,17 +96,17 @@ var _ = Describe("TransportLayer", func() {
 					incomingRequest = testutils.AssertIncomingMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), localAddr1,
 						client.LocalAddr().String())
 					response = core.NewResponse(
-						incomingRequest.Msg.SipVersion(),
+						incomingRequest.SipVersion(),
 						200,
 						"OK",
 						[]core.Header{},
 						"",
 					)
-					core.CopyHeaders("Via", incomingRequest.Msg, response)
-					core.CopyHeaders("From", incomingRequest.Msg, response)
-					core.CopyHeaders("To", incomingRequest.Msg, response)
-					core.CopyHeaders("Call-ID", incomingRequest.Msg, response)
-					core.CopyHeaders("CSeq", incomingRequest.Msg, response)
+					core.CopyHeaders("Via", incomingRequest.Message, response)
+					core.CopyHeaders("From", incomingRequest.Message, response)
+					core.CopyHeaders("To", incomingRequest.Message, response)
+					core.CopyHeaders("Call-ID", incomingRequest.Message, response)
+					core.CopyHeaders("CSeq", incomingRequest.Message, response)
 				})
 
 				It("should send response to client without error", func(done Done) {
@@ -179,17 +179,17 @@ var _ = Describe("TransportLayer", func() {
 					incomingRequest = testutils.AssertIncomingMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), localAddr1,
 						client.LocalAddr().String())
 					response = core.NewResponse(
-						incomingRequest.Msg.SipVersion(),
+						incomingRequest.SipVersion(),
 						200,
 						"OK",
 						[]core.Header{},
 						"",
 					)
-					core.CopyHeaders("Via", incomingRequest.Msg, response)
-					core.CopyHeaders("From", incomingRequest.Msg, response)
-					core.CopyHeaders("To", incomingRequest.Msg, response)
-					core.CopyHeaders("Call-ID", incomingRequest.Msg, response)
-					core.CopyHeaders("CSeq", incomingRequest.Msg, response)
+					core.CopyHeaders("Via", incomingRequest.Message, response)
+					core.CopyHeaders("From", incomingRequest.Message, response)
+					core.CopyHeaders("To", incomingRequest.Message, response)
+					core.CopyHeaders("Call-ID", incomingRequest.Message, response)
+					core.CopyHeaders("CSeq", incomingRequest.Message, response)
 				})
 
 				It("should send response to client without error", func(done Done) {

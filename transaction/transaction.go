@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ghettovoice/gosip/transport"
+	"github.com/ghettovoice/gosip/core"
 )
 
 const (
@@ -26,15 +26,18 @@ const (
 
 // IncomingMessage is an incoming message with related Tx
 type IncomingMessage struct {
-	*transport.IncomingMessage
-	Tx Tx
+	core.Message
+	Network string
+	LAddr   string
+	RAddr   string
+	Tx      Tx
 }
 
 func (msg *IncomingMessage) String() string {
 	if msg == nil {
 		return "IncomingMessage <nil>"
 	}
-	s := "IncomingMessage " + msg.Msg.Short()
+	s := "IncomingMessage " + msg.Short()
 	parts := make([]string, 0)
 	if msg.Tx != nil {
 		parts = append(parts, "tx "+msg.Tx.String())
@@ -83,7 +86,7 @@ func (err *TxTerminatedError) Error() string {
 	s := "TxTerminatedError"
 	parts := make([]string, 0)
 	if err.TxKey != "" {
-		parts = append(parts, "key "+err.TxKey)
+		parts = append(parts, "key "+err.TxKey.String())
 	}
 	if err.Tx != "" {
 		parts = append(parts, "tx "+err.Tx)
@@ -115,7 +118,7 @@ func (err *TxTimeoutError) Error() string {
 	s := "TxTimeoutError"
 	parts := make([]string, 0)
 	if err.TxKey != "" {
-		parts = append(parts, "key "+err.TxKey)
+		parts = append(parts, "key "+err.TxKey.String())
 	}
 	if err.Tx != "" {
 		parts = append(parts, "tx "+err.Tx)
@@ -147,7 +150,7 @@ func (err *TxTransportError) Error() string {
 	s := "TxTransportError"
 	parts := make([]string, 0)
 	if err.TxKey != "" {
-		parts = append(parts, "key "+err.TxKey)
+		parts = append(parts, "key "+err.TxKey.String())
 	}
 	if err.Tx != "" {
 		parts = append(parts, "tx "+err.Tx)

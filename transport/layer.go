@@ -278,8 +278,8 @@ func (tpl *layer) dispose() {
 func (tpl *layer) handleMessage(incomingMsg *IncomingMessage) {
 	tpl.Log().Debugf("%s received %s", tpl, incomingMsg)
 
-	msg := incomingMsg.Msg
-	switch incomingMsg.Msg.(type) {
+	msg := incomingMsg.Message
+	switch incomingMsg.Message.(type) {
 	case core.Response:
 		// incoming Response
 		// RFC 3261 - 18.1.2. - Receiving Responses.

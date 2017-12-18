@@ -11,10 +11,14 @@ import (
 
 type TxKey string
 
+func (key TxKey) String() string {
+	return string(key)
+}
+
 // Tx is an common SIP transaction
 type Tx interface {
 	log.LocalLogger
-	core.Awaiting
+	Init()
 	Key() TxKey
 	Origin() core.Request
 	// Receive receives message from transport layer.
@@ -33,8 +37,6 @@ type commonTx struct {
 	lastResp core.Response
 	msgs     chan<- *IncomingMessage
 	errs     chan<- error
-	cancel   <-chan struct{}
-	done     chan struct{}
 	lastErr  error
 }
 
@@ -62,10 +64,6 @@ func (tx *commonTx) Origin() core.Request {
 
 func (tx *commonTx) Destination() string {
 	return tx.dest
-}
-
-func (tx *commonTx) Done() <-chan struct{} {
-	return tx.done
 }
 
 func (tx *commonTx) Key() TxKey {

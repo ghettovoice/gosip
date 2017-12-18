@@ -274,7 +274,7 @@ func (pool *connectionPool) serveHandlers() {
 				continue
 			}
 
-			pool.Log().Debugf("%s received %s %p", pool, incomingMsg.Msg.Short(), incomingMsg.Msg)
+			pool.Log().Debugf("%s received %s", pool, incomingMsg)
 			pool.output <- incomingMsg
 		case err, ok := <-pool.herrs:
 			// cancel signal, serveStore exists

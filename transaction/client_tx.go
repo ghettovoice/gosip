@@ -8,7 +8,6 @@ import (
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
-	"github.com/ghettovoice/gossip/base"
 )
 
 type ClientTx interface {
@@ -31,7 +30,6 @@ func NewClientTx(
 	tpl transport.Layer,
 	msgs chan<- *IncomingMessage,
 	errs chan<- error,
-	cancel <-chan struct{},
 ) (ClientTx, error) {
 	key, err := makeClientTxKey(origin)
 	if err != nil {
@@ -45,24 +43,32 @@ func NewClientTx(
 	tx.tpl = tpl
 	tx.msgs = msgs
 	tx.errs = errs
-	tx.cancel = cancel
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
 	}
 
+	return tx, nil
+}
+
+func (tx *clientTx) Init() {
 	tx.initFSM()
-	// RFC 3261 - 17.1.1.2.
-	// If an unreliable transport is being used, the client transaction MUST start timer A with a value of T1.
-	// If a reliable transport is being used, the client transaction SHOULD NOT
-	// start timer A (Timer A controls request retransmissions).
-	// Timer A - retransmission
-	if !tx.reliable {
+
+	if tx.reliable {
+		tx.timer_d_time = 0
+	} else {
+		// RFC 3261 - 17.1.1.2.
+		// If an unreliable transport is being used, the client transaction MUST start timer A with a value of T1.
+		// If a reliable transport is being used, the client transaction SHOULD NOT
+		// start timer A (Timer A controls request retransmissions).
+		// Timer A - retransmission
 		tx.Log().Debugf("%s, timer_a set to %v", tx, Timer_A)
 		tx.timer_a_time = Timer_A
 		tx.timer_a = timing.AfterFunc(tx.timer_a_time, func() {
 			tx.Log().Debugf("%s, timer_a fired", tx)
 			tx.fsm.Spin(client_input_timer_a)
 		})
+		// Timer D is set to 32 seconds for unreliable transports
+		tx.timer_d_time = Timer_D
 	}
 	// Timer B - timeout
 	tx.Log().Debugf("%s, timer_b set to %v", tx, Timer_B)
@@ -70,22 +76,18 @@ func NewClientTx(
 		tx.Log().Debugf("%s, timer_b fired", tx)
 		tx.fsm.Spin(client_input_timer_b)
 	})
-	// Timer D is set to 32 seconds for unreliable transports, and 0 seconds otherwise.
-	if tx.reliable {
-		tx.timer_d_time = 0
-	} else {
-		tx.timer_d_time = Timer_D
-	}
 
-	return tx, nil
+	if err := tx.tpl.Send(tx.Destination(), tx.Origin()); err != nil {
+		tx.fsm.Spin(client_input_transport_err)
+	}
 }
 
 func (tx *clientTx) String() string {
 	return fmt.Sprintf("Client%s", tx.commonTx.String())
 }
 
-func (tx *clientTx) Receive(msg core.Message) error {
-	res, ok := msg.(core.Response)
+func (tx *clientTx) Receive(msg *transport.IncomingMessage) error {
+	res, ok := msg.Message.(core.Response)
 	if !ok {
 		return &core.UnexpectedMessageError{
 			fmt.Errorf("%s recevied unexpected %s", tx, msg.Short()),
@@ -330,7 +332,31 @@ func (tx *clientTx) resend() {
 func (tx *clientTx) passUp() {
 	if tx.lastResp != nil {
 		// todo use IncomingMessage in transactions
-		tx.msgs <- &IncomingMessage{tx.lastResp, tx}
+		//tx.msgs <- &IncomingMessage{tx.lastResp, tx}
+	}
+}
+
+func (tx *clientTx) transportErr() {
+	tx.errs <- &TxTransportError{
+		fmt.Errorf("%s failed to send %s", tx, tx.lastResp),
+		tx.Key(),
+		tx.String(),
+	}
+}
+
+func (tx *clientTx) timeoutErr() {
+	tx.errs <- &TxTimeoutError{
+		fmt.Errorf("%s timed out", tx),
+		tx.Key(),
+		tx.String(),
+	}
+}
+
+func (tx *clientTx) delete() {
+	tx.errs <- &TxTerminatedError{
+		fmt.Errorf("%s terminated", tx),
+		tx.Key(),
+		tx.String(),
 	}
 }
 
@@ -394,13 +420,13 @@ func (tx *clientTx) act_ack() fsm.Input {
 
 func (tx *clientTx) act_trans_err() fsm.Input {
 	tx.Log().Debugf("client transaction %p, act_trans_err", tx)
-	tx.transportError()
+	tx.transportErr()
 	return client_input_delete
 }
 
 func (tx *clientTx) act_timeout() fsm.Input {
 	tx.Log().Debugf("client transaction %p, act_timeout", tx)
-	tx.timeoutError()
+	tx.timeoutErr()
 	return client_input_delete
 }
 

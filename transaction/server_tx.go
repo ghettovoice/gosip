@@ -32,7 +32,6 @@ func NewServerTx(
 	tpl transport.Layer,
 	msgs chan<- *IncomingMessage,
 	errs chan<- error,
-	cancel <-chan struct{},
 ) (ServerTx, error) {
 	key, err := makeServerTxKey(origin)
 	if err != nil {
@@ -46,19 +45,33 @@ func NewServerTx(
 	tx.tpl = tpl
 	tx.msgs = msgs
 	tx.errs = errs
-	tx.cancel = cancel
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
 	}
-	if tx.reliable {
-		tx.timer_g_time = Timer_G
-		tx.timer_i_time = Timer_I
-	} else {
-		tx.timer_i_time = 0
-	}
-	tx.initFSM()
 
 	return tx, nil
+}
+
+func (tx *serverTx) Init() {
+	tx.initFSM()
+
+	if tx.reliable {
+		tx.timer_i_time = 0
+	} else {
+		tx.timer_g_time = Timer_G
+		tx.timer_i_time = Timer_I
+	}
+	// pass up request
+	//tx.msgs <- &IncomingMessage{
+	//	tx.Origin(),
+	//}
+	// RFC 3261 - 17.2.1
+	if tx.Origin().IsInvite() {
+		// todo set as timer, reset in Respond
+		time.AfterFunc(200*time.Millisecond, func() {
+			tx.Respond(core.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
+		})
+	}
 }
 
 func (tx *serverTx) String() string {
@@ -66,7 +79,7 @@ func (tx *serverTx) String() string {
 }
 
 func (tx *serverTx) Receive(msg *transport.IncomingMessage) error {
-	req, ok := msg.Msg.(core.Request)
+	req, ok := msg.Message.(core.Request)
 	if !ok {
 		return &core.UnexpectedMessageError{
 			fmt.Errorf("%s recevied unexpected %s", tx, msg),
@@ -76,16 +89,6 @@ func (tx *serverTx) Receive(msg *transport.IncomingMessage) error {
 
 	var input = fsm.NO_INPUT
 	switch {
-	case req == tx.Origin():
-		// initial receive
-		tx.msgs <- &IncomingMessage{msg, tx}
-		// RFC 3261 - 17.2.1
-		if req.IsInvite() {
-			// todo set as timer, reset in Respond
-			time.AfterFunc(200*time.Millisecond, func() {
-				tx.Respond(core.NewResponseFromRequest(req, 100, "Trying", ""))
-			})
-		}
 	case req.Method() == tx.Origin().Method():
 		input = server_input_request
 	case req.IsAck(): // ACK for non-2xx response

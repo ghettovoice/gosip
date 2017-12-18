@@ -70,6 +70,7 @@ func (txl *layer) Cancel() {
 	select {
 	case <-txl.canceled:
 	default:
+		txl.Log().Debugf("cancel %s", txl)
 		close(txl.canceled)
 	}
 }
@@ -89,24 +90,26 @@ func (txl *layer) Errors() <-chan error {
 func (txl *layer) Send(addr string, msg core.Message) error {
 	txl.Log().Debugf("%s sends %s", txl, msg.Short())
 
-	var err error
+	var (
+		tx  Tx
+		err error
+	)
+
 	switch msg := msg.(type) {
 	case core.Response:
-		tx, err := txl.getServerTx(msg)
+		tx, err = txl.getServerTx(msg)
 		if err != nil {
 			return err
 		}
-		return tx.Respond(msg)
+		return tx.(ServerTx).Respond(msg)
 	case core.Request:
-		tx := NewClientTx()
-		err = txl.tpl.Send(addr, msg)
+		tx, err = NewClientTx(msg, addr, txl.tpl, txl.msgs, txl.terrs)
 		if err != nil {
 			return err
 		}
-		err = txl.putClientTx(tx)
-		if err != nil {
-			return err
-		}
+		txl.transactions.put(tx.Key(), tx)
+		tx.Init()
+		return nil
 	default:
 		return &core.UnsupportedMessageError{
 			fmt.Errorf("%s got unsupported message %s", txl, msg.Short()),
@@ -115,19 +118,52 @@ func (txl *layer) Send(addr string, msg core.Message) error {
 	}
 }
 
+func (txl *layer) listenMessages() {
+	wg := new(sync.WaitGroup)
+	defer func() {
+		txl.Log().Infof("%s stops listen messages routine", txl)
+		// wait for message handlers
+		wg.Wait()
+		// drop all transactions
+		for _, tx := range txl.transactions.all() {
+			txl.transactions.drop(tx.Key())
+		}
+		close(txl.terrs)
+	}()
+	txl.Log().Infof("%s starts listen messages routine", txl)
+
+	for {
+		select {
+		case <-txl.canceled:
+			txl.Log().Warnf("%s received cancel signal", txl)
+			return
+		case msg, ok := <-txl.tpl.Messages():
+			if !ok {
+				return
+			}
+			// start handle goroutine
+			wg.Add(1)
+			go func(incomingMsg *transport.IncomingMessage) {
+				defer wg.Done()
+				txl.Log().Infof("%s received %s", txl, incomingMsg)
+
+				switch incomingMsg.Message.(type) {
+				case core.Request:
+					txl.handleRequest(incomingMsg)
+				case core.Response:
+					txl.handleResponse(incomingMsg)
+				default:
+					txl.Log().Errorf("%s received unsupported message %s", txl, incomingMsg)
+					// todo pass up error?
+				}
+			}(msg)
+		}
+	}
+}
+
 func (txl *layer) serveTransactions() {
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
-		// wait for transactions
-		txs := txl.transactions.all()
-		wg := new(sync.WaitGroup)
-		wg.Add(len(txs))
-		for _, tx := range txs {
-			go func(tx Tx) {
-				defer wg.Done()
-				<-tx.Done()
-			}(tx)
-		}
 		close(txl.msgs)
 		close(txl.errs)
 		close(txl.done)
@@ -157,102 +193,59 @@ func (txl *layer) serveTransactions() {
 	}
 }
 
-func (txl *layer) listenMessages() {
-	wg := new(sync.WaitGroup)
-	defer func() {
-		txl.Log().Infof("%s stops listen messages routine", txl)
-		// wait for message handlers
-		wg.Wait()
-		close(txl.terrs)
-	}()
-	txl.Log().Infof("%s starts listen messages routine", txl)
-
-	for {
-		select {
-		case <-txl.canceled:
-			txl.Log().Warnf("%s received cancel signal", txl)
-			return
-		case msg, ok := <-txl.tpl.Messages():
-			if !ok {
-				return
-			}
-			// start handle goroutine
-			wg.Add(1)
-			go func(incomingMsg *transport.IncomingMessage) {
-				defer wg.Done()
-				txl.Log().Infof("%s received %s", txl, incomingMsg)
-
-				switch incomingMsg.Msg.(type) {
-				case core.Request:
-					txl.handleRequest(incomingMsg)
-				case core.Response:
-					txl.handleResponse(incomingMsg)
-				default:
-					txl.Log().Errorf("%s received unsupported message %s", txl, incomingMsg)
-					// todo pass up error?
-				}
-			}(msg)
-		}
-	}
-}
-
 func (txl *layer) handleRequest(incomingReq *transport.IncomingMessage) {
 	// todo error handling!
-	req := incomingReq.Msg.(core.Request)
-	tx, err := txl.getServerTx(req)
-	if err != nil {
-		txl.Log().Debugf("%s creates new server transaction for %s", txl, incomingReq)
-		dest := incomingReq.RAddr
-		tx, err = NewServerTx(req, dest, txl.tpl, txl.msgs, txl.terrs, txl.canceled)
-		if err != nil {
+	// try to match to existent tx
+	if tx, err := txl.getServerTx(incomingReq.Message); err == nil {
+		if err := tx.Receive(incomingReq); err != nil {
 			txl.Log().Error(err)
-			return
 		}
-		// put tx to store, to match retransmitting requests later
-		// todo check RFC for ACK
-		txl.putServerTx(tx)
+		return
 	}
-
-	err = tx.Receive(incomingReq)
+	// or create new one
+	txl.Log().Debugf("%s creates new server transaction for %s", txl, incomingReq)
+	dest := incomingReq.RAddr
+	tx, err := NewServerTx(incomingReq.Message.(core.Request), dest, txl.tpl, txl.msgs, txl.terrs)
 	if err != nil {
 		txl.Log().Error(err)
+		return
 	}
+	// put tx to store, to match retransmitting requests later
+	txl.transactions.put(tx.Key(), tx)
+	tx.Init()
 }
 
-//func (txl *layer) sendPresumptiveTrying(tx ServerTx) {
-//	tx.Log().Infof("%s sends '100 Trying' auto response on %s", txl, tx)
-//	// Pretend the user sent us a 100 to send.
-//	if err := tx.Trying(); err != nil {
-//		tx.Log().Error(err)
-//	}
-//}
-
 func (txl *layer) handleResponse(incomingRes *transport.IncomingMessage) {
-	res := incomingRes.Msg.(core.Response)
-	tx, err := txl.getClientTx(res)
+	tx, err := txl.getClientTx(incomingRes.Message)
 	if err != nil {
 		txl.Log().Warn(err)
 		// RFC 3261 - 17.1.1.2.
 		// Not matched responses should be passed directly to the UA
-		txl.msgs <- &IncomingMessage{incomingRes, nil}
+		txl.msgs <- &IncomingMessage{
+			incomingRes.Message,
+			incomingRes.Network,
+			incomingRes.LAddr,
+			incomingRes.RAddr,
+			nil,
+		}
 		return
 	}
 	tx.Receive(incomingRes)
 }
 
 // RFC 17.1.3.
-func (txl *layer) getClientTx(res core.Response) (ClientTx, error) {
-	txl.Log().Debugf("%s searches client transaction by %s", txl, res.Short())
+func (txl *layer) getClientTx(msg core.Message) (ClientTx, error) {
+	txl.Log().Debugf("%s searches client transaction for %s", txl, msg.Short())
 
-	key, err := makeClientTxKey(res)
+	key, err := makeClientTxKey(msg)
 	if err != nil {
-		return nil, fmt.Errorf("%s failed to match %s to client transaction: %s", txl, res.Short(), err)
+		return nil, fmt.Errorf("%s failed to match %s to client transaction: %s", txl, msg.Short(), err)
 	}
 
 	tx, ok := txl.transactions.get(key)
 	if !ok {
 		return nil, fmt.Errorf("%s failed to match %s to client transaction: transaction with key %s not found",
-			txl, res.Short(), key)
+			txl, msg.Short(), key)
 	}
 
 	switch tx := tx.(type) {
@@ -260,49 +253,23 @@ func (txl *layer) getClientTx(res core.Response) (ClientTx, error) {
 		return tx, nil
 	default:
 		return nil, fmt.Errorf("%s failed to match %s to client transaction: found %s is not a client transaction",
-			txl, res.Short(), tx)
+			txl, msg.Short(), tx)
 	}
-}
-
-func (txl *layer) putClientTx(tx ClientTx) error {
-	txl.Log().Debugf("%s puts %s to store", txl, tx)
-
-	key, err := makeClientTxKey(tx.Origin())
-	if err != nil {
-		return fmt.Errorf("%s failed to put %s: %s", txl, tx, err)
-	}
-
-	txl.transactions.put(key, tx)
-
-	return nil
-}
-
-func (txl *layer) dropClientTx(tx ClientTx) error {
-	txl.Log().Debugf("%s drops %s from store", txl, tx)
-
-	key, err := makeClientTxKey(tx.Origin())
-	if err != nil {
-		return fmt.Errorf("%s failed to drop %s: %s", txl, tx, err)
-	}
-
-	txl.transactions.drop(key)
-
-	return nil
 }
 
 // RFC 17.2.3.
-func (txl *layer) getServerTx(req core.Request) (ServerTx, error) {
-	txl.Log().Debugf("%s searches server transaction by %s", txl, req.Short())
+func (txl *layer) getServerTx(msg core.Message) (ServerTx, error) {
+	txl.Log().Debugf("%s searches server transaction for %s", txl, msg.Short())
 
-	key, err := makeServerTxKey(req)
+	key, err := makeServerTxKey(msg)
 	if err != nil {
-		return nil, fmt.Errorf("%s failed to match %s to server transaction: %s", txl, req.Short(), err)
+		return nil, fmt.Errorf("%s failed to match %s to server transaction: %s", txl, msg.Short(), err)
 	}
 
 	tx, ok := txl.transactions.get(key)
 	if !ok {
 		return nil, fmt.Errorf("%s failed to match %s to server transaction: transaction with key %s not found",
-			txl, req.Short(), key)
+			txl, msg.Short(), key)
 	}
 
 	switch tx := tx.(type) {
@@ -310,48 +277,22 @@ func (txl *layer) getServerTx(req core.Request) (ServerTx, error) {
 		return tx, nil
 	default:
 		return nil, fmt.Errorf("%s failed to match %s to server transaction: found %s is not server transaction",
-			txl, req.Short(), tx)
+			txl, msg.Short(), tx)
 	}
-}
-
-func (txl *layer) putServerTx(tx ServerTx) error {
-	txl.Log().Debugf("%s puts %s to store", txl, tx)
-
-	key, err := makeServerTxKey(tx.Origin())
-	if err != nil {
-		return fmt.Errorf("%s failed to put %s: %s", txl, tx, err)
-	}
-
-	txl.transactions.put(key, tx)
-
-	return nil
-}
-
-func (txl *layer) dropServerTx(tx ServerTx) error {
-	txl.Log().Debugf("%s drops %s from store", txl, tx)
-
-	key, err := makeServerTxKey(tx.Origin())
-	if err != nil {
-		return fmt.Errorf("%s failed to drop %s: %s", txl, tx, err)
-	}
-
-	txl.transactions.drop(key)
-
-	return nil
 }
 
 // makeServerTxKey creates server commonTx key for matching retransmitting requests - RFC 3261 17.2.3.
-func makeServerTxKey(req core.Request) (TxKey, error) {
+func makeServerTxKey(msg core.Message) (TxKey, error) {
 	var sep = "$"
 
-	firstViaHop, ok := req.ViaHop()
+	firstViaHop, ok := msg.ViaHop()
 	if !ok {
-		return "", fmt.Errorf("'Via' header not found or empty in %s", req.Short())
+		return "", fmt.Errorf("'Via' header not found or empty in %s", msg.Short())
 	}
 
-	cseq, ok := req.CSeq()
+	cseq, ok := msg.CSeq()
 	if !ok {
-		return "", fmt.Errorf("'CSeq' header not found in %s", req.Short())
+		return "", fmt.Errorf("'CSeq' header not found in %s", msg.Short())
 	}
 	method := cseq.MethodName
 	if method == core.ACK {
@@ -372,33 +313,34 @@ func makeServerTxKey(req core.Request) (TxKey, error) {
 	// RFC 3261 compliant
 	if isRFC3261 {
 		return TxKey(strings.Join([]string{
-			branch.String(),
-			firstViaHop.Host,              // branch
-			fmt.Sprint(*firstViaHop.Port), // sent-by
-			string(method),                // origin method
+			branch.String(),               // branch
+			firstViaHop.Host,              // sent-by Host
+			fmt.Sprint(*firstViaHop.Port), // sent-by Port
+			string(method),                // request Method
 		}, sep)), nil
 	}
 	// RFC 2543 compliant
-	from, ok := req.From()
+	from, ok := msg.From()
 	if !ok {
-		return "", fmt.Errorf("'From' header not found in %s", req.Short())
+		return "", fmt.Errorf("'From' header not found in %s", msg.Short())
 	}
 	fromTag, ok := from.Params.Get("tag")
 	if !ok {
-		return "", fmt.Errorf("'tag' param not found in 'From' header of %s", req.Short())
+		return "", fmt.Errorf("'tag' param not found in 'From' header of %s", msg.Short())
 	}
-	callId, ok := req.CallID()
+	callId, ok := msg.CallID()
 	if !ok {
-		return "", fmt.Errorf("'Call-ID' header not found in %s", req.Short())
+		return "", fmt.Errorf("'Call-ID' header not found in %s", msg.Short())
 	}
 
 	return TxKey(strings.Join([]string{
-		req.Recipient().String(), // request-uri
-		fromTag.String(),         // from tag
-		callId.String(),          // Call-ID
-		string(method),           // cseq method
-		fmt.Sprint(cseq.SeqNo),   // cseq num
-		firstViaHop.String(),     // top Via
+		// TODO: how to match core.Response in Send method to server tx? currently disabled
+		// msg.Recipient().String(), // request-uri
+		fromTag.String(),       // from tag
+		callId.String(),        // Call-ID
+		string(method),         // cseq method
+		fmt.Sprint(cseq.SeqNo), // cseq num
+		firstViaHop.String(),   // top Via
 	}, sep)), nil
 }
 
