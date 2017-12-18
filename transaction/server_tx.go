@@ -89,6 +89,11 @@ func (tx *serverTx) Receive(msg core.Message) error {
 		}
 	}
 
+	if tx.timer_1xx != nil {
+		tx.timer_1xx.Stop()
+		tx.timer_1xx = nil
+	}
+
 	var input = fsm.NO_INPUT
 	switch {
 	case req.Method() == tx.Origin().Method():
