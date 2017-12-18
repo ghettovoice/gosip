@@ -275,7 +275,7 @@ func (tpl *layer) dispose() {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tpl *layer) handleMessage(msg core.Message) {
-	tpl.Log().Debugf("%s received %s", tpl, msg)
+	tpl.Log().Debugf("%s received %s\r\n%s", tpl, msg.Short(), msg)
 
 	switch msg.(type) {
 	case core.Response:
