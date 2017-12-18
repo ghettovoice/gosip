@@ -31,6 +31,8 @@ type TxMessage interface {
 	core.Message
 	Tx() Tx
 	SetTx(tx Tx)
+	IsRequest() bool
+	IsResponse() bool
 }
 
 type txMessage struct {
@@ -48,6 +50,15 @@ func (msg *txMessage) Tx() Tx {
 
 func (msg *txMessage) SetTx(tx Tx) {
 	msg.tx = tx
+}
+
+func (msg *txMessage) IsRequest() bool {
+	_, ok := msg.Message.(core.Request)
+	return ok
+}
+func (msg *txMessage) IsResponse() bool {
+	_, ok := msg.Message.(core.Response)
+	return ok
 }
 
 type TxError interface {

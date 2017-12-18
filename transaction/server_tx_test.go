@@ -90,11 +90,6 @@ var _ = Describe("ServerTx", func() {
 				"",
 			})
 
-			inviteTxKey, err = transaction.MakeServerTxKey(invite)
-			Expect(err).ToNot(HaveOccurred())
-			ackTxKey, err = transaction.MakeServerTxKey(ack)
-			Expect(err).ToNot(HaveOccurred())
-
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -107,6 +102,9 @@ var _ = Describe("ServerTx", func() {
 		})
 
 		It("should open server tx and pass up TxMessage", func() {
+			inviteTxKey, err = transaction.MakeServerTxKey(invite)
+			Expect(err).ToNot(HaveOccurred())
+
 			By(fmt.Sprintf("UAS receives %s", invite.Short()))
 			msg := <-txl.Messages()
 			Expect(msg).ToNot(BeNil())
@@ -174,6 +172,9 @@ var _ = Describe("ServerTx", func() {
 				})
 
 				It("should receive ACK in separate transaction", func(done Done) {
+					ackTxKey, err = transaction.MakeServerTxKey(ack)
+					Expect(err).ToNot(HaveOccurred())
+
 					By(fmt.Sprintf("UAS receives %s", ack.Short()))
 					msg := <-txl.Messages()
 					Expect(msg).ToNot(BeNil())
