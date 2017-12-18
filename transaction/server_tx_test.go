@@ -8,7 +8,6 @@ import (
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/transaction"
-	"github.com/ghettovoice/gossip/base"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -77,7 +76,7 @@ var _ = Describe("ServerTx", func() {
 			})
 			ack = request([]string{
 				"ACK sip:bob@example.com SIP/2.0",
-				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + base.GenerateBranch(),
+				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + core.GenerateBranch(),
 				"CSeq: 1 ACK",
 				"",
 				"",

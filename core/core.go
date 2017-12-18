@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ghettovoice/gossip/utils"
+	"github.com/ghettovoice/gosip/util"
 )
 
 const (
@@ -154,7 +154,7 @@ const RFC3261BranchMagicCookie = "z9hG4bK"
 func GenerateBranch() string {
 	return strings.Join([]string{
 		RFC3261BranchMagicCookie,
-		utils.RandStr(16),
+		util.RandStr(16),
 	}, "")
 }
 
