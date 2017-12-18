@@ -520,7 +520,7 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 			if err, ok := err.(net.Error); ok {
 				if err.Timeout() || err.Temporary() {
 					handler.Log().Debugf("listener %p timeout or temporary unavailable, sleep by %d seconds",
-						handler.Listener(), netErrRetryTime)
+						handler.Listener(), netErrRetryTime/time.Second)
 					time.Sleep(netErrRetryTime)
 					continue
 				}

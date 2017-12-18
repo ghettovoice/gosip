@@ -630,7 +630,7 @@ func (handler *connectionHandler) readConnection() (<-chan core.Message, <-chan 
 				if err, ok := err.(net.Error); ok {
 					if err.Timeout() || err.Temporary() {
 						handler.Log().Debugf("%s timeout or temporary unavailable, sleep by %d seconds",
-							handler.Connection(), netErrRetryTime)
+							handler.Connection(), netErrRetryTime/time.Second)
 						time.Sleep(netErrRetryTime)
 						continue
 					}
