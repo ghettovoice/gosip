@@ -311,7 +311,7 @@ func (tpl *layer) handleMessage(msg core.Message) {
 		return
 	}
 
-	tpl.Log().Debugf("%s passes up %s", tpl, msg)
+	tpl.Log().Debugf("%s passes up %s", tpl, msg.Short())
 	// pass up message
 	tpl.msgs <- msg
 }
