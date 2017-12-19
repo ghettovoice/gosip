@@ -114,12 +114,15 @@ var _ = Describe("ServerTx", func() {
 
 		Context("when INVITE server tx created", func() {
 			var invTx transaction.ServerTx
+			mu := &sync.RWMutex{}
 			BeforeEach(func() {
 				msg := <-txl.Messages()
 				Expect(msg).ToNot(BeNil())
 				tx, ok := msg.Tx().(transaction.ServerTx)
 				Expect(ok).To(BeTrue())
+				mu.Lock()
 				invTx = tx
+				mu.Unlock()
 			})
 
 			It("should send 100 Trying after Timer_1xx fired", func() {
@@ -142,7 +145,9 @@ var _ = Describe("ServerTx", func() {
 				By(fmt.Sprintf("UAS sends %s", ok.Short()))
 				tx, err := txl.Send(ok)
 				Expect(err).ToNot(HaveOccurred())
+				mu.RLock()
 				Expect(tx).To(Equal(invTx))
+				mu.RUnlock()
 			})
 
 			Context("after 2xx OK was sent", func() {

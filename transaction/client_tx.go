@@ -342,6 +342,8 @@ func (tx *clientTx) passUp() {
 }
 
 func (tx *clientTx) transportErr() {
+	// todo bloody patch
+	defer func() { recover() }()
 	tx.errs <- &TxTransportError{
 		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
 		tx.Key(),
@@ -350,6 +352,8 @@ func (tx *clientTx) transportErr() {
 }
 
 func (tx *clientTx) timeoutErr() {
+	// todo bloody patch
+	defer func() { recover() }()
 	tx.errs <- &TxTimeoutError{
 		fmt.Errorf("%s timed out", tx),
 		tx.Key(),
@@ -358,6 +362,8 @@ func (tx *clientTx) timeoutErr() {
 }
 
 func (tx *clientTx) delete() {
+	// todo bloody patch
+	defer func() { recover() }()
 	tx.errs <- &TxTerminatedError{
 		fmt.Errorf("%s terminated", tx),
 		tx.Key(),

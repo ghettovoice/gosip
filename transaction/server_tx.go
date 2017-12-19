@@ -314,6 +314,8 @@ func (tx *serverTx) initNonInviteFSM() {
 }
 
 func (tx *serverTx) transportErr() {
+	// todo bloody patch
+	defer func() { recover() }()
 	tx.errs <- &TxTransportError{
 		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
 		tx.Key(),
@@ -322,6 +324,8 @@ func (tx *serverTx) transportErr() {
 }
 
 func (tx *serverTx) timeoutErr() {
+	// todo bloody patch
+	defer func() { recover() }()
 	tx.errs <- &TxTimeoutError{
 		fmt.Errorf("%s timed out", tx),
 		tx.Key(),
@@ -330,6 +334,8 @@ func (tx *serverTx) timeoutErr() {
 }
 
 func (tx *serverTx) delete() {
+	// todo bloody patch
+	defer func() { recover() }()
 	tx.errs <- &TxTerminatedError{
 		fmt.Errorf("%s terminated", tx),
 		tx.Key(),
