@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/discoviking/fsm"
@@ -26,6 +27,7 @@ type serverTx struct {
 	timer_j      timing.Timer
 	timer_1xx    timing.Timer
 	reliable     bool
+	mu           *sync.RWMutex
 }
 
 func NewServerTx(
@@ -46,6 +48,7 @@ func NewServerTx(
 	tx.tpl = tpl
 	tx.msgs = msgs
 	tx.errs = errs
+	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
 	}
@@ -69,10 +72,12 @@ func (tx *serverTx) Init() {
 	if tx.Origin().IsInvite() {
 		tx.Log().Debugf("%s, set timer_1xx to %v", tx, Timer_1xx)
 		// todo set as timer, reset in Respond
+		tx.mu.Lock()
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
 			tx.Log().Debugf("%s, timer_1xx fired", tx)
 			tx.Respond(core.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
 		})
+		tx.mu.Unlock()
 	}
 }
 
@@ -89,10 +94,12 @@ func (tx *serverTx) Receive(msg core.Message) error {
 		}
 	}
 
+	tx.mu.Lock()
 	if tx.timer_1xx != nil {
 		tx.timer_1xx.Stop()
 		tx.timer_1xx = nil
 	}
+	tx.mu.Unlock()
 
 	var input = fsm.NO_INPUT
 	switch {
@@ -113,10 +120,12 @@ func (tx *serverTx) Receive(msg core.Message) error {
 func (tx *serverTx) Respond(res core.Response) error {
 	tx.lastResp = res
 
+	tx.mu.Lock()
 	if tx.timer_1xx != nil {
 		tx.timer_1xx.Stop()
 		tx.timer_1xx = nil
 	}
+	tx.mu.Unlock()
 
 	var input fsm.Input
 	switch {

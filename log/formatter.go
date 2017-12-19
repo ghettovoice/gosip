@@ -2,6 +2,7 @@ package log
 
 import (
 	"fmt"
+	"go/build"
 	"path/filepath"
 
 	"github.com/ghettovoice/logrus"
@@ -48,6 +49,8 @@ func (f *Formatter) Format(entry *logrus.Entry) ([]byte, error) {
 	if val, ok := fields["file"].(string); ok {
 		if f.ShortNames {
 			val = filepath.Base(val)
+		} else if rel, err := filepath.Rel(build.Default.GOPATH, val); err == nil {
+			val = rel
 		}
 		args = append(args, val)
 	} else {

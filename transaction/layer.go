@@ -3,6 +3,7 @@ package transaction
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
@@ -137,6 +138,7 @@ func (txl *layer) listenMessages() {
 		for _, tx := range txl.transactions.all() {
 			txl.transactions.drop(tx.Key())
 		}
+		time.Sleep(time.Second)
 		close(txl.terrs)
 	}()
 	txl.Log().Infof("%s starts listen messages routine", txl)
