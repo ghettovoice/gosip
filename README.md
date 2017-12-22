@@ -4,6 +4,8 @@
 
 [![Build Status](https://travis-ci.org/ghettovoice/gosip.svg?branch=master)](https://travis-ci.org/ghettovoice/gosip)
 
+## PROJECT IS UNDER DEVELOPMENT
+
 Inspired by:
 - [gossip](https://github.com/StefanKopieczek/gossip)
 - [go-sip](https://github.com/1lann/go-sip)
