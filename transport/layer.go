@@ -2,6 +2,7 @@ package transport
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 
@@ -281,7 +282,8 @@ func (tpl *layer) handleMessage(msg core.Message) {
 	case core.Response:
 		// incoming Response
 		// RFC 3261 - 18.1.2. - Receiving Responses.
-		if msg.Destination() != tpl.HostAddr() {
+		host, _, _ := net.SplitHostPort(msg.Destination())
+		if host != tpl.HostAddr() {
 			tpl.Log().Warnf(
 				"%s discards unexpected response %s %s -> %s over %s: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
@@ -290,7 +292,7 @@ func (tpl *layer) handleMessage(msg core.Message) {
 				msg.Source(),
 				msg.Destination(),
 				msg.Transport(),
-				msg.Destination(),
+				host,
 				tpl.HostAddr(),
 			)
 			return
