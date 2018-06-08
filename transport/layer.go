@@ -14,7 +14,7 @@ import (
 type Layer interface {
 	log.LocalLogger
 	core.Cancellable
-	core.Awaiting
+	core.Deferred
 	HostAddr() string
 	Messages() <-chan core.Message
 	Errors() <-chan error

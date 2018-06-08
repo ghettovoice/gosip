@@ -144,7 +144,7 @@ type Cancellable interface {
 	Cancel()
 }
 
-type Awaiting interface {
+type Deferred interface {
 	Done() <-chan struct{}
 }
 

@@ -19,7 +19,7 @@ func (key ListenerKey) String() string {
 
 type ListenerPool interface {
 	log.LocalLogger
-	core.Awaiting
+	core.Deferred
 	String() string
 	Put(key ListenerKey, listener net.Listener) error
 	Get(key ListenerKey) (net.Listener, error)
@@ -32,7 +32,7 @@ type ListenerPool interface {
 type ListenerHandler interface {
 	log.LocalLogger
 	core.Cancellable
-	core.Awaiting
+	core.Deferred
 	String() string
 	Key() ListenerKey
 	Listener() net.Listener

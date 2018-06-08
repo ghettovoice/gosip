@@ -14,7 +14,7 @@ import (
 type Layer interface {
 	log.LocalLogger
 	core.Cancellable
-	core.Awaiting
+	core.Deferred
 	String() string
 	Send(msg core.Message) (Tx, error)
 	Transport() transport.Layer

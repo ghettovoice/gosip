@@ -23,7 +23,7 @@ func (key ConnectionKey) String() string {
 // ConnectionPool used for active connection management.
 type ConnectionPool interface {
 	log.LocalLogger
-	core.Awaiting
+	core.Deferred
 	String() string
 	Put(key ConnectionKey, connection Connection, ttl time.Duration) error
 	Get(key ConnectionKey) (Connection, error)
@@ -38,7 +38,7 @@ type ConnectionPool interface {
 type ConnectionHandler interface {
 	log.LocalLogger
 	core.Cancellable
-	core.Awaiting
+	core.Deferred
 	String() string
 	Key() ConnectionKey
 	Connection() Connection

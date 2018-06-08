@@ -17,7 +17,7 @@ const (
 // Protocol implements network specific features.
 type Protocol interface {
 	log.LocalLogger
-	core.Awaiting
+	core.Deferred
 	Network() string
 	Reliable() bool
 	Streamed() bool
