@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/syntax"
+	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/sip/parser"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -32,18 +32,18 @@ func TestTransaction(t *testing.T) {
 	RunSpecs(t, "Transaction Suite")
 }
 
-func message(rawMsg []string) core.Message {
-	msg, err := syntax.ParseMessage([]byte(strings.Join(rawMsg, "\r\n")), log.StandardLogger())
+func message(rawMsg []string) sip.Message {
+	msg, err := parser.ParseMessage([]byte(strings.Join(rawMsg, "\r\n")), log.StandardLogger())
 	Expect(err).ToNot(HaveOccurred())
 	return msg
 }
 
-func request(rawMsg []string) core.Request {
+func request(rawMsg []string) sip.Request {
 	msg := message(rawMsg)
 	switch msg := msg.(type) {
-	case core.Request:
+	case sip.Request:
 		return msg
-	case core.Response:
+	case sip.Response:
 		Fail(fmt.Sprintf("%s is not a request", msg.Short()))
 	default:
 		Fail(fmt.Sprintf("%s is not a request", msg.Short()))
@@ -51,12 +51,12 @@ func request(rawMsg []string) core.Request {
 	return nil
 }
 
-func response(rawMsg []string) core.Response {
+func response(rawMsg []string) sip.Response {
 	msg := message(rawMsg)
 	switch msg := msg.(type) {
-	case core.Response:
+	case sip.Response:
 		return msg
-	case core.Request:
+	case sip.Request:
 		Fail(fmt.Sprintf("%s is not a response", msg.Short()))
 	default:
 		Fail(fmt.Sprintf("%s is not a response", msg.Short()))

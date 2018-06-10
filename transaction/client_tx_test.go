@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/transaction"
 	. "github.com/onsi/ginkgo"
@@ -39,12 +39,12 @@ var _ = Describe("ClientTx", func() {
 	Context("sends INVITE request", func() {
 		var inviteTxKey, ackTxKey transaction.TxKey
 		var err error
-		var invite, trying, ok, notOk, ack, notOkAck core.Message
+		var invite, trying, ok, notOk, ack, notOkAck sip.Message
 		var inviteBranch string
 		var invTx transaction.Tx
 
 		BeforeEach(func() {
-			inviteBranch = core.GenerateBranch()
+			inviteBranch = sip.GenerateBranch()
 			invite = request([]string{
 				"INVITE sip:bob@example.com SIP/2.0",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
@@ -75,7 +75,7 @@ var _ = Describe("ClientTx", func() {
 			})
 			ack = request([]string{
 				"ACK sip:bob@example.com SIP/2.0",
-				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + core.GenerateBranch(),
+				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + sip.GenerateBranch(),
 				"CSeq: 1 ACK",
 				"",
 				"",
@@ -152,7 +152,7 @@ var _ = Describe("ClientTx", func() {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					var msg core.Message
+					var msg sip.Message
 					msg = <-tpl.OutMsgs
 					Expect(msg).ToNot(BeNil())
 					Expect(msg.String()).To(Equal(invite.String()))
@@ -165,7 +165,7 @@ var _ = Describe("ClientTx", func() {
 
 					msg = <-tpl.OutMsgs
 					Expect(msg).ToNot(BeNil())
-					req, ok := msg.(core.Request)
+					req, ok := msg.(sip.Request)
 					Expect(ok).To(BeTrue())
 					Expect(string(req.Method())).To(Equal("ACK"))
 				}()

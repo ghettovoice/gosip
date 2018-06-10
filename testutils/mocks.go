@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 )
 
 type MockListener struct {
@@ -93,18 +93,18 @@ func (conn *MockConn) RemoteAddr() net.Addr {
 
 type MockTransportLayer struct {
 	logger  log.LocalLogger
-	InMsgs  chan core.Message
+	InMsgs  chan sip.Message
 	InErrs  chan error
-	OutMsgs chan core.Message
+	OutMsgs chan sip.Message
 	done    chan struct{}
 }
 
 func NewMockTransportLayer() *MockTransportLayer {
 	return &MockTransportLayer{
 		logger:  log.NewSafeLocalLogger(),
-		InMsgs:  make(chan core.Message),
+		InMsgs:  make(chan sip.Message),
 		InErrs:  make(chan error),
-		OutMsgs: make(chan core.Message),
+		OutMsgs: make(chan sip.Message),
 		done:    make(chan struct{}),
 	}
 }
@@ -113,7 +113,7 @@ func (tpl *MockTransportLayer) HostAddr() string {
 	return "127.0.0.1"
 }
 
-func (tpl *MockTransportLayer) Messages() <-chan core.Message {
+func (tpl *MockTransportLayer) Messages() <-chan sip.Message {
 	return tpl.InMsgs
 }
 
@@ -125,7 +125,7 @@ func (tpl *MockTransportLayer) Listen(network string, addr string) error {
 	return nil
 }
 
-func (tpl *MockTransportLayer) Send(msg core.Message) error {
+func (tpl *MockTransportLayer) Send(msg sip.Message) error {
 	tpl.OutMsgs <- msg
 	return nil
 }

@@ -3,8 +3,8 @@ package transport
 import (
 	"fmt"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 )
 
 type tlsProtocol struct {
@@ -14,7 +14,7 @@ type tlsProtocol struct {
 	conns       chan Connection
 }
 
-func NewTlsProtocol(output chan<- core.Message, errs chan<- error, cancel <-chan struct{}) Protocol {
+func NewTlsProtocol(output chan<- sip.Message, errs chan<- error, cancel <-chan struct{}) Protocol {
 	tls := new(tlsProtocol)
 	tls.network = "tls"
 	tls.reliable = true
@@ -100,7 +100,7 @@ func (tls *tlsProtocol) Listen(target *Target) error {
 	//return err // should be nil here
 }
 
-func (tls *tlsProtocol) Send(target *Target, msg core.Message) error {
+func (tls *tlsProtocol) Send(target *Target, msg sip.Message) error {
 	tls.Log().Fatalf("not implemented method in %s", tls)
 	return fmt.Errorf("not implemented method in %s", tls)
 	//target = FillTargetHostAndPort(tls.Network(), target)

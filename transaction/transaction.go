@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/sip"
 )
 
 const (
@@ -28,16 +28,16 @@ const (
 
 // TxMessage is an message with related Tx
 type TxMessage interface {
-	core.Message
+	sip.Message
 	Tx() Tx
 	SetTx(tx Tx)
-	Origin() core.Message
+	Origin() sip.Message
 	IsRequest() bool
 	IsResponse() bool
 }
 
 type txMessage struct {
-	core.Message
+	sip.Message
 	tx Tx
 }
 
@@ -54,15 +54,15 @@ func (msg *txMessage) SetTx(tx Tx) {
 }
 
 func (msg *txMessage) IsRequest() bool {
-	_, ok := msg.Origin().(core.Request)
+	_, ok := msg.Origin().(sip.Request)
 	return ok
 }
 func (msg *txMessage) IsResponse() bool {
-	_, ok := msg.Origin().(core.Response)
+	_, ok := msg.Origin().(sip.Response)
 	return ok
 }
 
-func (msg *txMessage) Origin() core.Message {
+func (msg *txMessage) Origin() sip.Message {
 	return msg.Message
 }
 
@@ -172,7 +172,7 @@ func (err *TxTransportError) Error() string {
 }
 
 // MakeServerTxKey creates server commonTx key for matching retransmitting requests - RFC 3261 17.2.3.
-func MakeServerTxKey(msg core.Message) (TxKey, error) {
+func MakeServerTxKey(msg sip.Message) (TxKey, error) {
 	var sep = "$"
 
 	firstViaHop, ok := msg.ViaHop()
@@ -185,15 +185,15 @@ func MakeServerTxKey(msg core.Message) (TxKey, error) {
 		return "", fmt.Errorf("'CSeq' header not found in %s", msg.Short())
 	}
 	method := cseq.MethodName
-	if method == core.ACK {
-		method = core.INVITE
+	if method == sip.ACK {
+		method = sip.INVITE
 	}
 
 	var isRFC3261 bool
 	branch, ok := firstViaHop.Params.Get("branch")
 	if ok && branch.String() != "" &&
-		strings.HasPrefix(branch.String(), core.RFC3261BranchMagicCookie) &&
-		strings.TrimPrefix(branch.String(), core.RFC3261BranchMagicCookie) != "" {
+		strings.HasPrefix(branch.String(), sip.RFC3261BranchMagicCookie) &&
+		strings.TrimPrefix(branch.String(), sip.RFC3261BranchMagicCookie) != "" {
 
 		isRFC3261 = true
 	} else {
@@ -235,7 +235,7 @@ func MakeServerTxKey(msg core.Message) (TxKey, error) {
 }
 
 // MakeClientTxKey creates client commonTx key for matching responses - RFC 3261 17.1.3.
-func MakeClientTxKey(msg core.Message) (TxKey, error) {
+func MakeClientTxKey(msg sip.Message) (TxKey, error) {
 	var sep = "$"
 
 	cseq, ok := msg.CSeq()
@@ -243,8 +243,8 @@ func MakeClientTxKey(msg core.Message) (TxKey, error) {
 		return "", fmt.Errorf("'CSeq' header not found in %s", msg.Short())
 	}
 	method := cseq.MethodName
-	if method == core.ACK {
-		method = core.INVITE
+	if method == sip.ACK {
+		method = sip.INVITE
 	}
 
 	firstViaHop, ok := msg.ViaHop()
@@ -254,8 +254,8 @@ func MakeClientTxKey(msg core.Message) (TxKey, error) {
 
 	branch, ok := firstViaHop.Params.Get("branch")
 	if !ok || len(branch.String()) == 0 ||
-		!strings.HasPrefix(branch.String(), core.RFC3261BranchMagicCookie) ||
-		len(strings.TrimPrefix(branch.String(), core.RFC3261BranchMagicCookie)) == 0 {
+		!strings.HasPrefix(branch.String(), sip.RFC3261BranchMagicCookie) ||
+		len(strings.TrimPrefix(branch.String(), sip.RFC3261BranchMagicCookie)) == 0 {
 		return "", fmt.Errorf("'branch' not found or empty in 'Via' header of %s", msg.Short())
 	}
 

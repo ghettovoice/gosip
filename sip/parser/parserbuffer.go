@@ -1,5 +1,5 @@
 // Forked from github.com/StefanKopieczek/gossip by @StefanKopieczek
-package syntax
+package parser
 
 import (
 	"bufio"

@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/syntax"
+	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/sip/parser"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/util"
 )
@@ -23,7 +23,7 @@ func (key ConnectionKey) String() string {
 // ConnectionPool used for active connection management.
 type ConnectionPool interface {
 	log.LocalLogger
-	core.Deferred
+	Done() <-chan struct{}
 	String() string
 	Put(key ConnectionKey, connection Connection, ttl time.Duration) error
 	Get(key ConnectionKey) (Connection, error)
@@ -37,8 +37,8 @@ type ConnectionPool interface {
 // incoming data, manages expiry time & etc.
 type ConnectionHandler interface {
 	log.LocalLogger
-	core.Cancellable
-	core.Deferred
+	Cancel()
+	Done() <-chan struct{}
 	String() string
 	Key() ConnectionKey
 	Connection() Connection
@@ -68,11 +68,11 @@ type connectionPool struct {
 	hwg     *sync.WaitGroup
 	store   map[ConnectionKey]ConnectionHandler
 	keys    []ConnectionKey
-	output  chan<- core.Message
+	output  chan<- sip.Message
 	errs    chan<- error
 	cancel  <-chan struct{}
 	done    chan struct{}
-	hmess   chan core.Message
+	hmess   chan sip.Message
 	herrs   chan error
 	gets    chan *connectionRequest
 	updates chan *connectionRequest
@@ -80,7 +80,7 @@ type connectionPool struct {
 	mu      *sync.RWMutex
 }
 
-func NewConnectionPool(output chan<- core.Message, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
+func NewConnectionPool(output chan<- sip.Message, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
 	pool := &connectionPool{
 		logger:  log.NewSafeLocalLogger(),
 		hwg:     new(sync.WaitGroup),
@@ -90,7 +90,7 @@ func NewConnectionPool(output chan<- core.Message, errs chan<- error, cancel <-c
 		errs:    errs,
 		cancel:  cancel,
 		done:    make(chan struct{}),
-		hmess:   make(chan core.Message),
+		hmess:   make(chan sip.Message),
 		herrs:   make(chan error),
 		gets:    make(chan *connectionRequest),
 		updates: make(chan *connectionRequest),
@@ -457,7 +457,7 @@ type connectionHandler struct {
 	timer      timing.Timer
 	ttl        time.Duration
 	expiry     time.Time
-	output     chan<- core.Message
+	output     chan<- sip.Message
 	errs       chan<- error
 	cancel     <-chan struct{}
 	canceled   chan struct{}
@@ -469,7 +469,7 @@ func NewConnectionHandler(
 	key ConnectionKey,
 	conn Connection,
 	ttl time.Duration,
-	output chan<- core.Message,
+	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
 ) ConnectionHandler {
@@ -592,11 +592,11 @@ func (handler *connectionHandler) Serve(done func()) {
 	handler.pipeOutputs(msgs, errs)
 }
 
-func (handler *connectionHandler) readConnection() (<-chan core.Message, <-chan error) {
-	msgs := make(chan core.Message)
+func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan error) {
+	msgs := make(chan sip.Message)
 	errs := make(chan error)
 	streamed := handler.Connection().Streamed()
-	parser := syntax.NewParser(msgs, errs, streamed)
+	parser := parser.NewParser(msgs, errs, streamed)
 	parser.SetLog(handler.Log())
 	if !streamed {
 		handler.addrs.Init()
@@ -654,7 +654,7 @@ func (handler *connectionHandler) readConnection() (<-chan core.Message, <-chan 
 	return msgs, errs
 }
 
-func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-chan error) {
+func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-chan error) {
 	streamed := handler.Connection().Streamed()
 	getRemoteAddr := func() string {
 		if streamed {
@@ -672,10 +672,10 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 		}
 	}
 	isSyntaxError := func(err error) bool {
-		if serr, ok := err.(syntax.Error); ok && serr.Syntax() {
+		if serr, ok := err.(parser.Error); ok && serr.Syntax() {
 			return true
 		}
-		if merr, ok := err.(core.MessageError); ok && merr.Broken() {
+		if merr, ok := err.(sip.MessageError); ok && merr.Broken() {
 			return true
 		}
 		return false
@@ -727,7 +727,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 			raddr := getRemoteAddr()
 			rhost, _, _ := net.SplitHostPort(raddr)
 			switch msg := msg.(type) {
-			case core.Request:
+			case sip.Request:
 				// RFC 3261 - 18.2.1
 				viaHop, ok := msg.ViaHop()
 				if !ok {
@@ -739,12 +739,12 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan core.Message, errs <-c
 					handler.Log().Debugf("%s adds 'received' = %s param to 'Via' header of %s, "+
 						"because host %s from the first 'Via' header differs from the actual source address %s", handler, rhost,
 						msg.Short(), viaHop.Host, raddr)
-					viaHop.Params.Add("received", core.String{rhost})
+					viaHop.Params.Add("received", sip.String{rhost})
 				}
 				if handler.Connection().Streamed() {
 					msg.SetSource(raddr)
 				}
-			case core.Response:
+			case sip.Response:
 				// Set Remote Address as response source
 				msg.SetSource(raddr)
 			}

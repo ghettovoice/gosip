@@ -1,4 +1,4 @@
-package syntax
+package parser
 
 type Error interface {
 	error
@@ -13,7 +13,7 @@ func (err InvalidStartLineError) Malformed() bool { return false }
 func (err InvalidStartLineError) Broken() bool    { return true }
 func (err InvalidStartLineError) Error() string   { return "InvalidStartLineError: " + string(err) }
 
-type ParserWriteError string
+type WriteError string
 
-func (err ParserWriteError) Syntax() bool  { return false }
-func (err ParserWriteError) Error() string { return "ParserWriteError: " + string(err) }
+func (err WriteError) Syntax() bool  { return false }
+func (err WriteError) Error() string { return "WriteError: " + string(err) }

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
@@ -21,7 +21,7 @@ var _ = Describe("TransportLayer", func() {
 	)
 	hostAddr := "192.168.0.1:5060"
 	localAddr1 := "127.0.0.1:5060"
-	clientPort := core.Port(9001)
+	clientPort := sip.Port(9001)
 	clientHost := "127.0.0.1"
 	clientAddr := clientHost + ":" + fmt.Sprintf("%v", clientPort)
 
@@ -89,14 +89,14 @@ var _ = Describe("TransportLayer", func() {
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest core.Message
-				var response core.Message
+				var incomingRequest sip.Message
+				var response sip.Message
 
 				BeforeEach(func() {
 					incomingRequest = testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost),
 						clientAddr, "far-far-away.com:5060")
-					response = core.NewResponseFromRequest(
-						incomingRequest.(core.Request),
+					response = sip.NewResponseFromRequest(
+						incomingRequest.(sip.Request),
 						200,
 						"OK",
 						"",
@@ -166,14 +166,14 @@ var _ = Describe("TransportLayer", func() {
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest core.Message
-				var response core.Message
+				var incomingRequest sip.Message
+				var response sip.Message
 
 				BeforeEach(func() {
 					incomingRequest = testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost),
 						client.LocalAddr().String(), "far-far-away.com:5060")
-					response = core.NewResponseFromRequest(
-						incomingRequest.(core.Request),
+					response = sip.NewResponseFromRequest(
+						incomingRequest.(sip.Request),
 						200,
 						"OK",
 						"",

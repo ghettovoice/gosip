@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/transaction"
 	"github.com/ghettovoice/gosip/transport"
 )
@@ -25,7 +25,7 @@ var (
 
 // HandleFunc handles incoming SIP messages.
 // Executes in goroutine for each incoming message.
-type HandleFunc func(msg core.Message, srv *Server)
+type HandleFunc func(msg sip.Message, srv *Server)
 
 // Server is a SIP server
 type Server struct {
@@ -67,7 +67,7 @@ func (srv *Server) Serve(listenAddr string, handler HandleFunc) error {
 			break
 		case msg := <-srv.tx.Messages():
 			srv.hwg.Add(1)
-			go func(msg core.Message, handler HandleFunc) {
+			go func(msg sip.Message, handler HandleFunc) {
 				defer srv.hwg.Done()
 
 				handler(msg, srv)
@@ -83,7 +83,7 @@ func (srv *Server) Serve(listenAddr string, handler HandleFunc) error {
 }
 
 // Send SIP message
-func (srv *Server) Send(msg core.Message) error {
+func (srv *Server) Send(msg sip.Message) error {
 	if srv.shuttingDown() {
 		return fmt.Errorf("can not send through shutting down server")
 	}
@@ -114,7 +114,7 @@ type Responder struct {
 	srv *Server
 }
 
-func (r *Responder) Send(msg core.Message) error {
+func (r *Responder) Send(msg sip.Message) error {
 	_, err := r.srv.tx.Send(msg)
 
 	return err
