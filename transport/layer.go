@@ -6,29 +6,29 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 )
 
 // TransportLayer layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Layer interface {
 	log.LocalLogger
-	core.Cancellable
-	core.Deferred
+	Cancel()
+	Done() <-chan struct{}
 	HostAddr() string
-	Messages() <-chan core.Message
+	Messages() <-chan sip.Message
 	Errors() <-chan error
 	// Listen starts listening on `addr` for each registered protocol.
 	Listen(network string, addr string) error
 	// Send sends message on suitable protocol.
-	Send(msg core.Message) error
+	Send(msg sip.Message) error
 	String() string
 	IsReliable(network string) bool
 }
 
 var protocolFactory ProtocolFactory = func(
 	network string,
-	output chan<- core.Message,
+	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
 ) (Protocol, error) {
@@ -57,9 +57,9 @@ type layer struct {
 	logger    log.LocalLogger
 	hostAddr  string
 	protocols *protocolStore
-	msgs      chan core.Message
+	msgs      chan sip.Message
 	errs      chan error
-	pmsgs     chan core.Message
+	pmsgs     chan sip.Message
 	perrs     chan error
 	canceled  chan struct{}
 	done      chan struct{}
@@ -74,9 +74,9 @@ func NewLayer(hostAddr string) Layer {
 		hostAddr:  hostAddr,
 		wg:        new(sync.WaitGroup),
 		protocols: newProtocolStore(),
-		msgs:      make(chan core.Message),
+		msgs:      make(chan sip.Message),
 		errs:      make(chan error),
-		pmsgs:     make(chan core.Message),
+		pmsgs:     make(chan sip.Message),
 		perrs:     make(chan error),
 		canceled:  make(chan struct{}),
 		done:      make(chan struct{}),
@@ -125,7 +125,7 @@ func (tpl *layer) Done() <-chan struct{} {
 	return tpl.done
 }
 
-func (tpl *layer) Messages() <-chan core.Message {
+func (tpl *layer) Messages() <-chan sip.Message {
 	return tpl.msgs
 }
 
@@ -159,7 +159,7 @@ func (tpl *layer) Listen(network string, addr string) error {
 	return protocol.Listen(target)
 }
 
-func (tpl *layer) Send(msg core.Message) error {
+func (tpl *layer) Send(msg sip.Message) error {
 	nets := make([]string, 0)
 	target, err := NewTargetFromAddr(msg.Destination())
 	if err != nil {
@@ -168,7 +168,7 @@ func (tpl *layer) Send(msg core.Message) error {
 
 	viaHop, ok := msg.ViaHop()
 	if !ok {
-		return &core.MalformedMessageError{
+		return &sip.MalformedMessageError{
 			Err: fmt.Errorf("missing required 'Via' header"),
 			Msg: msg.String(),
 		}
@@ -176,7 +176,7 @@ func (tpl *layer) Send(msg core.Message) error {
 
 	switch msg := msg.(type) {
 	// RFC 3261 - 18.1.1.
-	case core.Request:
+	case sip.Request:
 		msgLen := len(msg.String())
 		// rewrite sent-by host
 		viaHop.Host = tpl.HostAddr()
@@ -209,7 +209,7 @@ func (tpl *layer) Send(msg core.Message) error {
 
 		return err
 		// RFC 3261 - 18.2.2.
-	case core.Response:
+	case sip.Response:
 		// resolve protocol from Via
 		protocol, ok := tpl.protocols.get(protocolKey(viaHop.Transport))
 		if !ok {
@@ -225,7 +225,7 @@ func (tpl *layer) Send(msg core.Message) error {
 
 		return protocol.Send(target, msg)
 	default:
-		return &core.UnsupportedMessageError{
+		return &sip.UnsupportedMessageError{
 			fmt.Errorf("unsupported message %s", msg.Short()),
 			msg.String(),
 		}
@@ -275,11 +275,11 @@ func (tpl *layer) dispose() {
 
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
-func (tpl *layer) handleMessage(msg core.Message) {
+func (tpl *layer) handleMessage(msg sip.Message) {
 	tpl.Log().Debugf("%s received %s\r\n%s", tpl, msg.Short(), msg)
 
 	switch msg.(type) {
-	case core.Response:
+	case sip.Response:
 		// incoming Response
 		// RFC 3261 - 18.1.2. - Receiving Responses.
 		host, _, _ := net.SplitHostPort(msg.Destination())
@@ -297,7 +297,7 @@ func (tpl *layer) handleMessage(msg core.Message) {
 			)
 			return
 		}
-	case core.Request:
+	case sip.Request:
 		// incoming Request
 		// RFC 3261 - 18.2.1. - Receiving Request. already done in ConnectionHandler
 	default:

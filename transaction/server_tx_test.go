@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/transaction"
 	. "github.com/onsi/ginkgo"
@@ -40,12 +40,12 @@ var _ = Describe("ServerTx", func() {
 	Context("when INVITE request arrives", func() {
 		var inviteTxKey, ackTxKey transaction.TxKey
 		var err error
-		var invite, trying, ok, notOk, ack, notOkAck core.Message
+		var invite, trying, ok, notOk, ack, notOkAck sip.Message
 		var inviteBranch string
 		wg := new(sync.WaitGroup)
 
 		BeforeEach(func() {
-			inviteBranch = core.GenerateBranch()
+			inviteBranch = sip.GenerateBranch()
 			invite = request([]string{
 				"INVITE sip:bob@example.com SIP/2.0",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
@@ -76,7 +76,7 @@ var _ = Describe("ServerTx", func() {
 			})
 			ack = request([]string{
 				"ACK sip:bob@example.com SIP/2.0",
-				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + core.GenerateBranch(),
+				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + sip.GenerateBranch(),
 				"CSeq: 1 ACK",
 				"",
 				"",

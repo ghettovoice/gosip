@@ -1,4 +1,4 @@
-package core
+package sip
 
 import (
 	"fmt"
@@ -15,6 +15,8 @@ const (
 	DefaultTcpPort Port = 5060
 	DefaultTlsPort Port = 5061
 )
+
+// TODO should be refactored, currently here the pit
 
 // Port number
 type Port uint16
@@ -137,15 +139,6 @@ func (err *UnexpectedMessageError) Error() string {
 	}
 
 	return s
-}
-
-// Cancellable can be canceled through cancel method
-type Cancellable interface {
-	Cancel()
-}
-
-type Deferred interface {
-	Done() <-chan struct{}
 }
 
 const RFC3261BranchMagicCookie = "z9hG4bK"

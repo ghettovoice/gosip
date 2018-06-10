@@ -4,7 +4,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/sip"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -87,11 +87,11 @@ func WriteToConn(conn net.Conn, data []byte) {
 }
 
 func AssertMessageArrived(
-	fromCh <-chan core.Message,
+	fromCh <-chan sip.Message,
 	expectedMessage string,
 	expectedSource string,
 	expectedDest string,
-) core.Message {
+) sip.Message {
 	msg := <-fromCh
 	Expect(msg).ToNot(BeNil())
 	Expect(strings.Trim(msg.String(), " \r\n")).To(Equal(strings.Trim(expectedMessage, " \r\n")))

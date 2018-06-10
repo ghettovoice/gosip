@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/sip"
 )
 
 const (
@@ -18,21 +18,21 @@ const (
 	DefaultHost     = "127.0.0.1"
 	DefaultProtocol = "TCP"
 
-	DefaultUdpPort core.Port = 5060
-	DefaultTcpPort core.Port = 5060
-	DefaultTlsPort core.Port = 5061
+	DefaultUdpPort sip.Port = 5060
+	DefaultTcpPort sip.Port = 5060
+	DefaultTlsPort sip.Port = 5061
 )
 
 // Target endpoint
 type Target struct {
 	Host string
-	Port *core.Port
+	Port *sip.Port
 }
 
 func (trg *Target) Addr() string {
 	var (
 		host string
-		port core.Port
+		port sip.Port
 	)
 
 	if strings.TrimSpace(trg.Host) != "" {
@@ -56,7 +56,7 @@ func (trg *Target) String() string {
 }
 
 func NewTarget(host string, port int) *Target {
-	cport := core.Port(port)
+	cport := sip.Port(port)
 	return &Target{host, &cport}
 }
 
@@ -73,7 +73,7 @@ func NewTargetFromAddr(addr string) (*Target, error) {
 }
 
 // DefaultPort returns protocol default port by network.
-func DefaultPort(protocol string) core.Port {
+func DefaultPort(protocol string) sip.Port {
 	switch strings.ToLower(protocol) {
 	case "tls":
 		return DefaultTlsPort
@@ -119,11 +119,11 @@ func isTemporary(err error) bool {
 	return ok && e.Temporary()
 }
 func isCanceled(err error) bool {
-	e, ok := err.(core.CancelError)
+	e, ok := err.(sip.CancelError)
 	return ok && e.Canceled()
 }
 func isExpired(err error) bool {
-	e, ok := err.(core.ExpireError)
+	e, ok := err.(sip.ExpireError)
 	return ok && e.Expired()
 }
 

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 )
 
 const (
@@ -17,18 +17,18 @@ const (
 // Protocol implements network specific features.
 type Protocol interface {
 	log.LocalLogger
-	core.Deferred
+	Done() <-chan struct{}
 	Network() string
 	Reliable() bool
 	Streamed() bool
 	Listen(target *Target) error
-	Send(target *Target, msg core.Message) error
+	Send(target *Target, msg sip.Message) error
 	String() string
 }
 
 type ProtocolFactory func(
 	network string,
-	output chan<- core.Message,
+	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
 ) (Protocol, error)

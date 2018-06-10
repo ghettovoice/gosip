@@ -5,8 +5,8 @@ import (
 	"net"
 	"strings"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 )
 
 // TCP protocol implementation
@@ -17,7 +17,7 @@ type tcpProtocol struct {
 	conns       chan Connection
 }
 
-func NewTcpProtocol(output chan<- core.Message, errs chan<- error, cancel <-chan struct{}) Protocol {
+func NewTcpProtocol(output chan<- sip.Message, errs chan<- error, cancel <-chan struct{}) Protocol {
 	tcp := new(tcpProtocol)
 	tcp.network = "tcp"
 	tcp.reliable = true
@@ -96,7 +96,7 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 	return err // should be nil here
 }
 
-func (tcp *tcpProtocol) Send(target *Target, msg core.Message) error {
+func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	target = FillTargetHostAndPort(tcp.Network(), target)
 
 	tcp.Log().Infof("%s sends message '%s' to %s", tcp, msg.Short(), target.Addr())

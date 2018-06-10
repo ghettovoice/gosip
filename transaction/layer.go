@@ -5,18 +5,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/transport"
 )
 
 // Layer serves client and server transactions.
 type Layer interface {
 	log.LocalLogger
-	core.Cancellable
-	core.Deferred
+	Cancel()
+	Done() <-chan struct{}
 	String() string
-	Send(msg core.Message) (Tx, error)
+	Send(msg sip.Message) (Tx, error)
 	Transport() transport.Layer
 	Messages() <-chan TxMessage
 	Errors() <-chan error
@@ -95,13 +95,13 @@ func (txl *layer) Transport() transport.Layer {
 	return txl.tpl
 }
 
-func (txl *layer) Send(msg core.Message) (Tx, error) {
+func (txl *layer) Send(msg sip.Message) (Tx, error) {
 	txl.Log().Debugf("%s sends %s", txl, msg.Short())
 
 	var tx Tx
 	var err error
 	switch msg := msg.(type) {
-	case core.Response:
+	case sip.Response:
 		tx, err = txl.getServerTx(msg)
 		if err != nil {
 			return nil, err
@@ -111,7 +111,7 @@ func (txl *layer) Send(msg core.Message) (Tx, error) {
 			return nil, err
 		}
 		return tx, nil
-	case core.Request:
+	case sip.Request:
 		tx, err = NewClientTx(msg, txl.tpl, txl.msgs, txl.terrs)
 		tx.SetLog(txl.Log())
 		if err != nil {
@@ -121,7 +121,7 @@ func (txl *layer) Send(msg core.Message) (Tx, error) {
 		tx.Init()
 		return tx, nil
 	default:
-		return nil, &core.UnsupportedMessageError{
+		return nil, &sip.UnsupportedMessageError{
 			fmt.Errorf("%s got unsupported message %s", txl, msg.Short()),
 			msg.String(),
 		}
@@ -136,8 +136,10 @@ func (txl *layer) listenMessages() {
 		wg.Wait()
 		// drop all transactions
 		for _, tx := range txl.transactions.all() {
+			tx.Terminate()
 			txl.transactions.drop(tx.Key())
 		}
+		// todo bloody patch, remove after refactoring
 		time.Sleep(time.Second)
 		close(txl.terrs)
 	}()
@@ -154,14 +156,14 @@ func (txl *layer) listenMessages() {
 			}
 			// start handle goroutine
 			wg.Add(1)
-			go func(msg core.Message) {
+			go func(msg sip.Message) {
 				defer wg.Done()
 				txl.Log().Infof("%s received %s", txl, msg.Short())
 
 				switch msg := msg.(type) {
-				case core.Request:
+				case sip.Request:
 					txl.handleRequest(msg)
-				case core.Response:
+				case sip.Response:
 					txl.handleResponse(msg)
 				default:
 					txl.Log().Errorf("%s received unsupported message %s", txl, msg.Short())
@@ -176,7 +178,7 @@ func (txl *layer) serveTransactions() {
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
 		close(txl.msgs)
-		close(txl.errs)
+		//close(txl.errs)
 		close(txl.done)
 	}()
 	txl.Log().Infof("%s starts serve transactions routine", txl)
@@ -204,7 +206,7 @@ func (txl *layer) serveTransactions() {
 	}
 }
 
-func (txl *layer) handleRequest(req core.Request) {
+func (txl *layer) handleRequest(req sip.Request) {
 	// todo error handling!
 	// try to match to existent tx
 	if tx, err := txl.getServerTx(req); err == nil {
@@ -226,7 +228,7 @@ func (txl *layer) handleRequest(req core.Request) {
 	tx.Init()
 }
 
-func (txl *layer) handleResponse(res core.Response) {
+func (txl *layer) handleResponse(res sip.Response) {
 	tx, err := txl.getClientTx(res)
 	if err != nil {
 		txl.Log().Warn(err)
@@ -239,7 +241,7 @@ func (txl *layer) handleResponse(res core.Response) {
 }
 
 // RFC 17.1.3.
-func (txl *layer) getClientTx(msg core.Message) (ClientTx, error) {
+func (txl *layer) getClientTx(msg sip.Message) (ClientTx, error) {
 	txl.Log().Debugf("%s searches client transaction for %s", txl, msg.Short())
 
 	key, err := MakeClientTxKey(msg)
@@ -264,7 +266,7 @@ func (txl *layer) getClientTx(msg core.Message) (ClientTx, error) {
 }
 
 // RFC 17.2.3.
-func (txl *layer) getServerTx(msg core.Message) (ServerTx, error) {
+func (txl *layer) getServerTx(msg sip.Message) (ServerTx, error) {
 	txl.Log().Debugf("%s searches server transaction for %s", txl, msg.Short())
 
 	key, err := MakeServerTxKey(msg)

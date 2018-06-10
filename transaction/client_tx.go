@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/discoviking/fsm"
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
 )
@@ -28,7 +28,7 @@ type clientTx struct {
 }
 
 func NewClientTx(
-	origin core.Request,
+	origin sip.Request,
 	tpl transport.Layer,
 	msgs chan<- TxMessage,
 	errs chan<- error,
@@ -89,10 +89,10 @@ func (tx *clientTx) String() string {
 	return fmt.Sprintf("Client%s", tx.commonTx.String())
 }
 
-func (tx *clientTx) Receive(msg core.Message) error {
-	res, ok := msg.(core.Response)
+func (tx *clientTx) Receive(msg sip.Message) error {
+	res, ok := msg.(sip.Response)
 	if !ok {
-		return &core.UnexpectedMessageError{
+		return &sip.UnexpectedMessageError{
 			fmt.Errorf("%s recevied unexpected %s", tx, msg.Short()),
 			msg.String(),
 		}
@@ -113,38 +113,50 @@ func (tx *clientTx) Receive(msg core.Message) error {
 	return tx.fsm.Spin(input)
 }
 
+func (tx *clientTx) Terminate() {
+	if tx.timer_a != nil {
+		tx.timer_a.Stop()
+	}
+	if tx.timer_b != nil {
+		tx.timer_b.Stop()
+	}
+	if tx.timer_d != nil {
+		tx.timer_d.Stop()
+	}
+}
+
 func (tx clientTx) ack() {
-	ack := core.NewRequest(
-		core.ACK,
+	ack := sip.NewRequest(
+		sip.ACK,
 		tx.Origin().Recipient(),
 		tx.Origin().SipVersion(),
-		[]core.Header{},
+		[]sip.Header{},
 		"",
 	)
 	ack.SetLog(tx.Log())
 
 	// Copy headers from original request.
 	// TODO: Safety
-	core.CopyHeaders("From", tx.Origin(), ack)
-	core.CopyHeaders("Call-ID", tx.Origin(), ack)
-	core.CopyHeaders("Route", tx.Origin(), ack)
+	sip.CopyHeaders("From", tx.Origin(), ack)
+	sip.CopyHeaders("Call-ID", tx.Origin(), ack)
+	sip.CopyHeaders("Route", tx.Origin(), ack)
 	cseq, ok := tx.Origin().CSeq()
 	if !ok {
 		tx.Log().Errorf("failed to send ACK request on client transaction %p: %s", tx)
 		return
 	}
-	cseq = cseq.Clone().(*core.CSeq)
-	cseq.MethodName = core.ACK
+	cseq = cseq.Clone().(*sip.CSeq)
+	cseq.MethodName = sip.ACK
 	ack.AppendHeader(cseq)
 	via, ok := tx.Origin().Via()
 	if !ok {
 		tx.Log().Errorf("failed to send ACK request on client transaction %p: %s", tx)
 		return
 	}
-	via = via.Clone().(core.ViaHeader)
+	via = via.Clone().(sip.ViaHeader)
 	ack.AppendHeader(via)
 	// Copy headers from response.
-	core.CopyHeaders("To", tx.lastResp, ack)
+	sip.CopyHeaders("To", tx.lastResp, ack)
 
 	// Send the ACK.
 	err := tx.tpl.Send(ack)

@@ -6,15 +6,15 @@ import (
 	"time"
 
 	"github.com/discoviking/fsm"
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
 )
 
 type ServerTx interface {
 	Tx
-	Respond(res core.Response) error
+	Respond(res sip.Response) error
 }
 
 type serverTx struct {
@@ -31,7 +31,7 @@ type serverTx struct {
 }
 
 func NewServerTx(
-	origin core.Request,
+	origin sip.Request,
 	tpl transport.Layer,
 	msgs chan<- TxMessage,
 	errs chan<- error,
@@ -75,7 +75,7 @@ func (tx *serverTx) Init() {
 		tx.mu.Lock()
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
 			tx.Log().Debugf("%s, timer_1xx fired", tx)
-			tx.Respond(core.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
+			tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
 		})
 		tx.mu.Unlock()
 	}
@@ -85,10 +85,10 @@ func (tx *serverTx) String() string {
 	return fmt.Sprintf("Server%s", tx.commonTx.String())
 }
 
-func (tx *serverTx) Receive(msg core.Message) error {
-	req, ok := msg.(core.Request)
+func (tx *serverTx) Receive(msg sip.Message) error {
+	req, ok := msg.(sip.Request)
 	if !ok {
-		return &core.UnexpectedMessageError{
+		return &sip.UnexpectedMessageError{
 			fmt.Errorf("%s recevied unexpected %s", tx, msg),
 			req.String(),
 		}
@@ -108,7 +108,7 @@ func (tx *serverTx) Receive(msg core.Message) error {
 	case req.IsAck(): // ACK for non-2xx response
 		input = server_input_ack
 	default:
-		return &core.UnexpectedMessageError{
+		return &sip.UnexpectedMessageError{
 			fmt.Errorf("invalid %s correlated to %s", msg, tx),
 			req.String(),
 		}
@@ -117,7 +117,7 @@ func (tx *serverTx) Receive(msg core.Message) error {
 	return tx.fsm.Spin(input)
 }
 
-func (tx *serverTx) Respond(res core.Response) error {
+func (tx *serverTx) Respond(res sip.Response) error {
 	tx.lastResp = res
 
 	tx.mu.Lock()
@@ -138,6 +138,24 @@ func (tx *serverTx) Respond(res core.Response) error {
 	}
 
 	return tx.fsm.Spin(input)
+}
+
+func (tx *serverTx) Terminate() {
+	if tx.timer_i != nil {
+		tx.timer_i.Stop()
+	}
+	if tx.timer_g != nil {
+		tx.timer_g.Stop()
+	}
+	if tx.timer_h != nil {
+		tx.timer_h.Stop()
+	}
+	if tx.timer_j != nil {
+		tx.timer_j.Stop()
+	}
+	if tx.timer_1xx != nil {
+		tx.timer_1xx.Stop()
+	}
 }
 
 // FSM States

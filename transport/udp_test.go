@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
@@ -16,7 +16,7 @@ import (
 
 var _ = Describe("UdpProtocol", func() {
 	var (
-		output                    chan core.Message
+		output                    chan sip.Message
 		errs                      chan error
 		cancel                    chan struct{}
 		protocol                  transport.Protocol
@@ -88,7 +88,7 @@ var _ = Describe("UdpProtocol", func() {
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)
-		output = make(chan core.Message)
+		output = make(chan sip.Message)
 		errs = make(chan error)
 		cancel = make(chan struct{})
 		protocol = transport.NewUdpProtocol(output, errs, cancel)
@@ -205,12 +205,12 @@ var _ = Describe("UdpProtocol", func() {
 				clientTarget, err := transport.NewTargetFromAddr(clientAddr1)
 				Expect(clientTarget).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
-				msg := core.NewResponse(
+				msg := sip.NewResponse(
 					"SIP/2.0",
 					200,
 					"OK",
-					[]core.Header{
-						&core.CSeq{2, core.INVITE},
+					[]sip.Header{
+						&sip.CSeq{2, sip.INVITE},
 					},
 					"")
 				twg := new(sync.WaitGroup)

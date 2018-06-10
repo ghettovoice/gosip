@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/discoviking/fsm"
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/transport"
 )
 
@@ -20,20 +20,21 @@ type Tx interface {
 	log.LocalLogger
 	Init()
 	Key() TxKey
-	Origin() core.Request
+	Origin() sip.Request
 	// Receive receives message from transport layer.
-	Receive(msg core.Message) error
+	Receive(msg sip.Message) error
 	String() string
 	Transport() transport.Layer
+	Terminate()
 }
 
 type commonTx struct {
 	logger   log.LocalLogger
 	key      TxKey
 	fsm      *fsm.FSM
-	origin   core.Request
+	origin   sip.Request
 	tpl      transport.Layer
-	lastResp core.Response
+	lastResp sip.Response
 	msgs     chan<- TxMessage
 	errs     chan<- error
 	lastErr  error
@@ -57,7 +58,7 @@ func (tx *commonTx) SetLog(logger log.Logger) {
 	}))
 }
 
-func (tx *commonTx) Origin() core.Request {
+func (tx *commonTx) Origin() sip.Request {
 	return tx.origin
 }
 

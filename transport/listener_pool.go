@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
 )
 
@@ -19,7 +18,7 @@ func (key ListenerKey) String() string {
 
 type ListenerPool interface {
 	log.LocalLogger
-	core.Deferred
+	Done() <-chan struct{}
 	String() string
 	Put(key ListenerKey, listener net.Listener) error
 	Get(key ListenerKey) (net.Listener, error)
@@ -31,8 +30,8 @@ type ListenerPool interface {
 
 type ListenerHandler interface {
 	log.LocalLogger
-	core.Cancellable
-	core.Deferred
+	Cancel()
+	Done() <-chan struct{}
 	String() string
 	Key() ListenerKey
 	Listener() net.Listener

@@ -5,8 +5,8 @@ import (
 	"net"
 	"strings"
 
-	"github.com/ghettovoice/gosip/core"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip"
 )
 
 // UDP protocol implementation
@@ -15,7 +15,7 @@ type udpProtocol struct {
 	connections ConnectionPool
 }
 
-func NewUdpProtocol(output chan<- core.Message, errs chan<- error, cancel <-chan struct{}) Protocol {
+func NewUdpProtocol(output chan<- sip.Message, errs chan<- error, cancel <-chan struct{}) Protocol {
 	udp := new(udpProtocol)
 	udp.network = "udp"
 	udp.reliable = false
@@ -68,7 +68,7 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	return err // should be nil here
 }
 
-func (udp *udpProtocol) Send(target *Target, msg core.Message) error {
+func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	target = FillTargetHostAndPort(udp.Network(), target)
 
 	udp.Log().Infof("%s sends message '%s' to %s", udp, msg.Short(), target.Addr())
