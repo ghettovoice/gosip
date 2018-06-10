@@ -2,9 +2,11 @@ language: go
 go:
   - 1.9
 install:
+  - go get github.com/mattn/goveralls
   - make install
 script:
   - make test
+  - goveralls -coverprofile=./gosip.full.coverprofile -service=travis-ci
 branches:
   only:
     - master

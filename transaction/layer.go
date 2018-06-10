@@ -140,7 +140,7 @@ func (txl *layer) listenMessages() {
 			txl.transactions.drop(tx.Key())
 		}
 		// todo bloody patch, remove after refactoring
-		time.Sleep(time.Second)
+		time.Sleep(2 * time.Second)
 		close(txl.terrs)
 	}()
 	txl.Log().Infof("%s starts listen messages routine", txl)
