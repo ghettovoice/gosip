@@ -28,7 +28,11 @@ test-watch-%:
 	cd $$GOPATH/src/$(PKG_NAME); \
 	ginkgo watch -r --trace --race $(GOFLAGS) ./$*
 
-cover-report:
+cover-report: cover-merge
+	cd $$GOPATH/src/$(PKG_NAME); \
+	go tool cover -html=./gosip.full.coverprofile
+
+cover-merge:
 	cd $$GOPATH/src/$(PKG_NAME); \
 	gocovmerge \
 		./gosip.coverprofile \
@@ -37,8 +41,7 @@ cover-report:
 		./timing/timing.coverprofile \
 		./transaction/transaction.coverprofile \
 		./transport/transport.coverprofile \
-	> ./gosip.full.coverprofile; \
-  go tool cover -html=./gosip.full.coverprofile
+	> ./gosip.full.coverprofile
 
 format:
 	cd $$GOPATH/src/$(PKG_NAME); \
