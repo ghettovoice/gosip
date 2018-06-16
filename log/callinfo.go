@@ -2,6 +2,8 @@ package log
 
 import (
 	"fmt"
+	"go/build"
+	"path/filepath"
 	"regexp"
 	"runtime"
 
@@ -26,6 +28,10 @@ func NewCallInfoHook() *CallInfoHook {
 // Fire is an callback that will be called by logrus for each log entry.
 func (hook *CallInfoHook) Fire(entry *logrus.Entry) error {
 	file, line, fn := GetStackInfo()
+
+	if rel, err := filepath.Rel(filepath.Join(build.Default.GOPATH, "/src"), file); err == nil {
+		file = rel
+	}
 
 	entry.SetField("file", file)
 	entry.SetField("line", line)
