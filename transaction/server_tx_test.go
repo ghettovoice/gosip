@@ -96,9 +96,10 @@ var _ = Describe("ServerTx", func() {
 				tpl.InMsgs <- invite
 			}()
 		})
-		AfterEach(func() {
+		AfterEach(func(done Done) {
 			wg.Wait()
-		})
+			close(done)
+		}, 3)
 
 		It("should open server tx and pass up TxMessage", func() {
 			inviteTxKey, err = transaction.MakeServerTxKey(invite)
@@ -151,16 +152,16 @@ var _ = Describe("ServerTx", func() {
 			})
 
 			Context("after 2xx OK was sent", func() {
-				wg := new(sync.WaitGroup)
+				wg2 := new(sync.WaitGroup)
 				BeforeEach(func() {
-					wg.Add(2)
+					wg2.Add(2)
 					go func() {
-						defer wg.Done()
+						defer wg2.Done()
 						By(fmt.Sprintf("UAS sends %s", ok.Short()))
 						Expect(txl.Send(ok)).To(Equal(invTx))
 					}()
 					go func() {
-						defer wg.Done()
+						defer wg2.Done()
 						By(fmt.Sprintf("UAC waits %s", ok.Short()))
 						msg := <-tpl.OutMsgs
 						Expect(msg).ToNot(BeNil())
@@ -171,9 +172,10 @@ var _ = Describe("ServerTx", func() {
 						tpl.InMsgs <- ack
 					}()
 				})
-				AfterEach(func() {
-					wg.Wait()
-				})
+				AfterEach(func(done Done) {
+					wg2.Wait()
+					close(done)
+				}, 3)
 
 				It("should receive ACK in separate transaction", func(done Done) {
 					ackTxKey, err = transaction.MakeServerTxKey(ack)

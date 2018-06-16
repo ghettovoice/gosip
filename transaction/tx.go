@@ -26,6 +26,7 @@ type Tx interface {
 	String() string
 	Transport() transport.Layer
 	Terminate()
+	Errors() <-chan error
 }
 
 type commonTx struct {
@@ -36,7 +37,7 @@ type commonTx struct {
 	tpl      transport.Layer
 	lastResp sip.Response
 	msgs     chan<- TxMessage
-	errs     chan<- error
+	errs     chan error
 	lastErr  error
 }
 
@@ -68,4 +69,8 @@ func (tx *commonTx) Key() TxKey {
 
 func (tx *commonTx) Transport() transport.Layer {
 	return tx.tpl
+}
+
+func (tx *commonTx) Errors() <-chan error {
+	return tx.errs
 }

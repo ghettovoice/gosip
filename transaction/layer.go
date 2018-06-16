@@ -3,7 +3,6 @@ package transaction
 import (
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -27,7 +26,6 @@ type layer struct {
 	tpl          transport.Layer
 	msgs         chan TxMessage
 	errs         chan error
-	terrs        chan error
 	done         chan struct{}
 	canceled     chan struct{}
 	transactions *transactionStore
@@ -39,13 +37,12 @@ func NewLayer(tpl transport.Layer) Layer {
 		tpl:          tpl,
 		msgs:         make(chan TxMessage),
 		errs:         make(chan error),
-		terrs:        make(chan error),
 		done:         make(chan struct{}),
 		canceled:     make(chan struct{}),
 		transactions: newTransactionStore(),
 	}
 	go txl.listenMessages()
-	go txl.serveTransactions()
+
 	return txl
 }
 
@@ -112,12 +109,13 @@ func (txl *layer) Send(msg sip.Message) (Tx, error) {
 		}
 		return tx, nil
 	case sip.Request:
-		tx, err = NewClientTx(msg, txl.tpl, txl.msgs, txl.terrs)
+		tx, err = NewClientTx(msg, txl.tpl, txl.msgs)
 		tx.SetLog(txl.Log())
 		if err != nil {
 			return nil, err
 		}
 		txl.transactions.put(tx.Key(), tx)
+		go txl.serveTransaction(tx)
 		tx.Init()
 		return tx, nil
 	default:
@@ -129,19 +127,21 @@ func (txl *layer) Send(msg sip.Message) (Tx, error) {
 }
 
 func (txl *layer) listenMessages() {
-	wg := new(sync.WaitGroup)
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
-		// wait for message handlers
-		wg.Wait()
 		// drop all transactions
-		for _, tx := range txl.transactions.all() {
-			tx.Terminate()
+		txs := txl.transactions.all()
+		for _, tx := range txs {
+			go tx.Terminate()
+			// ignore terminate error
+			for range tx.Errors() {
+			}
 			txl.transactions.drop(tx.Key())
 		}
-		// todo bloody patch, remove after refactoring
-		time.Sleep(2 * time.Second)
-		close(txl.terrs)
+
+		close(txl.msgs)
+		close(txl.errs)
+		close(txl.done)
 	}()
 	txl.Log().Infof("%s starts listen messages routine", txl)
 
@@ -155,54 +155,52 @@ func (txl *layer) listenMessages() {
 				return
 			}
 			// start handle goroutine
-			wg.Add(1)
-			go func(msg sip.Message) {
-				defer wg.Done()
-				txl.Log().Infof("%s received %s", txl, msg.Short())
-
-				switch msg := msg.(type) {
-				case sip.Request:
-					txl.handleRequest(msg)
-				case sip.Response:
-					txl.handleResponse(msg)
-				default:
-					txl.Log().Errorf("%s received unsupported message %s", txl, msg.Short())
-					// todo pass up error?
-				}
-			}(msg)
+			go txl.handleMessage(msg)
 		}
 	}
 }
 
-func (txl *layer) serveTransactions() {
-	defer func() {
-		txl.Log().Infof("%s stops listen messages routine", txl)
-		close(txl.msgs)
-		//close(txl.errs)
-		close(txl.done)
-	}()
-	txl.Log().Infof("%s starts serve transactions routine", txl)
-
+func (txl *layer) serveTransaction(tx Tx) {
 	for {
 		select {
-		case err, ok := <-txl.terrs:
+		case <-txl.canceled:
+			return
+		case err, ok := <-tx.Errors():
 			if !ok {
 				return
 			}
 			// all errors from Tx should be wrapped to TxError
 			terr, ok := err.(TxError)
 			if !ok {
-				continue
+				return
 			}
 
 			txl.transactions.drop(terr.Key())
 			// transaction terminated or timed out
 			if terr.Terminated() || terr.Timeout() {
-				continue
+				return
 			}
 
-			txl.errs <- terr.InitialError()
+			select {
+			case <-txl.canceled:
+				return
+			case txl.errs <- terr.InitialError():
+			}
 		}
+	}
+}
+
+func (txl *layer) handleMessage(msg sip.Message) {
+	txl.Log().Infof("%s received %s", txl, msg.Short())
+
+	switch msg := msg.(type) {
+	case sip.Request:
+		txl.handleRequest(msg)
+	case sip.Response:
+		txl.handleResponse(msg)
+	default:
+		txl.Log().Errorf("%s received unsupported message %s", txl, msg.Short())
+		// todo pass up error?
 	}
 }
 
@@ -217,7 +215,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 	}
 	// or create new one
 	txl.Log().Debugf("%s creates new server transaction for %s", txl, req.Short())
-	tx, err := NewServerTx(req, txl.tpl, txl.msgs, txl.terrs)
+	tx, err := NewServerTx(req, txl.tpl, txl.msgs)
 	tx.SetLog(txl.Log())
 	if err != nil {
 		txl.Log().Error(err)
@@ -225,6 +223,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 	}
 	// put tx to store, to match retransmitting requests later
 	txl.transactions.put(tx.Key(), tx)
+	go txl.serveTransaction(tx)
 	tx.Init()
 }
 

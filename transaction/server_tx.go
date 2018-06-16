@@ -34,7 +34,6 @@ func NewServerTx(
 	origin sip.Request,
 	tpl transport.Layer,
 	msgs chan<- TxMessage,
-	errs chan<- error,
 ) (ServerTx, error) {
 	key, err := MakeServerTxKey(origin)
 	if err != nil {
@@ -47,7 +46,7 @@ func NewServerTx(
 	tx.origin = origin
 	tx.tpl = tpl
 	tx.msgs = msgs
-	tx.errs = errs
+	tx.errs = make(chan error)
 	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
@@ -141,21 +140,7 @@ func (tx *serverTx) Respond(res sip.Response) error {
 }
 
 func (tx *serverTx) Terminate() {
-	if tx.timer_i != nil {
-		tx.timer_i.Stop()
-	}
-	if tx.timer_g != nil {
-		tx.timer_g.Stop()
-	}
-	if tx.timer_h != nil {
-		tx.timer_h.Stop()
-	}
-	if tx.timer_j != nil {
-		tx.timer_j.Stop()
-	}
-	if tx.timer_1xx != nil {
-		tx.timer_1xx.Stop()
-	}
+	tx.delete()
 }
 
 // FSM States
@@ -352,6 +337,7 @@ func (tx *serverTx) timeoutErr() {
 }
 
 func (tx *serverTx) delete() {
+	tx.mu.Lock()
 	// todo bloody patch
 	defer func() { recover() }()
 	tx.errs <- &TxTerminatedError{
@@ -359,6 +345,25 @@ func (tx *serverTx) delete() {
 		tx.Key(),
 		tx.String(),
 	}
+
+	if tx.timer_i != nil {
+		tx.timer_i.Stop()
+	}
+	if tx.timer_g != nil {
+		tx.timer_g.Stop()
+	}
+	if tx.timer_h != nil {
+		tx.timer_h.Stop()
+	}
+	if tx.timer_j != nil {
+		tx.timer_j.Stop()
+	}
+	if tx.timer_1xx != nil {
+		tx.timer_1xx.Stop()
+	}
+
+	close(tx.errs)
+	tx.mu.Unlock()
 }
 
 // Define actions.

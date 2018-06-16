@@ -31,7 +31,6 @@ func NewClientTx(
 	origin sip.Request,
 	tpl transport.Layer,
 	msgs chan<- TxMessage,
-	errs chan<- error,
 ) (ClientTx, error) {
 	key, err := MakeClientTxKey(origin)
 	if err != nil {
@@ -44,7 +43,7 @@ func NewClientTx(
 	tx.origin = origin
 	tx.tpl = tpl
 	tx.msgs = msgs
-	tx.errs = errs
+	tx.errs = make(chan error)
 	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
@@ -114,15 +113,7 @@ func (tx *clientTx) Receive(msg sip.Message) error {
 }
 
 func (tx *clientTx) Terminate() {
-	if tx.timer_a != nil {
-		tx.timer_a.Stop()
-	}
-	if tx.timer_b != nil {
-		tx.timer_b.Stop()
-	}
-	if tx.timer_d != nil {
-		tx.timer_d.Stop()
-	}
+	tx.delete()
 }
 
 func (tx clientTx) ack() {
@@ -374,6 +365,7 @@ func (tx *clientTx) timeoutErr() {
 }
 
 func (tx *clientTx) delete() {
+	tx.mu.Lock()
 	// todo bloody patch
 	defer func() { recover() }()
 	tx.errs <- &TxTerminatedError{
@@ -381,6 +373,19 @@ func (tx *clientTx) delete() {
 		tx.Key(),
 		tx.String(),
 	}
+
+	if tx.timer_a != nil {
+		tx.timer_a.Stop()
+	}
+	if tx.timer_b != nil {
+		tx.timer_b.Stop()
+	}
+	if tx.timer_d != nil {
+		tx.timer_d.Stop()
+	}
+
+	close(tx.errs)
+	tx.mu.Unlock()
 }
 
 // Define actions
