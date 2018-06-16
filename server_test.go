@@ -45,7 +45,7 @@ var _ = Describe("Server", func() {
 		wg := new(sync.WaitGroup)
 		called := false
 
-		Expect(srv.Listen("127.0.0.1:5060")).To(Succeed())
+		Expect(srv.Listen("udp", "127.0.0.1:5060")).To(Succeed())
 
 		srv.OnRequest(sip.INVITE, func(req sip.Request) {
 			Expect(req.Method).To(Equal(sip.INVITE))

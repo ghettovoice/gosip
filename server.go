@@ -17,10 +17,6 @@ const (
 	defaultHostAddr   = "127.0.0.1"
 )
 
-var (
-	protocols = []string{"udp", "tcp"}
-)
-
 // RequestHandler is a callback that will be called on the incoming request
 // of the certain method
 type RequestHandler func(req sip.Request)
@@ -75,16 +71,10 @@ func NewServer(config ServerConfig) *Server {
 }
 
 // ListenAndServe starts serving listeners on the provided address
-func (srv *Server) Listen(listenAddr string) error {
-	if listenAddr == "" {
-		listenAddr = defaultListenAddr
-	}
-
-	for _, protocol := range protocols {
-		if err := srv.tp.Listen(protocol, listenAddr); err != nil {
-			// return immediately
-			return err
-		}
+func (srv *Server) Listen(network string, listenAddr string) error {
+	if err := srv.tp.Listen(network, listenAddr); err != nil {
+		// return immediately
+		return err
 	}
 
 	return nil

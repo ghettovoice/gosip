@@ -7,11 +7,16 @@ var (
 	defaultServer *Server
 )
 
+// DefaultServer returns auto created default SIP server
+func DefaultServer() *Server {
+	return defaultServer
+}
+
 // Listen starts SIP stack
-func Listen(listenAddr string) error {
+func Listen(network string, listenAddr string) error {
 	if defaultServer == nil {
 		defaultServer = NewServer(ServerConfig{})
 	}
 
-	return defaultServer.Listen(listenAddr)
+	return defaultServer.Listen(network, listenAddr)
 }
