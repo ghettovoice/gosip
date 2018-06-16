@@ -164,3 +164,34 @@ func DefaultPort(protocol string) Port {
 		return DefaultTcpPort
 	}
 }
+
+func MakeDialogID(msg Message) (string, error) {
+	callID, ok := msg.CallID()
+	if !ok {
+		return "", fmt.Errorf("missing Call-ID header")
+	}
+
+	to, ok := msg.To()
+	if !ok {
+		return "", fmt.Errorf("missing To header")
+	}
+
+	toTag, ok := to.Params.Get("tag")
+	if !ok {
+		return "", fmt.Errorf("missing tag param in To header")
+	}
+
+	from, ok := msg.From()
+	if !ok {
+		return "", fmt.Errorf("missing To header")
+	}
+
+	fromTag, ok := from.Params.Get("tag")
+	if !ok {
+		return "", fmt.Errorf("missing tag param in From header")
+	}
+
+	id := strings.Join([]string{string(*callID), toTag.String(), fromTag.String()}, ":")
+
+	return id, nil
+}
