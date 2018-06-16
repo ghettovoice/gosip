@@ -45,4 +45,4 @@ cover-merge:
 
 format:
 	cd $$GOPATH/src/$(PKG_NAME); \
-	go fmt -w *.go
+	go fmt *.go
