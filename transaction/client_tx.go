@@ -391,20 +391,24 @@ func (tx *clientTx) delete() {
 // Define actions
 func (tx *clientTx) act_invite_resend() fsm.Input {
 	tx.Log().Debugf("%s, act_invite_resend", tx)
+	tx.mu.Lock()
 	tx.timer_a_time *= 2
 	tx.timer_a.Reset(tx.timer_a_time)
+	tx.mu.Unlock()
 	tx.resend()
 	return fsm.NO_INPUT
 }
 
 func (tx *clientTx) act_non_invite_resend() fsm.Input {
 	tx.Log().Debugf("%s, act_non_invite_resend", tx)
+	tx.mu.Lock()
 	tx.timer_a_time *= 2
 	// For non-INVITE, cap timer A at T2 seconds.
 	if tx.timer_a_time > T2 {
 		tx.timer_a_time = T2
 	}
 	tx.timer_a.Reset(tx.timer_a_time)
+	tx.mu.Unlock()
 	tx.resend()
 	return fsm.NO_INPUT
 }
@@ -419,24 +423,28 @@ func (tx *clientTx) act_invite_final() fsm.Input {
 	tx.Log().Debugf("%s, act_invite_final", tx)
 	tx.passUp()
 	tx.ack()
+	tx.mu.Lock()
 	if tx.timer_d != nil {
 		tx.timer_d.Stop()
 	}
 	tx.timer_d = timing.AfterFunc(tx.timer_d_time, func() {
 		tx.fsm.Spin(client_input_timer_d)
 	})
+	tx.mu.Unlock()
 	return fsm.NO_INPUT
 }
 
 func (tx *clientTx) act_non_invite_final() fsm.Input {
 	tx.Log().Debugf("%s, act_non_invite_final", tx)
 	tx.passUp()
+	tx.mu.Lock()
 	if tx.timer_d != nil {
 		tx.timer_d.Stop()
 	}
 	tx.timer_d = timing.AfterFunc(tx.timer_d_time, func() {
 		tx.fsm.Spin(client_input_timer_d)
 	})
+	tx.mu.Unlock()
 	return fsm.NO_INPUT
 }
 

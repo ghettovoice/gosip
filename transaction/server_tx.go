@@ -384,7 +384,7 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 	if tx.lastErr != nil {
 		return server_input_transport_err
 	}
-
+	tx.mu.Lock()
 	if !tx.reliable {
 		if tx.timer_g == nil {
 			tx.timer_g = timing.AfterFunc(tx.timer_g_time, func() {
@@ -405,6 +405,7 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 			tx.fsm.Spin(server_input_timer_h)
 		})
 	}
+	tx.mu.Unlock()
 
 	return fsm.NO_INPUT
 }
@@ -416,10 +417,12 @@ func (tx *serverTx) act_final() fsm.Input {
 		return server_input_transport_err
 	}
 
+	tx.mu.Lock()
 	tx.timer_j = timing.AfterFunc(Timer_J, func() {
 		tx.Log().Debugf("%s, timer_j fired")
 		tx.fsm.Spin(server_input_timer_j)
 	})
+	tx.mu.Unlock()
 
 	return fsm.NO_INPUT
 }
@@ -460,9 +463,11 @@ func (tx *serverTx) act_respond_delete() fsm.Input {
 
 func (tx *serverTx) act_confirm() fsm.Input {
 	tx.Log().Debugf("%s, act_confirm")
+	tx.mu.Lock()
 	tx.timer_i = timing.AfterFunc(Timer_I, func() {
 		tx.Log().Debugf("%s, timer_i fired")
 		tx.fsm.Spin(server_input_timer_i)
 	})
+	tx.mu.Unlock()
 	return fsm.NO_INPUT
 }
