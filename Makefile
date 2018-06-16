@@ -6,8 +6,6 @@ GOFLAGS=
 install:
 	cd $$GOPATH/src/$(PKG_NAME); \
 	go get -v \
-		github.com/onsi/ginkgo/ginkgo \
-		github.com/onsi/gomega \
 		github.com/wadey/gocovmerge; \
   	go get -v -t ./...; \
   	go install $(LDFLAGS)
