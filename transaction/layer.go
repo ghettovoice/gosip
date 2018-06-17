@@ -216,11 +216,11 @@ func (txl *layer) handleRequest(req sip.Request) {
 	// or create new one
 	txl.Log().Debugf("%s creates new server transaction for %s", txl, req.Short())
 	tx, err := NewServerTx(req, txl.tpl, txl.msgs)
-	tx.SetLog(txl.Log())
 	if err != nil {
 		txl.Log().Error(err)
 		return
 	}
+	tx.SetLog(txl.Log())
 	// put tx to store, to match retransmitting requests later
 	txl.transactions.put(tx.Key(), tx)
 	go txl.serveTransaction(tx)

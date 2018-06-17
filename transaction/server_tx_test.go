@@ -46,42 +46,42 @@ var _ = Describe("ServerTx", func() {
 
 		BeforeEach(func() {
 			inviteBranch = sip.GenerateBranch()
-			invite = request([]string{
+			invite = testutils.Request([]string{
 				"INVITE sip:bob@example.com SIP/2.0",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
 				"CSeq: 1 INVITE",
 				"",
 				"",
 			})
-			trying = response([]string{
+			trying = testutils.Response([]string{
 				"SIP/2.0 100 Trying",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
 				"CSeq: 1 INVITE",
 				"",
 				"",
 			})
-			ok = response([]string{
+			ok = testutils.Response([]string{
 				"SIP/2.0 200 OK",
 				"CSeq: 1 INVITE",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
 				"",
 				"",
 			})
-			notOk = response([]string{
+			notOk = testutils.Response([]string{
 				"SIP/2.0 400 Bad Request",
 				"CSeq: 1 INVITE",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
 				"",
 				"",
 			})
-			ack = request([]string{
+			ack = testutils.Request([]string{
 				"ACK sip:bob@example.com SIP/2.0",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + sip.GenerateBranch(),
 				"CSeq: 1 ACK",
 				"",
 				"",
 			})
-			notOkAck = request([]string{
+			notOkAck = testutils.Request([]string{
 				"ACK sip:bob@example.com SIP/2.0",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
 				"CSeq: 1 ACK",

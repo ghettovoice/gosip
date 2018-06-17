@@ -13,18 +13,15 @@ import (
 )
 
 const (
-	defaultListenAddr = "127.0.0.1:5060"
-	defaultHostAddr   = "127.0.0.1"
+	defaultHostAddr = "127.0.0.1"
 )
 
 // RequestHandler is a callback that will be called on the incoming request
 // of the certain method
-type RequestHandler func(req sip.Request)
-type requestHandlerCollection []RequestHandler
+type RequestHandler func(req sip.Request, tx transaction.Tx)
 
 // ResponseHandler is a callback that will be called on each response
-type ResponseHandler func(res sip.Response)
-type responseHandlerCollection []ResponseHandler
+type ResponseHandler func(res sip.Response, tx transaction.Tx)
 
 // ServerConfig describes available options
 type ServerConfig struct {
@@ -36,10 +33,11 @@ type Server struct {
 	cancelFunc       context.CancelFunc
 	tp               transport.Layer
 	tx               transaction.Layer
-	hwg              *sync.WaitGroup
 	inShutdown       int32
-	requestHandlers  map[sip.RequestMethod]requestHandlerCollection
-	responseHandlers responseHandlerCollection
+	hwg              *sync.WaitGroup
+	hmu              *sync.RWMutex
+	requestHandlers  map[sip.RequestMethod][]RequestHandler
+	responseHandlers []ResponseHandler
 }
 
 // NewServer creates new instance of SIP server.
@@ -54,11 +52,12 @@ func NewServer(config ServerConfig) *Server {
 	tp := transport.NewLayer(hostAddr)
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
-		hwg:              new(sync.WaitGroup),
 		tp:               tp,
 		tx:               tx,
-		requestHandlers:  make(map[sip.RequestMethod]requestHandlerCollection),
-		responseHandlers: make(responseHandlerCollection, 1),
+		hwg:              new(sync.WaitGroup),
+		hmu:              new(sync.RWMutex),
+		requestHandlers:  make(map[sip.RequestMethod][]RequestHandler),
+		responseHandlers: make([]ResponseHandler, 1),
 	}
 
 	ctx := context.Background()
@@ -96,30 +95,47 @@ func (srv *Server) serve(ctx context.Context) {
 	}
 }
 
-func (srv *Server) handleMessage(message sip.Message) {
+func (srv *Server) handleMessage(txMsg transaction.TxMessage) {
 	defer srv.hwg.Done()
 
-	var msg sip.Message
+	log.Infof("server handles incoming message %s", txMsg.Short())
 
-	if txMsg, ok := message.(transaction.TxMessage); ok {
-		msg = txMsg.Origin()
-	} else {
-		msg = message
-	}
-
-	switch m := msg.(type) {
+	switch msg := txMsg.Origin().(type) {
 	case sip.Response:
-		for _, handler := range srv.responseHandlers {
-			handler(m)
+		srv.hmu.RLock()
+		handlers := srv.responseHandlers
+		srv.hmu.RUnlock()
+
+		for _, handler := range handlers {
+			handler(msg, txMsg.Tx())
 		}
+		// if not handlers, jus ignore
+		return
 	case sip.Request:
-		if handlers, ok := srv.requestHandlers[m.Method()]; ok {
+		srv.hmu.RLock()
+		handlers, ok := srv.requestHandlers[msg.Method()]
+		srv.hmu.RUnlock()
+
+		if ok {
 			for _, handler := range handlers {
-				handler(m)
+				handler(msg, txMsg.Tx())
+			}
+		} else {
+			log.Warnf("no handler registered for the request %s", msg.Short())
+			log.Debug(msg.String())
+
+			res := sip.NewResponseFromRequest(msg, 501, "Method Not Supported", "")
+			if err := srv.Send(res); err != nil {
+				log.Errorf("failed to respond on the unsupported request: %s", err)
 			}
 		}
+
+		return
 	default:
+		fmt.Println("UNSUPPORTED--------------------------------------------------------------------")
 		log.Errorf("unsupported SIP message type %s", msg.Short())
+
+		return
 	}
 }
 
@@ -140,26 +156,29 @@ func (srv *Server) shuttingDown() bool {
 
 // Shutdown gracefully shutdowns SIP server
 func (srv *Server) Shutdown() {
-	srv.cancelFunc()
-
 	atomic.AddInt32(&srv.inShutdown, 1)
 	defer atomic.AddInt32(&srv.inShutdown, -1)
-	// canceling transport layer causes canceling
-	// of all listeners, pool, transactions and etc
-	srv.tp.Cancel()
-	// wait transaction layer because it is the top layer
-	// in stack
+
+	srv.cancelFunc()
+	// stop transaction layer
+	srv.tx.Cancel()
 	<-srv.tx.Done()
+	// stop transport layer
+	srv.tp.Cancel()
+	<-srv.tp.Done()
 	// wait for handlers
 	srv.hwg.Wait()
 }
 
 // OnRequest registers new request callback
 func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) error {
+	srv.hmu.Lock()
+	defer srv.hmu.Unlock()
+
 	handlers, ok := srv.requestHandlers[method]
 
 	if !ok {
-		handlers = make(requestHandlerCollection, 0)
+		handlers = make([]RequestHandler, 0)
 	}
 
 	for _, h := range handlers {
@@ -175,6 +194,9 @@ func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) e
 
 // OnResponse registers new response callback
 func (srv *Server) OnResponse(handler ResponseHandler) error {
+	srv.hmu.Lock()
+	defer srv.hmu.Unlock()
+
 	for _, h := range srv.responseHandlers {
 		if &h == &handler {
 			return fmt.Errorf("handler already binded to response")

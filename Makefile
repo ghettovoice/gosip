@@ -3,14 +3,16 @@ PKG_NAME=github.com/ghettovoice/gosip
 LDFLAGS=-ldflags "-X gosip.Version=${VERSION}"
 GOFLAGS=
 
-install:
+install: .install-utils
 	cd $$GOPATH/src/$(PKG_NAME); \
-	go get -v github.com/wadey/gocovmerge; \
-	go get -v github.com/sqs/goreturns; \
-	go get -v github.com/onsi/ginkgo/...; \
-	go get -v github.com/onsi/gomega/...; \
-  	go get -v -t ./...; \
-  	go install $(LDFLAGS)
+  	go get -v -t ./...
+
+.install-utils:
+	@echo "Installing development utilities..."
+	go get -v github.com/wadey/gocovmerge
+	go get -v github.com/sqs/goreturns
+	go get -v github.com/onsi/ginkgo/...
+	go get -v github.com/onsi/gomega/...
 
 test:
 	cd $$GOPATH/src/$(PKG_NAME); \

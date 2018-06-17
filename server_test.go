@@ -4,34 +4,43 @@ import (
 	"net"
 	"sync"
 
-	. "github.com/ghettovoice/gosip"
+	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
+	"github.com/ghettovoice/gosip/transaction"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Server", func() {
+var _ = Describe("GoSIP Server", func() {
 	var (
-		srv     *Server
-		client1 net.Conn
+		srv          *gosip.Server
+		client1      net.Conn
+		inviteBranch string
+		invite       sip.Message
 	)
 
-	port1 := 9050
-	clientAddr1 := "127.0.0.1:9001"
-	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
-	msg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
-		"Via: SIP/2.0/UDP pc33.far-far-away.com:9001;branch=z9hG4bK776asdhds\r\n" +
-		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
-		"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
-		"Content-Length: 12\r\n" +
-		"\r\n" +
-		"Hello world!"
+	clientAddr := "127.0.0.1:9001"
+	localTarget := transport.NewTarget("127.0.0.1", 5060)
 
 	BeforeEach(func() {
-		srv = NewServer(ServerConfig{})
-		client1 = testutils.CreateClient("udp", localTarget1.Addr(), clientAddr1)
+		srv = gosip.NewServer(gosip.ServerConfig{})
+		Expect(srv.Listen("udp", "127.0.0.1:5060")).To(Succeed())
+
+		client1 = testutils.CreateClient("udp", localTarget.Addr(), clientAddr)
+
+		inviteBranch = sip.GenerateBranch()
+		invite = testutils.Request([]string{
+			"INVITE sip:bob@example.com SIP/2.0",
+			"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
+			"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774",
+			"To: \"Bob\" <sip:bob@far-far-away.com>",
+			"CSeq: 1 INVITE",
+			"Content-Length: 0",
+			"",
+			"",
+		})
 	}, 3)
 
 	AfterEach(func() {
@@ -43,19 +52,18 @@ var _ = Describe("Server", func() {
 
 	It("should call INVITE handler on incoming INVITE request", func(done Done) {
 		wg := new(sync.WaitGroup)
-		called := false
 
-		Expect(srv.Listen("udp", "127.0.0.1:5060")).To(Succeed())
-
-		srv.OnRequest(sip.INVITE, func(req sip.Request) {
-			Expect(req.Method).To(Equal(sip.INVITE))
-			called = true
+		wg.Add(1)
+		srv.OnRequest(sip.INVITE, func(req sip.Request, tx transaction.Tx) {
+			defer wg.Done()
+			Expect(req.Method()).To(Equal(sip.INVITE))
+			Expect(tx).ToNot(BeNil())
 		})
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			testutils.WriteToConn(client1, []byte(msg1))
+			testutils.WriteToConn(client1, []byte(invite.String()))
 		}()
 
 		wg.Wait()
