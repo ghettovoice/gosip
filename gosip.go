@@ -15,7 +15,7 @@ func DefaultServer() *Server {
 // Listen starts SIP stack
 func Listen(network string, listenAddr string) error {
 	if defaultServer == nil {
-		defaultServer = NewServer(ServerConfig{})
+		defaultServer = NewServer(nil)
 	}
 
 	return defaultServer.Listen(network, listenAddr)

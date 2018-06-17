@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	defaultHostAddr = "127.0.0.1"
+	defaultHostAddr = "localhost"
 )
 
 // RequestHandler is a callback that will be called on the incoming request
@@ -26,6 +26,10 @@ type ResponseHandler func(res sip.Response, tx transaction.Tx)
 // ServerConfig describes available options
 type ServerConfig struct {
 	HostAddr string
+}
+
+var defaultConfig = &ServerConfig{
+	HostAddr: defaultHostAddr,
 }
 
 // Server is a SIP server
@@ -41,8 +45,13 @@ type Server struct {
 }
 
 // NewServer creates new instance of SIP server.
-func NewServer(config ServerConfig) *Server {
+func NewServer(config *ServerConfig) *Server {
 	var hostAddr string
+
+	if config == nil {
+		config = defaultConfig
+	}
+
 	if config.HostAddr != "" {
 		hostAddr = config.HostAddr
 	} else {
