@@ -5,10 +5,10 @@ GOFLAGS=
 
 install:
 	cd $$GOPATH/src/$(PKG_NAME); \
-	go get -u github.com/wadey/gocovmerge; \
-	go get -u github.com/sqs/goreturns; \
-	go get -u github.com/onsi/ginkgo; \
-	go get -u github.com/onsi/gomega/...; \
+	go get -v github.com/wadey/gocovmerge; \
+	go get -v github.com/sqs/goreturns; \
+	go get -v github.com/onsi/ginkgo/...; \
+	go get -v github.com/onsi/gomega/...; \
   	go get -v -t ./...; \
   	go install $(LDFLAGS)
 
