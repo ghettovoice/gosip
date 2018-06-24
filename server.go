@@ -94,12 +94,18 @@ func (srv *Server) serve(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case msg := <-srv.tx.Messages():
-			srv.hwg.Add(1)
-			go srv.handleMessage(msg)
+			if msg != nil { // if chan is closed or early exit
+				srv.hwg.Add(1)
+				go srv.handleMessage(msg)
+			}
 		case err := <-srv.tx.Errors():
-			log.Error(err.Error())
+			if err != nil {
+				log.Error(err.Error())
+			}
 		case err := <-srv.tp.Errors():
-			log.Error(err.Error())
+			if err != nil {
+				log.Error(err.Error())
+			}
 		}
 	}
 }
@@ -107,7 +113,7 @@ func (srv *Server) serve(ctx context.Context) {
 func (srv *Server) handleMessage(txMsg transaction.TxMessage) {
 	defer srv.hwg.Done()
 
-	log.Infof("server handles incoming message %s", txMsg.Short())
+	log.Infof("server handles incoming message %s", txMsg)
 
 	switch msg := txMsg.Origin().(type) {
 	case sip.Response:

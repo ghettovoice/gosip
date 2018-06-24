@@ -254,7 +254,7 @@ func (tpl *layer) serveProtocols() {
 }
 
 func (tpl *layer) dispose() {
-	tpl.Log().Debugf("%s disposing...")
+	tpl.Log().Debugf("%s disposing...", tpl)
 	// wait for protocols
 	protocols := tpl.protocols.all()
 	wg := new(sync.WaitGroup)
