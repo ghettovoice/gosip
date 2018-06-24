@@ -100,11 +100,11 @@ func (srv *Server) serve(ctx context.Context) {
 			}
 		case err := <-srv.tx.Errors():
 			if err != nil {
-				log.Error(err.Error())
+				log.Errorf("GoSIP server received transaction error: %s", err)
 			}
 		case err := <-srv.tp.Errors():
 			if err != nil {
-				log.Error(err.Error())
+				log.Error("GoSIP server received transport error: %s", err.Error())
 			}
 		}
 	}
@@ -113,7 +113,7 @@ func (srv *Server) serve(ctx context.Context) {
 func (srv *Server) handleMessage(txMsg transaction.TxMessage) {
 	defer srv.hwg.Done()
 
-	log.Infof("server handles incoming message %s", txMsg)
+	log.Infof("GoSIP server handles incoming message %s", txMsg)
 
 	switch msg := txMsg.Origin().(type) {
 	case sip.Response:
@@ -136,19 +136,18 @@ func (srv *Server) handleMessage(txMsg transaction.TxMessage) {
 				handler(msg, txMsg.Tx())
 			}
 		} else {
-			log.Warnf("no handler registered for the request %s", msg.Short())
+			log.Warnf("GoSIP server not found handler registered for the request %s", msg.Short())
 			log.Debug(msg.String())
 
 			res := sip.NewResponseFromRequest(msg, 501, "Method Not Supported", "")
 			if err := srv.Send(res); err != nil {
-				log.Errorf("failed to respond on the unsupported request: %s", err)
+				log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
 			}
 		}
 
 		return
 	default:
-		fmt.Println("UNSUPPORTED--------------------------------------------------------------------")
-		log.Errorf("unsupported SIP message type %s", msg.Short())
+		log.Errorf("GoSIP server received unsupported SIP message type %s", msg.Short())
 
 		return
 	}
