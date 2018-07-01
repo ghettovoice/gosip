@@ -194,6 +194,6 @@ func MakeDialogIdFromMessage(msg Message) (string, error) {
 	return MakeDialogId(string(*callID), toTag.String(), fromTag.String()), nil
 }
 
-func MakeDialogId(callId, toTag, fromTag string) string {
-	return strings.Join([]string{callId, toTag, fromTag}, ":")
+func MakeDialogId(callId, innerId, externalId string) string {
+	return strings.Join([]string{callId, innerId, externalId}, ":")
 }
