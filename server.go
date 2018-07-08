@@ -113,7 +113,8 @@ func (srv *Server) serve(ctx context.Context) {
 func (srv *Server) handleMessage(txMsg transaction.TxMessage) {
 	defer srv.hwg.Done()
 
-	log.Infof("GoSIP server handles incoming message %s", txMsg)
+	log.Infof("GoSIP server handles incoming message %s", txMsg.Short())
+	log.Debugf(txMsg.String())
 
 	switch msg := txMsg.Origin().(type) {
 	case sip.Response:
