@@ -15,7 +15,7 @@ import (
 const (
 	MTU uint = 1500
 
-	DefaultHost     = "127.0.0.1"
+	DefaultHost     = "0.0.0.0"
 	DefaultProtocol = "TCP"
 
 	DefaultUdpPort sip.Port = 5060
