@@ -42,7 +42,7 @@ func NewRequest(
 	req.SetRecipient(recipient)
 
 	if strings.TrimSpace(body) != "" {
-		req.SetBody(body, false)
+		req.SetBody(body, true)
 	}
 
 	return req

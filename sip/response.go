@@ -46,7 +46,7 @@ func NewResponse(
 	res.SetReason(reason)
 
 	if strings.TrimSpace(body) != "" {
-		res.SetBody(body, false)
+		res.SetBody(body, true)
 	}
 
 	return res

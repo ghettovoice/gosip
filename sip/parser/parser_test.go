@@ -1088,6 +1088,7 @@ func TestUnstreamedParse2(t *testing.T) {
 		// Steps each have: Input, result, sent error, returned error
 		{"INVITE sip:bob@biloxi.com SIP/2.0\r\n" +
 			"CSeq: 13 INVITE\r\n" +
+			"Content-Length: 13\r\n" +
 			"\r\n" +
 			body,
 			sip.NewRequest(
@@ -1119,6 +1120,7 @@ func TestUnstreamedParse3(t *testing.T) {
 		// Steps each have: Input, result, sent error, returned error
 		{"SIP/2.0 200 OK\r\n" +
 			"CSeq: 2 INVITE\r\n" +
+			"Content-Length: 22\r\n" +
 			"\r\n" +
 			body,
 			sip.NewResponse(
@@ -1182,6 +1184,7 @@ func TestUnstreamedParse5(t *testing.T) {
 			"Call-ID:\tcheesecake1729\r\n" +
 			"Max-Forwards:\t\r\n" +
 			"\t63\r\n" +
+			"Content-Length: 22\r\n" +
 			"\r\n" +
 			body,
 			sip.NewResponse(
@@ -1270,6 +1273,7 @@ func TestUnstreamedParse8(t *testing.T) {
 			nil},
 		{"SIP/2.0 200 OK\r\n" +
 			"CSeq: 2 INVITE\r\n" +
+			"Content-Length: 22\r\n" +
 			"\r\n" +
 			"Everything is awesome.",
 			sip.NewResponse(
