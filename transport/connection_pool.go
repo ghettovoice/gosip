@@ -731,7 +731,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				// RFC 3261 - 18.2.1
 				viaHop, ok := msg.ViaHop()
 				if !ok {
-					panic(123)
 					handler.Log().Warnf("%s ignores message without 'Via' header %s", handler, msg.Short())
 					continue
 				}
