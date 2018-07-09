@@ -26,7 +26,7 @@ var _ = Describe("GoSIP Server", func() {
 
 	BeforeEach(func() {
 		srv = gosip.NewServer(nil)
-		Expect(srv.Listen("udp", "127.0.0.1:5060")).To(Succeed())
+		Expect(srv.Listen("udp", "0.0.0.0:5060")).To(Succeed())
 
 		client1 = testutils.CreateClient("udp", localTarget.Addr(), clientAddr)
 
