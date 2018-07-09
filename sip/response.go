@@ -135,7 +135,7 @@ func NewResponseFromRequest(
 		statusCode,
 		reason,
 		[]Header{},
-		body,
+		"",
 	)
 	res.SetLog(req.Log())
 
@@ -149,6 +149,10 @@ func NewResponseFromRequest(
 		CopyHeaders("Timestamp", req, res)
 	}
 	res.SetDestination(req.Source())
+
+	if len(body) > 0 {
+		res.SetBody(body, true)
+	}
 
 	return res
 }
