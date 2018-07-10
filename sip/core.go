@@ -195,5 +195,5 @@ func MakeDialogIdFromMessage(msg Message) (string, error) {
 }
 
 func MakeDialogId(callId, innerId, externalId string) string {
-	return strings.Join([]string{callId, innerId, externalId}, ":")
+	return strings.Join([]string{callId, innerId, externalId}, "__")
 }
