@@ -165,7 +165,7 @@ func DefaultPort(protocol string) Port {
 	}
 }
 
-func MakeDialogIdFromMessage(msg Message) (string, error) {
+func MakeDialogIDFromMessage(msg Message) (string, error) {
 	callID, ok := msg.CallID()
 	if !ok {
 		return "", fmt.Errorf("missing Call-ID header")
@@ -191,9 +191,9 @@ func MakeDialogIdFromMessage(msg Message) (string, error) {
 		return "", fmt.Errorf("missing tag param in From header")
 	}
 
-	return MakeDialogId(string(*callID), toTag.String(), fromTag.String()), nil
+	return MakeDialogID(string(*callID), toTag.String(), fromTag.String()), nil
 }
 
-func MakeDialogId(callId, innerId, externalId string) string {
-	return strings.Join([]string{callId, innerId, externalId}, "__")
+func MakeDialogID(callID, innerID, externalID string) string {
+	return strings.Join([]string{callID, innerID, externalID}, "__")
 }
