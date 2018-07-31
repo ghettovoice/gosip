@@ -10,6 +10,7 @@ import (
 )
 
 // Layer serves client and server transactions.
+// todo add Request () ServerTx method to get server transactions, responses should be emitted on ClientTx
 type Layer interface {
 	log.LocalLogger
 	Cancel()
@@ -17,8 +18,8 @@ type Layer interface {
 	String() string
 	Send(msg sip.Message) (Tx, error)
 	Transport() transport.Layer
-	Messages() <-chan TxMessage
-	Errors() <-chan error
+	Messages() <-chan TxMessage // rename to responses, there should be only not matched responses
+	Errors() <-chan error       // there should be layer level error
 }
 
 type layer struct {

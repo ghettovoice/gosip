@@ -181,10 +181,10 @@ func (tpl *layer) Send(msg sip.Message) error {
 		// rewrite sent-by host
 		viaHop.Host = tpl.HostAddr()
 		// todo check for reliable/non-reliable
-		if strings.ToLower(viaHop.Transport) == "udp" && msgLen > int(MTU)-200 {
-			nets = append(nets, DefaultProtocol, viaHop.Transport)
+		if msgLen > int(MTU)-200 {
+			nets = append(nets, "TCP", "UDP")
 		} else {
-			nets = append(nets, viaHop.Transport)
+			nets = append(nets, "UDP")
 		}
 
 		var err error
@@ -201,8 +201,9 @@ func (tpl *layer) Send(msg sip.Message) error {
 			if viaHop.Port == nil {
 				viaHop.Port = &defPort
 			}
+			target.Port = &defPort
 			err = protocol.Send(target, msg)
-			if err != nil {
+			if err == nil {
 				break
 			}
 		}

@@ -134,7 +134,7 @@ func (req *request) Destination() string {
 	if req.dest != "" {
 		return req.dest
 	}
-
+	// todo use Contact header if present
 	uri, ok := req.Recipient().(*SipUri)
 	if !ok {
 		return ""
