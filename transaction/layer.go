@@ -10,7 +10,6 @@ import (
 )
 
 // Layer serves client and server transactions.
-// todo add Request () ServerTx method to get server transactions, responses should be emitted on ClientTx
 type Layer interface {
 	log.LocalLogger
 	Cancel()
@@ -18,14 +17,18 @@ type Layer interface {
 	String() string
 	Send(msg sip.Message) (Tx, error)
 	Transport() transport.Layer
-	Messages() <-chan TxMessage // rename to responses, there should be only not matched responses
-	Errors() <-chan error       // there should be layer level error
+	// Requests returns channel with new incoming server transactions.
+	Requests() <-chan ServerTx
+	// Responses returns channel with not matched responses.
+	Responses() <-chan sip.Response
+	Errors() <-chan error
 }
 
 type layer struct {
 	logger       log.LocalLogger
 	tpl          transport.Layer
-	msgs         chan TxMessage
+	requests     chan ServerTx
+	responses    chan sip.Response
 	errs         chan error
 	done         chan struct{}
 	canceled     chan struct{}
@@ -36,7 +39,8 @@ func NewLayer(tpl transport.Layer) Layer {
 	txl := &layer{
 		logger:       log.NewSafeLocalLogger(),
 		tpl:          tpl,
-		msgs:         make(chan TxMessage),
+		requests:     make(chan ServerTx),
+		responses:    make(chan sip.Response),
 		errs:         make(chan error),
 		done:         make(chan struct{}),
 		canceled:     make(chan struct{}),
@@ -81,8 +85,12 @@ func (txl *layer) Done() <-chan struct{} {
 	return txl.done
 }
 
-func (txl *layer) Messages() <-chan TxMessage {
-	return txl.msgs
+func (txl *layer) Requests() <-chan ServerTx {
+	return txl.requests
+}
+
+func (txl *layer) Responses() <-chan sip.Response {
+	return txl.responses
 }
 
 func (txl *layer) Errors() <-chan error {
@@ -110,7 +118,7 @@ func (txl *layer) Send(msg sip.Message) (Tx, error) {
 		}
 		return tx, nil
 	case sip.Request:
-		tx, err = NewClientTx(msg, txl.tpl, txl.msgs)
+		tx, err = NewClientTx(msg, txl.tpl)
 		tx.SetLog(txl.Log())
 		if err != nil {
 			return nil, err
@@ -140,7 +148,8 @@ func (txl *layer) listenMessages() {
 			txl.transactions.drop(tx.Key())
 		}
 
-		close(txl.msgs)
+		close(txl.requests)
+		close(txl.responses)
 		close(txl.errs)
 		close(txl.done)
 	}()
@@ -185,7 +194,7 @@ func (txl *layer) serveTransaction(tx Tx) {
 			select {
 			case <-txl.canceled:
 				return
-			case txl.errs <- terr.InitialError():
+			case txl.errs <- terr.UnwrapError():
 			}
 		}
 	}
@@ -216,7 +225,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 	}
 	// or create new one
 	txl.Log().Debugf("%s creates new server transaction for %s", txl, req.Short())
-	tx, err := NewServerTx(req, txl.tpl, txl.msgs)
+	tx, err := NewServerTx(req, txl.tpl)
 	if err != nil {
 		txl.Log().Error(err)
 		return
@@ -226,6 +235,9 @@ func (txl *layer) handleRequest(req sip.Request) {
 	txl.transactions.put(tx.Key(), tx)
 	go txl.serveTransaction(tx)
 	tx.Init()
+	// pass up request
+	txl.Log().Debugf("%s pass up %s", txl, tx.Origin().Short())
+	txl.requests <- tx
 }
 
 func (txl *layer) handleResponse(res sip.Response) {
@@ -234,7 +246,7 @@ func (txl *layer) handleResponse(res sip.Response) {
 		txl.Log().Warn(err)
 		// RFC 3261 - 17.1.1.2.
 		// Not matched responses should be passed directly to the UA
-		txl.msgs <- &txMessage{res, nil}
+		txl.responses <- res
 		return
 	}
 	tx.Receive(res)

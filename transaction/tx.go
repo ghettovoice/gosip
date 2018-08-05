@@ -36,7 +36,6 @@ type commonTx struct {
 	origin   sip.Request
 	tpl      transport.Layer
 	lastResp sip.Response
-	msgs     chan<- TxMessage
 	errs     chan error
 	lastErr  error
 }

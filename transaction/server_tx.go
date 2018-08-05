@@ -15,10 +15,12 @@ import (
 type ServerTx interface {
 	Tx
 	Respond(res sip.Response) error
+	Ack() <-chan sip.Request
 }
 
 type serverTx struct {
 	commonTx
+	ack          chan sip.Request
 	timer_g      timing.Timer
 	timer_g_time time.Duration
 	timer_h      timing.Timer
@@ -33,7 +35,6 @@ type serverTx struct {
 func NewServerTx(
 	origin sip.Request,
 	tpl transport.Layer,
-	msgs chan<- TxMessage,
 ) (ServerTx, error) {
 	key, err := MakeServerTxKey(origin)
 	if err != nil {
@@ -45,7 +46,7 @@ func NewServerTx(
 	tx.key = key
 	tx.origin = origin
 	tx.tpl = tpl
-	tx.msgs = msgs
+	tx.ack = make(chan sip.Request, 1)
 	tx.errs = make(chan error)
 	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
@@ -64,9 +65,6 @@ func (tx *serverTx) Init() {
 		tx.timer_g_time = Timer_G
 		tx.timer_i_time = Timer_I
 	}
-	// pass up request
-	tx.Log().Debugf("%s pass up %s", tx, tx.Origin().Short())
-	tx.msgs <- &txMessage{tx.Origin(), tx}
 	// RFC 3261 - 17.2.1
 	if tx.Origin().IsInvite() {
 		tx.Log().Debugf("%s, set timer_1xx to %v", tx, Timer_1xx)
@@ -106,6 +104,7 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 		input = server_input_request
 	case req.IsAck(): // ACK for non-2xx response
 		input = server_input_ack
+		tx.ack <- req
 	default:
 		return &sip.UnexpectedMessageError{
 			fmt.Errorf("invalid %s correlated to %s", msg, tx),
@@ -137,6 +136,10 @@ func (tx *serverTx) Respond(res sip.Response) error {
 	}
 
 	return tx.fsm.Spin(input)
+}
+
+func (tx *serverTx) Ack() <-chan sip.Request {
+	return tx.ack
 }
 
 func (tx *serverTx) Terminate() {
@@ -216,7 +219,7 @@ func (tx *serverTx) initInviteFSM() {
 			server_input_user_2xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_confirmed, fsm.NO_ACTION},
 			server_input_timer_i:       {server_state_terminated, tx.act_delete},
-			//server_input_timer_g:       {server_state_confirmed, fsm.NO_ACTION},
+			// server_input_timer_g:       {server_state_confirmed, fsm.NO_ACTION},
 		},
 	}
 
@@ -362,6 +365,7 @@ func (tx *serverTx) delete() {
 		tx.timer_1xx.Stop()
 	}
 
+	close(tx.ack)
 	close(tx.errs)
 	tx.mu.Unlock()
 }

@@ -18,7 +18,7 @@ var _ = Describe("ServerTx", func() {
 		txl transaction.Layer
 	)
 
-	//serverAddr := "localhost:8001"
+	// serverAddr := "localhost:8001"
 	clientAddr := "localhost:9001"
 
 	BeforeEach(func() {
@@ -106,23 +106,20 @@ var _ = Describe("ServerTx", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By(fmt.Sprintf("UAS receives %s", invite.Short()))
-			msg := <-txl.Messages()
-			Expect(msg).ToNot(BeNil())
-			Expect(msg.String()).To(Equal(invite.String()))
-			Expect(msg.Tx()).ToNot(BeNil())
-			Expect(msg.Tx().Key()).To(Equal(inviteTxKey))
+			tx := <-txl.Requests()
+			Expect(tx).ToNot(BeNil())
+			Expect(tx.Origin()).ToNot(BeNil())
+			Expect(tx.Origin().String()).To(Equal(invite.String()))
+			Expect(tx.Key()).To(Equal(inviteTxKey))
 		})
 
 		Context("when INVITE server tx created", func() {
 			var invTx transaction.ServerTx
 			mu := &sync.RWMutex{}
 			BeforeEach(func() {
-				msg := <-txl.Messages()
-				Expect(msg).ToNot(BeNil())
-				tx, ok := msg.Tx().(transaction.ServerTx)
-				Expect(ok).To(BeTrue())
 				mu.Lock()
-				invTx = tx
+				invTx = <-txl.Requests()
+				Expect(invTx).ToNot(BeNil())
 				mu.Unlock()
 			})
 
@@ -158,7 +155,9 @@ var _ = Describe("ServerTx", func() {
 					go func() {
 						defer wg2.Done()
 						By(fmt.Sprintf("UAS sends %s", ok.Short()))
+						mu.RLock()
 						Expect(txl.Send(ok)).To(Equal(invTx))
+						mu.RUnlock()
 					}()
 					go func() {
 						defer wg2.Done()
@@ -182,12 +181,14 @@ var _ = Describe("ServerTx", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					By(fmt.Sprintf("UAS receives %s", ack.Short()))
-					msg := <-txl.Messages()
-					Expect(msg).ToNot(BeNil())
-					Expect(msg.String()).To(Equal(ack.String()))
-					Expect(msg.Tx()).ToNot(BeNil())
-					Expect(msg.Tx().Key()).To(Equal(ackTxKey))
-					Expect(msg.Tx()).ToNot(Equal(invTx))
+					ackTx := <-txl.Requests()
+					Expect(ackTx).ToNot(BeNil())
+					Expect(ackTx.Origin()).ToNot(BeNil())
+					Expect(ackTx.Origin().String()).To(Equal(ack.String()))
+					Expect(ackTx.Key()).To(Equal(ackTxKey))
+					mu.RLock()
+					Expect(ackTx).ToNot(Equal(invTx))
+					mu.RUnlock()
 
 					close(done)
 				})
@@ -200,7 +201,9 @@ var _ = Describe("ServerTx", func() {
 					go func() {
 						defer wg.Done()
 						By(fmt.Sprintf("UAS sends %s", notOk.Short()))
+						mu.RLock()
 						Expect(txl.Send(notOk)).To(Equal(invTx))
+						mu.RUnlock()
 					}()
 					go func() {
 						defer wg.Done()
@@ -213,17 +216,20 @@ var _ = Describe("ServerTx", func() {
 						By(fmt.Sprintf("UAC sends %s", notOkAck.Short()))
 						tpl.InMsgs <- notOkAck
 					}()
-					AfterEach(func() {
-						wg.Wait()
-					})
+				})
 
-					It("should not pass up ACK", func() {
-						select {
-						case <-txl.Messages():
-							Fail("should not get here")
-						case <-time.After(900 * time.Millisecond):
-						}
-					})
+				AfterEach(func() {
+					wg.Wait()
+				})
+
+				It("should get ACK inside INVITE tx", func(done Done) {
+					mu.RLock()
+					ack := <-invTx.Ack()
+					mu.RUnlock()
+					Expect(ack).ToNot(BeNil())
+					Expect(ack.Method()).To(Equal(sip.ACK))
+
+					close(done)
 				})
 			})
 		})

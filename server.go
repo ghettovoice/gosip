@@ -18,10 +18,7 @@ const (
 
 // RequestHandler is a callback that will be called on the incoming request
 // of the certain method
-type RequestHandler func(req sip.Request, tx transaction.Tx)
-
-// ResponseHandler is a callback that will be called on each response
-type ResponseHandler func(res sip.Response, tx transaction.Tx)
+type RequestHandler func(req sip.Request, tx transaction.ServerTx)
 
 // ServerConfig describes available options
 type ServerConfig struct {
@@ -34,14 +31,13 @@ var defaultConfig = &ServerConfig{
 
 // Server is a SIP server
 type Server struct {
-	cancelFunc       context.CancelFunc
-	tp               transport.Layer
-	tx               transaction.Layer
-	inShutdown       int32
-	hwg              *sync.WaitGroup
-	hmu              *sync.RWMutex
-	requestHandlers  map[sip.RequestMethod][]RequestHandler
-	responseHandlers []ResponseHandler
+	cancelFunc      context.CancelFunc
+	tp              transport.Layer
+	tx              transaction.Layer
+	inShutdown      int32
+	hwg             *sync.WaitGroup
+	hmu             *sync.RWMutex
+	requestHandlers map[sip.RequestMethod][]RequestHandler
 }
 
 // NewServer creates new instance of SIP server.
@@ -61,12 +57,11 @@ func NewServer(config *ServerConfig) *Server {
 	tp := transport.NewLayer(hostAddr)
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
-		tp:               tp,
-		tx:               tx,
-		hwg:              new(sync.WaitGroup),
-		hmu:              new(sync.RWMutex),
-		requestHandlers:  make(map[sip.RequestMethod][]RequestHandler),
-		responseHandlers: make([]ResponseHandler, 1),
+		tp:              tp,
+		tx:              tx,
+		hwg:             new(sync.WaitGroup),
+		hmu:             new(sync.RWMutex),
+		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
 	}
 
 	ctx := context.Background()
@@ -93,10 +88,15 @@ func (srv *Server) serve(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case msg := <-srv.tx.Messages():
-			if msg != nil { // if chan is closed or early exit
+		case tx := <-srv.tx.Requests():
+			if tx != nil { // if chan is closed or early exit
 				srv.hwg.Add(1)
-				go srv.handleMessage(msg)
+				go srv.handleRequest(tx)
+			}
+		case res := <-srv.tx.Responses():
+			if res != nil {
+				log.Warnf("GoSIP server received not matched response: %s", res.Short())
+				log.Debug(res.String())
 			}
 		case err := <-srv.tx.Errors():
 			if err != nil {
@@ -110,48 +110,33 @@ func (srv *Server) serve(ctx context.Context) {
 	}
 }
 
-func (srv *Server) handleMessage(txMsg transaction.TxMessage) {
+func (srv *Server) handleRequest(tx transaction.ServerTx) {
 	defer srv.hwg.Done()
 
-	log.Infof("GoSIP server handles incoming message %s", txMsg.Short())
-	log.Debugf(txMsg.String())
+	log.Infof("GoSIP server handles incoming message %s", tx.Origin().Short())
+	log.Debugf(tx.Origin().String())
 
-	switch msg := txMsg.Origin().(type) {
-	case sip.Response:
-		srv.hmu.RLock()
-		handlers := srv.responseHandlers
-		srv.hmu.RUnlock()
+	msg := tx.Origin()
 
+	srv.hmu.RLock()
+	handlers, ok := srv.requestHandlers[msg.Method()]
+	srv.hmu.RUnlock()
+
+	if ok {
 		for _, handler := range handlers {
-			handler(msg, txMsg.Tx())
+			handler(msg, tx)
 		}
-		// if not handlers, jus ignore
-		return
-	case sip.Request:
-		srv.hmu.RLock()
-		handlers, ok := srv.requestHandlers[msg.Method()]
-		srv.hmu.RUnlock()
+	} else {
+		log.Warnf("GoSIP server not found handler registered for the request %s", msg.Short())
+		log.Debug(msg.String())
 
-		if ok {
-			for _, handler := range handlers {
-				handler(msg, txMsg.Tx())
-			}
-		} else {
-			log.Warnf("GoSIP server not found handler registered for the request %s", msg.Short())
-			log.Debug(msg.String())
-
-			res := sip.NewResponseFromRequest(msg, 501, "Method Not Supported", "")
-			if err := srv.Send(res); err != nil {
-				log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
-			}
+		res := sip.NewResponseFromRequest(msg, 501, "Method Not Supported", "")
+		if err := srv.Send(res); err != nil {
+			log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
 		}
-
-		return
-	default:
-		log.Errorf("GoSIP server received unsupported SIP message type %s", msg.Short())
-
-		return
 	}
+
+	return
 }
 
 // Send SIP message
@@ -203,22 +188,6 @@ func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) e
 	}
 
 	srv.requestHandlers[method] = append(srv.requestHandlers[method], handler)
-
-	return nil
-}
-
-// OnResponse registers new response callback
-func (srv *Server) OnResponse(handler ResponseHandler) error {
-	srv.hmu.Lock()
-	defer srv.hmu.Unlock()
-
-	for _, h := range srv.responseHandlers {
-		if &h == &handler {
-			return fmt.Errorf("handler already binded to response")
-		}
-	}
-
-	srv.responseHandlers = append(srv.responseHandlers, handler)
 
 	return nil
 }

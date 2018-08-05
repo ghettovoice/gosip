@@ -14,10 +14,12 @@ import (
 
 type ClientTx interface {
 	Tx
+	Responses() <-chan sip.Response
 }
 
 type clientTx struct {
 	commonTx
+	responses    chan sip.Response
 	timer_a_time time.Duration // Current duration of timer A.
 	timer_a      timing.Timer
 	timer_b      timing.Timer
@@ -30,7 +32,6 @@ type clientTx struct {
 func NewClientTx(
 	origin sip.Request,
 	tpl transport.Layer,
-	msgs chan<- TxMessage,
 ) (ClientTx, error) {
 	key, err := MakeClientTxKey(origin)
 	if err != nil {
@@ -42,7 +43,7 @@ func NewClientTx(
 	tx.key = key
 	tx.origin = origin
 	tx.tpl = tpl
-	tx.msgs = msgs
+	tx.responses = make(chan sip.Response)
 	tx.errs = make(chan error)
 	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
@@ -110,6 +111,10 @@ func (tx *clientTx) Receive(msg sip.Message) error {
 	}
 
 	return tx.fsm.Spin(input)
+}
+
+func (tx *clientTx) Responses() <-chan sip.Response {
+	return tx.responses
 }
 
 func (tx *clientTx) Terminate() {
@@ -340,7 +345,7 @@ func (tx *clientTx) passUp() {
 	lastResp := tx.lastResp
 	tx.mu.RUnlock()
 	if lastResp != nil {
-		tx.msgs <- &txMessage{lastResp, tx}
+		tx.responses <- lastResp
 	}
 }
 
@@ -384,6 +389,7 @@ func (tx *clientTx) delete() {
 		tx.timer_d.Stop()
 	}
 
+	close(tx.responses)
 	close(tx.errs)
 	tx.mu.Unlock()
 }

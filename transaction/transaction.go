@@ -68,7 +68,7 @@ func (msg *txMessage) Origin() sip.Message {
 
 type TxError interface {
 	error
-	InitialError() error
+	UnwrapError() error
 	Key() TxKey
 	Terminated() bool
 	Timeout() bool

@@ -40,7 +40,7 @@ var _ = Describe("ClientTx", func() {
 		var err error
 		var invite, trying, ok, notOk, ack, notOkAck sip.Message
 		var inviteBranch string
-		var invTx transaction.Tx
+		var invTx transaction.ClientTx
 
 		BeforeEach(func() {
 			inviteBranch = sip.GenerateBranch()
@@ -123,24 +123,23 @@ var _ = Describe("ClientTx", func() {
 					tpl.InMsgs <- ok
 				}()
 
-				invTx, err = txl.Send(invite)
+				tx, err := txl.Send(invite)
 				Expect(err).ToNot(HaveOccurred())
+				invTx = tx.(transaction.ClientTx)
 			})
 			AfterEach(func() {
 				wg.Wait()
 			})
 
 			It("should receive responses in INVITE tx", func() {
-				var msg transaction.TxMessage
-				msg = <-txl.Messages()
+				var msg sip.Response
+				msg = <-invTx.Responses()
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(trying.String()))
-				Expect(msg.Tx()).To(Equal(invTx))
 
-				msg = <-txl.Messages()
+				msg = <-invTx.Responses()
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(ok.String()))
-				Expect(msg.Tx()).To(Equal(invTx))
 			})
 		})
 
@@ -169,24 +168,23 @@ var _ = Describe("ClientTx", func() {
 					Expect(string(req.Method())).To(Equal("ACK"))
 				}()
 
-				invTx, err = txl.Send(invite)
+				tx, err := txl.Send(invite)
 				Expect(err).ToNot(HaveOccurred())
+				invTx = tx.(transaction.ClientTx)
 			})
 			AfterEach(func() {
 				wg.Wait()
 			})
 
 			It("should receive responses in INVITE tx and send ACK", func() {
-				var msg transaction.TxMessage
-				msg = <-txl.Messages()
+				var msg sip.Response
+				msg = <-invTx.Responses()
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(trying.String()))
-				Expect(msg.Tx()).To(Equal(invTx))
 
-				msg = <-txl.Messages()
+				msg = <-invTx.Responses()
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(notOk.String()))
-				Expect(msg.Tx()).To(Equal(invTx))
 			})
 		})
 	})
