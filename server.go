@@ -131,7 +131,7 @@ func (srv *Server) handleRequest(tx transaction.ServerTx) {
 		log.Debug(msg.String())
 
 		res := sip.NewResponseFromRequest(msg, 501, "Method Not Supported", "")
-		if err := srv.Send(res); err != nil {
+		if _, err := srv.Send(res); err != nil {
 			log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
 		}
 	}
@@ -140,14 +140,12 @@ func (srv *Server) handleRequest(tx transaction.ServerTx) {
 }
 
 // Send SIP message
-func (srv *Server) Send(msg sip.Message) error {
+func (srv *Server) Send(msg sip.Message) (transaction.Tx, error) {
 	if srv.shuttingDown() {
-		return fmt.Errorf("can not send through shutting down server")
+		return nil, fmt.Errorf("can not send through shutting down server")
 	}
 
-	_, err := srv.tx.Send(msg)
-
-	return err
+	return srv.tx.Send(msg)
 }
 
 func (srv *Server) shuttingDown() bool {
