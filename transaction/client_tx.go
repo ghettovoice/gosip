@@ -479,7 +479,7 @@ func (tx *clientTx) act_passup_delete() fsm.Input {
 }
 
 func (tx *clientTx) act_delete() fsm.Input {
-	tx.Log().Debugf("INVITE %s, act_delete", tx)
+	tx.Log().Debugf("%s, act_delete", tx)
 	tx.delete()
 	return fsm.NO_INPUT
 }
