@@ -201,7 +201,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 			if viaHop.Port == nil {
 				viaHop.Port = &defPort
 			}
-			target.Port = &defPort
+			// target.Port = &defPort
 			err = protocol.Send(target, msg)
 			if err == nil {
 				break
