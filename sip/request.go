@@ -179,7 +179,7 @@ func NewRequestBuilder() *RequestBuilder {
 		port:        "5060",
 		transport:   "UDP",
 		userAgent:   "GoSIP",
-		callID:      util.RandStr(32),
+		callID:      util.RandString(32),
 		branch:      GenerateBranch(),
 		maxForwards: 70,
 	}
@@ -353,7 +353,7 @@ func (rb *RequestBuilder) Build() (Request, error) {
 	}
 
 	if rb.callID == "" {
-		callID = CallID(util.RandStr(32))
+		callID = CallID(util.RandString(32))
 	} else {
 		callID = CallID(rb.callID)
 	}
@@ -589,7 +589,7 @@ func (rb *RequestBuilder) buildContact() (*ContactHeader, error) {
 		Params:  NewParams(),
 	}
 
-	for key, val := range rb.to {
+	for key, val := range rb.contact {
 		switch key {
 		case "display":
 			if val != "" {

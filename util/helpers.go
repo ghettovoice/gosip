@@ -2,8 +2,6 @@
 package util
 
 import (
-	"crypto/rand"
-	"fmt"
 	"sync"
 )
 
@@ -27,22 +25,6 @@ func Uint16PtrEq(a *uint16, b *uint16) bool {
 	}
 
 	return *a == *b
-}
-
-func RandStr(length int, args ...interface{}) string {
-	if length == 0 {
-		length = 8
-	}
-
-	buf := make([]byte, length)
-	rand.Read(buf)
-
-	var prefix string
-	if len(args) > 0 {
-		prefix = fmt.Sprintf("%s", args[0])
-	}
-
-	return fmt.Sprintf("%s%x", prefix, buf)
 }
 
 func Coalesce(arg1 interface{}, arg2 interface{}, args ...interface{}) interface{} {
