@@ -47,7 +47,8 @@ func NewServerTx(
 	tx.origin = origin
 	tx.tpl = tpl
 	tx.ack = make(chan sip.Request, 1)
-	tx.errs = make(chan error)
+	tx.errs = make(chan error, 1)
+	tx.done = make(chan bool, 1)
 	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
@@ -56,7 +57,7 @@ func NewServerTx(
 	return tx, nil
 }
 
-func (tx *serverTx) Init() {
+func (tx *serverTx) Init() error {
 	tx.initFSM()
 
 	if tx.reliable {
@@ -76,6 +77,8 @@ func (tx *serverTx) Init() {
 		})
 		tx.mu.Unlock()
 	}
+
+	return nil
 }
 
 func (tx *serverTx) String() string {
@@ -343,11 +346,7 @@ func (tx *serverTx) delete() {
 	tx.mu.Lock()
 	// todo bloody patch
 	defer func() { recover() }()
-	tx.errs <- &TxTerminatedError{
-		fmt.Errorf("%s terminated", tx),
-		tx.Key(),
-		tx.String(),
-	}
+	tx.done <- true
 
 	if tx.timer_i != nil {
 		tx.timer_i.Stop()
@@ -367,6 +366,7 @@ func (tx *serverTx) delete() {
 
 	close(tx.ack)
 	close(tx.errs)
+	close(tx.done)
 	tx.mu.Unlock()
 }
 

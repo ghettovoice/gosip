@@ -44,7 +44,8 @@ func NewClientTx(
 	tx.origin = origin
 	tx.tpl = tpl
 	tx.responses = make(chan sip.Response)
-	tx.errs = make(chan error)
+	tx.errs = make(chan error, 1)
+	tx.done = make(chan bool, 1)
 	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
@@ -53,7 +54,7 @@ func NewClientTx(
 	return tx, nil
 }
 
-func (tx *clientTx) Init() {
+func (tx *clientTx) Init() error {
 	tx.initFSM()
 
 	if tx.reliable {
@@ -81,8 +82,11 @@ func (tx *clientTx) Init() {
 	})
 
 	if err := tx.tpl.Send(tx.Origin()); err != nil {
+		tx.lastErr = err
 		tx.fsm.Spin(client_input_transport_err)
 	}
+
+	return tx.lastErr
 }
 
 func (tx *clientTx) String() string {
@@ -352,6 +356,7 @@ func (tx *clientTx) passUp() {
 func (tx *clientTx) transportErr() {
 	// todo bloody patch
 	defer func() { recover() }()
+
 	tx.errs <- &TxTransportError{
 		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
 		tx.Key(),
@@ -373,11 +378,7 @@ func (tx *clientTx) delete() {
 	tx.mu.Lock()
 	// todo bloody patch
 	defer func() { recover() }()
-	tx.errs <- &TxTerminatedError{
-		fmt.Errorf("%s terminated", tx),
-		tx.Key(),
-		tx.String(),
-	}
+	tx.done <- true
 
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
@@ -391,6 +392,7 @@ func (tx *clientTx) delete() {
 
 	close(tx.responses)
 	close(tx.errs)
+	close(tx.done)
 	tx.mu.Unlock()
 }
 

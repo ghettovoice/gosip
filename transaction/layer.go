@@ -104,18 +104,23 @@ func (txl *layer) Transport() transport.Layer {
 func (txl *layer) Send(msg sip.Message) (Tx, error) {
 	txl.Log().Debugf("%s sends %s", txl, msg.Short())
 
-	var tx Tx
-	var err error
+	var (
+		tx  Tx
+		err error
+	)
+
 	switch msg := msg.(type) {
 	case sip.Response:
 		tx, err = txl.getServerTx(msg)
 		if err != nil {
 			return nil, err
 		}
+
 		err = tx.(ServerTx).Respond(msg)
 		if err != nil {
 			return nil, err
 		}
+
 		return tx, nil
 	case sip.Request:
 		tx, err = NewClientTx(msg, txl.tpl)
@@ -123,9 +128,15 @@ func (txl *layer) Send(msg sip.Message) (Tx, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		txl.transactions.put(tx.Key(), tx)
 		go txl.serveTransaction(tx)
-		tx.Init()
+
+		err = tx.Init()
+		if err != nil {
+			return nil, err
+		}
+
 		return tx, nil
 	default:
 		return nil, &sip.UnsupportedMessageError{
@@ -175,27 +186,8 @@ func (txl *layer) serveTransaction(tx Tx) {
 		select {
 		case <-txl.canceled:
 			return
-		case err, ok := <-tx.Errors():
-			if !ok {
-				return
-			}
-			// all errors from Tx should be wrapped to TxError
-			terr, ok := err.(TxError)
-			if !ok {
-				return
-			}
-
-			txl.transactions.drop(terr.Key())
-			// transaction terminated or timed out
-			if terr.Terminated() || terr.Timeout() {
-				return
-			}
-
-			select {
-			case <-txl.canceled:
-				return
-			case txl.errs <- terr.UnwrapError():
-			}
+		case <-tx.Done():
+			return
 		}
 	}
 }
@@ -230,11 +222,16 @@ func (txl *layer) handleRequest(req sip.Request) {
 		txl.Log().Error(err)
 		return
 	}
+
 	tx.SetLog(txl.Log())
 	// put tx to store, to match retransmitting requests later
 	txl.transactions.put(tx.Key(), tx)
 	go txl.serveTransaction(tx)
-	tx.Init()
+
+	if err := tx.Init(); err != nil {
+		txl.Log().Error(err)
+		return
+	}
 	// pass up request
 	txl.Log().Debugf("%s pass up %s", txl, tx.Origin().Short())
 	txl.requests <- tx

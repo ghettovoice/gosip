@@ -18,7 +18,7 @@ func (key TxKey) String() string {
 // Tx is an common SIP transaction
 type Tx interface {
 	log.LocalLogger
-	Init()
+	Init() error
 	Key() TxKey
 	Origin() sip.Request
 	// Receive receives message from transport layer.
@@ -27,6 +27,7 @@ type Tx interface {
 	Transport() transport.Layer
 	Terminate()
 	Errors() <-chan error
+	Done() <-chan bool
 }
 
 type commonTx struct {
@@ -38,6 +39,7 @@ type commonTx struct {
 	lastResp sip.Response
 	errs     chan error
 	lastErr  error
+	done     chan bool
 }
 
 func (tx *commonTx) String() string {
@@ -72,4 +74,8 @@ func (tx *commonTx) Transport() transport.Layer {
 
 func (tx *commonTx) Errors() <-chan error {
 	return tx.errs
+}
+
+func (tx *commonTx) Done() <-chan bool {
+	return tx.done
 }
