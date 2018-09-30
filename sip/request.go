@@ -502,6 +502,10 @@ func (rb *RequestBuilder) buildFrom() (*FromHeader, error) {
 
 			from.Address.(*SipUri).Host = val
 		case "port":
+			if val == "" {
+				continue
+			}
+
 			p, err := strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("invalid From port: %s", err)
@@ -551,6 +555,10 @@ func (rb *RequestBuilder) buildTo() (*ToHeader, error) {
 
 			to.Address.(*SipUri).Host = val
 		case "port":
+			if val == "" {
+				continue
+			}
+
 			p, err := strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("invalid To port: %s", err)
@@ -600,6 +608,10 @@ func (rb *RequestBuilder) buildContact() (*ContactHeader, error) {
 
 			contact.Address.(*SipUri).Host = val
 		case "port":
+			if val == "" {
+				continue
+			}
+
 			p, err := strconv.Atoi(val)
 			if err != nil {
 				return nil, fmt.Errorf("invalid Contact port: %s", err)
