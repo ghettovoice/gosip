@@ -170,6 +170,7 @@ type RequestBuilder struct {
 	expires       string
 	userAgent     string
 	maxForwards   uint
+	nat           bool
 }
 
 func NewRequestBuilder() *RequestBuilder {
@@ -182,6 +183,7 @@ func NewRequestBuilder() *RequestBuilder {
 		callID:      util.RandString(32),
 		branch:      GenerateBranch(),
 		maxForwards: 70,
+		nat:         false,
 	}
 }
 
@@ -453,6 +455,13 @@ func (rb *RequestBuilder) buildVia() (ViaHeader, error) {
 		branch = rb.branch
 	}
 
+	params := NewParams().
+		Add("branch", String{branch})
+
+	if rb.nat {
+		params.Add("rport", nil)
+	}
+
 	via := ViaHeader{
 		&ViaHop{
 			ProtocolName:    "SIP",
@@ -460,9 +469,7 @@ func (rb *RequestBuilder) buildVia() (ViaHeader, error) {
 			Transport:       rb.transport,
 			Host:            rb.host,
 			Port:            portPtr,
-			Params: NewParams().
-				Add("branch", String{branch}).
-				Add("rport", nil),
+			Params:          params,
 		},
 	}
 
