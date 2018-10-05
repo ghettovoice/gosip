@@ -161,10 +161,6 @@ func (tpl *layer) Listen(network string, addr string) error {
 
 func (tpl *layer) Send(msg sip.Message) error {
 	nets := make([]string, 0)
-	target, err := NewTargetFromAddr(msg.Destination())
-	if err != nil {
-		return err
-	}
 
 	viaHop, ok := msg.ViaHop()
 	if !ok {
@@ -201,7 +197,12 @@ func (tpl *layer) Send(msg sip.Message) error {
 			if viaHop.Port == nil {
 				viaHop.Port = &defPort
 			}
-			// target.Port = &defPort
+
+			target, err := NewTargetFromAddr(msg.Destination())
+			if err != nil {
+				return err
+			}
+
 			err = protocol.Send(target, msg)
 			if err == nil {
 				break
@@ -216,12 +217,10 @@ func (tpl *layer) Send(msg sip.Message) error {
 		if !ok {
 			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", viaHop.Transport))
 		}
-		// override target with values from Response headers
-		// resolve host, port from Via
-		if received, ok := viaHop.Params.Get("received"); ok {
-			target.Host = received.String()
-		} else {
-			target.Host = viaHop.Host
+
+		target, err := NewTargetFromAddr(msg.Destination())
+		if err != nil {
+			return err
 		}
 
 		return protocol.Send(target, msg)

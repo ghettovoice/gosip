@@ -23,6 +23,8 @@ type Connection interface {
 	Network() string
 	Streamed() bool
 	String() string
+	ReadFrom(buf []byte) (num int, raddr net.Addr, err error)
+	WriteTo(buf []byte, raddr net.Addr) (num int, err error)
 }
 
 // Connection implementation.
@@ -96,24 +98,15 @@ func (conn *connection) Network() string {
 
 func (conn *connection) Read(buf []byte) (int, error) {
 	var (
-		num   int
-		err   error
-		raddr net.Addr
+		num int
+		err error
 	)
 
 	if err := conn.baseConn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
 		conn.Log().Warnf("%s failed to set read deadline: %s", conn, err)
 	}
 
-	switch baseConn := conn.baseConn.(type) {
-	case net.PacketConn: // UDP & ...
-		num, raddr, err = baseConn.ReadFrom(buf)
-		conn.mu.Lock()
-		conn.raddr = raddr
-		conn.mu.Unlock()
-	default: // net.Conn - TCP, TLS & ...
-		num, err = conn.baseConn.Read(buf)
-	}
+	num, err = conn.baseConn.Read(buf)
 
 	if err != nil {
 		return num, &ConnectionError{
@@ -133,6 +126,33 @@ func (conn *connection) Read(buf []byte) (int, error) {
 	)
 
 	return num, err
+}
+
+func (conn *connection) ReadFrom(buf []byte) (num int, raddr net.Addr, err error) {
+	if err := conn.baseConn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+		conn.Log().Warnf("%s failed to set read deadline: %s", conn, err)
+	}
+
+	num, raddr, err = conn.baseConn.(net.PacketConn).ReadFrom(buf)
+
+	if err != nil {
+		return num, raddr, &ConnectionError{
+			err,
+			"read",
+			conn.Network(),
+			fmt.Sprintf("%v", raddr),
+			fmt.Sprintf("%v", conn.LocalAddr()),
+			conn.String(),
+		}
+	}
+
+	conn.Log().Debugf(
+		"%s received %d bytes",
+		conn,
+		num,
+	)
+
+	return num, raddr, err
 }
 
 func (conn *connection) Write(buf []byte) (int, error) {
@@ -166,16 +186,37 @@ func (conn *connection) Write(buf []byte) (int, error) {
 	return num, err
 }
 
+func (conn *connection) WriteTo(buf []byte, raddr net.Addr) (num int, err error) {
+	if err := conn.baseConn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+		conn.Log().Warnf("%s failed to set write deadline: %s", conn, err)
+	}
+
+	num, err = conn.baseConn.(net.PacketConn).WriteTo(buf, raddr)
+	if err != nil {
+		return num, &ConnectionError{
+			err,
+			"write",
+			conn.Network(),
+			fmt.Sprintf("%v", raddr),
+			fmt.Sprintf("%v", conn.LocalAddr()),
+			conn.String(),
+		}
+	}
+
+	conn.Log().Debugf(
+		"%s written %d bytes",
+		conn,
+		num,
+	)
+
+	return num, err
+}
+
 func (conn *connection) LocalAddr() net.Addr {
 	return conn.laddr
 }
 
 func (conn *connection) RemoteAddr() net.Addr {
-	// we should protect raddr field with mutex,
-	// because there is may be DATA RACE with Read method that usually executes
-	// in another goroutine
-	conn.mu.RLock()
-	defer conn.mu.RUnlock()
 	return conn.raddr
 }
 

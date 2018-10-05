@@ -3,6 +3,7 @@ package sip
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ghettovoice/gosip/log"
@@ -148,6 +149,8 @@ func NewResponseFromRequest(
 	if statusCode == 100 {
 		CopyHeaders("Timestamp", req, res)
 	}
+
+	res.SetSource(req.Destination())
 	res.SetDestination(req.Source())
 
 	if len(body) > 0 {
@@ -171,18 +174,24 @@ func (res *response) Destination() string {
 		return ""
 	}
 
-	var host string
-	var port Port
+	var (
+		host string
+		port Port
+	)
+
 	if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
 		host = received.String()
 	} else {
 		host = viaHop.Host
 	}
 
-	if viaHop.Port == nil {
-		port = DefaultPort(res.Transport())
-	} else {
+	if rport, ok := viaHop.Params.Get("rport"); ok && rport != nil && rport.String() != "" {
+		p, _ := strconv.Atoi(rport.String())
+		port = Port(uint16(p))
+	} else if viaHop.Port != nil {
 		port = *viaHop.Port
+	} else {
+		port = DefaultPort(res.Transport())
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)

@@ -93,8 +93,12 @@ var _ = Describe("TransportLayer", func() {
 				var response sip.Message
 
 				BeforeEach(func() {
-					incomingRequest = testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost),
-						clientAddr, "far-far-away.com:5060")
+					incomingRequest = testutils.AssertMessageArrived(
+						tpl.Messages(),
+						fmt.Sprintf(expectedMsg, clientHost),
+						clientAddr,
+						"far-far-away.com:5060",
+					)
 					response = sip.NewResponseFromRequest(
 						incomingRequest.(sip.Request),
 						200,

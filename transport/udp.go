@@ -86,25 +86,31 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	// resolve remote address
 	raddr, err := udp.resolveTarget(target)
 	if err != nil {
-		return err
-	}
-
-	network := strings.ToLower(udp.Network())
-	udpConn, err := net.DialUDP(network, nil, raddr)
-	if err != nil {
 		return &ProtocolError{
-			fmt.Errorf("failed to create connection to remote address %s: %s", raddr, err),
-			fmt.Sprintf("create %s connection", udp.Network()),
+			fmt.Errorf("invalid remote target: %s", err),
+			"resolve destination net address",
 			udp.String(),
 		}
 	}
 
-	conn := NewConnection(udpConn)
-	defer conn.Close()
-	conn.SetLog(udp.Log())
+	// send through already opened by connection
+	// to always use same local port
+	conn, err := udp.connections.Get(ConnectionKey(msg.Source()))
+	if err != nil {
+		// todo change this bloody patch
+		if len(udp.connections.All()) == 0 {
+			return &ProtocolError{
+				fmt.Errorf("connection for send not found: %s", err),
+				"resolve connection",
+				udp.String(),
+			}
+		}
+
+		conn = udp.connections.All()[0]
+	}
 
 	data := []byte(msg.String())
-	_, err = conn.Write(data)
+	_, err = conn.WriteTo(data, raddr)
 
 	return err // should be nil
 }

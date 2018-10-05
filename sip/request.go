@@ -115,18 +115,24 @@ func (req *request) Source() string {
 		return ""
 	}
 
-	var host string
-	var port Port
+	var (
+		host string
+		port Port
+	)
+
 	if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
 		host = received.String()
 	} else {
 		host = viaHop.Host
 	}
 
-	if viaHop.Port == nil {
-		port = DefaultPort(req.Transport())
-	} else {
+	if rport, ok := viaHop.Params.Get("rport"); ok && rport != nil && rport.String() != "" {
+		p, _ := strconv.Atoi(rport.String())
+		port = Port(uint16(p))
+	} else if viaHop.Port != nil {
 		port = *viaHop.Port
+	} else {
+		port = DefaultPort(req.Transport())
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)
@@ -170,7 +176,7 @@ type RequestBuilder struct {
 	expires       string
 	userAgent     string
 	maxForwards   uint
-	nat           bool
+	rport         bool
 }
 
 func NewRequestBuilder() *RequestBuilder {
@@ -183,8 +189,14 @@ func NewRequestBuilder() *RequestBuilder {
 		callID:      util.RandString(32),
 		branch:      GenerateBranch(),
 		maxForwards: 70,
-		nat:         false,
+		rport:       false,
 	}
+}
+
+func (rb *RequestBuilder) SetRPort(flag bool) *RequestBuilder {
+	rb.rport = flag
+
+	return rb
 }
 
 func (rb *RequestBuilder) SetMethod(method RequestMethod) *RequestBuilder {
@@ -458,7 +470,7 @@ func (rb *RequestBuilder) buildVia() (ViaHeader, error) {
 	params := NewParams().
 		Add("branch", String{branch})
 
-	if rb.nat {
+	if rb.rport {
 		params.Add("rport", nil)
 	}
 

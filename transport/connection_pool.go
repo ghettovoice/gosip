@@ -596,9 +596,13 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 	msgs := make(chan sip.Message)
 	errs := make(chan error)
 	streamed := handler.Connection().Streamed()
-	parser := parser.NewParser(msgs, errs, streamed)
-	parser.SetLog(handler.Log())
-	if !streamed {
+	prs := parser.NewParser(msgs, errs, streamed)
+	prs.SetLog(handler.Log())
+
+	var raddr net.Addr
+	if streamed {
+		raddr = handler.Connection().RemoteAddr()
+	} else {
 		handler.addrs.Init()
 		handler.addrs.SetLog(handler.Log())
 		handler.addrs.Run()
@@ -607,7 +611,7 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 	go func() {
 		defer func() {
 			handler.Log().Debugf("%s stops read connection routine", handler)
-			parser.Stop()
+			prs.Stop()
 			if !streamed {
 				handler.addrs.Stop()
 			}
@@ -617,14 +621,26 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 		handler.Log().Debugf("%s begins read connection routine", handler)
 
 		buf := make([]byte, bufferSize)
+
+		var (
+			num int
+			err error
+		)
+
 		for {
 			// wait for data
-			num, err := handler.Connection().Read(buf)
+			if streamed {
+				num, err = handler.Connection().Read(buf)
+			} else {
+				num, raddr, err = handler.Connection().ReadFrom(buf)
+			}
+
 			select {
 			case <-handler.canceled:
 				return
 			default:
 			}
+
 			if err != nil {
 				// if we get timeout error just go further and try read on the next iteration
 				if err, ok := err.(net.Error); ok {
@@ -640,12 +656,14 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				errs <- err
 				return
 			}
+
 			if !streamed {
-				handler.addrs.In <- fmt.Sprintf("%v", handler.Connection().RemoteAddr())
+				handler.addrs.In <- fmt.Sprintf("%v", raddr)
 			}
+
 			// parse received data
-			parser.SetLog(handler.Log())
-			if _, err := parser.Write(append([]byte{}, buf[:num]...)); err != nil {
+			prs.SetLog(handler.Log())
+			if _, err := prs.Write(append([]byte{}, buf[:num]...)); err != nil {
 				errs <- err
 			}
 		}
@@ -725,7 +743,8 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			handler.Log().Infof("%s received message %s; pass it up", handler, msg.Short())
 			// add Remote Address
 			raddr := getRemoteAddr()
-			rhost, _, _ := net.SplitHostPort(raddr)
+			rhost, rport, _ := net.SplitHostPort(raddr)
+
 			switch msg := msg.(type) {
 			case sip.Request:
 				// RFC 3261 - 18.2.1
@@ -734,12 +753,18 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 					handler.Log().Warnf("%s ignores message without 'Via' header %s", handler, msg.Short())
 					continue
 				}
+
 				if rhost != "" && viaHop.Host != rhost {
 					handler.Log().Debugf("%s adds 'received' = %s param to 'Via' header of %s, "+
 						"because host %s from the first 'Via' header differs from the actual source address %s", handler, rhost,
 						msg.Short(), viaHop.Host, raddr)
 					viaHop.Params.Add("received", sip.String{rhost})
 				}
+				// rfc3581
+				if viaHop.Params.Has("rport") {
+					viaHop.Params.Add("rport", sip.String{rport})
+				}
+
 				if handler.Connection().Streamed() {
 					msg.SetSource(raddr)
 				}

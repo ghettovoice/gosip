@@ -57,7 +57,8 @@ func (trg *Target) String() string {
 
 func NewTarget(host string, port int) *Target {
 	cport := sip.Port(port)
-	return &Target{host, &cport}
+
+	return &Target{Host: host, Port: &cport}
 }
 
 func NewTargetFromAddr(addr string) (*Target, error) {

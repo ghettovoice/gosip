@@ -73,18 +73,18 @@ var _ = Describe("Connection", func() {
 					defer wg.Done()
 
 					buf := make([]byte, 65535)
-					num, err := sConn.Read(buf)
+					num, raddr, err := sConn.ReadFrom(buf)
 					Expect(err).ToNot(HaveOccurred())
-					log.Debugf("%s <- %s: read %d bytes", sConn.LocalAddr(), sConn.RemoteAddr(), num)
+					log.Debugf("%s <- %s: read %d bytes", sConn.LocalAddr(), raddr, num)
 
-					Expect(fmt.Sprintf("%v", sConn.RemoteAddr())).To(Equal(fmt.Sprintf("%v", cConn.LocalAddr())))
+					Expect(fmt.Sprintf("%v", raddr)).To(Equal(fmt.Sprintf("%v", cConn.LocalAddr())))
 					Expect(string(buf[:num])).To(Equal(data))
 				}()
 
 				num, err := cConn.Write([]byte(data))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(num).To(Equal(len(data)))
-				log.Debugf("%s -> %s: written %d bytes", cConn.LocalAddr(), cConn.RemoteAddr(), num)
+				log.Debugf("%s -> %s: written %d bytes", cConn.LocalAddr(), sConn.LocalAddr(), num)
 
 				wg.Wait()
 			})

@@ -115,6 +115,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	if err != nil {
 		return err
 	}
+
 	// find or create connection
 	conn, err := tcp.getOrCreateConnection(raddr)
 	if err != nil {
@@ -144,9 +145,11 @@ func (tcp *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 
 func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
 	network := strings.ToLower(tcp.Network())
+
 	conn, err := tcp.connections.Get(ConnectionKey(raddr.String()))
 	if err != nil {
 		tcp.Log().Debugf("connection for address %s not found; create a new one", raddr)
+
 		tcpConn, err := net.DialTCP(network, nil, raddr)
 		if err != nil {
 			return nil, &ProtocolError{

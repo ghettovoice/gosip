@@ -53,6 +53,7 @@ type Params interface {
 	Length() int
 	Items() map[string]MaybeString
 	Keys() []string
+	Has(key string) bool
 }
 
 // IMPLEMENTATION
@@ -99,6 +100,12 @@ func (params *headerParams) Add(key string, val MaybeString) Params {
 
 	// Return the params so calls can be chained.
 	return params
+}
+
+func (params *headerParams) Has(key string) bool {
+	_, ok := params.params[key]
+
+	return ok
 }
 
 // Copy a list of params.
