@@ -2,7 +2,6 @@ package transport
 
 import (
 	"fmt"
-	"net"
 	"strings"
 	"sync"
 
@@ -282,8 +281,14 @@ func (tpl *layer) handleMessage(msg sip.Message) {
 	case sip.Response:
 		// incoming Response
 		// RFC 3261 - 18.1.2. - Receiving Responses.
-		host, _, _ := net.SplitHostPort(msg.Destination())
-		if host != tpl.HostAddr() {
+		viaHop, ok := msg.ViaHop()
+		if !ok {
+			tpl.Log().Warnf("%s received response without Via header %s", tpl, msg.Short())
+
+			return
+		}
+
+		if viaHop.Host != tpl.HostAddr() {
 			tpl.Log().Warnf(
 				"%s discards unexpected response %s %s -> %s over %s: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
@@ -292,7 +297,7 @@ func (tpl *layer) handleMessage(msg sip.Message) {
 				msg.Source(),
 				msg.Destination(),
 				msg.Transport(),
-				host,
+				viaHop.Host,
 				tpl.HostAddr(),
 			)
 			return
