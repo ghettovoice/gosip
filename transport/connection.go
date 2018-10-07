@@ -120,9 +120,11 @@ func (conn *connection) Read(buf []byte) (int, error) {
 	}
 
 	conn.Log().Debugf(
-		"%s received %d bytes",
+		"%s received %d bytes from %s:\n%s",
 		conn,
 		num,
+		conn.RemoteAddr(),
+		buf[:num],
 	)
 
 	return num, err
@@ -147,9 +149,11 @@ func (conn *connection) ReadFrom(buf []byte) (num int, raddr net.Addr, err error
 	}
 
 	conn.Log().Debugf(
-		"%s received %d bytes",
+		"%s received %d bytes from %s:\n%s",
 		conn,
 		num,
+		raddr,
+		buf[:num],
 	)
 
 	return num, raddr, err

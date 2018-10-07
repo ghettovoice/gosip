@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"strings"
@@ -661,8 +662,15 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				handler.addrs.In <- fmt.Sprintf("%v", raddr)
 			}
 
+			data := buf[:num]
+
+			// skip empty udp packets
+			if len(bytes.Trim(data, "\x00")) == 0 {
+				handler.Log().Warnf("%s skips empty data: %v", handler, data)
+				continue
+			}
+
 			// parse received data
-			prs.SetLog(handler.Log())
 			if _, err := prs.Write(append([]byte{}, buf[:num]...)); err != nil {
 				errs <- err
 			}

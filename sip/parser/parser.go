@@ -196,11 +196,13 @@ func (p *parser) Write(data []byte) (int, error) {
 	}
 
 	if !p.streamed {
-		l := getBodyLength(data)
-		p.bodyLengths.In <- []int{l, len(data)}
+		bl := getBodyLength(data)
+		p.bodyLengths.In <- []int{bl, len(data)}
 	}
 
+	p.Log().Debugf("%s writes data to input buffer:\n%s", p, data)
 	p.input.Write(data)
+
 	return len(data), nil
 }
 
@@ -242,7 +244,9 @@ func (p *parser) parse(requireContentLength bool) {
 			p.Log().Debugf("%s stopped: %s", p, err)
 			break
 		}
-		p.Log().Debugf("%s starts reading start line", p)
+
+		p.Log().Debugf("%s starts reading start line: %s", p, startLine)
+
 		var termErr error
 		if isRequest(startLine) {
 			method, recipient, sipVersion, err := parseRequestLine(startLine)
@@ -264,15 +268,18 @@ func (p *parser) parse(requireContentLength bool) {
 
 		if termErr != nil {
 			p.Log().Warnf("%s failed to read start line '%s'", p, startLine)
+
 			termErr = InvalidStartLineError(fmt.Sprintf("%s failed to parse first line of message: %s", p, termErr))
 			p.setError(termErr)
 			p.errs <- termErr
+
 			if !p.streamed {
 				slice := (<-p.bodyLengths.Out).([]int)
 				skip := slice[1] - len(startLine) - 2
 				p.Log().Debugf("%s skips %d - %d - 2 = %d bytes", p, slice[1], len(startLine), skip)
 				p.input.NextChunk(skip)
 			}
+
 			continue
 		}
 
