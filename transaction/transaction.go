@@ -202,11 +202,19 @@ func MakeServerTxKey(msg sip.Message) (TxKey, error) {
 
 	// RFC 3261 compliant
 	if isRFC3261 {
+		var port sip.Port
+
+		if firstViaHop.Port == nil {
+			port = sip.DefaultPort(firstViaHop.Transport)
+		} else {
+			port = *firstViaHop.Port
+		}
+
 		return TxKey(strings.Join([]string{
-			branch.String(),               // branch
-			firstViaHop.Host,              // sent-by Host
-			fmt.Sprint(*firstViaHop.Port), // sent-by Port
-			string(method),                // request Method
+			branch.String(),  // branch
+			firstViaHop.Host, // sent-by Host
+			fmt.Sprint(port), // sent-by Port
+			string(method),   // request Method
 		}, sep)), nil
 	}
 	// RFC 2543 compliant
