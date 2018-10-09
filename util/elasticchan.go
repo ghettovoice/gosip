@@ -56,6 +56,8 @@ func (c *ElasticChan) SetLog(logger log.Logger) {
 // TODO: add cancel chan
 func (c *ElasticChan) manage() {
 	defer close(c.done)
+
+loop:
 	for {
 		if len(c.buffer) > 0 {
 			// The buffer has something in it, so try to send as well as
@@ -65,7 +67,7 @@ func (c *ElasticChan) manage() {
 			case in, ok := <-c.In:
 				if !ok {
 					c.Log().Debugf("ElasticChan %p will dispose", c)
-					break
+					break loop
 				}
 				c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
 				c.buffer = append(c.buffer, in)
@@ -79,7 +81,7 @@ func (c *ElasticChan) manage() {
 			in, ok := <-c.In
 			if !ok {
 				c.Log().Debugf("ElasticChan %p will dispose", c)
-				break
+				break loop
 			}
 			c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
 			c.buffer = append(c.buffer, in)
