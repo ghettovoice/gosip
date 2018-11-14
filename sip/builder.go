@@ -67,13 +67,12 @@ func (rb *RequestBuilder) SetSeqNo(seqNo uint) *RequestBuilder {
 	return rb
 }
 
-func (rb *RequestBuilder) SetRecipient(username, displayName, host string, port uint, params map[string]interface{}) *RequestBuilder {
+func (rb *RequestBuilder) SetRecipient(username, host string, port uint, params map[string]interface{}) *RequestBuilder {
 	rb.recipient = &uriValues{
-		username:    username,
-		displayName: displayName,
-		host:        host,
-		port:        port,
-		params:      params,
+		username: username,
+		host:     host,
+		port:     port,
+		params:   params,
 	}
 
 	return rb
