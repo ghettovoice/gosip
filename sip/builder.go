@@ -509,7 +509,9 @@ func makeParamsFromMap(rawParams map[string]interface{}) Params {
 		case string:
 			params.Add(param, String{val})
 		case bool:
-			params.Add(param, nil)
+			if val {
+				params.Add(param, nil)
+			}
 		}
 	}
 
