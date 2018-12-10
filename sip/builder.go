@@ -251,7 +251,8 @@ func (rb *RequestBuilder) buildCSeq() (*CSeq, error) {
 	}
 
 	cseq := &CSeq{
-		SeqNo: uint32(rb.seqNo),
+		SeqNo:      uint32(rb.seqNo),
+		MethodName: RequestMethod(rb.method),
 	}
 
 	return cseq, nil

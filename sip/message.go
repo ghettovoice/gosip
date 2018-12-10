@@ -430,3 +430,10 @@ func CopyHeaders(name string, from, to Message) {
 		to.AppendHeader(h.Clone())
 	}
 }
+
+func PrependCopyHeaders(name string, from, to Message) {
+	name = strings.ToLower(name)
+	for _, h := range from.GetHeaders(name) {
+		to.PrependHeader(h.Clone())
+	}
+}
