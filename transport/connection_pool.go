@@ -666,7 +666,7 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 
 			// skip empty udp packets
 			if len(bytes.Trim(data, "\x00")) == 0 {
-				handler.Log().Warnf("%s skips empty data: %v", handler, data)
+				handler.Log().Debugf("%s skips empty data: %v", handler, data)
 				continue
 			}
 
