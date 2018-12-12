@@ -107,7 +107,10 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 		input = server_input_request
 	case req.IsAck(): // ACK for non-2xx response
 		input = server_input_ack
-		tx.ack <- req
+		select {
+		case tx.ack <- req:
+		default:
+		}
 	default:
 		return &sip.UnexpectedMessageError{
 			fmt.Errorf("invalid %s correlated to %s", msg, tx),

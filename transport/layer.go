@@ -161,25 +161,32 @@ func (tpl *layer) Listen(network string, addr string) error {
 func (tpl *layer) Send(msg sip.Message) error {
 	nets := make([]string, 0)
 
-	viaHop, ok := msg.ViaHop()
-	if !ok {
-		return &sip.MalformedMessageError{
-			Err: fmt.Errorf("missing required 'Via' header"),
-			Msg: msg.String(),
-		}
-	}
-
 	switch msg := msg.(type) {
 	// RFC 3261 - 18.1.1.
 	case sip.Request:
 		msgLen := len(msg.String())
-		// rewrite sent-by host
-		viaHop.Host = tpl.HostAddr()
 		// todo check for reliable/non-reliable
 		if msgLen > int(MTU)-200 {
 			nets = append(nets, "TCP", "UDP")
 		} else {
 			nets = append(nets, "UDP")
+		}
+
+		viaHop, ok := msg.ViaHop()
+		if !ok {
+			viaHop = &sip.ViaHop{
+				ProtocolName:    "SIP",
+				ProtocolVersion: "2.0",
+				Host:            tpl.HostAddr(),
+				Params: sip.NewParams().
+					Add("branch", sip.String{Str: sip.GenerateBranch()}).
+					Add("rport", nil),
+			}
+			msg.PrependHeaderAfter(sip.ViaHeader{
+				viaHop,
+			}, "Record-Route")
+		} else {
+			viaHop.Host = tpl.HostAddr()
 		}
 
 		var err error
@@ -192,8 +199,8 @@ func (tpl *layer) Send(msg sip.Message) error {
 			// rewrite sent-by transport
 			viaHop.Transport = nt
 			// rewrite sent-by port
-			defPort := DefaultPort(nt)
 			if viaHop.Port == nil {
+				defPort := DefaultPort(nt)
 				viaHop.Port = &defPort
 			}
 
@@ -211,6 +218,13 @@ func (tpl *layer) Send(msg sip.Message) error {
 		return err
 		// RFC 3261 - 18.2.2.
 	case sip.Response:
+		viaHop, ok := msg.ViaHop()
+		if !ok {
+			return &sip.MalformedMessageError{
+				Err: fmt.Errorf("missing required 'Via' header"),
+				Msg: msg.String(),
+			}
+		}
 		// resolve protocol from Via
 		protocol, ok := tpl.protocols.get(protocolKey(viaHop.Transport))
 		if !ok {
@@ -225,8 +239,8 @@ func (tpl *layer) Send(msg sip.Message) error {
 		return protocol.Send(target, msg)
 	default:
 		return &sip.UnsupportedMessageError{
-			fmt.Errorf("unsupported message %s", msg.Short()),
-			msg.String(),
+			Err: fmt.Errorf("unsupported message %s", msg.Short()),
+			Msg: msg.String(),
 		}
 	}
 }

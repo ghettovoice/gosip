@@ -1,7 +1,9 @@
 // Forked from github.com/StefanKopieczek/gossip by @StefanKopieczek
 package util
 
-import "github.com/ghettovoice/gosip/log"
+import (
+	"github.com/ghettovoice/gosip/log"
+)
 
 // The buffer size of the primitive input and output chans.
 const c_ELASTIC_CHANSIZE = 3
@@ -94,8 +96,11 @@ loop:
 func (c *ElasticChan) dispose() {
 	c.Log().Debugf("ElasticChan %p disposing...", c)
 	for len(c.buffer) > 0 {
-		c.Out <- c.buffer[0]
-		c.buffer = c.buffer[1:]
+		select {
+		case c.Out <- c.buffer[0]:
+			c.buffer = c.buffer[1:]
+		default:
+		}
 	}
 	c.Log().Debugf("ElasticChan %p disposed", c)
 }

@@ -171,9 +171,9 @@ func (rb *RequestBuilder) Build() (Request, error) {
 
 	hdrs := make([]Header, 0)
 
-	if via, err := rb.buildVia(); err == nil {
+	if via, err := rb.buildVia(); err == nil && via != nil {
 		hdrs = append(hdrs, via)
-	} else {
+	} else if err != nil {
 		return nil, err
 	}
 
@@ -323,11 +323,11 @@ func (rb *RequestBuilder) buildRecipientUri() (Uri, error) {
 }
 
 func (rb *RequestBuilder) buildVia() (ViaHeader, error) {
-	via := make(ViaHeader, 0)
-
 	if len(rb.via) == 0 {
-		rb.via = append(rb.via, rb.defaultVia)
+		return nil, nil
 	}
+
+	via := make(ViaHeader, 0)
 
 	for _, viaVals := range rb.via {
 		transport := "UDP"

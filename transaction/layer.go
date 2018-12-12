@@ -129,13 +129,13 @@ func (txl *layer) Send(msg sip.Message) (Tx, error) {
 			return nil, err
 		}
 
-		txl.transactions.put(tx.Key(), tx)
-		go txl.serveTransaction(tx)
-
 		err = tx.Init()
 		if err != nil {
 			return nil, err
 		}
+
+		go txl.serveTransaction(tx)
+		txl.transactions.put(tx.Key(), tx)
 
 		return tx, nil
 	default:
@@ -152,10 +152,12 @@ func (txl *layer) listenMessages() {
 		// drop all transactions
 		txs := txl.transactions.all()
 		for _, tx := range txs {
-			go tx.Terminate()
-			// ignore terminate error
-			for range tx.Errors() {
-			}
+			go func(tx Tx) {
+				// ignore terminate error
+				for range tx.Errors() {
+				}
+			}(tx)
+			tx.Terminate()
 			txl.transactions.drop(tx.Key())
 		}
 
@@ -182,6 +184,11 @@ func (txl *layer) listenMessages() {
 }
 
 func (txl *layer) serveTransaction(tx Tx) {
+	defer func() {
+		log.Debugf("%s deletes transaction %s", txl, tx)
+		txl.transactions.drop(tx.Key())
+	}()
+
 	for {
 		select {
 		case <-txl.canceled:

@@ -64,6 +64,7 @@ type Message interface {
 	AppendHeader(header Header)
 	// PrependHeader prepends header to message.
 	PrependHeader(header Header)
+	PrependHeaderAfter(header Header, afterName string)
 	// RemoveHeader removes header from message.
 	RemoveHeader(name string)
 
@@ -139,17 +140,60 @@ func (hs *headers) AppendHeader(header Header) {
 }
 
 // AddFrontHeader adds header to the front of header list
-// if there is no header has h's name, add h to the tail of all headers
+// if there is no header has h's name, add h to the font of all headers
 // if there are some headers have h's name, add h to front of the sublist
 func (hs *headers) PrependHeader(header Header) {
 	name := strings.ToLower(header.Name())
 	if hdrs, ok := hs.headers[name]; ok {
-		newHdrs := make([]Header, 1, len(hdrs)+1)
-		newHdrs[0] = header
-		hs.headers[name] = append(newHdrs, hdrs...)
+		hs.headers[name] = append([]Header{header}, hdrs...)
 	} else {
 		hs.headers[name] = []Header{header}
-		hs.headerOrder = append(hs.headerOrder, name)
+		newOrder := make([]string, 1, len(hs.headerOrder)+1)
+		newOrder[0] = name
+		hs.headerOrder = append(newOrder, hs.headerOrder...)
+	}
+}
+
+func (hs *headers) PrependHeaderAfter(header Header, afterName string) {
+	headerName := strings.ToLower(header.Name())
+	afterName = strings.ToLower(afterName)
+	if _, ok := hs.headers[afterName]; ok {
+		afterIdx := -1
+		headerIdx := -1
+		for i, name := range hs.headerOrder {
+			if name == afterName {
+				afterIdx = i
+			}
+			if name == headerName {
+				headerIdx = i
+			}
+		}
+
+		if headerIdx == -1 {
+			hs.headers[headerName] = []Header{header}
+			newOrder := make([]string, 0)
+			newOrder = append(newOrder, hs.headerOrder[:afterIdx+1]...)
+			newOrder = append(newOrder, headerName)
+			newOrder = append(newOrder, hs.headerOrder[afterIdx+1:]...)
+			hs.headerOrder = newOrder
+		} else {
+			hs.headers[headerName] = append([]Header{header}, hs.headers[headerName]...)
+			newOrder := make([]string, 0)
+			if afterIdx < headerIdx {
+				newOrder = append(newOrder, hs.headerOrder[:afterIdx+1]...)
+				newOrder = append(newOrder, headerName)
+				newOrder = append(newOrder, hs.headerOrder[afterIdx+1:headerIdx]...)
+				newOrder = append(newOrder, hs.headerOrder[headerIdx+1:]...)
+			} else {
+				newOrder = append(newOrder, hs.headerOrder[:headerIdx]...)
+				newOrder = append(newOrder, hs.headerOrder[headerIdx+1:afterIdx+1]...)
+				newOrder = append(newOrder, headerName)
+				newOrder = append(newOrder, hs.headerOrder[afterIdx+1:]...)
+			}
+			hs.headerOrder = newOrder
+		}
+	} else {
+		hs.PrependHeader(header)
 	}
 }
 

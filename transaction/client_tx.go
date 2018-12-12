@@ -33,29 +33,37 @@ func NewClientTx(
 	origin sip.Request,
 	tpl transport.Layer,
 ) (ClientTx, error) {
-	key, err := MakeClientTxKey(origin)
-	if err != nil {
-		return nil, err
-	}
-
 	tx := new(clientTx)
 	tx.logger = log.NewSafeLocalLogger()
-	tx.key = key
 	tx.origin = origin
 	tx.tpl = tpl
 	tx.responses = make(chan sip.Response)
 	tx.errs = make(chan error, 1)
 	tx.done = make(chan bool, 1)
 	tx.mu = new(sync.RWMutex)
-	if viaHop, ok := tx.Origin().ViaHop(); ok {
-		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
-	}
 
 	return tx, nil
 }
 
 func (tx *clientTx) Init() error {
 	tx.initFSM()
+
+	if err := tx.tpl.Send(tx.Origin()); err != nil {
+		tx.lastErr = err
+		tx.fsm.Spin(client_input_transport_err)
+		return err
+	}
+
+	if key, err := MakeClientTxKey(tx.Origin()); err != nil {
+		tx.lastErr = err
+		tx.fsm.Spin(client_input_transport_err)
+		return err
+	} else {
+		tx.key = key
+		if viaHop, ok := tx.Origin().ViaHop(); ok {
+			tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
+		}
+	}
 
 	if tx.reliable {
 		tx.timer_d_time = 0
@@ -80,11 +88,6 @@ func (tx *clientTx) Init() error {
 		tx.Log().Debugf("%s, timer_b fired", tx)
 		tx.fsm.Spin(client_input_timer_b)
 	})
-
-	if err := tx.tpl.Send(tx.Origin()); err != nil {
-		tx.lastErr = err
-		tx.fsm.Spin(client_input_transport_err)
-	}
 
 	return tx.lastErr
 }
