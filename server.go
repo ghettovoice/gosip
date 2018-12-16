@@ -124,6 +124,8 @@ func (srv *Server) handleRequest(req sip.Request) {
 		for _, handler := range handlers {
 			handler(req)
 		}
+	} else if req.IsAck() {
+		// nothing to do, just ignore it
 	} else {
 		log.Warnf("GoSIP server not found handler registered for the request %s", req.Short())
 		log.Debug(req.String())
