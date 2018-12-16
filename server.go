@@ -145,7 +145,7 @@ func (srv *Server) Request(req sip.Request) (<-chan sip.Response, error) {
 		return nil, fmt.Errorf("can not send through shutting down server")
 	}
 
-	return srv.Request(req)
+	return srv.tx.Request(req)
 }
 
 func (srv *Server) Respond(res sip.Response) (<-chan sip.Request, error) {
