@@ -106,20 +106,18 @@ var _ = Describe("ServerTx", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By(fmt.Sprintf("UAS receives %s", invite.Short()))
-			tx := <-txl.Requests()
-			Expect(tx).ToNot(BeNil())
-			Expect(tx.Origin()).ToNot(BeNil())
-			Expect(tx.Origin().String()).To(Equal(invite.String()))
-			Expect(tx.Key()).To(Equal(inviteTxKey))
+			req := <-txl.Requests()
+			Expect(req).ToNot(BeNil())
+			Expect(req.String()).To(Equal(invite.String()))
 		})
 
 		Context("when INVITE server tx created", func() {
-			var invTx transaction.ServerTx
+			var req sip.Request
 			mu := &sync.RWMutex{}
 			BeforeEach(func() {
 				mu.Lock()
-				invTx = <-txl.Requests()
-				Expect(invTx).ToNot(BeNil())
+				req = <-txl.Requests()
+				Expect(req).ToNot(BeNil())
 				mu.Unlock()
 			})
 
@@ -141,11 +139,8 @@ var _ = Describe("ServerTx", func() {
 				}()
 
 				By(fmt.Sprintf("UAS sends %s", ok.Short()))
-				tx, err := txl.Send(ok)
+				_, err := txl.Respond(ok.(sip.Response))
 				Expect(err).ToNot(HaveOccurred())
-				mu.RLock()
-				Expect(tx).To(Equal(invTx))
-				mu.RUnlock()
 			})
 
 			Context("after 2xx OK was sent", func() {
@@ -155,9 +150,8 @@ var _ = Describe("ServerTx", func() {
 					go func() {
 						defer wg2.Done()
 						By(fmt.Sprintf("UAS sends %s", ok.Short()))
-						mu.RLock()
-						Expect(txl.Send(ok)).To(Equal(invTx))
-						mu.RUnlock()
+						_, err := txl.Respond(ok.(sip.Response))
+						Expect(err).To(BeNil())
 					}()
 					go func() {
 						defer wg2.Done()
@@ -181,29 +175,27 @@ var _ = Describe("ServerTx", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					By(fmt.Sprintf("UAS receives %s", ack.Short()))
-					ackTx := <-txl.Requests()
-					Expect(ackTx).ToNot(BeNil())
-					Expect(ackTx.Origin()).ToNot(BeNil())
-					Expect(ackTx.Origin().String()).To(Equal(ack.String()))
-					Expect(ackTx.Key()).To(Equal(ackTxKey))
-					mu.RLock()
-					Expect(ackTx).ToNot(Equal(invTx))
-					mu.RUnlock()
+					ackReq := <-txl.Requests()
+					Expect(ackReq).ToNot(BeNil())
+					Expect(ackReq.String()).To(Equal(ack.String()))
 
 					close(done)
 				})
 			})
 
 			Context("after 3xx was sent", func() {
+				var acks <-chan sip.Request
 				wg := new(sync.WaitGroup)
 				BeforeEach(func() {
 					wg.Add(2)
 					go func() {
 						defer wg.Done()
 						By(fmt.Sprintf("UAS sends %s", notOk.Short()))
-						mu.RLock()
-						Expect(txl.Send(notOk)).To(Equal(invTx))
-						mu.RUnlock()
+						mu.Lock()
+						acks, err = txl.Respond(notOk.(sip.Response))
+						Expect(acks).ToNot(BeNil())
+						Expect(err).To(BeNil())
+						mu.Unlock()
 					}()
 					go func() {
 						defer wg.Done()
@@ -224,7 +216,7 @@ var _ = Describe("ServerTx", func() {
 
 				It("should get ACK inside INVITE tx", func(done Done) {
 					mu.RLock()
-					ack := <-invTx.Ack()
+					ack := <-acks
 					mu.RUnlock()
 					Expect(ack).ToNot(BeNil())
 					Expect(ack.Method()).To(Equal(sip.ACK))

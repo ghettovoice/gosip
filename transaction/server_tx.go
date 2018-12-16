@@ -108,8 +108,8 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 	case req.IsAck(): // ACK for non-2xx response
 		input = server_input_ack
 		select {
+		case <-tx.done:
 		case tx.ack <- req:
-		default:
 		}
 	default:
 		return &sip.UnexpectedMessageError{

@@ -15,10 +15,11 @@ type Layer interface {
 	Cancel()
 	Done() <-chan struct{}
 	String() string
-	Send(msg sip.Message) (Tx, error)
+	Request(req sip.Request) (<-chan sip.Response, error)
+	Respond(res sip.Response) (<-chan sip.Request, error)
 	Transport() transport.Layer
 	// Requests returns channel with new incoming server transactions.
-	Requests() <-chan ServerTx
+	Requests() <-chan sip.Request
 	// Responses returns channel with not matched responses.
 	Responses() <-chan sip.Response
 	Errors() <-chan error
@@ -27,7 +28,7 @@ type Layer interface {
 type layer struct {
 	logger       log.LocalLogger
 	tpl          transport.Layer
-	requests     chan ServerTx
+	requests     chan sip.Request
 	responses    chan sip.Response
 	errs         chan error
 	done         chan struct{}
@@ -39,7 +40,7 @@ func NewLayer(tpl transport.Layer) Layer {
 	txl := &layer{
 		logger:       log.NewSafeLocalLogger(),
 		tpl:          tpl,
-		requests:     make(chan ServerTx),
+		requests:     make(chan sip.Request),
 		responses:    make(chan sip.Response),
 		errs:         make(chan error),
 		done:         make(chan struct{}),
@@ -85,7 +86,7 @@ func (txl *layer) Done() <-chan struct{} {
 	return txl.done
 }
 
-func (txl *layer) Requests() <-chan ServerTx {
+func (txl *layer) Requests() <-chan sip.Request {
 	return txl.requests
 }
 
@@ -101,49 +102,40 @@ func (txl *layer) Transport() transport.Layer {
 	return txl.tpl
 }
 
-func (txl *layer) Send(msg sip.Message) (Tx, error) {
-	txl.Log().Debugf("%s sends %s", txl, msg.Short())
+func (txl *layer) Request(req sip.Request) (<-chan sip.Response, error) {
+	txl.Log().Debugf("%s sends %s", txl, req.Short())
 
-	var (
-		tx  Tx
-		err error
-	)
-
-	switch msg := msg.(type) {
-	case sip.Response:
-		tx, err = txl.getServerTx(msg)
-		if err != nil {
-			return nil, err
-		}
-
-		err = tx.(ServerTx).Respond(msg)
-		if err != nil {
-			return nil, err
-		}
-
-		return tx, nil
-	case sip.Request:
-		tx, err = NewClientTx(msg, txl.tpl)
-		tx.SetLog(txl.Log())
-		if err != nil {
-			return nil, err
-		}
-
-		err = tx.Init()
-		if err != nil {
-			return nil, err
-		}
-
-		go txl.serveTransaction(tx)
-		txl.transactions.put(tx.Key(), tx)
-
-		return tx, nil
-	default:
-		return nil, &sip.UnsupportedMessageError{
-			fmt.Errorf("%s got unsupported message %s", txl, msg.Short()),
-			msg.String(),
-		}
+	tx, err := NewClientTx(req, txl.tpl)
+	tx.SetLog(txl.Log())
+	if err != nil {
+		return nil, err
 	}
+
+	err = tx.Init()
+	if err != nil {
+		return nil, err
+	}
+
+	go txl.serveTransaction(tx)
+	txl.transactions.put(tx.Key(), tx)
+
+	return tx.Responses(), nil
+}
+
+func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
+	txl.Log().Debugf("%s sends %s", txl, res.Short())
+
+	tx, err := txl.getServerTx(res)
+	if err != nil {
+		return nil, err
+	}
+
+	err = tx.Respond(res)
+	if err != nil {
+		return nil, err
+	}
+
+	return tx.Ack(), nil
 }
 
 func (txl *layer) listenMessages() {
@@ -214,34 +206,40 @@ func (txl *layer) handleMessage(msg sip.Message) {
 }
 
 func (txl *layer) handleRequest(req sip.Request) {
-	// todo error handling!
-	// try to match to existent tx
+	// try to match to existent tx: request retransmission or ACKs on non-2xx
 	if tx, err := txl.getServerTx(req); err == nil {
 		if err := tx.Receive(req); err != nil {
 			txl.Log().Error(err)
 		}
-		return
-	}
-	// or create new one
-	txl.Log().Debugf("%s creates new server transaction for %s", txl, req.Short())
-	tx, err := NewServerTx(req, txl.tpl)
-	if err != nil {
-		txl.Log().Error(err)
+
 		return
 	}
 
-	tx.SetLog(txl.Log())
-	// put tx to store, to match retransmitting requests later
-	txl.transactions.put(tx.Key(), tx)
-	go txl.serveTransaction(tx)
+	// or create new one only for new requests except ACKs on 2xx
+	if !req.IsAck() {
+		txl.Log().Debugf("%s creates new server transaction for %s", txl, req.Short())
+		tx, err := NewServerTx(req, txl.tpl)
+		if err != nil {
+			txl.Log().Error(err)
+			return
+		}
 
-	if err := tx.Init(); err != nil {
-		txl.Log().Error(err)
-		return
+		tx.SetLog(txl.Log())
+		// put tx to store, to match retransmitting requests later
+		txl.transactions.put(tx.Key(), tx)
+		go txl.serveTransaction(tx)
+
+		if err := tx.Init(); err != nil {
+			txl.Log().Error(err)
+			return
+		}
 	}
 	// pass up request
-	txl.Log().Debugf("%s pass up %s", txl, tx.Origin().Short())
-	txl.requests <- tx
+	txl.Log().Debugf("%s pass up %s", txl, req.Short())
+	select {
+	case <-txl.canceled:
+	case txl.requests <- req:
+	}
 }
 
 func (txl *layer) handleResponse(res sip.Response) {
@@ -253,7 +251,7 @@ func (txl *layer) handleResponse(res sip.Response) {
 		txl.responses <- res
 		return
 	}
-	tx.Receive(res)
+	_ = tx.Receive(res)
 }
 
 // RFC 17.1.3.

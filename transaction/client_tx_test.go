@@ -40,7 +40,9 @@ var _ = Describe("ClientTx", func() {
 		var err error
 		var invite, trying, ok, notOk, ack, notOkAck sip.Message
 		var inviteBranch string
-		var invTx transaction.ClientTx
+		var responses <-chan sip.Response
+
+		mu := new(sync.Mutex)
 
 		BeforeEach(func() {
 			inviteBranch = sip.GenerateBranch()
@@ -101,9 +103,11 @@ var _ = Describe("ClientTx", func() {
 			ackTxKey, err = transaction.MakeClientTxKey(ack)
 			Expect(err).ToNot(HaveOccurred())
 
-			tx, err := txl.Send(invite)
+			mu.Lock()
+			responses, err = txl.Request(invite.(sip.Request))
+			Expect(responses).ToNot(BeNil())
 			Expect(err).ToNot(HaveOccurred())
-			Expect(tx.Key()).To(Equal(inviteTxKey))
+			mu.Unlock()
 		})
 
 		Context("receives 200 OK on INVITE", func() {
@@ -123,9 +127,11 @@ var _ = Describe("ClientTx", func() {
 					tpl.InMsgs <- ok
 				}()
 
-				tx, err := txl.Send(invite)
+				mu.Lock()
+				responses, err = txl.Request(invite.(sip.Request))
+				Expect(responses).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
-				invTx = tx.(transaction.ClientTx)
+				mu.Unlock()
 			})
 			AfterEach(func() {
 				wg.Wait()
@@ -133,11 +139,11 @@ var _ = Describe("ClientTx", func() {
 
 			It("should receive responses in INVITE tx", func() {
 				var msg sip.Response
-				msg = <-invTx.Responses()
+				msg = <-responses
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(trying.String()))
 
-				msg = <-invTx.Responses()
+				msg = <-responses
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(ok.String()))
 			})
@@ -168,9 +174,11 @@ var _ = Describe("ClientTx", func() {
 					Expect(string(req.Method())).To(Equal("ACK"))
 				}()
 
-				tx, err := txl.Send(invite)
+				mu.Lock()
+				responses, err = txl.Request(invite.(sip.Request))
+				Expect(responses).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
-				invTx = tx.(transaction.ClientTx)
+				mu.Unlock()
 			})
 			AfterEach(func() {
 				wg.Wait()
@@ -178,11 +186,11 @@ var _ = Describe("ClientTx", func() {
 
 			It("should receive responses in INVITE tx and send ACK", func() {
 				var msg sip.Response
-				msg = <-invTx.Responses()
+				msg = <-responses
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(trying.String()))
 
-				msg = <-invTx.Responses()
+				msg = <-responses
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(notOk.String()))
 			})

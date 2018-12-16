@@ -7,7 +7,6 @@ import (
 	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
-	"github.com/ghettovoice/gosip/transaction"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -45,7 +44,7 @@ var _ = Describe("GoSIP Server", func() {
 
 	AfterEach(func() {
 		if client1 != nil {
-			client1.Close()
+			Expect(client1.Close()).To(BeNil())
 		}
 		srv.Shutdown()
 	}, 3)
@@ -54,11 +53,10 @@ var _ = Describe("GoSIP Server", func() {
 		wg := new(sync.WaitGroup)
 
 		wg.Add(1)
-		srv.OnRequest(sip.INVITE, func(req sip.Request, tx transaction.ServerTx) {
+		Expect(srv.OnRequest(sip.INVITE, func(req sip.Request) {
 			defer wg.Done()
 			Expect(req.Method()).To(Equal(sip.INVITE))
-			Expect(tx).ToNot(BeNil())
-		})
+		})).To(BeNil())
 
 		wg.Add(1)
 		go func() {
