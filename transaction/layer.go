@@ -187,6 +187,11 @@ func (txl *layer) serveTransaction(tx Tx) {
 			return
 		case <-tx.Done():
 			return
+		case err := <-tx.Errors():
+			select {
+			case <-txl.canceled:
+			case txl.errs <- err:
+			}
 		}
 	}
 }
