@@ -304,9 +304,9 @@ var _ = Describe("ConnectionPool", func() {
 
 	Context("that canceled", func() {
 		var (
-			err            error
-			expected       string
-			client, server net.Conn
+			err      error
+			expected string
+			server   net.Conn
 		)
 
 		BeforeEach(func() {
@@ -316,8 +316,7 @@ var _ = Describe("ConnectionPool", func() {
 			pool = transport.NewConnectionPool(output, errs, cancel)
 			expected = fmt.Sprintf("%s canceled", pool)
 
-			c1, c2 := net.Pipe()
-			client = &testutils.MockConn{c1, c1.LocalAddr(), addr1}
+			_, c2 := net.Pipe()
 			server = &testutils.MockConn{c2, addr1, c2.RemoteAddr()}
 
 			close(cancel)
@@ -354,7 +353,6 @@ var _ = Describe("ConnectionPool", func() {
 		var (
 			err                                                         error
 			client1, server1, client2, server2, client3, server3, conn4 transport.Connection
-			//wg *sync.WaitGroup
 		)
 
 		createConn := func(addr net.Addr) (transport.Connection, transport.Connection) {

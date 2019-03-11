@@ -36,9 +36,8 @@ var _ = Describe("ClientTx", func() {
 	})
 
 	Context("sends INVITE request", func() {
-		var inviteTxKey, ackTxKey transaction.TxKey
 		var err error
-		var invite, trying, ok, notOk, ack, notOkAck sip.Message
+		var invite, trying, ok, notOk, ack sip.Message
 		var inviteBranch string
 		var responses <-chan sip.Response
 
@@ -81,7 +80,7 @@ var _ = Describe("ClientTx", func() {
 				"",
 				"",
 			})
-			notOkAck = testutils.Request([]string{
+			_ = testutils.Request([]string{
 				"ACK sip:bob@example.com SIP/2.0",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
 				"CSeq: 1 ACK",
@@ -98,9 +97,9 @@ var _ = Describe("ClientTx", func() {
 				Expect(msg.String()).To(Equal(invite.String()))
 			}()
 
-			inviteTxKey, err = transaction.MakeClientTxKey(invite)
+			_, err = transaction.MakeClientTxKey(invite)
 			Expect(err).ToNot(HaveOccurred())
-			ackTxKey, err = transaction.MakeClientTxKey(ack)
+			_, err = transaction.MakeClientTxKey(ack)
 			Expect(err).ToNot(HaveOccurred())
 
 			mu.Lock()

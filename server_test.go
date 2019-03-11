@@ -1,6 +1,7 @@
 package gosip_test
 
 import (
+	"context"
 	"net"
 	"sync"
 
@@ -22,9 +23,10 @@ var _ = Describe("GoSIP Server", func() {
 
 	clientAddr := "127.0.0.1:9001"
 	localTarget := transport.NewTarget("127.0.0.1", 5060)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	BeforeEach(func() {
-		srv = gosip.NewServer(nil)
+		srv = gosip.NewServer(ctx, nil)
 		Expect(srv.Listen("udp", "0.0.0.0:5060")).To(Succeed())
 
 		client1 = testutils.CreateClient("udp", localTarget.Addr(), clientAddr)
@@ -46,7 +48,7 @@ var _ = Describe("GoSIP Server", func() {
 		if client1 != nil {
 			Expect(client1.Close()).To(BeNil())
 		}
-		srv.Shutdown()
+		cancel()
 	}, 3)
 
 	It("should call INVITE handler on incoming INVITE request", func(done Done) {

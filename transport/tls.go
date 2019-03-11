@@ -31,7 +31,7 @@ func NewTlsProtocol(output chan<- sip.Message, errs chan<- error, cancel <-chan 
 }
 
 func (tls *tlsProtocol) String() string {
-	return fmt.Sprintf("Tls%s", tls.protocol)
+	return fmt.Sprintf("Tls%s", tls.protocol.String())
 }
 
 func (tls *tlsProtocol) SetLog(logger log.Logger) {

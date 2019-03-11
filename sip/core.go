@@ -29,6 +29,13 @@ func (port *Port) Clone() *Port {
 	return &newPort
 }
 
+func (port *Port) String() string {
+	if port == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", port)
+}
+
 // String wrapper
 type MaybeString interface {
 	String() string

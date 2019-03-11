@@ -41,7 +41,7 @@ type Server struct {
 }
 
 // NewServer creates new instance of SIP server.
-func NewServer(config *ServerConfig) *Server {
+func NewServer(ctx context.Context, config *ServerConfig) *Server {
 	var hostAddr string
 
 	if config == nil {
@@ -64,10 +64,6 @@ func NewServer(config *ServerConfig) *Server {
 		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
 	}
 
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	srv.cancelFunc = cancel
-
 	go srv.serve(ctx)
 
 	return srv
@@ -84,6 +80,8 @@ func (srv *Server) Listen(network string, listenAddr string) error {
 }
 
 func (srv *Server) serve(ctx context.Context) {
+	defer srv.Shutdown()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -164,8 +162,6 @@ func (srv *Server) shuttingDown() bool {
 func (srv *Server) Shutdown() {
 	atomic.AddInt32(&srv.inShutdown, 1)
 	defer atomic.AddInt32(&srv.inShutdown, -1)
-
-	srv.cancelFunc()
 	// stop transaction layer
 	srv.tx.Cancel()
 	<-srv.tx.Done()

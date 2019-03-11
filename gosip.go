@@ -1,5 +1,7 @@
 package gosip
 
+import "context"
+
 // Version is the current gosip package version
 var Version = "0.0.0"
 
@@ -15,7 +17,7 @@ func DefaultServer() *Server {
 // Listen starts SIP stack
 func Listen(network string, listenAddr string) error {
 	if defaultServer == nil {
-		defaultServer = NewServer(nil)
+		defaultServer = NewServer(context.Background(), nil)
 	}
 
 	return defaultServer.Listen(network, listenAddr)

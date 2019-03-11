@@ -38,7 +38,6 @@ var _ = Describe("ServerTx", func() {
 	})
 	// TODO: think about how to test Tx state switches and deletion
 	Context("when INVITE request arrives", func() {
-		var inviteTxKey, ackTxKey transaction.TxKey
 		var err error
 		var invite, trying, ok, notOk, ack, notOkAck sip.Message
 		var inviteBranch string
@@ -102,7 +101,7 @@ var _ = Describe("ServerTx", func() {
 		}, 3)
 
 		It("should open server tx and pass up TxMessage", func() {
-			inviteTxKey, err = transaction.MakeServerTxKey(invite)
+			_, err = transaction.MakeServerTxKey(invite)
 			Expect(err).ToNot(HaveOccurred())
 
 			By(fmt.Sprintf("UAS receives %s", invite.Short()))
@@ -171,7 +170,7 @@ var _ = Describe("ServerTx", func() {
 				}, 3)
 
 				It("should receive ACK in separate transaction", func(done Done) {
-					ackTxKey, err = transaction.MakeServerTxKey(ack)
+					_, err = transaction.MakeServerTxKey(ack)
 					Expect(err).ToNot(HaveOccurred())
 
 					By(fmt.Sprintf("UAS receives %s", ack.Short()))
