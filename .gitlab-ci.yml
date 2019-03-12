@@ -1,11 +1,11 @@
-image: golang:1.9
+image: golang:1.12
 stages:
-  - test
+    - test
 
 before_script:
-  - make install
+    - make install
 
 test:
-  stage: test
-  script:
-    - make test
+    stage: test
+    script:
+        - make test

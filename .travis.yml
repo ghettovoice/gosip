@@ -1,15 +1,15 @@
 language: go
 go:
-  - '1.10'
+    - '1.12'
 install:
-  - go get -v github.com/mattn/goveralls
-  - make install
+    - go get -v github.com/mattn/goveralls
+    - make install
 script:
-  - make test
-  - make cover-merge
-  - goveralls -coverprofile=./gosip.full.coverprofile -service=travis-ci
+    - make test
+    - make cover-merge
+    - goveralls -coverprofile=./gosip.full.coverprofile -service=travis-ci
 branches:
-  only:
-    - master
-    - dev
-    - develop
+    only:
+        - master
+        - dev
+        - develop

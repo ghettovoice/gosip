@@ -20,9 +20,3 @@ trim_trailing_whitespace = false
 
 [*.go]
 indent_style = tab
-
-[.travis.yml]
-indent_size = 2
-
-[.gitlab-ci.yml]
-indent_size = 2
