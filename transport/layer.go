@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -68,6 +69,7 @@ type layer struct {
 // NewLayer creates transport layer.
 // 	- hostAddr - current server host address (IP or FQDN)
 func NewLayer(hostAddr string) Layer {
+	ctx := context.Background()
 	tpl := &layer{
 		logger:    log.NewSafeLocalLogger(),
 		hostAddr:  hostAddr,
@@ -80,7 +82,7 @@ func NewLayer(hostAddr string) Layer {
 		canceled:  make(chan struct{}),
 		done:      make(chan struct{}),
 	}
-	go tpl.serveProtocols()
+	go tpl.serveProtocols(ctx)
 	return tpl
 }
 
@@ -245,7 +247,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 	}
 }
 
-func (tpl *layer) serveProtocols() {
+func (tpl *layer) serveProtocols(ctx context.Context) {
 	defer func() {
 		tpl.Log().Infof("%s stops serves protocols", tpl)
 		tpl.dispose()
@@ -255,6 +257,8 @@ func (tpl *layer) serveProtocols() {
 
 	for {
 		select {
+		case <-ctx.Done():
+			tpl.Cancel()
 		case <-tpl.canceled:
 			tpl.Log().Warnf("%s received cancel signal", tpl)
 			return

@@ -32,10 +32,7 @@ type serverTx struct {
 	mu           *sync.RWMutex
 }
 
-func NewServerTx(
-	origin sip.Request,
-	tpl transport.Layer,
-) (ServerTx, error) {
+func NewServerTx(origin sip.Request, tpl transport.Layer) (ServerTx, error) {
 	key, err := MakeServerTxKey(origin)
 	if err != nil {
 		return nil, err
@@ -328,20 +325,30 @@ func (tx *serverTx) initNonInviteFSM() {
 func (tx *serverTx) transportErr() {
 	// todo bloody patch
 	defer func() { recover() }()
-	tx.errs <- &TxTransportError{
+
+	err := &TxTransportError{
 		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
 		tx.Key(),
 		tx.String(),
+	}
+	select {
+	case <-tx.done:
+	case tx.errs <- err:
 	}
 }
 
 func (tx *serverTx) timeoutErr() {
 	// todo bloody patch
 	defer func() { recover() }()
-	tx.errs <- &TxTimeoutError{
+
+	err := &TxTimeoutError{
 		fmt.Errorf("%s timed out", tx),
 		tx.Key(),
 		tx.String(),
+	}
+	select {
+	case <-tx.done:
+	case tx.errs <- err:
 	}
 }
 

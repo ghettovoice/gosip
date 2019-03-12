@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -37,6 +38,7 @@ type layer struct {
 }
 
 func NewLayer(tpl transport.Layer) Layer {
+	ctx := context.Background()
 	txl := &layer{
 		logger:       log.NewSafeLocalLogger(),
 		tpl:          tpl,
@@ -47,7 +49,7 @@ func NewLayer(tpl transport.Layer) Layer {
 		canceled:     make(chan struct{}),
 		transactions: newTransactionStore(),
 	}
-	go txl.listenMessages()
+	go txl.listenMessages(ctx)
 
 	return txl
 }
@@ -138,7 +140,7 @@ func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
 	return tx.Ack(), nil
 }
 
-func (txl *layer) listenMessages() {
+func (txl *layer) listenMessages(ctx context.Context) {
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
 		// drop all transactions
@@ -162,6 +164,8 @@ func (txl *layer) listenMessages() {
 
 	for {
 		select {
+		case <-ctx.Done():
+			txl.Cancel()
 		case <-txl.canceled:
 			txl.Log().Warnf("%s received cancel signal", txl)
 			return
@@ -253,7 +257,10 @@ func (txl *layer) handleResponse(res sip.Response) {
 		txl.Log().Warn(err)
 		// RFC 3261 - 17.1.1.2.
 		// Not matched responses should be passed directly to the UA
-		txl.responses <- res
+		select {
+		case <-txl.canceled:
+		case txl.responses <- res:
+		}
 		return
 	}
 	_ = tx.Receive(res)

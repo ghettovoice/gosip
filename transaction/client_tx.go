@@ -29,10 +29,7 @@ type clientTx struct {
 	mu           *sync.RWMutex
 }
 
-func NewClientTx(
-	origin sip.Request,
-	tpl transport.Layer,
-) (ClientTx, error) {
+func NewClientTx(origin sip.Request, tpl transport.Layer) (ClientTx, error) {
 	tx := new(clientTx)
 	tx.logger = log.NewSafeLocalLogger()
 	tx.origin = origin
@@ -352,7 +349,10 @@ func (tx *clientTx) passUp() {
 	lastResp := tx.lastResp
 	tx.mu.RUnlock()
 	if lastResp != nil {
-		tx.responses <- lastResp
+		select {
+		case <-tx.done:
+		case tx.responses <- lastResp:
+		}
 	}
 }
 
@@ -360,20 +360,29 @@ func (tx *clientTx) transportErr() {
 	// todo bloody patch
 	defer func() { recover() }()
 
-	tx.errs <- &TxTransportError{
+	err := &TxTransportError{
 		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
 		tx.Key(),
 		tx.String(),
+	}
+	select {
+	case <-tx.done:
+	case tx.errs <- err:
 	}
 }
 
 func (tx *clientTx) timeoutErr() {
 	// todo bloody patch
 	defer func() { recover() }()
-	tx.errs <- &TxTimeoutError{
+
+	err := &TxTimeoutError{
 		fmt.Errorf("%s timed out", tx),
 		tx.Key(),
 		tx.String(),
+	}
+	select {
+	case <-tx.done:
+	case tx.errs <- err:
 	}
 }
 

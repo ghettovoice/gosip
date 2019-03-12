@@ -31,7 +31,6 @@ var defaultConfig = &ServerConfig{
 
 // Server is a SIP server
 type Server struct {
-	cancelFunc      context.CancelFunc
 	tp              transport.Layer
 	tx              transaction.Layer
 	inShutdown      int32
@@ -41,7 +40,7 @@ type Server struct {
 }
 
 // NewServer creates new instance of SIP server.
-func NewServer(ctx context.Context, config *ServerConfig) *Server {
+func NewServer(config *ServerConfig) *Server {
 	var hostAddr string
 
 	if config == nil {
@@ -54,6 +53,7 @@ func NewServer(ctx context.Context, config *ServerConfig) *Server {
 		hostAddr = defaultHostAddr
 	}
 
+	ctx := context.Background()
 	tp := transport.NewLayer(hostAddr)
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
