@@ -865,13 +865,13 @@ func parseAddressHeader(headerName string, headerText string) (
 		var paramSets []sip.Params
 
 		// Perform the actual parsing. The rest of this method is just typeclass bookkeeping.
-		displayNames, uris, paramSets, err = parseAddressValues(headerText)
+		displayNames, uris, paramSets, err = ParseAddressValues(headerText)
 
 		if err != nil {
 			return
 		}
 		if len(displayNames) != len(uris) || len(uris) != len(paramSets) {
-			// This shouldn't happen unless parseAddressValues is bugged.
+			// This shouldn't happen unless ParseAddressValues is bugged.
 			err = fmt.Errorf("internal parser error: parsed param mismatch. "+
 				"%d display names, %d uris and %d param sets "+
 				"in %s",
@@ -881,7 +881,7 @@ func parseAddressHeader(headerName string, headerText string) (
 		}
 
 		// Build a slice of headers of the appropriate kind, populating them with the values parsed above.
-		// It is assumed that all headers returned by parseAddressValues are of the same kind,
+		// It is assumed that all headers returned by ParseAddressValues are of the same kind,
 		// although we do not check for this below.
 		for idx := 0; idx < len(displayNames); idx++ {
 			var header sip.Header
@@ -1146,11 +1146,11 @@ func parseContentLength(headerName string, headerText string) (
 	return
 }
 
-// parseAddressValues parses a comma-separated list of addresses, returning
+// ParseAddressValues parses a comma-separated list of addresses, returning
 // any display names and header params, as well as the SIP URIs themselves.
-// parseAddressValues is aware of < > bracketing and quoting, and will not
+// ParseAddressValues is aware of < > bracketing and quoting, and will not
 // break on commas within these structures.
-func parseAddressValues(addresses string) (
+func ParseAddressValues(addresses string) (
 	displayNames []sip.MaybeString,
 	uris []sip.Uri,
 	headerParams []sip.Params,
@@ -1176,7 +1176,7 @@ func parseAddressValues(addresses string) (
 			var displayName sip.MaybeString
 			var uri sip.Uri
 			var params sip.Params
-			displayName, uri, params, err = parseAddressValue(addresses[prevIdx:idx])
+			displayName, uri, params, err = ParseAddressValue(addresses[prevIdx:idx])
 			if err != nil {
 				return
 			}
@@ -1191,7 +1191,7 @@ func parseAddressValues(addresses string) (
 	return
 }
 
-// parseAddressValue parses an address - such as from a From, To, or
+// ParseAddressValue parses an address - such as from a From, To, or
 // Contact header. It returns:
 //   - a MaybeString containing the display name (or not)
 //   - a parsed SipUri object
@@ -1199,8 +1199,8 @@ func parseAddressValues(addresses string) (
 //   - the error object
 // See RFC 3261 section 20.10 for details on parsing an address.
 // Note that this method will not accept a comma-separated list of addresses;
-// addresses in that form should be handled by parseAddressValues.
-func parseAddressValue(addressText string) (
+// addresses in that form should be handled by ParseAddressValues.
+func ParseAddressValue(addressText string) (
 	displayName sip.MaybeString,
 	uri sip.Uri,
 	headerParams sip.Params,
