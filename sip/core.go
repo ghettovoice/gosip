@@ -1,6 +1,7 @@
 package sip
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -17,6 +18,28 @@ const (
 )
 
 // TODO should be refactored, currently here the pit
+
+type Address struct {
+	DisplayName MaybeString
+	Address     Uri
+	Params      Params
+}
+
+func (addr *Address) String() string {
+	var buffer bytes.Buffer
+
+	if displayName, ok := addr.DisplayName.(String); ok && displayName.String() != "" {
+		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
+	}
+
+	buffer.WriteString(fmt.Sprintf("<%s>", addr.Address))
+	if addr.Params.Length() > 0 {
+		buffer.WriteString(";")
+		buffer.WriteString(addr.Params.ToString(';'))
+	}
+
+	return buffer.String()
+}
 
 // Port number
 type Port uint16
