@@ -21,7 +21,7 @@ const (
 
 type Address struct {
 	DisplayName MaybeString
-	Address     Uri
+	Uri         Uri
 	Params      Params
 }
 
@@ -32,7 +32,7 @@ func (addr *Address) String() string {
 		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
 	}
 
-	buffer.WriteString(fmt.Sprintf("<%s>", addr.Address))
+	buffer.WriteString(fmt.Sprintf("<%s>", addr.Uri))
 	if addr.Params.Length() > 0 {
 		buffer.WriteString(";")
 		buffer.WriteString(addr.Params.ToString(';'))
