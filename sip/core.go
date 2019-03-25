@@ -41,6 +41,14 @@ func (addr *Address) String() string {
 	return buffer.String()
 }
 
+func (addr *Address) Clone() *Address {
+	return &Address{
+		DisplayName: String{addr.DisplayName.String()},
+		Uri:         addr.Uri.Clone(),
+		Params:      addr.Params.Clone(),
+	}
+}
+
 // Port number
 type Port uint16
 
@@ -225,5 +233,5 @@ func MakeDialogIDFromMessage(msg Message) (string, error) {
 }
 
 func MakeDialogID(callID, innerID, externalID string) string {
-	return strings.Join([]string{callID, innerID, externalID}, "__")
+	return strings.Join([]string{callID, innerID, externalID}, ".")
 }
