@@ -21,7 +21,7 @@ const (
 
 type Address struct {
 	DisplayName MaybeString
-	Uri         Uri
+	Uri         *SipUri
 	Params      Params
 }
 
@@ -44,7 +44,7 @@ func (addr *Address) String() string {
 func (addr *Address) Clone() *Address {
 	return &Address{
 		DisplayName: String{addr.DisplayName.String()},
-		Uri:         addr.Uri.Clone(),
+		Uri:         addr.Uri.Clone().(*SipUri),
 		Params:      addr.Params.Clone(),
 	}
 }
