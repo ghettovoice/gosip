@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -154,6 +155,8 @@ func (txl *layer) listenMessages(ctx context.Context) {
 			tx.Terminate()
 			txl.transactions.drop(tx.Key())
 		}
+
+		<-time.After(time.Millisecond)
 
 		close(txl.requests)
 		close(txl.responses)
