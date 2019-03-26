@@ -64,7 +64,7 @@ func (port *Port) String() string {
 	if port == nil {
 		return ""
 	}
-	return fmt.Sprintf("%d", port)
+	return fmt.Sprintf("%d", *port)
 }
 
 // String wrapper
