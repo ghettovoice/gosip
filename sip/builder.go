@@ -195,17 +195,7 @@ func (rb *RequestBuilder) Build() (Request, error) {
 		return nil, fmt.Errorf("empty 'From' header")
 	}
 
-	via := make(ViaHeader, 0)
-	if len(rb.via) == 0 {
-		return nil, fmt.Errorf("empty 'Via' header")
-	} else {
-		for _, viaHop := range rb.via {
-			via = append(via, viaHop)
-		}
-	}
-
 	hdrs := []Header{
-		via,
 		rb.cseq,
 		rb.from,
 		rb.to,
@@ -213,6 +203,13 @@ func (rb *RequestBuilder) Build() (Request, error) {
 		rb.userAgent,
 	}
 
+	if len(rb.via) != 0 {
+		via := make(ViaHeader, 0)
+		for _, viaHop := range rb.via {
+			via = append(via, viaHop)
+		}
+		hdrs = append([]Header{via}, hdrs...)
+	}
 	if rb.contact != nil {
 		hdrs = append(hdrs, rb.contact)
 	}

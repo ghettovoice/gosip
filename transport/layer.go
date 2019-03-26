@@ -189,6 +189,15 @@ func (tpl *layer) Send(msg sip.Message) error {
 			}, "Record-Route")
 		} else {
 			viaHop.Host = tpl.HostAddr()
+			if viaHop.Params == nil {
+				viaHop.Params = sip.NewParams()
+			}
+			if !viaHop.Params.Has("branch") {
+				viaHop.Params.Add("branch", sip.String{Str: sip.GenerateBranch()})
+			}
+			if !viaHop.Params.Has("rport") {
+				viaHop.Params.Add("rport", nil)
+			}
 		}
 
 		var err error
