@@ -156,7 +156,7 @@ func (txl *layer) listenMessages(ctx context.Context) {
 			txl.transactions.drop(tx.Key())
 		}
 
-		<-time.After(time.Millisecond)
+		<-time.After(time.Second)
 
 		close(txl.requests)
 		close(txl.responses)

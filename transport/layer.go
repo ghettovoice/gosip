@@ -3,6 +3,8 @@ package transport
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -56,6 +58,8 @@ func GetProtocolFactory() ProtocolFactory {
 type layer struct {
 	logger    log.LocalLogger
 	hostAddr  string
+	host      string
+	port      *uint
 	protocols *protocolStore
 	msgs      chan sip.Message
 	errs      chan error
@@ -70,9 +74,31 @@ type layer struct {
 // 	- hostAddr - current server host address (IP or FQDN)
 func NewLayer(hostAddr string) Layer {
 	ctx := context.Background()
+	// todo pass up error
+	var host string
+	var port *uint
+	if strings.Contains(hostAddr, ":") {
+		if h, p, err := net.SplitHostPort(hostAddr); err == nil {
+			host = h
+
+			if pi, err := strconv.Atoi(p); err == nil {
+				pii := uint(pi)
+				port = &pii
+			} else {
+				log.Panicf("invalid hostAddr argument: %s", hostAddr)
+			}
+		} else {
+			log.Panicf("invalid hostAddr argument: %s", hostAddr)
+		}
+	} else {
+		host = hostAddr
+	}
+
 	tpl := &layer{
 		logger:    log.NewSafeLocalLogger(),
 		hostAddr:  hostAddr,
+		host:      host,
+		port:      port,
 		wg:        new(sync.WaitGroup),
 		protocols: newProtocolStore(),
 		msgs:      make(chan sip.Message),
@@ -179,16 +205,24 @@ func (tpl *layer) Send(msg sip.Message) error {
 			viaHop = &sip.ViaHop{
 				ProtocolName:    "SIP",
 				ProtocolVersion: "2.0",
-				Host:            tpl.HostAddr(),
+				Host:            tpl.host,
 				Params: sip.NewParams().
 					Add("branch", sip.String{Str: sip.GenerateBranch()}).
 					Add("rport", nil),
+			}
+			if tpl.port != nil {
+				port := sip.Port(*tpl.port)
+				viaHop.Port = &port
 			}
 			msg.PrependHeaderAfter(sip.ViaHeader{
 				viaHop,
 			}, "Record-Route")
 		} else {
-			viaHop.Host = tpl.HostAddr()
+			viaHop.Host = tpl.host
+			if tpl.port != nil {
+				port := sip.Port(*tpl.port)
+				viaHop.Port = &port
+			}
 			if viaHop.Params == nil {
 				viaHop.Params = sip.NewParams()
 			}
@@ -315,7 +349,7 @@ func (tpl *layer) handleMessage(msg sip.Message) {
 			return
 		}
 
-		if viaHop.Host != tpl.HostAddr() {
+		if viaHop.Host != tpl.host {
 			tpl.Log().Warnf(
 				"%s discards unexpected response %s %s -> %s over %s: 'sent-by' in the first 'Via' header "+
 					" equals to %s, but expected %s",
@@ -325,7 +359,7 @@ func (tpl *layer) handleMessage(msg sip.Message) {
 				msg.Destination(),
 				msg.Transport(),
 				viaHop.Host,
-				tpl.HostAddr(),
+				tpl.host,
 			)
 			return
 		}
