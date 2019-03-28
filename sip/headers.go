@@ -23,12 +23,13 @@ type Header interface {
 	// Clone returns copy of header struct.
 	Clone() Header
 	String() string
+	Equals(other interface{}) bool
 }
 
 // A URI from any schema (e.g. sip:, tel:, callto:)
 type Uri interface {
 	// Determine if the two URIs are equal according to the rules in RFC 3261 s. 19.1.4.
-	Equals(other Uri) bool
+	Equals(other interface{}) bool
 	String() string
 	Clone() Uri
 }
@@ -47,7 +48,7 @@ type Params interface {
 	Get(key string) (MaybeString, bool)
 	Add(key string, val MaybeString) Params
 	Clone() Params
-	Equals(params Params) bool
+	Equals(params interface{}) bool
 	ToString(sep uint8) string
 	String() string
 	Length() int
@@ -167,7 +168,12 @@ func (params *headerParams) Length() int {
 
 // Check if two maps of parameters are equal in the sense of having the same keys with the same values.
 // This does not rely on any ordering of the keys of the map in memory.
-func (params *headerParams) Equals(q Params) bool {
+func (params *headerParams) Equals(other interface{}) bool {
+	q, ok := other.(*headerParams)
+	if !ok {
+		return false
+	}
+
 	if params.Length() == 0 && q.Length() == 0 {
 		return true
 	}
@@ -239,8 +245,8 @@ func (uri *SipUri) IsWildcard() bool {
 
 // Determine if the SIP URI is equal to the specified URI according to the rules laid down in RFC 3261 s. 19.1.4.
 // TODO: The Equals method is not currently RFC-compliant; fix this!
-func (uri *SipUri) Equals(otherUri Uri) bool {
-	otherPtr, ok := otherUri.(*SipUri)
+func (uri *SipUri) Equals(val interface{}) bool {
+	otherPtr, ok := val.(*SipUri)
 	if !ok {
 		return false
 	}
@@ -342,7 +348,7 @@ func (uri WildcardUri) String() string {
 
 // Determines if this wildcard URI equals the specified other URI.
 // This is true if and only if the other URI is also a wildcard URI.
-func (uri WildcardUri) Equals(other Uri) bool {
+func (uri WildcardUri) Equals(other interface{}) bool {
 	switch other.(type) {
 	case WildcardUri:
 		return true
@@ -377,6 +383,15 @@ func (header *GenericHeader) Clone() Header {
 		HeaderName: header.HeaderName,
 		Contents:   header.Contents,
 	}
+}
+
+func (header *GenericHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*GenericHeader); ok {
+		return header.HeaderName == h.HeaderName &&
+			header.Contents == h.Contents
+	}
+
+	return false
 }
 
 // ToHeader introduces SIP 'To' header
@@ -417,6 +432,16 @@ func (to *ToHeader) Clone() Header {
 	}
 }
 
+func (to *ToHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*ToHeader); ok {
+		return to.DisplayName.Equals(h.DisplayName) &&
+			to.Address.Equals(h.Address) &&
+			to.Params.Equals(h.Params)
+	}
+
+	return false
+}
+
 type FromHeader struct {
 	// The display name from the header, may be omitted.
 	DisplayName MaybeString
@@ -453,6 +478,16 @@ func (from *FromHeader) Clone() Header {
 		Address:     from.Address.Clone(),
 		Params:      from.Params.Clone(),
 	}
+}
+
+func (from *FromHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*FromHeader); ok {
+		return from.DisplayName.Equals(h.DisplayName) &&
+			from.Address.Equals(h.Address) &&
+			from.Params.Equals(h.Params)
+	}
+
+	return false
 }
 
 type ContactHeader struct {
@@ -498,6 +533,16 @@ func (contact *ContactHeader) Clone() Header {
 	}
 }
 
+func (contact *ContactHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*ContactHeader); ok {
+		return contact.DisplayName.Equals(h.DisplayName) &&
+			contact.Address.Equals(h.Address) &&
+			contact.Params.Equals(h.Params)
+	}
+
+	return false
+}
+
 // CallID - 'Call-ID' header.
 type CallID string
 
@@ -510,6 +555,14 @@ func (callId *CallID) Name() string { return "Call-ID" }
 func (callId *CallID) Clone() Header {
 	temp := *callId
 	return &temp
+}
+
+func (callId *CallID) Equals(other interface{}) bool {
+	if h, ok := other.(*CallID); ok {
+		return *callId == *h
+	}
+
+	return false
 }
 
 type CSeq struct {
@@ -530,6 +583,15 @@ func (cseq *CSeq) Clone() Header {
 	}
 }
 
+func (cseq *CSeq) Equals(other interface{}) bool {
+	if h, ok := other.(*CSeq); ok {
+		return cseq.SeqNo == h.SeqNo &&
+			cseq.MethodName == h.MethodName
+	}
+
+	return false
+}
+
 type MaxForwards uint32
 
 func (maxForwards MaxForwards) String() string {
@@ -540,6 +602,14 @@ func (maxForwards MaxForwards) Name() string { return "Max-Forwards" }
 
 func (maxForwards MaxForwards) Clone() Header { return maxForwards }
 
+func (maxForwards MaxForwards) Equals(other interface{}) bool {
+	if h, ok := other.(MaxForwards); ok {
+		return maxForwards == h
+	}
+
+	return false
+}
+
 type ContentLength uint32
 
 func (contentLength ContentLength) String() string {
@@ -549,6 +619,14 @@ func (contentLength ContentLength) String() string {
 func (contentLength ContentLength) Name() string { return "Content-Length" }
 
 func (contentLength ContentLength) Clone() Header { return contentLength }
+
+func (contentLength ContentLength) Equals(other interface{}) bool {
+	if h, ok := other.(ContentLength); ok {
+		return contentLength == h
+	}
+
+	return false
+}
 
 type ViaHeader []*ViaHop
 
@@ -573,6 +651,24 @@ func (via ViaHeader) Clone() Header {
 		dup = append(dup, hop.Clone())
 	}
 	return ViaHeader(dup)
+}
+
+func (via ViaHeader) Equals(other interface{}) bool {
+	if h, ok := other.(ViaHeader); ok {
+		if len(via) != len(h) {
+			return false
+		}
+
+		for i, hop := range via {
+			if !hop.Equals(h[i]) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
 }
 
 // A single component in a Via header.
@@ -634,6 +730,19 @@ func (hop *ViaHop) Clone() *ViaHop {
 	}
 }
 
+func (hop *ViaHop) Equals(other interface{}) bool {
+	if h, ok := other.(*ViaHop); ok {
+		return hop.ProtocolName == h.ProtocolName &&
+			hop.ProtocolVersion == h.ProtocolVersion &&
+			hop.Transport == h.Transport &&
+			hop.Host == h.Host &&
+			util.Uint16PtrEq((*uint16)(hop.Port), (*uint16)(h.Port)) &&
+			hop.Params.Equals(h.Params)
+	}
+
+	return false
+}
+
 type RequireHeader struct {
 	Options []string
 }
@@ -649,6 +758,24 @@ func (require *RequireHeader) Clone() Header {
 	dup := make([]string, len(require.Options))
 	copy(require.Options, dup)
 	return &RequireHeader{dup}
+}
+
+func (require *RequireHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*RequireHeader); ok {
+		if len(require.Options) != len(h.Options) {
+			return false
+		}
+
+		for i, opt := range require.Options {
+			if opt != h.Options[i] {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
 }
 
 type SupportedHeader struct {
@@ -668,6 +795,24 @@ func (support *SupportedHeader) Clone() Header {
 	return &SupportedHeader{dup}
 }
 
+func (support *SupportedHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*SupportedHeader); ok {
+		if len(support.Options) != len(h.Options) {
+			return false
+		}
+
+		for i, opt := range support.Options {
+			if opt != h.Options[i] {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
+}
+
 type ProxyRequireHeader struct {
 	Options []string
 }
@@ -683,6 +828,24 @@ func (proxyRequire *ProxyRequireHeader) Clone() Header {
 	dup := make([]string, len(proxyRequire.Options))
 	copy(proxyRequire.Options, dup)
 	return &ProxyRequireHeader{dup}
+}
+
+func (proxyRequire *ProxyRequireHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*ProxyRequireHeader); ok {
+		if len(proxyRequire.Options) != len(h.Options) {
+			return false
+		}
+
+		for i, opt := range proxyRequire.Options {
+			if opt != h.Options[i] {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
 }
 
 // 'Unsupported:' is a SIP header type - this doesn't indicate that the
@@ -702,4 +865,22 @@ func (unsupported *UnsupportedHeader) Clone() Header {
 	dup := make([]string, len(unsupported.Options))
 	copy(unsupported.Options, dup)
 	return &UnsupportedHeader{dup}
+}
+
+func (unsupported *UnsupportedHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*UnsupportedHeader); ok {
+		if len(unsupported.Options) != len(h.Options) {
+			return false
+		}
+
+		for i, opt := range unsupported.Options {
+			if opt != h.Options[i] {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
 }

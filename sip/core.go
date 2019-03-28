@@ -49,6 +49,16 @@ func (addr *Address) Clone() *Address {
 	}
 }
 
+func (addr *Address) Equals(other interface{}) bool {
+	if v, ok := other.(*Address); ok {
+		return addr.DisplayName.Equals(v.DisplayName) &&
+			addr.Uri.Equals(v.Uri) &&
+			addr.Params.Equals(v.Params)
+	}
+
+	return false
+}
+
 // Port number
 type Port uint16
 
@@ -70,6 +80,7 @@ func (port *Port) String() string {
 // String wrapper
 type MaybeString interface {
 	String() string
+	Equals(other interface{}) bool
 }
 
 type String struct {
@@ -78,6 +89,14 @@ type String struct {
 
 func (str String) String() string {
 	return str.Str
+}
+
+func (str String) Equals(other interface{}) bool {
+	if v, ok := other.(String); ok {
+		return str.Str == v.Str
+	}
+
+	return false
 }
 
 type CancelError interface {
