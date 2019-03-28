@@ -77,6 +77,14 @@ func (port *Port) String() string {
 	return fmt.Sprintf("%d", *port)
 }
 
+func (port *Port) Equals(other interface{}) bool {
+	if p, ok := other.(*Port); ok {
+		return util.Uint16PtrEq((*uint16)(port), (*uint16)(p))
+	}
+
+	return false
+}
+
 // String wrapper
 type MaybeString interface {
 	String() string
