@@ -43,7 +43,7 @@ func (addr *Address) String() string {
 
 func (addr *Address) Clone() *Address {
 	return &Address{
-		DisplayName: String{addr.DisplayName.String()},
+		DisplayName: addr.DisplayName,
 		Uri:         addr.Uri.Clone().(*SipUri),
 		Params:      addr.Params.Clone(),
 	}
