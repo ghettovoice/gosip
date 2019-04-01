@@ -220,8 +220,9 @@ func (rb *RequestBuilder) Build() (Request, error) {
 		hdrs = append(hdrs, rb.expires)
 	}
 
+	sipVersion := rb.protocol + "/" + rb.protocolVersion
 	// basic request
-	req := NewRequest(rb.method, rb.recipient, rb.protocol, hdrs, rb.body)
+	req := NewRequest(rb.method, rb.recipient, sipVersion, hdrs, rb.body)
 
 	return req, nil
 }

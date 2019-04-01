@@ -212,7 +212,7 @@ const RFC3261BranchMagicCookie = "z9hG4bK"
 func GenerateBranch() string {
 	return strings.Join([]string{
 		RFC3261BranchMagicCookie,
-		util.RandString(16),
+		util.RandString(32),
 	}, "")
 }
 
