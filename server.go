@@ -160,6 +160,10 @@ func (srv *Server) shuttingDown() bool {
 
 // Shutdown gracefully shutdowns SIP server
 func (srv *Server) Shutdown() {
+	if srv.shuttingDown() {
+		return
+	}
+
 	atomic.AddInt32(&srv.inShutdown, 1)
 	defer atomic.AddInt32(&srv.inShutdown, -1)
 	// stop transaction layer

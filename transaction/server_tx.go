@@ -146,6 +146,11 @@ func (tx *serverTx) Ack() <-chan sip.Request {
 }
 
 func (tx *serverTx) Terminate() {
+	select {
+	case <-tx.done:
+		return
+	default:
+	}
 	tx.delete()
 }
 
@@ -353,11 +358,15 @@ func (tx *serverTx) timeoutErr() {
 }
 
 func (tx *serverTx) delete() {
-	tx.mu.Lock()
+	select {
+	case <-tx.done:
+		return
+	default:
+	}
 	// todo bloody patch
 	defer func() { recover() }()
-	tx.done <- true
 
+	tx.mu.Lock()
 	if tx.timer_i != nil {
 		tx.timer_i.Stop()
 	}
@@ -373,11 +382,11 @@ func (tx *serverTx) delete() {
 	if tx.timer_1xx != nil {
 		tx.timer_1xx.Stop()
 	}
+	tx.mu.Unlock()
 
 	close(tx.ack)
 	close(tx.errs)
 	close(tx.done)
-	tx.mu.Unlock()
 }
 
 // Define actions.

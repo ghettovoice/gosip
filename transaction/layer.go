@@ -36,6 +36,7 @@ type layer struct {
 	done         chan struct{}
 	canceled     chan struct{}
 	transactions *transactionStore
+	txWg         *sync.WaitGroup
 }
 
 func NewLayer(tpl transport.Layer) Layer {
@@ -49,6 +50,7 @@ func NewLayer(tpl transport.Layer) Layer {
 		done:         make(chan struct{}),
 		canceled:     make(chan struct{}),
 		transactions: newTransactionStore(),
+		txWg:         new(sync.WaitGroup),
 	}
 	go txl.listenMessages(ctx)
 
@@ -119,6 +121,7 @@ func (txl *layer) Request(req sip.Request) (<-chan sip.Response, error) {
 		return nil, err
 	}
 
+	txl.txWg.Add(1)
 	go txl.serveTransaction(tx)
 	txl.transactions.put(tx.Key(), tx)
 
@@ -144,19 +147,9 @@ func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
 func (txl *layer) listenMessages(ctx context.Context) {
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
-		// drop all transactions
-		txs := txl.transactions.all()
-		for _, tx := range txs {
-			go func(tx Tx) {
-				// ignore terminate error
-				for range tx.Errors() {
-				}
-			}(tx)
-			tx.Terminate()
-			txl.transactions.drop(tx.Key())
-		}
 
-		<-time.After(time.Second)
+		txl.txWg.Wait()
+		<-time.After(time.Millisecond)
 
 		close(txl.requests)
 		close(txl.responses)
@@ -183,8 +176,10 @@ func (txl *layer) listenMessages(ctx context.Context) {
 }
 
 func (txl *layer) serveTransaction(tx Tx) {
+	defer txl.txWg.Done()
 	defer func() {
 		log.Debugf("%s deletes transaction %s", txl, tx)
+		tx.Terminate()
 		txl.transactions.drop(tx.Key())
 	}()
 
@@ -239,6 +234,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 		tx.SetLog(txl.Log())
 		// put tx to store, to match retransmitting requests later
 		txl.transactions.put(tx.Key(), tx)
+		txl.txWg.Add(1)
 		go txl.serveTransaction(tx)
 
 		if err := tx.Init(); err != nil {

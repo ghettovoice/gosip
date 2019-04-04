@@ -199,9 +199,13 @@ var _ = Describe("ServerTx", func() {
 					go func() {
 						defer wg.Done()
 						By(fmt.Sprintf("UAC waits %s", notOk.Short()))
-						msg := <-tpl.OutMsgs
-						Expect(msg).ToNot(BeNil())
-						Expect(msg.String()).To(Equal(notOk.String()))
+						select {
+						case <-time.After(3 * time.Second):
+							panic("wait freezed")
+						case msg := <-tpl.OutMsgs:
+							Expect(msg).ToNot(BeNil())
+							Expect(msg.String()).To(Equal(notOk.String()))
+						}
 
 						time.Sleep(time.Millisecond)
 						By(fmt.Sprintf("UAC sends %s", notOkAck.Short()))

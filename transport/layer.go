@@ -293,7 +293,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 func (tpl *layer) serveProtocols(ctx context.Context) {
 	defer func() {
 		tpl.Log().Infof("%s stops serves protocols", tpl)
-		tpl.dispose()
+		tpl.dispose(ctx)
 		close(tpl.done)
 	}()
 	tpl.Log().Infof("%s begins serve protocols", tpl)
@@ -313,7 +313,7 @@ func (tpl *layer) serveProtocols(ctx context.Context) {
 	}
 }
 
-func (tpl *layer) dispose() {
+func (tpl *layer) dispose(ctx context.Context) {
 	tpl.Log().Debugf("%s disposing...", tpl)
 	// wait for protocols
 	protocols := tpl.protocols.all()
@@ -323,7 +323,10 @@ func (tpl *layer) dispose() {
 		tpl.protocols.drop(protocolKey(protocol.Network()))
 		go func(wg *sync.WaitGroup, protocol Protocol) {
 			defer wg.Done()
-			<-protocol.Done()
+			select {
+			case <-ctx.Done():
+			case <-protocol.Done():
+			}
 		}(wg, protocol)
 	}
 	wg.Wait()
