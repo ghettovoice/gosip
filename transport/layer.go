@@ -301,7 +301,7 @@ func (tpl *layer) serveProtocols(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			tpl.Cancel()
+			go tpl.Cancel()
 		case <-tpl.canceled:
 			tpl.Log().Warnf("%s received cancel signal", tpl)
 			return

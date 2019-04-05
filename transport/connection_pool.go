@@ -315,8 +315,6 @@ func (pool *connectionPool) serveHandlers() {
 
 	for {
 		select {
-		case <-pool.cancel:
-			return
 		case msg, ok := <-pool.hmess:
 			// cancel signal, serveStore exists
 			if !ok {
@@ -795,8 +793,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 
 	for {
 		select {
-		case <-handler.cancel:
-			return
 		case <-handler.canceled:
 			return
 		case <-handler.timer.C():
@@ -824,8 +820,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				fmt.Sprintf("%v", handler.Connection().RemoteAddr()),
 			}
 			select {
-			case <-handler.cancel:
-				return
 			case <-handler.canceled:
 				return
 			case handler.errs <- err:
@@ -874,8 +868,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			}
 			// pass up
 			select {
-			case <-handler.cancel:
-				return
 			case <-handler.canceled:
 				return
 			case handler.output <- msg:
@@ -922,8 +914,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				raddr,
 			}
 			select {
-			case <-handler.cancel:
-				return
 			case <-handler.canceled:
 				return
 			case handler.errs <- err:

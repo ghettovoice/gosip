@@ -37,6 +37,7 @@ type layer struct {
 	canceled     chan struct{}
 	transactions *transactionStore
 	txWg         *sync.WaitGroup
+	txWgLock     *sync.RWMutex
 }
 
 func NewLayer(tpl transport.Layer) Layer {
@@ -51,6 +52,7 @@ func NewLayer(tpl transport.Layer) Layer {
 		canceled:     make(chan struct{}),
 		transactions: newTransactionStore(),
 		txWg:         new(sync.WaitGroup),
+		txWgLock:     new(sync.RWMutex),
 	}
 	go txl.listenMessages(ctx)
 
@@ -121,7 +123,9 @@ func (txl *layer) Request(req sip.Request) (<-chan sip.Response, error) {
 		return nil, err
 	}
 
+	txl.txWgLock.Lock()
 	txl.txWg.Add(1)
+	txl.txWgLock.Unlock()
 	go txl.serveTransaction(tx)
 	txl.transactions.put(tx.Key(), tx)
 
@@ -147,8 +151,10 @@ func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
 func (txl *layer) listenMessages(ctx context.Context) {
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
-
-		txl.txWg.Wait()
+		txl.txWgLock.RLock()
+		wg := txl.txWg
+		txl.txWgLock.RUnlock()
+		wg.Wait()
 		<-time.After(time.Millisecond)
 
 		close(txl.requests)
@@ -161,7 +167,7 @@ func (txl *layer) listenMessages(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			txl.Cancel()
+			go txl.Cancel()
 		case <-txl.canceled:
 			txl.Log().Warnf("%s received cancel signal", txl)
 			return
@@ -203,9 +209,9 @@ func (txl *layer) handleMessage(msg sip.Message) {
 
 	switch msg := msg.(type) {
 	case sip.Request:
-		txl.handleRequest(msg)
+		go txl.handleRequest(msg)
 	case sip.Response:
-		txl.handleResponse(msg)
+		go txl.handleResponse(msg)
 	default:
 		txl.Log().Errorf("%s received unsupported message %s", txl, msg.Short())
 		// todo pass up error?
@@ -234,7 +240,9 @@ func (txl *layer) handleRequest(req sip.Request) {
 		tx.SetLog(txl.Log())
 		// put tx to store, to match retransmitting requests later
 		txl.transactions.put(tx.Key(), tx)
+		txl.txWgLock.Lock()
 		txl.txWg.Add(1)
+		txl.txWgLock.Unlock()
 		go txl.serveTransaction(tx)
 
 		if err := tx.Init(); err != nil {

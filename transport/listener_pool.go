@@ -37,7 +37,7 @@ type ListenerHandler interface {
 	Listener() net.Listener
 	Serve(done func())
 	// TODO implement later, runtime replace of the net.Listener in handler
-	//Update(ls net.Listener)
+	// Update(ls net.Listener)
 }
 
 type listenerRequest struct {
@@ -122,11 +122,20 @@ func (pool *listenerPool) Put(key ListenerKey, listener net.Listener) error {
 	req := &listenerRequest{[]ListenerKey{key}, []net.Listener{listener}, response}
 
 	pool.Log().Debugf("send put request %#v", req)
-	pool.updates <- req
-	res := <-response
 
-	if len(res.errs) > 0 {
-		return res.errs[0]
+	go func() {
+		select {
+		case <-pool.cancel:
+		case pool.updates <- req:
+		}
+	}()
+	select {
+	case <-pool.cancel:
+		return &PoolError{fmt.Errorf("%s canceled", pool), "put listener", pool.String()}
+	case res := <-response:
+		if len(res.errs) > 0 {
+			return res.errs[0]
+		}
 	}
 
 	return nil
@@ -143,10 +152,19 @@ func (pool *listenerPool) Get(key ListenerKey) (net.Listener, error) {
 	req := &listenerRequest{[]ListenerKey{key}, nil, response}
 
 	pool.Log().Debugf("send get request %#v", req)
-	pool.gets <- req
-	res := <-response
 
-	return res.listeners[0], res.errs[0]
+	go func() {
+		select {
+		case <-pool.cancel:
+		case pool.gets <- req:
+		}
+	}()
+	select {
+	case <-pool.cancel:
+		return nil, &PoolError{fmt.Errorf("%s canceled", pool), "get listener", pool.String()}
+	case res := <-response:
+		return res.listeners[0], res.errs[0]
+	}
 }
 
 func (pool *listenerPool) Drop(key ListenerKey) error {
@@ -160,10 +178,19 @@ func (pool *listenerPool) Drop(key ListenerKey) error {
 	req := &listenerRequest{[]ListenerKey{key}, nil, response}
 
 	pool.Log().Debugf("send drop request %#v", req)
-	pool.drops <- req
-	res := <-response
 
-	return res.errs[0]
+	go func() {
+		select {
+		case <-pool.cancel:
+		case pool.drops <- req:
+		}
+	}()
+	select {
+	case <-pool.cancel:
+		return &PoolError{fmt.Errorf("%s canceled", pool), "drop listener", pool.String()}
+	case res := <-response:
+		return res.errs[0]
+	}
 }
 
 func (pool *listenerPool) DropAll() error {
@@ -177,10 +204,19 @@ func (pool *listenerPool) DropAll() error {
 	req := &listenerRequest{pool.allKeys(), nil, response}
 
 	pool.Log().Debugf("send drop request %#v", req)
-	pool.drops <- req
-	<-response
 
-	return nil
+	go func() {
+		select {
+		case <-pool.cancel:
+		case pool.drops <- req:
+		}
+	}()
+	select {
+	case <-pool.cancel:
+		return &PoolError{fmt.Errorf("%s canceled", pool), "drop all listeners", pool.String()}
+	case <-response:
+		return nil
+	}
 }
 
 func (pool *listenerPool) All() []net.Listener {
@@ -194,10 +230,19 @@ func (pool *listenerPool) All() []net.Listener {
 	req := &listenerRequest{pool.allKeys(), nil, response}
 
 	pool.Log().Debugf("send get request %#v", req)
-	pool.gets <- req
-	res := <-response
 
-	return res.listeners
+	go func() {
+		select {
+		case <-pool.cancel:
+		case pool.gets <- req:
+		}
+	}()
+	select {
+	case <-pool.cancel:
+		return []net.Listener{}
+	case res := <-response:
+		return res.listeners
+	}
 }
 
 func (pool *listenerPool) Length() int {
@@ -259,7 +304,11 @@ func (pool *listenerPool) serveHandlers() {
 			}
 
 			pool.Log().Debugf("%s received %s", pool, conn)
-			pool.output <- conn
+			select {
+			case <-pool.cancel:
+				return
+			case pool.output <- conn:
+			}
 		case err, ok := <-pool.herrs:
 			if !ok {
 				return
@@ -287,7 +336,11 @@ func (pool *listenerPool) serveHandlers() {
 				// all other possible errors
 				pool.Log().Debugf("%s received error: %s", pool, err)
 			}
-			pool.errs <- err
+			select {
+			case <-pool.cancel:
+				return
+			case pool.errs <- err:
+			}
 		}
 	}
 }
@@ -369,7 +422,10 @@ func (pool *listenerPool) handlePut(req *listenerRequest) {
 	}
 
 	pool.Log().Debugf("send put response %#v", res)
-	req.response <- res
+	select {
+	case <-pool.cancel:
+	case req.response <- res:
+	}
 }
 
 func (pool *listenerPool) handleGet(req *listenerRequest) {
@@ -388,7 +444,10 @@ func (pool *listenerPool) handleGet(req *listenerRequest) {
 	}
 
 	pool.Log().Debugf("send get response %#v", res)
-	req.response <- res
+	select {
+	case <-pool.cancel:
+	case req.response <- res:
+	}
 }
 
 func (pool *listenerPool) handleDrop(req *listenerRequest) {
@@ -401,7 +460,10 @@ func (pool *listenerPool) handleDrop(req *listenerRequest) {
 	}
 
 	pool.Log().Debugf("send drop response %#v", res)
-	req.response <- res
+	select {
+	case <-pool.cancel:
+	case req.response <- res:
+	}
 }
 
 type listenerHandler struct {
@@ -474,8 +536,8 @@ func (handler *listenerHandler) Listener() net.Listener {
 }
 
 func (handler *listenerHandler) Serve(done func()) {
+	defer done()
 	defer func() {
-		defer done()
 		handler.Log().Infof("%s stops serve listener routine", handler)
 		close(handler.done)
 	}()
@@ -488,7 +550,7 @@ func (handler *listenerHandler) Serve(done func()) {
 		select {
 		case <-handler.cancel:
 			handler.Log().Warnf("%s received cancel signal", handler)
-			handler.Cancel()
+			go handler.Cancel()
 		case <-handler.canceled:
 		}
 	}()
@@ -526,13 +588,20 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 			}
 			// broken or closed listener
 			// pass up error and exit
-			errs <- err
+			select {
+			case <-handler.canceled:
+			case errs <- err:
+			}
 			return
 		}
 
 		conn := NewConnection(baseConn)
 		conn.SetLog(handler.Log())
-		conns <- conn
+		select {
+		case <-handler.canceled:
+			return
+		case conns <- conn:
+		}
 	}
 }
 
@@ -545,28 +614,21 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 
 	for {
 		select {
+		case <-handler.canceled:
+			return
 		case conn, ok := <-conns:
-			// cancel signal
-			select {
-			case <-handler.canceled:
-				return
-			default:
-			}
 			// chan closed
 			if !ok {
 				return
 			}
 			if conn != nil {
 				handler.Log().Infof("%s accepted new %s; pass it up", handler, conn)
-				handler.output <- conn
+				select {
+				case <-handler.canceled:
+				case handler.output <- conn:
+				}
 			}
 		case err, ok := <-errs:
-			// cancel signal
-			select {
-			case <-handler.canceled:
-				return
-			default:
-			}
 			// chan closed
 			if !ok {
 				return
@@ -578,7 +640,10 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 					err = &ListenerHandlerError{err, handler.Key(), handler.String(),
 						listenerNetwork(handler.Listener()), handler.Listener().Addr().String()}
 				}
-				handler.errs <- err
+				select {
+				case <-handler.canceled:
+				case handler.errs <- err:
+				}
 			}
 		}
 	}
@@ -591,10 +656,10 @@ func (handler *listenerHandler) Cancel() {
 	case <-handler.canceled:
 		return
 	default:
+		handler.Log().Debugf("cancel %s", handler)
+		close(handler.canceled)
+		handler.Listener().Close()
 	}
-	handler.Log().Debugf("cancel %s", handler)
-	close(handler.canceled)
-	handler.Listener().Close()
 }
 
 // Done returns channel that resolves when handler gracefully completes it work.
