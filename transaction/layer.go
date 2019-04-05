@@ -1,7 +1,6 @@
 package transaction
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -41,7 +40,6 @@ type layer struct {
 }
 
 func NewLayer(tpl transport.Layer) Layer {
-	ctx := context.Background()
 	txl := &layer{
 		logger:       log.NewSafeLocalLogger(),
 		tpl:          tpl,
@@ -54,7 +52,7 @@ func NewLayer(tpl transport.Layer) Layer {
 		txWg:         new(sync.WaitGroup),
 		txWgLock:     new(sync.RWMutex),
 	}
-	go txl.listenMessages(ctx)
+	go txl.listenMessages()
 
 	return txl
 }
@@ -148,7 +146,7 @@ func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
 	return tx.Ack(), nil
 }
 
-func (txl *layer) listenMessages(ctx context.Context) {
+func (txl *layer) listenMessages() {
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
 		txl.txWgLock.RLock()
@@ -166,8 +164,6 @@ func (txl *layer) listenMessages(ctx context.Context) {
 
 	for {
 		select {
-		case <-ctx.Done():
-			go txl.Cancel()
 		case <-txl.canceled:
 			txl.Log().Warnf("%s received cancel signal", txl)
 			return

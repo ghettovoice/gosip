@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"strconv"
@@ -73,7 +72,6 @@ type layer struct {
 // NewLayer creates transport layer.
 // 	- hostAddr - current server host address (IP or FQDN)
 func NewLayer(hostAddr string) Layer {
-	ctx := context.Background()
 	// todo pass up error
 	var host string
 	var port *uint
@@ -108,7 +106,7 @@ func NewLayer(hostAddr string) Layer {
 		canceled:  make(chan struct{}),
 		done:      make(chan struct{}),
 	}
-	go tpl.serveProtocols(ctx)
+	go tpl.serveProtocols()
 	return tpl
 }
 
@@ -290,18 +288,16 @@ func (tpl *layer) Send(msg sip.Message) error {
 	}
 }
 
-func (tpl *layer) serveProtocols(ctx context.Context) {
+func (tpl *layer) serveProtocols() {
 	defer func() {
 		tpl.Log().Infof("%s stops serves protocols", tpl)
-		tpl.dispose(ctx)
+		tpl.dispose()
 		close(tpl.done)
 	}()
 	tpl.Log().Infof("%s begins serve protocols", tpl)
 
 	for {
 		select {
-		case <-ctx.Done():
-			go tpl.Cancel()
 		case <-tpl.canceled:
 			tpl.Log().Warnf("%s received cancel signal", tpl)
 			return
@@ -313,23 +309,13 @@ func (tpl *layer) serveProtocols(ctx context.Context) {
 	}
 }
 
-func (tpl *layer) dispose(ctx context.Context) {
+func (tpl *layer) dispose() {
 	tpl.Log().Debugf("%s disposing...", tpl)
 	// wait for protocols
-	protocols := tpl.protocols.all()
-	wg := new(sync.WaitGroup)
-	wg.Add(len(protocols))
-	for _, protocol := range protocols {
+	for _, protocol := range tpl.protocols.all() {
 		tpl.protocols.drop(protocolKey(protocol.Network()))
-		go func(wg *sync.WaitGroup, protocol Protocol) {
-			defer wg.Done()
-			select {
-			case <-ctx.Done():
-			case <-protocol.Done():
-			}
-		}(wg, protocol)
 	}
-	wg.Wait()
+
 	close(tpl.pmsgs)
 	close(tpl.perrs)
 	close(tpl.msgs)

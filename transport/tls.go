@@ -55,8 +55,6 @@ func (tls *tlsProtocol) pipePools() {
 
 	for {
 		select {
-		//case <-ctx.Done():
-		//	return
 		case conn, ok := <-tls.conns:
 			if !ok {
 				return

@@ -200,7 +200,7 @@ var _ = Describe("ServerTx", func() {
 						defer wg.Done()
 						By(fmt.Sprintf("UAC waits %s", notOk.Short()))
 						select {
-						case <-time.After(3 * time.Second):
+						case <-time.After(time.Second):
 							panic("wait freezed")
 						case msg := <-tpl.OutMsgs:
 							Expect(msg).ToNot(BeNil())
@@ -209,11 +209,12 @@ var _ = Describe("ServerTx", func() {
 
 						time.Sleep(time.Millisecond)
 						By(fmt.Sprintf("UAC sends %s", notOkAck.Short()))
-						tpl.InMsgs <- notOkAck
-					}()
-				})
 
-				AfterEach(func() {
+						go func() {
+							tpl.InMsgs <- notOkAck
+						}()
+					}()
+
 					wg.Wait()
 				})
 
