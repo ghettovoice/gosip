@@ -3,7 +3,6 @@ package transaction
 import (
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -149,11 +148,8 @@ func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
 func (txl *layer) listenMessages() {
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
-		txl.txWgLock.RLock()
-		wg := txl.txWg
-		txl.txWgLock.RUnlock()
-		wg.Wait()
-		<-time.After(time.Millisecond)
+
+		txl.txWg.Wait()
 
 		close(txl.requests)
 		close(txl.responses)
@@ -178,11 +174,11 @@ func (txl *layer) listenMessages() {
 }
 
 func (txl *layer) serveTransaction(tx Tx) {
-	defer txl.txWg.Done()
 	defer func() {
 		log.Debugf("%s deletes transaction %s", txl, tx)
 		tx.Terminate()
 		txl.transactions.drop(tx.Key())
+		txl.txWg.Done()
 	}()
 
 	for {

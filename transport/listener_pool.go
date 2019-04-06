@@ -547,12 +547,9 @@ func (handler *listenerHandler) Serve(done func()) {
 	errs := make(chan error)
 	// watch for cancel signal
 	go func() {
-		select {
-		case <-handler.cancel:
-			handler.Log().Warnf("%s received cancel signal", handler)
-			go handler.Cancel()
-		case <-handler.canceled:
-		}
+		<-handler.cancel
+		handler.Log().Warnf("%s received cancel signal", handler)
+		handler.Cancel()
 	}()
 
 	wg := new(sync.WaitGroup)
@@ -590,9 +587,10 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 			// pass up error and exit
 			select {
 			case <-handler.canceled:
+				return
 			case errs <- err:
+				return
 			}
-			return
 		}
 
 		conn := NewConnection(baseConn)
@@ -625,6 +623,7 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 				handler.Log().Infof("%s accepted new %s; pass it up", handler, conn)
 				select {
 				case <-handler.canceled:
+					return
 				case handler.output <- conn:
 				}
 			}
@@ -642,6 +641,7 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 				}
 				select {
 				case <-handler.canceled:
+					return
 				case handler.errs <- err:
 				}
 			}
@@ -656,10 +656,11 @@ func (handler *listenerHandler) Cancel() {
 	case <-handler.canceled:
 		return
 	default:
-		handler.Log().Debugf("cancel %s", handler)
-		close(handler.canceled)
-		handler.Listener().Close()
 	}
+	defer func() { recover() }()
+	handler.Log().Debugf("cancel %s", handler)
+	close(handler.canceled)
+	handler.Listener().Close()
 }
 
 // Done returns channel that resolves when handler gracefully completes it work.

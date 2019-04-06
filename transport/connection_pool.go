@@ -294,7 +294,7 @@ func (pool *connectionPool) serveStore() {
 func (pool *connectionPool) dispose() {
 	// clean pool
 	for _, key := range pool.allKeys() {
-		pool.drop(key, false)
+		pool.drop(key, true)
 	}
 	pool.hwg.Wait()
 	// stop serveHandlers goroutine
@@ -652,12 +652,9 @@ func (handler *connectionHandler) Serve(done func()) {
 	handler.Log().Infof("%s begins serve connection routine", handler)
 	// watch for cancel
 	go func() {
-		select {
-		case <-handler.cancel:
-			handler.Log().Warnf("%s received cancel signal", handler)
-			go handler.Cancel()
-		case <-handler.canceled:
-		}
+		<-handler.cancel
+		handler.Log().Warnf("%s received cancel signal", handler)
+		handler.Cancel()
 	}()
 	// start connection serving goroutines
 	msgs, errs := handler.readConnection()
@@ -707,14 +704,6 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				num, raddr, err = handler.Connection().ReadFrom(buf)
 			}
 
-			select {
-			case <-handler.cancel:
-				return
-			case <-handler.canceled:
-				return
-			default:
-			}
-
 			if err != nil {
 				// if we get timeout error just go further and try read on the next iteration
 				if err, ok := err.(net.Error); ok {
@@ -727,7 +716,10 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				}
 				// broken or closed connection
 				// so send error and exit
-				errs <- err
+				select {
+				case <-handler.canceled:
+				case errs <- err:
+				}
 				return
 			}
 
@@ -746,12 +738,10 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 			// parse received data
 			if _, err := prs.Write(append([]byte{}, buf[:num]...)); err != nil {
 				select {
-				case <-handler.cancel:
-					return
 				case <-handler.canceled:
-					return
 				case errs <- err:
 				}
+				return
 			}
 		}
 	}()
@@ -796,12 +786,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 		case <-handler.canceled:
 			return
 		case <-handler.timer.C():
-			// cancel signal
-			select {
-			case <-handler.canceled:
-				return
-			default:
-			}
 			if handler.Expiry().IsZero() {
 				// handler expiryTime is zero only when TTL = 0 (unlimited handler)
 				// so we must not get here with zero expiryTime
@@ -825,12 +809,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			case handler.errs <- err:
 			}
 		case msg, ok := <-msgs:
-			// cancel signal
-			select {
-			case <-handler.canceled:
-				return
-			default:
-			}
 			if !ok {
 				return
 			}
@@ -877,12 +855,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				handler.timer.Reset(handler.ttl)
 			}
 		case err, ok := <-errs:
-			// cancel signal
-			select {
-			case <-handler.canceled:
-				return
-			default:
-			}
 			if !ok {
 				return
 			}
@@ -929,6 +901,7 @@ func (handler *connectionHandler) Cancel() {
 		return
 	default:
 	}
+	defer func() { recover() }()
 	handler.Log().Debugf("cancel %s", handler)
 	close(handler.canceled)
 	handler.Connection().Close()

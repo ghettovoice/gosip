@@ -400,6 +400,8 @@ func (tx *clientTx) delete() {
 	// todo bloody patch
 	defer func() { recover() }()
 
+	close(tx.done)
+
 	tx.mu.Lock()
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
@@ -414,7 +416,6 @@ func (tx *clientTx) delete() {
 
 	close(tx.responses)
 	close(tx.errs)
-	close(tx.done)
 }
 
 // Define actions

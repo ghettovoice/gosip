@@ -314,6 +314,7 @@ func (tpl *layer) dispose() {
 	// wait for protocols
 	for _, protocol := range tpl.protocols.all() {
 		tpl.protocols.drop(protocolKey(protocol.Network()))
+		<-protocol.Done()
 	}
 
 	close(tpl.pmsgs)
@@ -370,7 +371,10 @@ func (tpl *layer) handleMessage(msg sip.Message) {
 
 	tpl.Log().Debugf("%s passes up %s", tpl, msg.Short())
 	// pass up message
-	tpl.msgs <- msg
+	select {
+	case <-tpl.canceled:
+	case tpl.msgs <- msg:
+	}
 }
 
 func (tpl *layer) handlerError(err error) {
@@ -383,7 +387,10 @@ func (tpl *layer) handlerError(err error) {
 	}
 	// core.Message errors
 	tpl.Log().Debugf("%s passes up %s", tpl, err)
-	tpl.errs <- err
+	select {
+	case <-tpl.canceled:
+	case tpl.errs <- err:
+	}
 }
 
 type protocolKey string
