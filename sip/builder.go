@@ -25,6 +25,7 @@ type RequestBuilder struct {
 	userAgent       *GenericHeader
 	maxForwards     *GenericHeader
 	supported       *SupportedHeader
+	require         *RequireHeader
 	allow           *GenericHeader
 }
 
@@ -200,6 +201,14 @@ func (rb *RequestBuilder) SetAllow(methods []RequestMethod) *RequestBuilder {
 
 func (rb *RequestBuilder) SetSupported(options []string) *RequestBuilder {
 	rb.supported = &SupportedHeader{
+		Options: options,
+	}
+
+	return rb
+}
+
+func (rb *RequestBuilder) SetRequire(options []string) *RequestBuilder {
+	rb.require = &RequireHeader{
 		Options: options,
 	}
 
