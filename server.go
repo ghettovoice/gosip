@@ -23,11 +23,13 @@ type RequestHandler func(req sip.Request)
 
 // ServerConfig describes available options
 type ServerConfig struct {
-	HostAddr string
+	HostAddr   string
+	Extensions []string
 }
 
 var defaultConfig = &ServerConfig{
-	HostAddr: defaultHostAddr,
+	HostAddr:   defaultHostAddr,
+	Extensions: make([]string, 0),
 }
 
 // Server is a SIP server
@@ -38,6 +40,7 @@ type Server struct {
 	hwg             *sync.WaitGroup
 	hmu             *sync.RWMutex
 	requestHandlers map[sip.RequestMethod][]RequestHandler
+	extensions      []string
 }
 
 // NewServer creates new instance of SIP server.
@@ -63,6 +66,7 @@ func NewServer(config *ServerConfig) *Server {
 		hwg:             new(sync.WaitGroup),
 		hmu:             new(sync.RWMutex),
 		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
+		extensions:      config.Extensions,
 	}
 
 	go srv.serve(ctx)
@@ -143,7 +147,17 @@ func (srv *Server) Request(req sip.Request) (<-chan sip.Response, error) {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}
 
-	if req.IsInvite() {
+	return srv.tx.Request(srv.prepareRequest(req))
+}
+
+func (srv *Server) prepareRequest(req sip.Request) sip.Request {
+	autoAppendMethods := map[sip.RequestMethod]bool{
+		sip.INVITE:   true,
+		sip.REGISTER: true,
+		sip.REFER:    true,
+		sip.NOTIFY:   true,
+	}
+	if _, ok := autoAppendMethods[req.Method()]; ok {
 		hdrs := req.GetHeaders("Allow")
 		if len(hdrs) == 0 {
 			methods := make([]string, 0)
@@ -155,9 +169,16 @@ func (srv *Server) Request(req sip.Request) (<-chan sip.Response, error) {
 				Contents:   strings.Join(methods, ", "),
 			})
 		}
+
+		hdrs = req.GetHeaders("Supported")
+		if len(hdrs) == 0 {
+			req.AppendHeader(&sip.SupportedHeader{
+				Options: srv.extensions,
+			})
+		}
 	}
 
-	return srv.tx.Request(req)
+	return req
 }
 
 func (srv *Server) Respond(res sip.Response) (<-chan sip.Request, error) {
@@ -165,23 +186,45 @@ func (srv *Server) Respond(res sip.Response) (<-chan sip.Request, error) {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}
 
-	methods := make([]string, 0)
-	for _, method := range srv.getAllowedMethods() {
-		methods = append(methods, string(method))
+	return srv.tx.Respond(srv.prepareResponse(res))
+}
+
+func (srv *Server) prepareResponse(res sip.Response) sip.Response {
+	autoAppendMethods := map[sip.RequestMethod]bool{
+		sip.OPTIONS: true,
 	}
 
-	hdrs := res.GetHeaders("Allow")
-	if len(hdrs) == 0 {
-		res.AppendHeader(&sip.GenericHeader{
-			HeaderName: "Allow",
-			Contents:   strings.Join(methods, ", "),
-		})
-	} else {
-		allowHeader := hdrs[0].(*sip.GenericHeader)
-		allowHeader.Contents = strings.Join(methods, ", ")
+	if cseq, ok := res.CSeq(); ok {
+		methods := make([]string, 0)
+		for _, method := range srv.getAllowedMethods() {
+			methods = append(methods, string(method))
+		}
+
+		if _, ok := autoAppendMethods[cseq.MethodName]; ok {
+			hdrs := res.GetHeaders("Allow")
+			if len(hdrs) == 0 {
+				res.AppendHeader(&sip.GenericHeader{
+					HeaderName: "Allow",
+					Contents:   strings.Join(methods, ", "),
+				})
+			} else {
+				allowHeader := hdrs[0].(*sip.GenericHeader)
+				allowHeader.Contents = strings.Join(methods, ", ")
+			}
+
+			hdrs = res.GetHeaders("Supported")
+			if len(hdrs) == 0 {
+				res.AppendHeader(&sip.SupportedHeader{
+					Options: srv.extensions,
+				})
+			} else {
+				supportedHeader := hdrs[0].(*sip.SupportedHeader)
+				supportedHeader.Options = srv.extensions
+			}
+		}
 	}
 
-	return srv.tx.Respond(res)
+	return res
 }
 
 func (srv *Server) shuttingDown() bool {
