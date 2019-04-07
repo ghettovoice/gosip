@@ -3,6 +3,7 @@ package gosip
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -102,7 +103,7 @@ func (srv *Server) serve(ctx context.Context) {
 			}
 		case err := <-srv.tp.Errors():
 			if err != nil {
-				log.Error("GoSIP server received transport error: %s", err.Error())
+				log.Error("GoSIP server received transport error: %s", err)
 			}
 		}
 	}
@@ -112,7 +113,7 @@ func (srv *Server) handleRequest(req sip.Request) {
 	defer srv.hwg.Done()
 
 	log.Infof("GoSIP server handles incoming message %s", req.Short())
-	log.Debugf(req.String())
+	log.Debugf("message:\n%s", req)
 
 	srv.hmu.RLock()
 	handlers, ok := srv.requestHandlers[req.Method()]
@@ -126,9 +127,8 @@ func (srv *Server) handleRequest(req sip.Request) {
 		// nothing to do, just ignore it
 	} else {
 		log.Warnf("GoSIP server not found handler registered for the request %s", req.Short())
-		log.Debug(req.String())
 
-		res := sip.NewResponseFromRequest(req, 501, "Method Not Supported", "")
+		res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", "")
 		if _, err := srv.Respond(res); err != nil {
 			log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
 		}
@@ -140,7 +140,21 @@ func (srv *Server) handleRequest(req sip.Request) {
 // Send SIP message
 func (srv *Server) Request(req sip.Request) (<-chan sip.Response, error) {
 	if srv.shuttingDown() {
-		return nil, fmt.Errorf("can not send through shutting down server")
+		return nil, fmt.Errorf("can not send through stopped server")
+	}
+
+	if req.IsInvite() {
+		hdrs := req.GetHeaders("Allow")
+		if len(hdrs) == 0 {
+			methods := make([]string, 0)
+			for _, method := range srv.getAllowedMethods() {
+				methods = append(methods, string(method))
+			}
+			req.AppendHeader(&sip.GenericHeader{
+				HeaderName: "Allow",
+				Contents:   strings.Join(methods, ", "),
+			})
+		}
 	}
 
 	return srv.tx.Request(req)
@@ -148,7 +162,23 @@ func (srv *Server) Request(req sip.Request) (<-chan sip.Response, error) {
 
 func (srv *Server) Respond(res sip.Response) (<-chan sip.Request, error) {
 	if srv.shuttingDown() {
-		return nil, fmt.Errorf("can not send through shutting down server")
+		return nil, fmt.Errorf("can not send through stopped server")
+	}
+
+	methods := make([]string, 0)
+	for _, method := range srv.getAllowedMethods() {
+		methods = append(methods, string(method))
+	}
+
+	hdrs := res.GetHeaders("Allow")
+	if len(hdrs) == 0 {
+		res.AppendHeader(&sip.GenericHeader{
+			HeaderName: "Allow",
+			Contents:   strings.Join(methods, ", "),
+		})
+	} else {
+		allowHeader := hdrs[0].(*sip.GenericHeader)
+		allowHeader.Contents = strings.Join(methods, ", ")
 	}
 
 	return srv.tx.Respond(res)
@@ -196,4 +226,27 @@ func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) e
 	srv.requestHandlers[method] = append(srv.requestHandlers[method], handler)
 
 	return nil
+}
+
+func (srv *Server) getAllowedMethods() []sip.RequestMethod {
+	methods := []sip.RequestMethod{
+		sip.INVITE,
+		sip.ACK,
+		sip.CANCEL,
+	}
+	added := map[sip.RequestMethod]bool{
+		sip.INVITE: true,
+		sip.ACK:    true,
+		sip.CANCEL: true,
+	}
+
+	srv.hmu.RLock()
+	for method := range srv.requestHandlers {
+		if _, ok := added[method]; !ok {
+			methods = append(methods, method)
+		}
+	}
+	srv.hmu.RUnlock()
+
+	return methods
 }

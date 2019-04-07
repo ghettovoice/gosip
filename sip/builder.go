@@ -2,6 +2,7 @@ package sip
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/ghettovoice/gosip/util"
 )
@@ -23,6 +24,8 @@ type RequestBuilder struct {
 	expires         *GenericHeader
 	userAgent       *GenericHeader
 	maxForwards     *GenericHeader
+	supported       *SupportedHeader
+	allow           *GenericHeader
 }
 
 func NewRequestBuilder() *RequestBuilder {
@@ -181,6 +184,28 @@ func (rb *RequestBuilder) SetMaxForwards(maxForwards uint) *RequestBuilder {
 	return rb
 }
 
+func (rb *RequestBuilder) SetAllow(methods []RequestMethod) *RequestBuilder {
+	parts := make([]string, 0)
+	for _, method := range methods {
+		parts = append(parts, string(method))
+	}
+
+	rb.allow = &GenericHeader{
+		HeaderName: "Allow",
+		Contents:   strings.Join(parts, ", "),
+	}
+
+	return rb
+}
+
+func (rb *RequestBuilder) SetSupported(options []string) *RequestBuilder {
+	rb.supported = &SupportedHeader{
+		Options: options,
+	}
+
+	return rb
+}
+
 func (rb *RequestBuilder) Build() (Request, error) {
 	if rb.method == "" {
 		return nil, fmt.Errorf("undefined method name")
@@ -218,6 +243,12 @@ func (rb *RequestBuilder) Build() (Request, error) {
 	}
 	if rb.expires != nil {
 		hdrs = append(hdrs, rb.expires)
+	}
+	if rb.supported != nil {
+		hdrs = append(hdrs, rb.supported)
+	}
+	if rb.allow != nil {
+		hdrs = append(hdrs, rb.allow)
 	}
 
 	sipVersion := rb.protocol + "/" + rb.protocolVersion

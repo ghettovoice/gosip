@@ -100,7 +100,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	target = FillTargetHostAndPort(tcp.Network(), target)
 
 	tcp.Log().Infof("%s sends message '%s' to %s", tcp, msg.Short(), target.Addr())
-	tcp.Log().Debugf("%s sends message '%s' to %s:\r\n%s", tcp, msg.Short(), target.Addr(), msg)
+	tcp.Log().Debugf("message:\n%s", tcp, msg.Short(), target.Addr(), msg)
 
 	// validate remote address
 	if target.Host == "" {

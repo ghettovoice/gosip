@@ -756,7 +756,7 @@ func (require *RequireHeader) Name() string { return "Require" }
 
 func (require *RequireHeader) Clone() Header {
 	dup := make([]string, len(require.Options))
-	copy(require.Options, dup)
+	copy(dup, require.Options)
 	return &RequireHeader{dup}
 }
 
@@ -791,7 +791,7 @@ func (support *SupportedHeader) Name() string { return "Supported" }
 
 func (support *SupportedHeader) Clone() Header {
 	dup := make([]string, len(support.Options))
-	copy(support.Options, dup)
+	copy(dup, support.Options)
 	return &SupportedHeader{dup}
 }
 
@@ -826,7 +826,7 @@ func (proxyRequire *ProxyRequireHeader) Name() string { return "Proxy-Require" }
 
 func (proxyRequire *ProxyRequireHeader) Clone() Header {
 	dup := make([]string, len(proxyRequire.Options))
-	copy(proxyRequire.Options, dup)
+	copy(dup, proxyRequire.Options)
 	return &ProxyRequireHeader{dup}
 }
 
@@ -863,7 +863,7 @@ func (unsupported *UnsupportedHeader) Name() string { return "Unsupported" }
 
 func (unsupported *UnsupportedHeader) Clone() Header {
 	dup := make([]string, len(unsupported.Options))
-	copy(unsupported.Options, dup)
+	copy(dup, unsupported.Options)
 	return &UnsupportedHeader{dup}
 }
 

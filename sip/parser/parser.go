@@ -510,7 +510,7 @@ func parseStatusLine(statusLine string) (
 	sipVersion = parts[0]
 	statusCodeRaw, err := strconv.ParseUint(parts[1], 10, 16)
 	statusCode = sip.StatusCode(statusCodeRaw)
-	reasonPhrase = strings.Join(parts[2:], "")
+	reasonPhrase = strings.Join(parts[2:], " ")
 
 	return
 }
