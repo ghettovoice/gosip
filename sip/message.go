@@ -87,6 +87,7 @@ type Message interface {
 	// CSeq returns 'CSeq' header field.
 	CSeq() (*CSeq, bool)
 	ContentLength() (*ContentLength, bool)
+	Contact() (*ContactHeader, bool)
 
 	Transport() string
 	Source() string
@@ -326,6 +327,18 @@ func (hs *headers) ContentLength() (*ContentLength, bool) {
 		return nil, false
 	}
 	return contentLength, true
+}
+
+func (hs *headers) Contact() (*ContactHeader, bool) {
+	hdrs := hs.GetHeaders("Contact")
+	if len(hdrs) == 0 {
+		return nil, false
+	}
+	contactHeader, ok := hdrs[0].(*ContactHeader)
+	if !ok {
+		return nil, false
+	}
+	return contactHeader, true
 }
 
 // basic message implementation

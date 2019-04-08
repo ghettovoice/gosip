@@ -178,6 +178,11 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 		}
 	}
 
+	hdrs := req.GetHeaders("User-Agent")
+	if len(hdrs) == 0 {
+		req.AppendHeader(&sip.GenericHeader{HeaderName: "User-Agent", Contents: "GoSIP"})
+	}
+
 	return req
 }
 

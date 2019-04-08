@@ -107,6 +107,12 @@ func (txl *layer) Transport() transport.Layer {
 }
 
 func (txl *layer) Request(req sip.Request) (<-chan sip.Response, error) {
+	select {
+	case <-txl.canceled:
+		return nil, fmt.Errorf("%s is canceled", txl)
+	default:
+	}
+
 	txl.Log().Debugf("%s sends %s", txl, req.Short())
 
 	tx, err := NewClientTx(req, txl.tpl)
@@ -130,6 +136,12 @@ func (txl *layer) Request(req sip.Request) (<-chan sip.Response, error) {
 }
 
 func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
+	select {
+	case <-txl.canceled:
+		return nil, fmt.Errorf("%s is canceled", txl)
+	default:
+	}
+
 	txl.Log().Debugf("%s sends %s", txl, res.Short())
 
 	tx, err := txl.getServerTx(res)
@@ -199,6 +211,12 @@ func (txl *layer) serveTransaction(tx Tx) {
 }
 
 func (txl *layer) handleMessage(msg sip.Message) {
+	select {
+	case <-txl.canceled:
+		return
+	default:
+	}
+
 	txl.Log().Infof("%s received %s", txl, msg.Short())
 
 	switch msg := msg.(type) {
@@ -213,6 +231,12 @@ func (txl *layer) handleMessage(msg sip.Message) {
 }
 
 func (txl *layer) handleRequest(req sip.Request) {
+	select {
+	case <-txl.canceled:
+		return
+	default:
+	}
+
 	// try to match to existent tx: request retransmission or ACKs on non-2xx
 	if tx, err := txl.getServerTx(req); err == nil {
 		if err := tx.Receive(req); err != nil {
@@ -234,6 +258,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 		tx.SetLog(txl.Log())
 		// put tx to store, to match retransmitting requests later
 		txl.transactions.put(tx.Key(), tx)
+
 		txl.txWgLock.Lock()
 		txl.txWg.Add(1)
 		txl.txWgLock.Unlock()
@@ -253,6 +278,12 @@ func (txl *layer) handleRequest(req sip.Request) {
 }
 
 func (txl *layer) handleResponse(res sip.Response) {
+	select {
+	case <-txl.canceled:
+		return
+	default:
+	}
+
 	tx, err := txl.getClientTx(res)
 	if err != nil {
 		txl.Log().Warn(err)

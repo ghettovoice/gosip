@@ -353,11 +353,14 @@ func (tx *clientTx) passUp() {
 	tx.mu.RLock()
 	lastResp := tx.lastResp
 	tx.mu.RUnlock()
+
 	if lastResp != nil {
+		tx.mu.RLock()
 		select {
 		case <-tx.done:
 		case tx.responses <- lastResp:
 		}
+		tx.mu.RUnlock()
 	}
 }
 
@@ -370,10 +373,12 @@ func (tx *clientTx) transportErr() {
 		tx.Key(),
 		tx.String(),
 	}
+	tx.mu.RLock()
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
+	tx.mu.RUnlock()
 }
 
 func (tx *clientTx) timeoutErr() {
@@ -385,10 +390,12 @@ func (tx *clientTx) timeoutErr() {
 		tx.Key(),
 		tx.String(),
 	}
+	tx.mu.RLock()
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
+	tx.mu.RUnlock()
 }
 
 func (tx *clientTx) delete() {
@@ -414,8 +421,10 @@ func (tx *clientTx) delete() {
 	}
 	tx.mu.Unlock()
 
+	tx.mu.Lock()
 	close(tx.responses)
 	close(tx.errs)
+	tx.mu.Unlock()
 }
 
 // Define actions

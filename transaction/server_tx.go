@@ -57,12 +57,14 @@ func NewServerTx(origin sip.Request, tpl transport.Layer) (ServerTx, error) {
 func (tx *serverTx) Init() error {
 	tx.initFSM()
 
+	tx.mu.Lock()
 	if tx.reliable {
 		tx.timer_i_time = 0
 	} else {
 		tx.timer_g_time = Timer_G
 		tx.timer_i_time = Timer_I
 	}
+	tx.mu.Unlock()
 	// RFC 3261 - 17.2.1
 	if tx.Origin().IsInvite() {
 		tx.Log().Debugf("%s, set timer_1xx to %v", tx, Timer_1xx)
@@ -104,10 +106,12 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 		input = server_input_request
 	case req.IsAck(): // ACK for non-2xx response
 		input = server_input_ack
+		tx.mu.RLock()
 		select {
 		case <-tx.done:
 		case tx.ack <- req:
 		}
+		tx.mu.RUnlock()
 	default:
 		return &sip.UnexpectedMessageError{
 			fmt.Errorf("invalid %s correlated to %s", msg, tx),
@@ -119,9 +123,9 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 }
 
 func (tx *serverTx) Respond(res sip.Response) error {
+	tx.mu.Lock()
 	tx.lastResp = res
 
-	tx.mu.Lock()
 	if tx.timer_1xx != nil {
 		tx.timer_1xx.Stop()
 		tx.timer_1xx = nil
@@ -336,10 +340,12 @@ func (tx *serverTx) transportErr() {
 		tx.Key(),
 		tx.String(),
 	}
+	tx.mu.RLock()
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
+	tx.mu.RUnlock()
 }
 
 func (tx *serverTx) timeoutErr() {
@@ -351,10 +357,12 @@ func (tx *serverTx) timeoutErr() {
 		tx.Key(),
 		tx.String(),
 	}
+	tx.mu.RLock()
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
+	tx.mu.RUnlock()
 }
 
 func (tx *serverTx) delete() {
@@ -386,16 +394,24 @@ func (tx *serverTx) delete() {
 	}
 	tx.mu.Unlock()
 
+	tx.mu.Lock()
 	close(tx.ack)
 	close(tx.errs)
+	tx.mu.Unlock()
 }
 
 // Define actions.
 // Send response
 func (tx *serverTx) act_respond() fsm.Input {
 	tx.Log().Debugf("%s, act_respond %s", tx, tx.lastResp.Short())
-	tx.lastErr = tx.tpl.Send(tx.lastResp)
-	if tx.lastErr != nil {
+
+	lastErr := tx.tpl.Send(tx.lastResp)
+
+	tx.mu.Lock()
+	tx.lastErr = lastErr
+	tx.mu.Unlock()
+
+	if lastErr != nil {
 		return server_input_transport_err
 	}
 
@@ -404,12 +420,19 @@ func (tx *serverTx) act_respond() fsm.Input {
 
 func (tx *serverTx) act_respond_complete() fsm.Input {
 	tx.Log().Debugf("%s, act_respond_complete %s", tx, tx.lastResp.Short())
-	tx.lastErr = tx.tpl.Send(tx.lastResp)
-	if tx.lastErr != nil {
+
+	lastErr := tx.tpl.Send(tx.lastResp)
+
+	tx.mu.Lock()
+	tx.lastErr = lastErr
+	tx.mu.Unlock()
+
+	if lastErr != nil {
 		return server_input_transport_err
 	}
-	tx.mu.Lock()
+
 	if !tx.reliable {
+		tx.mu.Lock()
 		if tx.timer_g == nil {
 			tx.timer_g = timing.AfterFunc(tx.timer_g_time, func() {
 				tx.Log().Debugf("%s, timer_g fired", tx)
@@ -422,7 +445,10 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 			}
 			tx.timer_g.Reset(tx.timer_g_time)
 		}
+		tx.mu.Unlock()
 	}
+
+	tx.mu.Lock()
 	if tx.timer_h == nil {
 		tx.timer_h = timing.AfterFunc(Timer_H, func() {
 			tx.Log().Debugf("%s, timer_h fired", tx)
@@ -436,8 +462,13 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 
 // Send final response
 func (tx *serverTx) act_final() fsm.Input {
-	tx.lastErr = tx.tpl.Send(tx.lastResp)
-	if tx.lastErr != nil {
+	lastErr := tx.tpl.Send(tx.lastResp)
+
+	tx.mu.Lock()
+	tx.lastErr = lastErr
+	tx.mu.Unlock()
+
+	if lastErr != nil {
 		return server_input_transport_err
 	}
 
@@ -477,8 +508,13 @@ func (tx *serverTx) act_respond_delete() fsm.Input {
 	tx.Log().Debugf("%s, act_respond_delete", tx)
 	tx.delete()
 
-	tx.lastErr = tx.tpl.Send(tx.lastResp)
-	if tx.lastErr != nil {
+	lastErr := tx.tpl.Send(tx.lastResp)
+
+	tx.mu.Lock()
+	tx.lastErr = lastErr
+	tx.mu.Unlock()
+
+	if lastErr != nil {
 		return server_input_transport_err
 	}
 
@@ -487,11 +523,13 @@ func (tx *serverTx) act_respond_delete() fsm.Input {
 
 func (tx *serverTx) act_confirm() fsm.Input {
 	tx.Log().Debugf("%s, act_confirm")
+
 	tx.mu.Lock()
 	tx.timer_i = timing.AfterFunc(Timer_I, func() {
 		tx.Log().Debugf("%s, timer_i fired")
 		tx.fsm.Spin(server_input_timer_i)
 	})
 	tx.mu.Unlock()
+
 	return fsm.NO_INPUT
 }
