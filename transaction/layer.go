@@ -149,7 +149,9 @@ func (txl *layer) listenMessages() {
 	defer func() {
 		txl.Log().Infof("%s stops listen messages routine", txl)
 
+		txl.txWgLock.RLock()
 		txl.txWg.Wait()
+		txl.txWgLock.RUnlock()
 
 		close(txl.requests)
 		close(txl.responses)
