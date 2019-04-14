@@ -15,11 +15,11 @@ type Layer interface {
 	Cancel()
 	Done() <-chan struct{}
 	String() string
-	Request(req sip.Request) (<-chan sip.Response, error)
-	Respond(res sip.Response) (<-chan sip.Request, error)
+	Request(req sip.Request) (sip.ClientTransaction, error)
+	Respond(res sip.Response) (sip.ServerTransaction, error)
 	Transport() transport.Layer
 	// Requests returns channel with new incoming server transactions.
-	Requests() <-chan sip.Request
+	Requests() <-chan sip.ServerTransaction
 	// Responses returns channel with not matched responses.
 	Responses() <-chan sip.Response
 	Errors() <-chan error
@@ -28,7 +28,7 @@ type Layer interface {
 type layer struct {
 	logger       log.LocalLogger
 	tpl          transport.Layer
-	requests     chan sip.Request
+	requests     chan sip.ServerTransaction
 	responses    chan sip.Response
 	errs         chan error
 	done         chan struct{}
@@ -42,7 +42,7 @@ func NewLayer(tpl transport.Layer) Layer {
 	txl := &layer{
 		logger:       log.NewSafeLocalLogger(),
 		tpl:          tpl,
-		requests:     make(chan sip.Request),
+		requests:     make(chan sip.ServerTransaction),
 		responses:    make(chan sip.Response),
 		errs:         make(chan error),
 		done:         make(chan struct{}),
@@ -90,7 +90,7 @@ func (txl *layer) Done() <-chan struct{} {
 	return txl.done
 }
 
-func (txl *layer) Requests() <-chan sip.Request {
+func (txl *layer) Requests() <-chan sip.ServerTransaction {
 	return txl.requests
 }
 
@@ -106,7 +106,7 @@ func (txl *layer) Transport() transport.Layer {
 	return txl.tpl
 }
 
-func (txl *layer) Request(req sip.Request) (<-chan sip.Response, error) {
+func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 	select {
 	case <-txl.canceled:
 		return nil, fmt.Errorf("%s is canceled", txl)
@@ -116,10 +116,10 @@ func (txl *layer) Request(req sip.Request) (<-chan sip.Response, error) {
 	txl.Log().Debugf("%s sends %s", txl, req.Short())
 
 	tx, err := NewClientTx(req, txl.tpl)
-	tx.SetLog(txl.Log())
 	if err != nil {
 		return nil, err
 	}
+	tx.SetLog(txl.Log())
 
 	err = tx.Init()
 	if err != nil {
@@ -130,12 +130,13 @@ func (txl *layer) Request(req sip.Request) (<-chan sip.Response, error) {
 	txl.txWg.Add(1)
 	txl.txWgLock.Unlock()
 	go txl.serveTransaction(tx)
+
 	txl.transactions.put(tx.Key(), tx)
 
-	return tx.Responses(), nil
+	return tx, nil
 }
 
-func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
+func (txl *layer) Respond(res sip.Response) (sip.ServerTransaction, error) {
 	select {
 	case <-txl.canceled:
 		return nil, fmt.Errorf("%s is canceled", txl)
@@ -154,7 +155,7 @@ func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
 		return nil, err
 	}
 
-	return tx.Acks(), nil
+	return tx, nil
 }
 
 func (txl *layer) listenMessages() {
@@ -182,7 +183,7 @@ func (txl *layer) listenMessages() {
 				return
 			}
 			// start handle goroutine
-			go txl.handleMessage(msg)
+			txl.handleMessage(msg)
 		}
 	}
 }
@@ -190,7 +191,7 @@ func (txl *layer) listenMessages() {
 func (txl *layer) serveTransaction(tx Tx) {
 	defer func() {
 		log.Debugf("%s deletes transaction %s", txl, tx)
-		tx.Terminate()
+
 		txl.transactions.drop(tx.Key())
 		txl.txWg.Done()
 	}()
@@ -198,14 +199,10 @@ func (txl *layer) serveTransaction(tx Tx) {
 	for {
 		select {
 		case <-txl.canceled:
+			tx.Terminate()
 			return
 		case <-tx.Done():
 			return
-		case err := <-tx.Errors():
-			select {
-			case <-txl.canceled:
-			case txl.errs <- err:
-			}
 		}
 	}
 }
@@ -221,9 +218,9 @@ func (txl *layer) handleMessage(msg sip.Message) {
 
 	switch msg := msg.(type) {
 	case sip.Request:
-		go txl.handleRequest(msg)
+		txl.handleRequest(msg)
 	case sip.Response:
-		go txl.handleResponse(msg)
+		txl.handleResponse(msg)
 	default:
 		txl.Log().Errorf("%s received unsupported message %s", txl, msg.Short())
 		// todo pass up error?
@@ -237,8 +234,9 @@ func (txl *layer) handleRequest(req sip.Request) {
 	default:
 	}
 
-	// try to match to existent tx: request retransmission or ACKs on non-2xx, or CANCEL
-	if tx, err := txl.getServerTx(req); err == nil {
+	// try to match to existent tx: request retransmission, or ACKs on non-2xx, or CANCEL
+	tx, err := txl.getServerTx(req)
+	if err == nil {
 		if err := tx.Receive(req); err != nil {
 			txl.Log().Error(err)
 		}
@@ -246,34 +244,34 @@ func (txl *layer) handleRequest(req sip.Request) {
 		return
 	}
 
-	// or create new one only for new requests except ACKs on 2xx and invalid Cancels
-	if !req.IsAck() && !req.IsCancel() {
-		txl.Log().Debugf("%s creates new server transaction for %s", txl, req.Short())
-		tx, err := NewServerTx(req, txl.tpl)
-		if err != nil {
-			txl.Log().Error(err)
-			return
-		}
-
-		tx.SetLog(txl.Log())
-		// put tx to store, to match retransmitting requests later
-		txl.transactions.put(tx.Key(), tx)
-
-		txl.txWgLock.Lock()
-		txl.txWg.Add(1)
-		txl.txWgLock.Unlock()
-		go txl.serveTransaction(tx)
-
-		if err := tx.Init(); err != nil {
-			txl.Log().Error(err)
-			return
-		}
+	txl.Log().Debugf("%s creates new server transaction for %s", txl, req.Short())
+	tx, err = NewServerTx(req, txl.tpl)
+	if err != nil {
+		txl.Log().Error(err)
+		return
 	}
+
+	if err := tx.Init(); err != nil {
+		txl.Log().Error(err)
+		return
+	}
+
+	tx.SetLog(txl.Log())
+	// put tx to store, to match retransmitting requests later
+	txl.transactions.put(tx.Key(), tx)
+
+	txl.txWgLock.Lock()
+	txl.txWg.Add(1)
+	txl.txWgLock.Unlock()
+	go txl.serveTransaction(tx)
+
 	// pass up request
 	txl.Log().Debugf("%s pass up %s", txl, req.Short())
+
 	select {
 	case <-txl.canceled:
-	case txl.requests <- req:
+		return
+	case txl.requests <- tx:
 	}
 }
 
@@ -295,7 +293,11 @@ func (txl *layer) handleResponse(res sip.Response) {
 		}
 		return
 	}
-	_ = tx.Receive(res)
+
+	if err := tx.Receive(res); err != nil {
+		txl.Log().Error(err)
+		return
+	}
 }
 
 // RFC 17.1.3.

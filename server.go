@@ -19,7 +19,7 @@ const (
 
 // RequestHandler is a callback that will be called on the incoming request
 // of the certain method
-type RequestHandler func(req sip.Request)
+type RequestHandler func(tx sip.ServerTransaction)
 
 // ServerConfig describes available options
 type ServerConfig struct {
@@ -68,6 +68,16 @@ func NewServer(config *ServerConfig) *Server {
 		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
 		extensions:      config.Extensions,
 	}
+	// setup default handlers
+	_ = srv.OnRequest(sip.ACK, func(tx sip.ServerTransaction) {
+		log.Infof("GoSIP server received ACK request: %s", tx.Origin().Short())
+	})
+	_ = srv.OnRequest(sip.CANCEL, func(tx sip.ServerTransaction) {
+		response := sip.NewResponseFromRequest(tx.Origin(), 481, "Transaction Does Not Exist", "")
+		if _, err := srv.Respond(response); err != nil {
+			log.Errorf("failed to send response: %s", err)
+		}
+	})
 
 	go srv.serve(ctx)
 
@@ -91,15 +101,15 @@ func (srv *Server) serve(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case req := <-srv.tx.Requests():
-			if req != nil { // if chan is closed or early exit
+		case tx := <-srv.tx.Requests():
+			if tx != nil { // if chan is closed or early exit
 				srv.hwg.Add(1)
-				go srv.handleRequest(req)
+				go srv.handleRequest(tx)
 			}
 		case res := <-srv.tx.Responses():
 			if res != nil {
 				log.Warnf("GoSIP server received not matched response: %s", res.Short())
-				log.Debug(res.String())
+				log.Debugf("message:\n%s", res.String())
 			}
 		case err := <-srv.tx.Errors():
 			if err != nil {
@@ -113,26 +123,24 @@ func (srv *Server) serve(ctx context.Context) {
 	}
 }
 
-func (srv *Server) handleRequest(req sip.Request) {
+func (srv *Server) handleRequest(tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
-	log.Infof("GoSIP server handles incoming message %s", req.Short())
-	log.Debugf("message:\n%s", req)
+	log.Infof("GoSIP server handles incoming message %s", tx.Origin().Short())
+	log.Debugf("message:\n%s", tx)
 
 	srv.hmu.RLock()
-	handlers, ok := srv.requestHandlers[req.Method()]
+	handlers, ok := srv.requestHandlers[tx.Origin().Method()]
 	srv.hmu.RUnlock()
 
 	if ok {
 		for _, handler := range handlers {
-			handler(req)
+			handler(tx)
 		}
-	} else if req.IsAck() {
-		// nothing to do, just ignore it
 	} else {
-		log.Warnf("GoSIP server not found handler registered for the request %s", req.Short())
+		log.Warnf("GoSIP server not found handler registered for the request %s", tx.Origin().Short())
 
-		res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", "")
+		res := sip.NewResponseFromRequest(tx.Origin(), 405, "Method Not Allowed", "")
 		if _, err := srv.Respond(res); err != nil {
 			log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
 		}
@@ -142,7 +150,7 @@ func (srv *Server) handleRequest(req sip.Request) {
 }
 
 // Send SIP message
-func (srv *Server) Request(req sip.Request) (<-chan sip.Response, error) {
+func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
 	if srv.shuttingDown() {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}
@@ -186,7 +194,7 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	return req
 }
 
-func (srv *Server) Respond(res sip.Response) (<-chan sip.Request, error) {
+func (srv *Server) Respond(res sip.Response) (sip.ServerTransaction, error) {
 	if srv.shuttingDown() {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}

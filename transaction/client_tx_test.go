@@ -39,7 +39,7 @@ var _ = Describe("ClientTx", func() {
 		var err error
 		var invite, trying, ok, notOk, ack sip.Message
 		var inviteBranch string
-		var responses <-chan sip.Response
+		var tx sip.ClientTransaction
 
 		mu := new(sync.Mutex)
 
@@ -103,8 +103,8 @@ var _ = Describe("ClientTx", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			mu.Lock()
-			responses, err = txl.Request(invite.(sip.Request))
-			Expect(responses).ToNot(BeNil())
+			tx, err = txl.Request(invite.(sip.Request))
+			Expect(tx).ToNot(BeNil())
 			Expect(err).ToNot(HaveOccurred())
 			mu.Unlock()
 		})
@@ -127,8 +127,8 @@ var _ = Describe("ClientTx", func() {
 				}()
 
 				mu.Lock()
-				responses, err = txl.Request(invite.(sip.Request))
-				Expect(responses).ToNot(BeNil())
+				tx, err = txl.Request(invite.(sip.Request))
+				Expect(tx).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
 				mu.Unlock()
 			})
@@ -138,11 +138,11 @@ var _ = Describe("ClientTx", func() {
 
 			It("should receive responses in INVITE tx", func() {
 				var msg sip.Response
-				msg = <-responses
+				msg = <-tx.Responses()
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(trying.String()))
 
-				msg = <-responses
+				msg = <-tx.Responses()
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(ok.String()))
 			})
@@ -174,8 +174,8 @@ var _ = Describe("ClientTx", func() {
 				}()
 
 				mu.Lock()
-				responses, err = txl.Request(invite.(sip.Request))
-				Expect(responses).ToNot(BeNil())
+				tx, err = txl.Request(invite.(sip.Request))
+				Expect(tx).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
 				mu.Unlock()
 			})
@@ -185,11 +185,11 @@ var _ = Describe("ClientTx", func() {
 
 			It("should receive responses in INVITE tx and send ACK", func() {
 				var msg sip.Response
-				msg = <-responses
+				msg = <-tx.Responses()
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(trying.String()))
 
-				msg = <-responses
+				msg = <-tx.Responses()
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(notOk.String()))
 			})

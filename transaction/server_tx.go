@@ -32,6 +32,7 @@ type serverTx struct {
 	timer_i_time time.Duration
 	timer_j      timing.Timer
 	timer_1xx    timing.Timer
+	timer_term   timing.Timer
 	reliable     bool
 	mu           *sync.RWMutex
 }
@@ -73,11 +74,20 @@ func (tx *serverTx) Init() error {
 	// RFC 3261 - 17.2.1
 	if tx.Origin().IsInvite() {
 		tx.Log().Debugf("%s, set timer_1xx to %v", tx, Timer_1xx)
-		// todo set as timer, reset in Respond
+
 		tx.mu.Lock()
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
 			tx.Log().Debugf("%s, timer_1xx fired", tx)
 			_ = tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
+		})
+		tx.mu.Unlock()
+	}
+	// auto-terminate ACK on 2xx transaction
+	if tx.Origin().IsAck() {
+		tx.mu.Lock()
+		tx.timer_term = timing.AfterFunc(Timer_J, func() {
+			tx.Log().Debugf("%s, timer_term fired", tx)
+			tx.Terminate()
 		})
 		tx.mu.Unlock()
 	}
@@ -226,6 +236,7 @@ func (tx *serverTx) initInviteFSM() {
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_completed, tx.act_respond},
 			server_input_ack:           {server_state_confirmed, tx.act_confirm},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
@@ -240,6 +251,7 @@ func (tx *serverTx) initInviteFSM() {
 		Index: server_state_confirmed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_confirmed, fsm.NO_ACTION},
@@ -254,6 +266,7 @@ func (tx *serverTx) initInviteFSM() {
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_terminated, fsm.NO_ACTION},
 			server_input_ack:           {server_state_terminated, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_terminated, fsm.NO_ACTION},
@@ -285,6 +298,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_trying,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_trying, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_completed, tx.act_respond},
 			server_input_user_300_plus: {server_state_completed, tx.act_respond},
@@ -296,6 +310,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_proceeding,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_proceeding, tx.act_respond},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_completed, tx.act_final},
 			server_input_user_300_plus: {server_state_completed, tx.act_final},
@@ -308,6 +323,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_completed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_completed, tx.act_respond},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
@@ -321,6 +337,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_terminated,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_terminated, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_terminated, fsm.NO_ACTION},
@@ -404,6 +421,9 @@ func (tx *serverTx) delete() {
 	}
 	if tx.timer_1xx != nil {
 		tx.timer_1xx.Stop()
+	}
+	if tx.timer_term != nil {
+		tx.timer_term.Stop()
 	}
 	tx.mu.Unlock()
 
