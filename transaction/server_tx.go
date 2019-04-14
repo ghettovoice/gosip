@@ -77,7 +77,7 @@ func (tx *serverTx) Init() error {
 		tx.mu.Lock()
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
 			tx.Log().Debugf("%s, timer_1xx fired", tx)
-			tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
+			_ = tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
 		})
 		tx.mu.Unlock()
 	}
@@ -113,6 +113,11 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 		input = server_input_ack
 		tx.mu.Lock()
 		tx.lastAck = req
+		tx.mu.Unlock()
+	case req.IsCancel():
+		input = server_input_cancel
+		tx.mu.Lock()
+		tx.lastCancel = req
 		tx.mu.Unlock()
 	default:
 		return &sip.UnexpectedMessageError{
@@ -177,6 +182,7 @@ const (
 const (
 	server_input_request fsm.Input = iota
 	server_input_ack
+	server_input_cancel
 	server_input_user_1xx
 	server_input_user_2xx
 	server_input_user_300_plus
@@ -206,6 +212,7 @@ func (tx *serverTx) initInviteFSM() {
 		Index: server_state_proceeding,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_proceeding, tx.act_respond},
+			server_input_cancel:        {server_state_proceeding, tx.act_cancel},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_terminated, tx.act_respond_delete},
 			server_input_user_300_plus: {server_state_completed, tx.act_respond_complete},
@@ -545,6 +552,25 @@ func (tx *serverTx) act_confirm() fsm.Input {
 		select {
 		case <-tx.done:
 		case tx.acks <- tx.lastAck:
+		}
+	}
+	tx.mu.RUnlock()
+
+	return fsm.NO_INPUT
+}
+
+func (tx *serverTx) act_cancel() fsm.Input {
+	tx.Log().Debugf("%s, act_cancel")
+
+	tx.mu.RLock()
+	_ = tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 487, "Canceled", ""))
+	tx.mu.RUnlock()
+
+	tx.mu.RLock()
+	if tx.lastCancel != nil {
+		select {
+		case <-tx.done:
+		case tx.cancels <- tx.lastCancel:
 		}
 	}
 	tx.mu.RUnlock()
