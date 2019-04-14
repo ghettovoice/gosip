@@ -202,6 +202,14 @@ func (srv *Server) Respond(res sip.Response) (sip.ServerTransaction, error) {
 	return srv.tx.Respond(srv.prepareResponse(res))
 }
 
+func (srv *Server) Send(msg sip.Message) error {
+	if srv.shuttingDown() {
+		return fmt.Errorf("can not send through stopped server")
+	}
+
+	return srv.tp.Send(msg)
+}
+
 func (srv *Server) prepareResponse(res sip.Response) sip.Response {
 	autoAppendMethods := map[sip.RequestMethod]bool{
 		sip.OPTIONS: true,
