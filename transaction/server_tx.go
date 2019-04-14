@@ -15,12 +15,16 @@ import (
 type ServerTx interface {
 	Tx
 	Respond(res sip.Response) error
-	Ack() <-chan sip.Request
+	Acks() <-chan sip.Request
+	Cancels() <-chan sip.Request
 }
 
 type serverTx struct {
 	commonTx
-	ack          chan sip.Request
+	lastAck      sip.Request
+	lastCancel   sip.Request
+	acks         chan sip.Request
+	cancels      chan sip.Request
 	timer_g      timing.Timer
 	timer_g_time time.Duration
 	timer_h      timing.Timer
@@ -43,7 +47,8 @@ func NewServerTx(origin sip.Request, tpl transport.Layer) (ServerTx, error) {
 	tx.key = key
 	tx.origin = origin
 	tx.tpl = tpl
-	tx.ack = make(chan sip.Request, 1)
+	tx.acks = make(chan sip.Request, 1)
+	tx.cancels = make(chan sip.Request, 1)
 	tx.errs = make(chan error, 1)
 	tx.done = make(chan bool, 1)
 	tx.mu = new(sync.RWMutex)
@@ -106,12 +111,9 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 		input = server_input_request
 	case req.IsAck(): // ACK for non-2xx response
 		input = server_input_ack
-		tx.mu.RLock()
-		select {
-		case <-tx.done:
-		case tx.ack <- req:
-		}
-		tx.mu.RUnlock()
+		tx.mu.Lock()
+		tx.lastAck = req
+		tx.mu.Unlock()
 	default:
 		return &sip.UnexpectedMessageError{
 			fmt.Errorf("invalid %s correlated to %s", msg, tx),
@@ -145,8 +147,12 @@ func (tx *serverTx) Respond(res sip.Response) error {
 	return tx.fsm.Spin(input)
 }
 
-func (tx *serverTx) Ack() <-chan sip.Request {
-	return tx.ack
+func (tx *serverTx) Acks() <-chan sip.Request {
+	return tx.acks
+}
+
+func (tx *serverTx) Cancels() <-chan sip.Request {
+	return tx.cancels
 }
 
 func (tx *serverTx) Terminate() {
@@ -394,8 +400,11 @@ func (tx *serverTx) delete() {
 	}
 	tx.mu.Unlock()
 
+	time.Sleep(time.Microsecond)
+
 	tx.mu.Lock()
-	close(tx.ack)
+	close(tx.acks)
+	close(tx.cancels)
 	close(tx.errs)
 	tx.mu.Unlock()
 }
@@ -530,6 +539,15 @@ func (tx *serverTx) act_confirm() fsm.Input {
 		tx.fsm.Spin(server_input_timer_i)
 	})
 	tx.mu.Unlock()
+
+	tx.mu.RLock()
+	if tx.lastAck != nil {
+		select {
+		case <-tx.done:
+		case tx.acks <- tx.lastAck:
+		}
+	}
+	tx.mu.RUnlock()
 
 	return fsm.NO_INPUT
 }

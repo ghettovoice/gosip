@@ -19,6 +19,7 @@ type Request interface {
 	/* Common Helpers */
 	IsInvite() bool
 	IsAck() bool
+	IsCancel() bool
 }
 
 type request struct {
@@ -102,6 +103,10 @@ func (req *request) IsInvite() bool {
 
 func (req *request) IsAck() bool {
 	return req.Method() == ACK
+}
+
+func (req *request) IsCancel() bool {
+	return req.Method() == CANCEL
 }
 
 func (req *request) Source() string {

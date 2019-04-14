@@ -154,7 +154,7 @@ func (txl *layer) Respond(res sip.Response) (<-chan sip.Request, error) {
 		return nil, err
 	}
 
-	return tx.Ack(), nil
+	return tx.Acks(), nil
 }
 
 func (txl *layer) listenMessages() {
@@ -237,7 +237,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 	default:
 	}
 
-	// try to match to existent tx: request retransmission or ACKs on non-2xx
+	// try to match to existent tx: request retransmission or ACKs on non-2xx, or CANCEL
 	if tx, err := txl.getServerTx(req); err == nil {
 		if err := tx.Receive(req); err != nil {
 			txl.Log().Error(err)
@@ -246,8 +246,8 @@ func (txl *layer) handleRequest(req sip.Request) {
 		return
 	}
 
-	// or create new one only for new requests except ACKs on 2xx
-	if !req.IsAck() {
+	// or create new one only for new requests except ACKs on 2xx and invalid Cancels
+	if !req.IsAck() && !req.IsCancel() {
 		txl.Log().Debugf("%s creates new server transaction for %s", txl, req.Short())
 		tx, err := NewServerTx(req, txl.tpl)
 		if err != nil {

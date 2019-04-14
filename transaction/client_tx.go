@@ -421,6 +421,8 @@ func (tx *clientTx) delete() {
 	}
 	tx.mu.Unlock()
 
+	time.Sleep(time.Microsecond)
+
 	tx.mu.Lock()
 	close(tx.responses)
 	close(tx.errs)
