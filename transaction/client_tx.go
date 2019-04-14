@@ -145,7 +145,7 @@ func (tx clientTx) ack() {
 	sip.CopyHeaders("From", tx.Origin(), ack)
 	sip.CopyHeaders("Call-ID", tx.Origin(), ack)
 	sip.CopyHeaders("Route", tx.Origin(), ack)
-	sip.CopyHeaders("To", tx.Origin(), ack)
+	sip.CopyHeaders("To", tx.lastResp, ack)
 	cseq, ok := tx.Origin().CSeq()
 	if !ok {
 		tx.Log().Errorf("failed to send ACK request on client transaction %p: %s", tx)
