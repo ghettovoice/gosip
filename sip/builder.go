@@ -27,6 +27,7 @@ type RequestBuilder struct {
 	supported       *SupportedHeader
 	require         *RequireHeader
 	allow           *GenericHeader
+	contentType     *GenericHeader
 }
 
 func NewRequestBuilder() *RequestBuilder {
@@ -46,7 +47,9 @@ func NewRequestBuilder() *RequestBuilder {
 }
 
 func (rb *RequestBuilder) SetTransport(transport string) *RequestBuilder {
-	if transport != "" {
+	if transport == "" {
+		rb.transport = "UDP"
+	} else {
 		rb.transport = transport
 	}
 
@@ -54,7 +57,9 @@ func (rb *RequestBuilder) SetTransport(transport string) *RequestBuilder {
 }
 
 func (rb *RequestBuilder) SetHost(host string) *RequestBuilder {
-	if host != "" {
+	if host == "" {
+		rb.host = "localhost"
+	} else {
 		rb.host = host
 	}
 
@@ -87,7 +92,9 @@ func (rb *RequestBuilder) SetBody(body string) *RequestBuilder {
 }
 
 func (rb *RequestBuilder) SetCallID(callID CallID) *RequestBuilder {
-	if callID != "" {
+	if callID == "" {
+		rb.callID = CallID(util.RandString(32))
+	} else {
 		rb.callID = callID
 	}
 
@@ -161,55 +168,90 @@ func (rb *RequestBuilder) SetContact(address *Address) *RequestBuilder {
 	return rb
 }
 
-func (rb *RequestBuilder) SetExpires(expires uint) *RequestBuilder {
-	rb.expires = &GenericHeader{
-		HeaderName: "Expires",
-		Contents:   fmt.Sprintf("%d", expires),
+func (rb *RequestBuilder) SetExpires(expires int) *RequestBuilder {
+	if expires < 0 {
+		rb.expires = nil
+	} else {
+		rb.expires = &GenericHeader{
+			HeaderName: "Expires",
+			Contents:   fmt.Sprintf("%d", expires),
+		}
 	}
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetUserAgent(userAgent string) *RequestBuilder {
-	rb.userAgent.Contents = userAgent
+	if userAgent != "" {
+		rb.userAgent.Contents = userAgent
+	}
 
 	return rb
 }
 
-func (rb *RequestBuilder) SetMaxForwards(maxForwards uint) *RequestBuilder {
-	rb.maxForwards = &GenericHeader{
-		HeaderName: "Max-Forwards",
-		Contents:   fmt.Sprintf("%d", maxForwards),
+func (rb *RequestBuilder) SetMaxForwards(maxForwards int) *RequestBuilder {
+	if maxForwards < 0 {
+		rb.maxForwards = nil
+	} else {
+		rb.maxForwards = &GenericHeader{
+			HeaderName: "Max-Forwards",
+			Contents:   fmt.Sprintf("%d", maxForwards),
+		}
 	}
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetAllow(methods []RequestMethod) *RequestBuilder {
-	parts := make([]string, 0)
-	for _, method := range methods {
-		parts = append(parts, string(method))
-	}
+	if len(methods) == 0 {
+		rb.allow = nil
+	} else {
+		parts := make([]string, 0)
+		for _, method := range methods {
+			parts = append(parts, string(method))
+		}
 
-	rb.allow = &GenericHeader{
-		HeaderName: "Allow",
-		Contents:   strings.Join(parts, ", "),
+		rb.allow = &GenericHeader{
+			HeaderName: "Allow",
+			Contents:   strings.Join(parts, ", "),
+		}
 	}
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetSupported(options []string) *RequestBuilder {
-	rb.supported = &SupportedHeader{
-		Options: options,
+	if len(options) == 0 {
+		rb.supported = nil
+	} else {
+		rb.supported = &SupportedHeader{
+			Options: options,
+		}
 	}
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetRequire(options []string) *RequestBuilder {
-	rb.require = &RequireHeader{
-		Options: options,
+	if len(options) == 0 {
+		rb.require = nil
+	} else {
+		rb.require = &RequireHeader{
+			Options: options,
+		}
+	}
+
+	return rb
+}
+
+func (rb *RequestBuilder) SetContentType(value string) *RequestBuilder {
+	if value == "" {
+		rb.contentType = nil
+	} else {
+		rb.contentType = &GenericHeader{
+			HeaderName: "Content-Type",
+			Contents:   value,
+		}
 	}
 
 	return rb
@@ -258,6 +300,9 @@ func (rb *RequestBuilder) Build() (Request, error) {
 	}
 	if rb.allow != nil {
 		hdrs = append(hdrs, rb.allow)
+	}
+	if rb.contentType != nil {
+		hdrs = append(hdrs, rb.contentType)
 	}
 
 	sipVersion := rb.protocol + "/" + rb.protocolVersion
