@@ -27,6 +27,7 @@ type RequestBuilder struct {
 	require         *RequireHeader
 	allow           AllowHeader
 	contentType     *ContentType
+	generic         map[string]Header
 }
 
 func NewRequestBuilder() *RequestBuilder {
@@ -44,6 +45,7 @@ func NewRequestBuilder() *RequestBuilder {
 		callID:          &callID,
 		userAgent:       &userAgent,
 		maxForwards:     &maxForwards,
+		generic:         make(map[string]Header),
 	}
 
 	return rb
@@ -223,6 +225,20 @@ func (rb *RequestBuilder) SetContentType(contentType *ContentType) *RequestBuild
 	return rb
 }
 
+func (rb *RequestBuilder) AddHeader(header Header) *RequestBuilder {
+	rb.generic[header.Name()] = header
+
+	return rb
+}
+
+func (rb *RequestBuilder) RemoveHeader(headerName string) *RequestBuilder {
+	if _, ok := rb.generic[headerName]; ok {
+		delete(rb.generic, headerName)
+	}
+
+	return rb
+}
+
 func (rb *RequestBuilder) Build() (Request, error) {
 	if rb.method == "" {
 		return nil, fmt.Errorf("undefined method name")
@@ -269,6 +285,10 @@ func (rb *RequestBuilder) Build() (Request, error) {
 	}
 	if rb.contentType != nil {
 		hdrs = append(hdrs, rb.contentType)
+	}
+
+	for _, header := range rb.generic {
+		hdrs = append(hdrs, header)
 	}
 
 	sipVersion := rb.protocol + "/" + rb.protocolVersion
