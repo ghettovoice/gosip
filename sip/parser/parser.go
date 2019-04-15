@@ -67,6 +67,13 @@ func defaultHeaderParsers() map[string]HeaderParser {
 		"max-forwards":   parseMaxForwards,
 		"content-length": parseContentLength,
 		"l":              parseContentLength,
+		"expires":        parseExpires,
+		"user-agent":     parseUserAgent,
+		"allow":          parseAllow,
+		"content-type":   parseContentType,
+		"c":              parseContentType,
+		"require":        parseRequire,
+		"supported":      parseSupported,
 	}
 }
 
@@ -1131,6 +1138,69 @@ func parseMaxForwards(headerName string, headerText string) (
 	maxForwards = sip.MaxForwards(value)
 
 	headers = []sip.Header{&maxForwards}
+	return
+}
+
+func parseExpires(headerName string, headerText string) (headers []sip.Header, err error) {
+	var expires sip.Expires
+	var value uint64
+	value, err = strconv.ParseUint(strings.TrimSpace(headerText), 10, 32)
+	expires = sip.Expires(value)
+	headers = []sip.Header{&expires}
+
+	return
+}
+
+func parseUserAgent(headerName string, headerText string) (headers []sip.Header, err error) {
+	var userAgent sip.UserAgentHeader
+	headerText = strings.TrimSpace(headerText)
+	userAgent = sip.UserAgentHeader(headerText)
+	headers = []sip.Header{&userAgent}
+
+	return
+}
+
+func parseContentType(headerName string, headerText string) (headers []sip.Header, err error) {
+	var contentType sip.ContentType
+	headerText = strings.TrimSpace(headerText)
+	contentType = sip.ContentType(headerText)
+	headers = []sip.Header{&contentType}
+
+	return
+}
+
+func parseAllow(headerName string, headerText string) (headers []sip.Header, err error) {
+	allow := make(sip.AllowHeader, 0)
+	methods := strings.Split(headerText, ",")
+	for _, method := range methods {
+		allow = append(allow, sip.RequestMethod(strings.TrimSpace(method)))
+	}
+	headers = []sip.Header{allow}
+
+	return
+}
+
+func parseRequire(headerName string, headerText string) (headers []sip.Header, err error) {
+	var require sip.RequireHeader
+	require.Options = make([]string, 0)
+	extensions := strings.Split(headerText, ",")
+	for _, ext := range extensions {
+		require.Options = append(require.Options, strings.TrimSpace(ext))
+	}
+	headers = []sip.Header{&require}
+
+	return
+}
+
+func parseSupported(headerName string, headerText string) (headers []sip.Header, err error) {
+	var supported sip.SupportedHeader
+	supported.Options = make([]string, 0)
+	extensions := strings.Split(headerText, ",")
+	for _, ext := range extensions {
+		supported.Options = append(supported.Options, strings.TrimSpace(ext))
+	}
+	headers = []sip.Header{&supported}
+
 	return
 }
 

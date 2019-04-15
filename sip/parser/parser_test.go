@@ -996,6 +996,41 @@ func TestMaxForwards(t *testing.T) {
 	}, t)
 }
 
+func TestExpires(t *testing.T) {
+	doTests([]test{
+		{expiresInput("Expires: 9"), &expiresResult{pass, sip.Expires(9)}},
+		{expiresInput("Expires: 600"), &expiresResult{pass, sip.Expires(600)}},
+		{expiresInput("Expires: 3600"), &expiresResult{pass, sip.Expires(3600)}},
+		{expiresInput("Expires: 0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires:      0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires:\t0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires: \t 0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires:\n  0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires: -1"), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires:"), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires: "), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires:\t"), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires:\n"), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires: \n"), &expiresResult{fail, sip.Expires(0)}},
+	}, t)
+}
+
+func TestUserAgent(t *testing.T) {
+	doTests([]test{
+		{userAgentInput("User-Agent: GoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
+		{userAgentInput("User-Agent:      GoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
+		{userAgentInput("User-Agent:\tGoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
+		{userAgentInput("User-Agent:\n  GoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
+	}, t)
+}
+
+func TestAllow(t *testing.T) {
+	doTests([]test{
+		{allowInput("Allow: INVITE, ACK, BYE"), &allowResult{pass, sip.AllowHeader{sip.INVITE, sip.ACK, sip.BYE}}},
+		{allowInput("Allow: INVITE , ACK ,\nBYE "), &allowResult{pass, sip.AllowHeader{sip.INVITE, sip.ACK, sip.BYE}}},
+	}, t)
+}
+
 func TestContentLength(t *testing.T) {
 	doTests([]test{
 		{contentLengthInput("Content-Length: 9"), &contentLengthResult{pass, sip.ContentLength(9)}},
@@ -1930,6 +1965,111 @@ func (expected *maxForwardsResult) equals(other result) (equal bool, reason stri
 		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
 	} else if actual.err == nil && expected.header != actual.header {
 		return false, fmt.Sprintf("unexpected max forwards value: expected \"%d\", got \"%d\"",
+			expected.header, actual.header)
+	}
+	return true, ""
+}
+
+type expiresInput string
+
+func (data expiresInput) String() string {
+	return string(data)
+}
+
+func (data expiresInput) evaluate() result {
+	headers, err := parseHeader(string(data))
+	if len(headers) == 1 {
+		return &expiresResult{err, *(headers[0].(*sip.Expires))}
+	} else if len(headers) == 0 {
+		return &expiresResult{err, sip.Expires(0)}
+	} else {
+		panic(fmt.Sprintf("Multiple headers returned by Max-Forwards test: %s", string(data)))
+	}
+}
+
+type expiresResult struct {
+	err    error
+	header sip.Expires
+}
+
+func (expected *expiresResult) equals(other result) (equal bool, reason string) {
+	actual := *(other.(*expiresResult))
+	if expected.err == nil && actual.err != nil {
+		return false, fmt.Sprintf("unexpected error: %s", actual.err.Error())
+	} else if expected.err != nil && actual.err == nil {
+		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
+	} else if actual.err == nil && expected.header != actual.header {
+		return false, fmt.Sprintf("unexpected expires value: expected \"%d\", got \"%d\"",
+			expected.header, actual.header)
+	}
+	return true, ""
+}
+
+type userAgentInput string
+
+func (data userAgentInput) String() string {
+	return string(data)
+}
+
+func (data userAgentInput) evaluate() result {
+	headers, err := parseHeader(string(data))
+	if len(headers) == 1 {
+		return &userAgentResult{err, *(headers[0].(*sip.UserAgentHeader))}
+	} else if len(headers) == 0 {
+		return &userAgentResult{err, sip.UserAgentHeader("")}
+	} else {
+		panic(fmt.Sprintf("Multiple headers returned by Max-Forwards test: %s", string(data)))
+	}
+}
+
+type userAgentResult struct {
+	err    error
+	header sip.UserAgentHeader
+}
+
+func (expected *userAgentResult) equals(other result) (equal bool, reason string) {
+	actual := *(other.(*userAgentResult))
+	if expected.err == nil && actual.err != nil {
+		return false, fmt.Sprintf("unexpected error: %s", actual.err.Error())
+	} else if expected.err != nil && actual.err == nil {
+		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
+	} else if actual.err == nil && expected.header != actual.header {
+		return false, fmt.Sprintf("unexpected user agent value: expected \"%s\", got \"%s\"",
+			expected.header, actual.header)
+	}
+	return true, ""
+}
+
+type allowInput string
+
+func (data allowInput) String() string {
+	return string(data)
+}
+
+func (data allowInput) evaluate() result {
+	headers, err := parseHeader(data.String())
+	if len(headers) == 1 {
+		return &allowResult{err, headers[0].(sip.AllowHeader)}
+	} else if len(headers) == 0 {
+		return &allowResult{err, sip.AllowHeader{}}
+	} else {
+		panic(fmt.Sprintf("Multiple headers returned by Max-Forwards test: %s", string(data)))
+	}
+}
+
+type allowResult struct {
+	err    error
+	header sip.AllowHeader
+}
+
+func (expected *allowResult) equals(other result) (equal bool, reason string) {
+	actual := *(other.(*allowResult))
+	if expected.err == nil && actual.err != nil {
+		return false, fmt.Sprintf("unexpected error: %s", actual.err.Error())
+	} else if expected.err != nil && actual.err == nil {
+		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
+	} else if actual.err == nil && !expected.header.Equals(actual.header) {
+		return false, fmt.Sprintf("unexpected user agent value: expected \"%s\", got \"%s\"",
 			expected.header, actual.header)
 	}
 	return true, ""

@@ -87,6 +87,7 @@ type Message interface {
 	// CSeq returns 'CSeq' header field.
 	CSeq() (*CSeq, bool)
 	ContentLength() (*ContentLength, bool)
+	ContentType() (*ContentType, bool)
 	Contact() (*ContactHeader, bool)
 
 	Transport() string
@@ -329,6 +330,18 @@ func (hs *headers) ContentLength() (*ContentLength, bool) {
 	return contentLength, true
 }
 
+func (hs *headers) ContentType() (*ContentType, bool) {
+	hdrs := hs.GetHeaders("Content-Type")
+	if len(hdrs) == 0 {
+		return nil, false
+	}
+	contentType, ok := hdrs[0].(*ContentType)
+	if !ok {
+		return nil, false
+	}
+	return contentType, true
+}
+
 func (hs *headers) Contact() (*ContactHeader, bool) {
 	hdrs := hs.GetHeaders("Contact")
 	if len(hdrs) == 0 {
@@ -416,9 +429,10 @@ func (msg *message) SetBody(body string, setContentLength bool) {
 		hdrs := msg.GetHeaders("Content-Length")
 		if len(hdrs) == 0 {
 			length := ContentLength(len(body))
-			msg.AppendHeader(length)
+			msg.AppendHeader(&length)
 		} else {
-			hdrs[0] = ContentLength(len(body))
+			length := ContentLength(len(body))
+			hdrs[0] = &length
 		}
 	}
 }

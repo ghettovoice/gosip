@@ -3,7 +3,6 @@ package gosip
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -169,14 +168,11 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	if _, ok := autoAppendMethods[req.Method()]; ok {
 		hdrs := req.GetHeaders("Allow")
 		if len(hdrs) == 0 {
-			methods := make([]string, 0)
+			allow := make(sip.AllowHeader, 0)
 			for _, method := range srv.getAllowedMethods() {
-				methods = append(methods, string(method))
+				allow = append(allow, method)
 			}
-			req.AppendHeader(&sip.GenericHeader{
-				HeaderName: "Allow",
-				Contents:   strings.Join(methods, ", "),
-			})
+			req.AppendHeader(allow)
 		}
 
 		hdrs = req.GetHeaders("Supported")
@@ -189,7 +185,8 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 
 	hdrs := req.GetHeaders("User-Agent")
 	if len(hdrs) == 0 {
-		req.AppendHeader(&sip.GenericHeader{HeaderName: "User-Agent", Contents: "GoSIP"})
+		userAgent := sip.UserAgentHeader("GoSIP")
+		req.AppendHeader(&userAgent)
 	}
 
 	return req
@@ -217,21 +214,15 @@ func (srv *Server) prepareResponse(res sip.Response) sip.Response {
 	}
 
 	if cseq, ok := res.CSeq(); ok {
-		methods := make([]string, 0)
-		for _, method := range srv.getAllowedMethods() {
-			methods = append(methods, string(method))
-		}
-
 		if _, ok := autoAppendMethods[cseq.MethodName]; ok {
 			hdrs := res.GetHeaders("Allow")
 			if len(hdrs) == 0 {
-				res.AppendHeader(&sip.GenericHeader{
-					HeaderName: "Allow",
-					Contents:   strings.Join(methods, ", "),
-				})
-			} else {
-				allowHeader := hdrs[0].(*sip.GenericHeader)
-				allowHeader.Contents = strings.Join(methods, ", ")
+				allow := make(sip.AllowHeader, 0)
+				for _, method := range srv.getAllowedMethods() {
+					allow = append(allow, method)
+				}
+
+				res.AppendHeader(allow)
 			}
 
 			hdrs = res.GetHeaders("Supported")
@@ -239,9 +230,6 @@ func (srv *Server) prepareResponse(res sip.Response) sip.Response {
 				res.AppendHeader(&sip.SupportedHeader{
 					Options: srv.extensions,
 				})
-			} else {
-				supportedHeader := hdrs[0].(*sip.SupportedHeader)
-				supportedHeader.Options = srv.extensions
 			}
 		}
 	}

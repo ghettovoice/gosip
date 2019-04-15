@@ -547,17 +547,19 @@ func (contact *ContactHeader) Equals(other interface{}) bool {
 type CallID string
 
 func (callId CallID) String() string {
-	return "Call-ID: " + (string)(callId)
+	return "Call-ID: " + string(callId)
 }
 
 func (callId *CallID) Name() string { return "Call-ID" }
 
 func (callId *CallID) Clone() Header {
-	temp := *callId
-	return &temp
+	return callId
 }
 
 func (callId *CallID) Equals(other interface{}) bool {
+	if h, ok := other.(CallID); ok {
+		return *callId == h
+	}
 	if h, ok := other.(*CallID); ok {
 		return *callId == *h
 	}
@@ -598,13 +600,37 @@ func (maxForwards MaxForwards) String() string {
 	return fmt.Sprintf("Max-Forwards: %d", int(maxForwards))
 }
 
-func (maxForwards MaxForwards) Name() string { return "Max-Forwards" }
+func (maxForwards *MaxForwards) Name() string { return "Max-Forwards" }
 
-func (maxForwards MaxForwards) Clone() Header { return maxForwards }
+func (maxForwards *MaxForwards) Clone() Header { return maxForwards }
 
-func (maxForwards MaxForwards) Equals(other interface{}) bool {
+func (maxForwards *MaxForwards) Equals(other interface{}) bool {
 	if h, ok := other.(MaxForwards); ok {
-		return maxForwards == h
+		return *maxForwards == h
+	}
+	if h, ok := other.(*MaxForwards); ok {
+		return *maxForwards == *h
+	}
+
+	return false
+}
+
+type Expires uint32
+
+func (expires Expires) String() string {
+	return fmt.Sprintf("Expires: %d", int(expires))
+}
+
+func (expires *Expires) Name() string { return "Expires" }
+
+func (expires *Expires) Clone() Header { return expires }
+
+func (expires *Expires) Equals(other interface{}) bool {
+	if h, ok := other.(Expires); ok {
+		return *expires == h
+	}
+	if h, ok := other.(*Expires); ok {
+		return *expires == *h
 	}
 
 	return false
@@ -616,13 +642,16 @@ func (contentLength ContentLength) String() string {
 	return fmt.Sprintf("Content-Length: %d", int(contentLength))
 }
 
-func (contentLength ContentLength) Name() string { return "Content-Length" }
+func (contentLength *ContentLength) Name() string { return "Content-Length" }
 
-func (contentLength ContentLength) Clone() Header { return contentLength }
+func (contentLength *ContentLength) Clone() Header { return contentLength }
 
-func (contentLength ContentLength) Equals(other interface{}) bool {
+func (contentLength *ContentLength) Equals(other interface{}) bool {
 	if h, ok := other.(ContentLength); ok {
-		return contentLength == h
+		return *contentLength == h
+	}
+	if h, ok := other.(*ContentLength); ok {
+		return *contentLength == *h
 	}
 
 	return false
@@ -880,6 +909,84 @@ func (unsupported *UnsupportedHeader) Equals(other interface{}) bool {
 		}
 
 		return true
+	}
+
+	return false
+}
+
+type UserAgentHeader string
+
+func (ua UserAgentHeader) String() string {
+	return "User-Agent: " + string(ua)
+}
+
+func (ua *UserAgentHeader) Name() string { return "User-Agent" }
+
+func (ua *UserAgentHeader) Clone() Header { return ua }
+
+func (ua *UserAgentHeader) Equals(other interface{}) bool {
+	if h, ok := other.(UserAgentHeader); ok {
+		return *ua == h
+	}
+	if h, ok := other.(*UserAgentHeader); ok {
+		return *ua == *h
+	}
+
+	return false
+}
+
+type AllowHeader []RequestMethod
+
+func (allow AllowHeader) String() string {
+	parts := make([]string, 0)
+	for _, method := range allow {
+		parts = append(parts, string(method))
+	}
+
+	return fmt.Sprintf("Allow: %s", strings.Join(parts, ", "))
+}
+
+func (allow AllowHeader) Name() string { return "Allow" }
+
+func (allow AllowHeader) Clone() Header {
+	newAllow := make(AllowHeader, 0)
+	copy(newAllow, allow)
+
+	return newAllow
+}
+
+func (allow AllowHeader) Equals(other interface{}) bool {
+	if h, ok := other.(AllowHeader); ok {
+		if len(allow) != len(h) {
+			return false
+		}
+
+		for i, v := range allow {
+			if v != h[i] {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
+}
+
+type ContentType string
+
+func (ct ContentType) String() string { return "Content-Type: " + string(ct) }
+
+func (ct *ContentType) Name() string { return "Content-Type" }
+
+func (ct *ContentType) Clone() Header { return ct }
+
+func (ct *ContentType) Equals(other interface{}) bool {
+	if h, ok := other.(ContentType); ok {
+		return *ct == h
+	}
+	if h, ok := other.(*ContentType); ok {
+		return *ct == *h
 	}
 
 	return false

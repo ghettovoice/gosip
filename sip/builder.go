@@ -2,7 +2,6 @@ package sip
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/ghettovoice/gosip/util"
 )
@@ -16,21 +15,24 @@ type RequestBuilder struct {
 	cseq            *CSeq
 	recipient       Uri
 	body            string
-	callID          CallID
+	callID          *CallID
 	via             ViaHeader
 	from            *FromHeader
 	to              *ToHeader
 	contact         *ContactHeader
-	expires         *GenericHeader
-	userAgent       *GenericHeader
-	maxForwards     *GenericHeader
+	expires         *Expires
+	userAgent       *UserAgentHeader
+	maxForwards     *MaxForwards
 	supported       *SupportedHeader
 	require         *RequireHeader
-	allow           *GenericHeader
-	contentType     *GenericHeader
+	allow           AllowHeader
+	contentType     *ContentType
 }
 
 func NewRequestBuilder() *RequestBuilder {
+	callID := CallID(util.RandString(32))
+	maxForwards := MaxForwards(70)
+	userAgent := UserAgentHeader("GoSIP")
 	rb := &RequestBuilder{
 		protocol:        "SIP",
 		protocolVersion: "2.0",
@@ -39,8 +41,9 @@ func NewRequestBuilder() *RequestBuilder {
 		cseq:            &CSeq{SeqNo: 1},
 		body:            "",
 		via:             make(ViaHeader, 0),
-		callID:          CallID(util.RandString(32)),
-		userAgent:       &GenericHeader{HeaderName: "User-Agent", Contents: "GoSIP"},
+		callID:          &callID,
+		userAgent:       &userAgent,
+		maxForwards:     &maxForwards,
 	}
 
 	return rb
@@ -91,10 +94,8 @@ func (rb *RequestBuilder) SetBody(body string) *RequestBuilder {
 	return rb
 }
 
-func (rb *RequestBuilder) SetCallID(callID CallID) *RequestBuilder {
-	if callID == "" {
-		rb.callID = CallID(util.RandString(32))
-	} else {
+func (rb *RequestBuilder) SetCallID(callID *CallID) *RequestBuilder {
+	if callID != nil {
 		rb.callID = callID
 	}
 
@@ -168,54 +169,26 @@ func (rb *RequestBuilder) SetContact(address *Address) *RequestBuilder {
 	return rb
 }
 
-func (rb *RequestBuilder) SetExpires(expires int) *RequestBuilder {
-	if expires < 0 {
-		rb.expires = nil
-	} else {
-		rb.expires = &GenericHeader{
-			HeaderName: "Expires",
-			Contents:   fmt.Sprintf("%d", expires),
-		}
-	}
+func (rb *RequestBuilder) SetExpires(expires *Expires) *RequestBuilder {
+	rb.expires = expires
 
 	return rb
 }
 
-func (rb *RequestBuilder) SetUserAgent(userAgent string) *RequestBuilder {
-	if userAgent != "" {
-		rb.userAgent.Contents = userAgent
-	}
+func (rb *RequestBuilder) SetUserAgent(userAgent *UserAgentHeader) *RequestBuilder {
+	rb.userAgent = userAgent
 
 	return rb
 }
 
-func (rb *RequestBuilder) SetMaxForwards(maxForwards int) *RequestBuilder {
-	if maxForwards < 0 {
-		rb.maxForwards = nil
-	} else {
-		rb.maxForwards = &GenericHeader{
-			HeaderName: "Max-Forwards",
-			Contents:   fmt.Sprintf("%d", maxForwards),
-		}
-	}
+func (rb *RequestBuilder) SetMaxForwards(maxForwards *MaxForwards) *RequestBuilder {
+	rb.maxForwards = maxForwards
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetAllow(methods []RequestMethod) *RequestBuilder {
-	if len(methods) == 0 {
-		rb.allow = nil
-	} else {
-		parts := make([]string, 0)
-		for _, method := range methods {
-			parts = append(parts, string(method))
-		}
-
-		rb.allow = &GenericHeader{
-			HeaderName: "Allow",
-			Contents:   strings.Join(parts, ", "),
-		}
-	}
+	rb.allow = methods
 
 	return rb
 }
@@ -244,15 +217,8 @@ func (rb *RequestBuilder) SetRequire(options []string) *RequestBuilder {
 	return rb
 }
 
-func (rb *RequestBuilder) SetContentType(value string) *RequestBuilder {
-	if value == "" {
-		rb.contentType = nil
-	} else {
-		rb.contentType = &GenericHeader{
-			HeaderName: "Content-Type",
-			Contents:   value,
-		}
-	}
+func (rb *RequestBuilder) SetContentType(contentType *ContentType) *RequestBuilder {
+	rb.contentType = contentType
 
 	return rb
 }
@@ -275,7 +241,7 @@ func (rb *RequestBuilder) Build() (Request, error) {
 		rb.cseq,
 		rb.from,
 		rb.to,
-		&rb.callID,
+		rb.callID,
 		rb.userAgent,
 	}
 
