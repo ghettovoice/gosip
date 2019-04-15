@@ -25,6 +25,30 @@ type Address struct {
 	Params      Params
 }
 
+func NewAddressFromFromHader(from *FromHeader) *Address {
+	return &Address{
+		DisplayName: from.DisplayName,
+		Uri:         from.Address.Clone().(*SipUri),
+		Params:      from.Params.Clone(),
+	}
+}
+
+func NewAddressFromToHeader(to *ToHeader) *Address {
+	return &Address{
+		DisplayName: to.DisplayName,
+		Uri:         to.Address.Clone().(*SipUri),
+		Params:      to.Params.Clone(),
+	}
+}
+
+func NewAddressFromContactHeader(cnt *ContactHeader) *Address {
+	return &Address{
+		DisplayName: cnt.DisplayName,
+		Uri:         cnt.Address.Clone().(*SipUri),
+		Params:      cnt.Params.Clone(),
+	}
+}
+
 func (addr *Address) String() string {
 	var buffer bytes.Buffer
 
