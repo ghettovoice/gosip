@@ -104,7 +104,7 @@ func (srv *Server) serve(ctx context.Context) {
 		case tx := <-srv.tx.Requests():
 			if tx != nil { // if chan is closed or early exit
 				srv.hwg.Add(1)
-				go srv.handleRequest(tx)
+				go srv.handleRequest(ctx, tx)
 			}
 		case res := <-srv.tx.Responses():
 			if res != nil {
@@ -123,19 +123,22 @@ func (srv *Server) serve(ctx context.Context) {
 	}
 }
 
-func (srv *Server) handleRequest(tx sip.ServerTransaction) {
+func (srv *Server) handleRequest(ctx context.Context, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
 	log.Infof("GoSIP server handles incoming message %s", tx.Origin().Short())
 	log.Debugf("message:\n%s", tx)
 
+	var handlers []RequestHandler
 	srv.hmu.RLock()
-	handlers, ok := srv.requestHandlers[tx.Origin().Method()]
+	if value, ok := srv.requestHandlers[tx.Origin().Method()]; ok {
+		handlers = value[:]
+	}
 	srv.hmu.RUnlock()
 
-	if ok {
+	if len(handlers) > 0 {
 		for _, handler := range handlers {
-			handler(tx)
+			go handler(tx)
 		}
 	} else {
 		log.Warnf("GoSIP server not found handler registered for the request %s", tx.Origin().Short())
@@ -145,8 +148,6 @@ func (srv *Server) handleRequest(tx sip.ServerTransaction) {
 			log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
 		}
 	}
-
-	return
 }
 
 // Send SIP message
@@ -272,14 +273,14 @@ func (srv *Server) Shutdown() {
 
 // OnRequest registers new request callback
 func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) error {
-	srv.hmu.Lock()
-	defer srv.hmu.Unlock()
-
-	handlers, ok := srv.requestHandlers[method]
-
-	if !ok {
+	var handlers []RequestHandler
+	srv.hmu.RLock()
+	if value, ok := srv.requestHandlers[method]; ok {
+		handlers = value[:]
+	} else {
 		handlers = make([]RequestHandler, 0)
 	}
+	srv.hmu.RUnlock()
 
 	for _, h := range handlers {
 		if &h == &handler {
@@ -287,7 +288,9 @@ func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) e
 		}
 	}
 
+	srv.hmu.Lock()
 	srv.requestHandlers[method] = append(srv.requestHandlers[method], handler)
+	srv.hmu.Unlock()
 
 	return nil
 }

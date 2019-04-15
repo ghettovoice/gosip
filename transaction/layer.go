@@ -183,7 +183,7 @@ func (txl *layer) listenMessages() {
 				return
 			}
 			// start handle goroutine
-			txl.handleMessage(msg)
+			go txl.handleMessage(msg)
 		}
 	}
 }
