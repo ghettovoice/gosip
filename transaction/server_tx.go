@@ -48,10 +48,11 @@ func NewServerTx(origin sip.Request, tpl transport.Layer) (ServerTx, error) {
 	tx.key = key
 	tx.origin = origin
 	tx.tpl = tpl
-	tx.acks = make(chan sip.Request, 1)
-	tx.cancels = make(chan sip.Request, 1)
-	tx.errs = make(chan error, 1)
-	tx.done = make(chan bool, 1)
+	// about ~10 retransmits
+	tx.acks = make(chan sip.Request, 10)
+	tx.cancels = make(chan sip.Request, 10)
+	tx.errs = make(chan error, 10)
+	tx.done = make(chan bool)
 	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := tx.Origin().ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)

@@ -34,9 +34,10 @@ func NewClientTx(origin sip.Request, tpl transport.Layer) (ClientTx, error) {
 	tx.logger = log.NewSafeLocalLogger()
 	tx.origin = origin
 	tx.tpl = tpl
-	tx.responses = make(chan sip.Response)
-	tx.errs = make(chan error, 1)
-	tx.done = make(chan bool, 1)
+	// buffer chan - about ~10 retransmit responses
+	tx.responses = make(chan sip.Response, 10)
+	tx.errs = make(chan error, 10)
+	tx.done = make(chan bool)
 	tx.mu = new(sync.RWMutex)
 
 	return tx, nil
