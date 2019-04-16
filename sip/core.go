@@ -25,7 +25,7 @@ type Address struct {
 	Params      Params
 }
 
-func NewAddressFromFromHader(from *FromHeader) *Address {
+func NewAddressFromFromHeader(from *FromHeader) *Address {
 	return &Address{
 		DisplayName: from.DisplayName,
 		Uri:         from.Address.Clone().(*SipUri),
@@ -81,6 +81,30 @@ func (addr *Address) Equals(other interface{}) bool {
 	}
 
 	return false
+}
+
+func (addr *Address) AsToHeader() *ToHeader {
+	return &ToHeader{
+		DisplayName: addr.DisplayName,
+		Address:     addr.Uri.Clone().(*SipUri),
+		Params:      addr.Params.Clone(),
+	}
+}
+
+func (addr *Address) AsFromHeader() *FromHeader {
+	return &FromHeader{
+		DisplayName: addr.DisplayName,
+		Address:     addr.Uri.Clone().(*SipUri),
+		Params:      addr.Params.Clone(),
+	}
+}
+
+func (addr *Address) AsContactHeader() *ContactHeader {
+	return &ContactHeader{
+		DisplayName: addr.DisplayName,
+		Address:     addr.Uri.Clone().(*SipUri),
+		Params:      addr.Params.Clone(),
+	}
 }
 
 // Port number

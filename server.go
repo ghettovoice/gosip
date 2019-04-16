@@ -158,6 +158,45 @@ func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
 	return srv.tx.Request(srv.prepareRequest(req))
 }
 
+func (srv *Server) RequestAsync(
+	ctx context.Context,
+	request sip.Request,
+	onComplete func(response sip.Response, err error) bool,
+) error {
+	tx, err := srv.Request(request)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				onComplete(nil, fmt.Errorf("request '%s' canceled", request.Short()))
+				return
+			case <-tx.Done():
+				onComplete(nil, fmt.Errorf("transaction '%s' terminated", tx))
+				return
+			case err := <-tx.Errors():
+				onComplete(nil, fmt.Errorf("trasaction '%s' error: %s", tx, err))
+				return
+			case response := <-tx.Responses():
+				if response.IsProvisional() {
+					continue
+				}
+
+				if onComplete(response, nil) {
+					continue
+				} else {
+					return
+				}
+			}
+		}
+	}()
+
+	return nil
+}
+
 func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	autoAppendMethods := map[sip.RequestMethod]bool{
 		sip.INVITE:   true,
@@ -198,6 +237,16 @@ func (srv *Server) Respond(res sip.Response) (sip.ServerTransaction, error) {
 	}
 
 	return srv.tx.Respond(srv.prepareResponse(res))
+}
+
+func (srv *Server) RespondOnRequest(request sip.Request, status sip.StatusCode, reason, body string) (sip.ServerTransaction, error) {
+	response := sip.NewResponseFromRequest(request, status, reason, body)
+	tx, err := srv.Respond(response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to respond on request '%s': %s", request.Short(), err)
+	}
+
+	return tx, nil
 }
 
 func (srv *Server) Send(msg sip.Message) error {
