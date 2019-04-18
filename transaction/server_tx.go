@@ -366,17 +366,21 @@ func (tx *serverTx) transportErr() {
 	// todo bloody patch
 	defer func() { recover() }()
 
-	err := &TxTransportError{
-		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
+	tx.mu.RLock()
+	res := tx.lastResp
+	err := tx.lastErr
+	tx.mu.RUnlock()
+
+	err = &TxTransportError{
+		fmt.Errorf("%s failed to send %s: %s", tx, res, err),
 		tx.Key(),
 		tx.String(),
 	}
-	tx.mu.RLock()
+
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
-	tx.mu.RUnlock()
 }
 
 func (tx *serverTx) timeoutErr() {
@@ -388,12 +392,11 @@ func (tx *serverTx) timeoutErr() {
 		tx.Key(),
 		tx.String(),
 	}
-	tx.mu.RLock()
+
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
-	tx.mu.RUnlock()
 }
 
 func (tx *serverTx) delete() {
@@ -440,9 +443,17 @@ func (tx *serverTx) delete() {
 // Define actions.
 // Send response
 func (tx *serverTx) act_respond() fsm.Input {
-	tx.Log().Debugf("%s, act_respond %s", tx, tx.lastResp.Short())
+	tx.mu.RLock()
+	lastResp := tx.lastResp
+	tx.mu.RUnlock()
 
-	lastErr := tx.tpl.Send(tx.lastResp)
+	if lastResp == nil {
+		return fsm.NO_INPUT
+	}
+
+	tx.Log().Debugf("%s, act_respond %s", tx, lastResp.Short())
+
+	lastErr := tx.tpl.Send(lastResp)
 
 	tx.mu.Lock()
 	tx.lastErr = lastErr
@@ -456,9 +467,17 @@ func (tx *serverTx) act_respond() fsm.Input {
 }
 
 func (tx *serverTx) act_respond_complete() fsm.Input {
-	tx.Log().Debugf("%s, act_respond_complete %s", tx, tx.lastResp.Short())
+	tx.mu.RLock()
+	lastResp := tx.lastResp
+	tx.mu.RUnlock()
 
-	lastErr := tx.tpl.Send(tx.lastResp)
+	if lastResp == nil {
+		return fsm.NO_INPUT
+	}
+
+	tx.Log().Debugf("%s, act_respond_complete %s", tx, lastResp.Short())
+
+	lastErr := tx.tpl.Send(lastResp)
 
 	tx.mu.Lock()
 	tx.lastErr = lastErr
@@ -499,6 +518,14 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 
 // Send final response
 func (tx *serverTx) act_final() fsm.Input {
+	tx.mu.RLock()
+	lastResp := tx.lastResp
+	tx.mu.RUnlock()
+
+	if lastResp == nil {
+		return fsm.NO_INPUT
+	}
+
 	lastErr := tx.tpl.Send(tx.lastResp)
 
 	tx.mu.Lock()
@@ -545,7 +572,9 @@ func (tx *serverTx) act_respond_delete() fsm.Input {
 	tx.Log().Debugf("%s, act_respond_delete", tx)
 	tx.delete()
 
+	tx.mu.RLock()
 	lastErr := tx.tpl.Send(tx.lastResp)
+	tx.mu.RUnlock()
 
 	tx.mu.Lock()
 	tx.lastErr = lastErr
@@ -569,13 +598,15 @@ func (tx *serverTx) act_confirm() fsm.Input {
 	tx.mu.Unlock()
 
 	tx.mu.RLock()
-	if tx.lastAck != nil {
+	ack := tx.lastAck
+
+	tx.mu.RUnlock()
+	if ack != nil {
 		select {
 		case <-tx.done:
-		case tx.acks <- tx.lastAck:
+		case tx.acks <- ack:
 		}
 	}
-	tx.mu.RUnlock()
 
 	return fsm.NO_INPUT
 }
@@ -588,13 +619,15 @@ func (tx *serverTx) act_cancel() fsm.Input {
 	tx.mu.RUnlock()
 
 	tx.mu.RLock()
-	if tx.lastCancel != nil {
+	cancel := tx.lastCancel
+	tx.mu.RUnlock()
+
+	if cancel != nil {
 		select {
 		case <-tx.done:
-		case tx.cancels <- tx.lastCancel:
+		case tx.cancels <- cancel:
 		}
 	}
-	tx.mu.RUnlock()
 
 	return fsm.NO_INPUT
 }

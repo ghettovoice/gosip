@@ -47,13 +47,17 @@ func (tx *clientTx) Init() error {
 	tx.initFSM()
 
 	if err := tx.tpl.Send(tx.Origin()); err != nil {
+		tx.mu.Lock()
 		tx.lastErr = err
+		tx.mu.Unlock()
 		tx.fsm.Spin(client_input_transport_err)
 		return err
 	}
 
 	if key, err := MakeClientTxKey(tx.Origin()); err != nil {
+		tx.mu.Lock()
 		tx.lastErr = err
+		tx.mu.Unlock()
 		tx.fsm.Spin(client_input_transport_err)
 		return err
 	} else {
@@ -64,7 +68,9 @@ func (tx *clientTx) Init() error {
 	}
 
 	if tx.reliable {
+		tx.mu.Lock()
 		tx.timer_d_time = 0
+		tx.mu.Unlock()
 	} else {
 		// RFC 3261 - 17.1.1.2.
 		// If an unreliable transport is being used, the client transaction MUST start timer A with a value of T1.
@@ -72,6 +78,7 @@ func (tx *clientTx) Init() error {
 		// start timer A (Timer A controls request retransmissions).
 		// Timer A - retransmission
 		tx.Log().Debugf("%s, timer_a set to %v", tx, Timer_A)
+		tx.mu.Lock()
 		tx.timer_a_time = Timer_A
 		tx.timer_a = timing.AfterFunc(tx.timer_a_time, func() {
 			tx.Log().Debugf("%s, timer_a fired", tx)
@@ -79,15 +86,22 @@ func (tx *clientTx) Init() error {
 		})
 		// Timer D is set to 32 seconds for unreliable transports
 		tx.timer_d_time = Timer_D
+		tx.mu.Unlock()
 	}
 	// Timer B - timeout
 	tx.Log().Debugf("%s, timer_b set to %v", tx, Timer_B)
+	tx.mu.Lock()
 	tx.timer_b = timing.AfterFunc(Timer_B, func() {
 		tx.Log().Debugf("%s, timer_b fired", tx)
 		tx.fsm.Spin(client_input_timer_b)
 	})
+	tx.mu.Unlock()
 
-	return tx.lastErr
+	tx.mu.RLock()
+	err := tx.lastErr
+	tx.mu.RUnlock()
+
+	return err
 }
 
 func (tx *clientTx) String() string {
@@ -143,9 +157,9 @@ func (tx clientTx) ack() {
 
 	// Copy headers from original request.
 	// TODO: Safety
+	sip.CopyHeaders("Route", tx.Origin(), ack)
 	sip.CopyHeaders("From", tx.Origin(), ack)
 	sip.CopyHeaders("Call-ID", tx.Origin(), ack)
-	sip.CopyHeaders("Route", tx.Origin(), ack)
 	sip.CopyHeaders("To", tx.lastResp, ack)
 	cseq, ok := tx.Origin().CSeq()
 	if !ok {
@@ -167,7 +181,9 @@ func (tx clientTx) ack() {
 	err := tx.tpl.Send(ack)
 	if err != nil {
 		tx.Log().Warnf("failed to send ACK request on client transaction %p: %s", tx, err)
+		tx.mu.Lock()
 		tx.lastErr = err
+		tx.mu.Unlock()
 		tx.fsm.Spin(client_input_transport_err)
 	}
 }
@@ -343,8 +359,14 @@ func (tx *clientTx) initNonInviteFSM() {
 
 func (tx *clientTx) resend() {
 	tx.Log().Infof("%s resend %v", tx, tx.Origin().Short())
-	tx.lastErr = tx.tpl.Send(tx.Origin())
-	if tx.lastErr != nil {
+
+	err := tx.tpl.Send(tx.Origin())
+
+	tx.mu.Lock()
+	tx.lastErr = err
+	tx.mu.Unlock()
+
+	if err != nil {
 		tx.fsm.Spin(client_input_transport_err)
 	}
 }
@@ -355,12 +377,10 @@ func (tx *clientTx) passUp() {
 	tx.mu.RUnlock()
 
 	if lastResp != nil {
-		tx.mu.RLock()
 		select {
 		case <-tx.done:
 		case tx.responses <- lastResp:
 		}
-		tx.mu.RUnlock()
 	}
 }
 
@@ -368,17 +388,21 @@ func (tx *clientTx) transportErr() {
 	// todo bloody patch
 	defer func() { recover() }()
 
-	err := &TxTransportError{
-		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
+	tx.mu.RLock()
+	res := tx.lastResp
+	err := tx.lastErr
+	tx.mu.RUnlock()
+
+	err = &TxTransportError{
+		fmt.Errorf("%s failed to send %s: %s", tx, res.Short(), err),
 		tx.Key(),
 		tx.String(),
 	}
-	tx.mu.RLock()
+
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
-	tx.mu.RUnlock()
 }
 
 func (tx *clientTx) timeoutErr() {
@@ -390,12 +414,11 @@ func (tx *clientTx) timeoutErr() {
 		tx.Key(),
 		tx.String(),
 	}
-	tx.mu.RLock()
+
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
-	tx.mu.RUnlock()
 }
 
 func (tx *clientTx) delete() {
