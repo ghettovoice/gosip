@@ -147,9 +147,19 @@ func (req *request) Destination() string {
 		return req.dest
 	}
 
-	uri, ok := req.Recipient().(*SipUri)
-	if !ok {
-		return ""
+	var uri *SipUri
+	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
+		routeHeader := hdrs[0].(*RouteHeader)
+		if len(routeHeader.Addresses) > 0 {
+			uri = routeHeader.Addresses[0].(*SipUri)
+		}
+	}
+	if uri == nil {
+		if u, ok := req.Recipient().(*SipUri); ok {
+			uri = u
+		} else {
+			return ""
+		}
 	}
 
 	host := uri.Host

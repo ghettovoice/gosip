@@ -74,6 +74,7 @@ func defaultHeaderParsers() map[string]HeaderParser {
 		"c":              parseContentType,
 		"require":        parseRequire,
 		"supported":      parseSupported,
+		"route":          parseRouteHeader,
 	}
 }
 
@@ -1371,6 +1372,17 @@ func ParseAddressValue(addressText string) (
 	addressText = addressText[startOfParams:]
 	headerParams, _, err = parseParams(addressText, ';', ';', ',', true, true)
 	return
+}
+
+func parseRouteHeader(headerName string, headerText string) (headers []sip.Header, err error) {
+	var routeHeader sip.RouteHeader
+	routeHeader.Addresses = make([]sip.Uri, 0)
+	if _, uris, _, err := ParseAddressValues(headerText); err == nil {
+		routeHeader.Addresses = uris
+	} else {
+		return nil, err
+	}
+	return []sip.Header{&routeHeader}, nil
 }
 
 // Extract the next logical header line from the message.

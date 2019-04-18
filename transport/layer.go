@@ -214,7 +214,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 			}
 			msg.PrependHeaderAfter(sip.ViaHeader{
 				viaHop,
-			}, "Record-Route")
+			}, "Route")
 		} else {
 			viaHop.Host = tpl.host
 			if tpl.port != nil {

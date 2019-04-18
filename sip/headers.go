@@ -32,6 +32,14 @@ type Uri interface {
 	Equals(other interface{}) bool
 	String() string
 	Clone() Uri
+
+	// IsEncrypted() bool
+	// User() MaybeString
+	// Password() MaybeString
+	// Host() string
+	// Port() *Port
+	// Params() Params
+	// Headers() Params
 }
 
 // A URI from a schema suitable for inclusion in a Contact: header.
@@ -987,6 +995,48 @@ func (ct *ContentType) Equals(other interface{}) bool {
 	}
 	if h, ok := other.(*ContentType); ok {
 		return *ct == *h
+	}
+
+	return false
+}
+
+type RouteHeader struct {
+	Addresses []Uri
+}
+
+func (route *RouteHeader) Name() string { return "Route" }
+
+func (route *RouteHeader) String() string {
+	var addrs []string
+
+	for _, uri := range route.Addresses {
+		addrs = append(addrs, uri.String())
+	}
+
+	return fmt.Sprintf("Route: %s", strings.Join(addrs, ", "))
+}
+
+func (route *RouteHeader) Clone() Header {
+	newRoute := &RouteHeader{
+		Addresses: make([]Uri, 0),
+	}
+
+	for _, uri := range route.Addresses {
+		newRoute.Addresses = append(newRoute.Addresses, uri.Clone())
+	}
+
+	return newRoute
+}
+
+func (route *RouteHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*RouteHeader); ok {
+		for i, uri := range route.Addresses {
+			if !uri.Equals(h.Addresses[i]) {
+				return false
+			}
+		}
+
+		return true
 	}
 
 	return false
