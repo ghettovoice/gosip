@@ -1041,3 +1041,45 @@ func (route *RouteHeader) Equals(other interface{}) bool {
 
 	return false
 }
+
+type RecordRouteHeader struct {
+	Addresses []Uri
+}
+
+func (route *RecordRouteHeader) Name() string { return "Record-Route" }
+
+func (route *RecordRouteHeader) String() string {
+	var addrs []string
+
+	for _, uri := range route.Addresses {
+		addrs = append(addrs, uri.String())
+	}
+
+	return fmt.Sprintf("Record-Route: %s", strings.Join(addrs, ", "))
+}
+
+func (route *RecordRouteHeader) Clone() Header {
+	newRoute := &RecordRouteHeader{
+		Addresses: make([]Uri, 0),
+	}
+
+	for _, uri := range route.Addresses {
+		newRoute.Addresses = append(newRoute.Addresses, uri.Clone())
+	}
+
+	return newRoute
+}
+
+func (route *RecordRouteHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*RecordRouteHeader); ok {
+		for i, uri := range route.Addresses {
+			if !uri.Equals(h.Addresses[i]) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
+}

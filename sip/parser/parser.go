@@ -75,6 +75,7 @@ func defaultHeaderParsers() map[string]HeaderParser {
 		"require":        parseRequire,
 		"supported":      parseSupported,
 		"route":          parseRouteHeader,
+		"record-route":   parseRecordRouteHeader,
 	}
 }
 
@@ -1376,6 +1377,17 @@ func ParseAddressValue(addressText string) (
 
 func parseRouteHeader(headerName string, headerText string) (headers []sip.Header, err error) {
 	var routeHeader sip.RouteHeader
+	routeHeader.Addresses = make([]sip.Uri, 0)
+	if _, uris, _, err := ParseAddressValues(headerText); err == nil {
+		routeHeader.Addresses = uris
+	} else {
+		return nil, err
+	}
+	return []sip.Header{&routeHeader}, nil
+}
+
+func parseRecordRouteHeader(headerName string, headerText string) (headers []sip.Header, err error) {
+	var routeHeader sip.RecordRouteHeader
 	routeHeader.Addresses = make([]sip.Uri, 0)
 	if _, uris, _, err := ParseAddressValues(headerText); err == nil {
 		routeHeader.Addresses = uris
