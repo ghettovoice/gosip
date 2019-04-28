@@ -2,6 +2,7 @@ package gosip
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -177,10 +178,24 @@ func (srv *Server) RequestAsync(
 			case <-tx.Done():
 				onComplete(nil, fmt.Errorf("transaction '%s' terminated", tx))
 				return
-			case err := <-tx.Errors():
+			case err, ok := <-tx.Errors():
+				if !ok {
+					// todo
+					return
+				}
+
+				if err == nil {
+					err = errors.New("unknown transaction error")
+				}
+
 				onComplete(nil, fmt.Errorf("trasaction '%s' error: %s", tx, err))
 				return
-			case response := <-tx.Responses():
+			case response, ok := <-tx.Responses():
+				if !ok {
+					// todo
+					return
+				}
+
 				if response.IsProvisional() {
 					continue
 				}
