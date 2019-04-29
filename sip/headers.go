@@ -957,7 +957,7 @@ func (allow AllowHeader) String() string {
 func (allow AllowHeader) Name() string { return "Allow" }
 
 func (allow AllowHeader) Clone() Header {
-	newAllow := make(AllowHeader, 0)
+	newAllow := make(AllowHeader, len(allow))
 	copy(newAllow, allow)
 
 	return newAllow
@@ -1018,11 +1018,11 @@ func (route *RouteHeader) String() string {
 
 func (route *RouteHeader) Clone() Header {
 	newRoute := &RouteHeader{
-		Addresses: make([]Uri, 0),
+		Addresses: make([]Uri, len(route.Addresses)),
 	}
 
-	for _, uri := range route.Addresses {
-		newRoute.Addresses = append(newRoute.Addresses, uri.Clone())
+	for i, uri := range route.Addresses {
+		newRoute.Addresses[i] = uri.Clone()
 	}
 
 	return newRoute
@@ -1060,11 +1060,11 @@ func (route *RecordRouteHeader) String() string {
 
 func (route *RecordRouteHeader) Clone() Header {
 	newRoute := &RecordRouteHeader{
-		Addresses: make([]Uri, 0),
+		Addresses: make([]Uri, len(route.Addresses)),
 	}
 
-	for _, uri := range route.Addresses {
-		newRoute.Addresses = append(newRoute.Addresses, uri.Clone())
+	for i, uri := range route.Addresses {
+		newRoute.Addresses[i] = uri.Clone()
 	}
 
 	return newRoute
