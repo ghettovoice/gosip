@@ -127,7 +127,7 @@ func (srv *Server) handleRequest(ctx context.Context, tx sip.ServerTransaction) 
 	defer srv.hwg.Done()
 
 	log.Infof("GoSIP server handles incoming message %s", tx.Origin().Short())
-	log.Debugf("message:\n%s", tx)
+	log.Debugf("message:\n%s", tx.Origin())
 
 	var handlers []RequestHandler
 	srv.hmu.RLock()
