@@ -275,7 +275,10 @@ func (srv *Server) Send(msg sip.Message) error {
 
 func (srv *Server) prepareResponse(res sip.Response) sip.Response {
 	autoAppendMethods := map[sip.RequestMethod]bool{
-		sip.OPTIONS: true,
+		sip.INVITE:   true,
+		sip.REGISTER: true,
+		sip.OPTIONS:  true,
+		sip.REFER:    true,
 	}
 
 	if cseq, ok := res.CSeq(); ok {
