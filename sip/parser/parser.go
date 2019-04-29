@@ -570,7 +570,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 
 	if strings.ToLower(uriStr[0:1]) == "s" {
 		// URI started 'sips', so it's encrypted.
-		uri.IsEncrypted = true
+		uri.FIsEncrypted = true
 		uriStr = uriStr[1:]
 	}
 
@@ -596,10 +596,10 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 		if endOfUsernamePart == -1 {
 			// No password component; the whole of the user-info part before
 			// the '@' is a username.
-			uri.User = sip.String{Str: uriStr[:endOfUserInfoPart]}
+			uri.FUser = sip.String{Str: uriStr[:endOfUserInfoPart]}
 		} else {
-			uri.User = sip.String{Str: uriStr[:endOfUsernamePart]}
-			uri.Password = sip.String{Str: uriStr[endOfUsernamePart+1 : endOfUserInfoPart]}
+			uri.FUser = sip.String{Str: uriStr[:endOfUsernamePart]}
+			uri.FPassword = sip.String{Str: uriStr[endOfUsernamePart+1 : endOfUserInfoPart]}
 		}
 		uriStr = uriStr[endOfUserInfoPart+1:]
 	}
@@ -615,13 +615,13 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 		endOfUriPart = len(uriStr)
 	}
 
-	uri.Host, uri.Port, err = parseHostPort(uriStr[:endOfUriPart])
+	uri.FHost, uri.FPort, err = parseHostPort(uriStr[:endOfUriPart])
 	uriStr = uriStr[endOfUriPart:]
 	if err != nil {
 		return
 	} else if len(uriStr) == 0 {
-		uri.UriParams = sip.NewParams()
-		uri.Headers = sip.NewParams()
+		uri.FUriParams = sip.NewParams()
+		uri.FHeaders = sip.NewParams()
 		return
 	}
 
@@ -639,7 +639,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 	} else {
 		uriParams, n = sip.NewParams(), 0
 	}
-	uri.UriParams = uriParams
+	uri.FUriParams = uriParams
 	uriStr = uriStr[n:]
 
 	// Finally parse any URI headers.
@@ -649,7 +649,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 	if err != nil {
 		return
 	}
-	uri.Headers = headers
+	uri.FHeaders = headers
 	uriStr = uriStr[n:]
 	if len(uriStr) > 0 {
 		err = fmt.Errorf("internal error: parse of SIP uri ended early! '%s'",

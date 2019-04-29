@@ -129,8 +129,8 @@ func (rb *RequestBuilder) AddVia(via *ViaHop) *RequestBuilder {
 
 func (rb *RequestBuilder) SetFrom(address *Address) *RequestBuilder {
 	address = address.Clone()
-	if address.Uri.Host == "" {
-		address.Uri.Host = rb.host
+	if address.Uri.Host() == "" {
+		address.Uri.SetHost(rb.host)
 	}
 
 	rb.from = &FromHeader{
@@ -144,8 +144,8 @@ func (rb *RequestBuilder) SetFrom(address *Address) *RequestBuilder {
 
 func (rb *RequestBuilder) SetTo(address *Address) *RequestBuilder {
 	address = address.Clone()
-	if address.Uri.Host == "" {
-		address.Uri.Host = rb.host
+	if address.Uri.Host() == "" {
+		address.Uri.SetHost(rb.host)
 	}
 
 	rb.to = &ToHeader{
@@ -159,8 +159,8 @@ func (rb *RequestBuilder) SetTo(address *Address) *RequestBuilder {
 
 func (rb *RequestBuilder) SetContact(address *Address) *RequestBuilder {
 	address = address.Clone()
-	if address.Uri.Host == "" {
-		address.Uri.Host = rb.host
+	if address.Uri.Host() == "" {
+		address.Uri.SetHost(rb.host)
 	}
 
 	rb.contact = &ContactHeader{

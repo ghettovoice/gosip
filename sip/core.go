@@ -21,14 +21,14 @@ const (
 
 type Address struct {
 	DisplayName MaybeString
-	Uri         *SipUri
+	Uri         Uri
 	Params      Params
 }
 
 func NewAddressFromFromHeader(from *FromHeader) *Address {
 	return &Address{
 		DisplayName: from.DisplayName,
-		Uri:         from.Address.Clone().(*SipUri),
+		Uri:         from.Address.Clone(),
 		Params:      from.Params.Clone(),
 	}
 }
@@ -36,7 +36,7 @@ func NewAddressFromFromHeader(from *FromHeader) *Address {
 func NewAddressFromToHeader(to *ToHeader) *Address {
 	return &Address{
 		DisplayName: to.DisplayName,
-		Uri:         to.Address.Clone().(*SipUri),
+		Uri:         to.Address.Clone(),
 		Params:      to.Params.Clone(),
 	}
 }
@@ -44,7 +44,7 @@ func NewAddressFromToHeader(to *ToHeader) *Address {
 func NewAddressFromContactHeader(cnt *ContactHeader) *Address {
 	return &Address{
 		DisplayName: cnt.DisplayName,
-		Uri:         cnt.Address.Clone().(*SipUri),
+		Uri:         cnt.Address.Clone(),
 		Params:      cnt.Params.Clone(),
 	}
 }
@@ -68,7 +68,7 @@ func (addr *Address) String() string {
 func (addr *Address) Clone() *Address {
 	return &Address{
 		DisplayName: addr.DisplayName,
-		Uri:         addr.Uri.Clone().(*SipUri),
+		Uri:         addr.Uri.Clone(),
 		Params:      addr.Params.Clone(),
 	}
 }
@@ -86,7 +86,7 @@ func (addr *Address) Equals(other interface{}) bool {
 func (addr *Address) AsToHeader() *ToHeader {
 	return &ToHeader{
 		DisplayName: addr.DisplayName,
-		Address:     addr.Uri.Clone().(*SipUri),
+		Address:     addr.Uri.Clone(),
 		Params:      addr.Params.Clone(),
 	}
 }
@@ -94,7 +94,7 @@ func (addr *Address) AsToHeader() *ToHeader {
 func (addr *Address) AsFromHeader() *FromHeader {
 	return &FromHeader{
 		DisplayName: addr.DisplayName,
-		Address:     addr.Uri.Clone().(*SipUri),
+		Address:     addr.Uri.Clone(),
 		Params:      addr.Params.Clone(),
 	}
 }
@@ -102,7 +102,7 @@ func (addr *Address) AsFromHeader() *FromHeader {
 func (addr *Address) AsContactHeader() *ContactHeader {
 	return &ContactHeader{
 		DisplayName: addr.DisplayName,
-		Address:     addr.Uri.Clone().(*SipUri),
+		Address:     addr.Uri.Clone(),
 		Params:      addr.Params.Clone(),
 	}
 }

@@ -162,12 +162,12 @@ func (req *request) Destination() string {
 		}
 	}
 
-	host := uri.Host
+	host := uri.FHost
 	var port Port
-	if uri.Port == nil {
+	if uri.FPort == nil {
 		port = DefaultPort(req.Transport())
 	} else {
-		port = *uri.Port
+		port = *uri.FPort
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)

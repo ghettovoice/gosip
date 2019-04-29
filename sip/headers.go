@@ -33,22 +33,30 @@ type Uri interface {
 	String() string
 	Clone() Uri
 
-	// IsEncrypted() bool
-	// User() MaybeString
-	// Password() MaybeString
-	// Host() string
-	// Port() *Port
-	// Params() Params
-	// Headers() Params
+	IsEncrypted() bool
+	SetEncrypted(flag bool)
+	User() MaybeString
+	SetUser(user MaybeString)
+	Password() MaybeString
+	SetPassword(pass MaybeString)
+	Host() string
+	SetHost(host string)
+	Port() *Port
+	SetPort(port *Port)
+	UriParams() Params
+	SetUriParams(params Params)
+	Headers() Params
+	SetHeaders(params Params)
+	// Return true if and only if the URI is the special wildcard URI '*'; that is, if it is
+	// a WildcardUri struct.
+	IsWildcard() bool
 }
 
 // A URI from a schema suitable for inclusion in a Contact: header.
 // The only such URIs are sip/sips URIs and the special wildcard URI '*'.
+// hold this interface to not break other code
 type ContactUri interface {
 	Uri
-	// Return true if and only if the URI is the special wildcard URI '*'; that is, if it is
-	// a WildcardUri struct.
-	IsWildcard() bool
 }
 
 // Generic list of parameters on a header.
@@ -214,37 +222,93 @@ func cloneWithNil(params Params) Params {
 // A SIP or SIPS URI, including all params and URI header params.
 type SipUri struct {
 	// True if and only if the URI is a SIPS URI.
-	IsEncrypted bool
+	FIsEncrypted bool
 
 	// The user part of the URI: the 'joe' in sip:joe@bloggs.com
 	// This is a pointer, so that URIs without a user part can have 'nil'.
-	User MaybeString
+	FUser MaybeString
 
 	// The password field of the URI. This is represented in the URI as joe:hunter2@bloggs.com.
 	// Note that if a URI has a password field, it *must* have a user field as well.
 	// This is a pointer, so that URIs without a password field can have 'nil'.
 	// Note that RFC 3261 strongly recommends against the use of password fields in SIP URIs,
 	// as they are fundamentally insecure.
-	Password MaybeString
+	FPassword MaybeString
 
 	// The host part of the URI. This can be a domain, or a string representation of an IP address.
-	Host string
+	FHost string
 
 	// The port part of the URI. This is optional, and so is represented here as a pointer type.
-	Port *Port
+	FPort *Port
 
 	// Any parameters associated with the URI.
 	// These are used to provide information about requests that may be constructed from the URI.
 	// (For more details, see RFC 3261 section 19.1.1).
 	// These appear as a semicolon-separated list of key=value pairs following the host[:port] part.
-	UriParams Params
+	FUriParams Params
 
 	// Any headers to be included on requests constructed from this URI.
 	// These appear as a '&'-separated list at the end of the URI, introduced by '?'.
 	// Although the values of the map are MaybeStrings, they will never be NoString in practice as the parser
 	// guarantees to not return blank values for header elements in SIP URIs.
 	// You should not set the values of headers to NoString.
-	Headers Params
+	FHeaders Params
+}
+
+func (uri *SipUri) IsEncrypted() bool {
+	return uri.FIsEncrypted
+}
+
+func (uri *SipUri) SetEncrypted(flag bool) {
+	uri.FIsEncrypted = flag
+}
+
+func (uri *SipUri) User() MaybeString {
+	return uri.FUriParams
+}
+
+func (uri *SipUri) SetUser(user MaybeString) {
+	uri.FUser = user
+}
+
+func (uri *SipUri) Password() MaybeString {
+	return uri.FPassword
+}
+
+func (uri *SipUri) SetPassword(pass MaybeString) {
+	uri.FPassword = pass
+}
+
+func (uri *SipUri) Host() string {
+	return uri.FHost
+}
+
+func (uri *SipUri) SetHost(host string) {
+	uri.FHost = host
+}
+
+func (uri *SipUri) Port() *Port {
+	return uri.FPort
+}
+
+func (uri *SipUri) SetPort(port *Port) {
+	uri.FPort = port
+}
+
+func (uri *SipUri) UriParams() Params {
+	return uri.FUriParams
+}
+
+func (uri *SipUri) SetUriParams(params Params) {
+	uri.FUriParams = params
+}
+
+func (uri *SipUri) Headers() Params {
+	return uri.FHeaders
+}
+
+func (uri *SipUri) SetHeaders(params Params) {
+	uri.FHeaders = params
 }
 
 func (uri *SipUri) IsWildcard() bool {
@@ -260,21 +324,21 @@ func (uri *SipUri) Equals(val interface{}) bool {
 	}
 
 	other := *otherPtr
-	result := uri.IsEncrypted == other.IsEncrypted &&
-		uri.User == other.User &&
-		uri.Password == other.Password &&
-		uri.Host == other.Host &&
-		util.Uint16PtrEq((*uint16)(uri.Port), (*uint16)(other.Port))
+	result := uri.FIsEncrypted == other.FIsEncrypted &&
+		uri.FUser == other.FUser &&
+		uri.FPassword == other.FPassword &&
+		uri.FHost == other.FHost &&
+		util.Uint16PtrEq((*uint16)(uri.FPort), (*uint16)(other.FPort))
 
 	if !result {
 		return false
 	}
 
-	if !uri.UriParams.Equals(other.UriParams) {
+	if !uri.FUriParams.Equals(other.FUriParams) {
 		return false
 	}
 
-	if !uri.Headers.Equals(other.Headers) {
+	if !uri.FHeaders.Equals(other.FHeaders) {
 		return false
 	}
 
@@ -286,7 +350,7 @@ func (uri *SipUri) String() string {
 	var buffer bytes.Buffer
 
 	// Compulsory protocol identifier.
-	if uri.IsEncrypted {
+	if uri.FIsEncrypted {
 		buffer.WriteString("sips")
 		buffer.WriteString(":")
 	} else {
@@ -295,9 +359,9 @@ func (uri *SipUri) String() string {
 	}
 
 	// Optional userinfo part.
-	if user, ok := uri.User.(String); ok && user.String() != "" {
-		buffer.WriteString(uri.User.String())
-		if pass, ok := uri.Password.(String); ok && pass.String() != "" {
+	if user, ok := uri.FUser.(String); ok && user.String() != "" {
+		buffer.WriteString(uri.FUser.String())
+		if pass, ok := uri.FPassword.(String); ok && pass.String() != "" {
 			buffer.WriteString(":")
 			buffer.WriteString(pass.String())
 		}
@@ -305,21 +369,21 @@ func (uri *SipUri) String() string {
 	}
 
 	// Compulsory hostname.
-	buffer.WriteString(uri.Host)
+	buffer.WriteString(uri.FHost)
 
 	// Optional port number.
-	if uri.Port != nil {
-		buffer.WriteString(fmt.Sprintf(":%d", *uri.Port))
+	if uri.FPort != nil {
+		buffer.WriteString(fmt.Sprintf(":%d", *uri.FPort))
 	}
 
-	if (uri.UriParams != nil) && uri.UriParams.Length() > 0 {
+	if (uri.FUriParams != nil) && uri.FUriParams.Length() > 0 {
 		buffer.WriteString(";")
-		buffer.WriteString(uri.UriParams.ToString(';'))
+		buffer.WriteString(uri.FUriParams.ToString(';'))
 	}
 
-	if (uri.Headers != nil) && uri.Headers.Length() > 0 {
+	if (uri.FHeaders != nil) && uri.FHeaders.Length() > 0 {
 		buffer.WriteString("?")
-		buffer.WriteString(uri.Headers.ToString('&'))
+		buffer.WriteString(uri.FHeaders.ToString('&'))
 	}
 
 	return buffer.String()
@@ -328,18 +392,46 @@ func (uri *SipUri) String() string {
 // Clone the Sip URI.
 func (uri *SipUri) Clone() Uri {
 	return &SipUri{
-		IsEncrypted: uri.IsEncrypted,
-		User:        uri.User,
-		Password:    uri.Password,
-		Host:        uri.Host,
-		Port:        uri.Port.Clone(),
-		UriParams:   cloneWithNil(uri.UriParams),
-		Headers:     cloneWithNil(uri.Headers),
+		FIsEncrypted: uri.FIsEncrypted,
+		FUser:        uri.FUser,
+		FPassword:    uri.FPassword,
+		FHost:        uri.FHost,
+		FPort:        uri.FPort.Clone(),
+		FUriParams:   cloneWithNil(uri.FUriParams),
+		FHeaders:     cloneWithNil(uri.FHeaders),
 	}
 }
 
 // The special wildcard URI used in Contact: headers in REGISTER requests when expiring all registrations.
 type WildcardUri struct{}
+
+func (uri WildcardUri) IsEncrypted() bool { return false }
+
+func (uri WildcardUri) SetEncrypted(flag bool) {}
+
+func (uri WildcardUri) User() MaybeString { return nil }
+
+func (uri WildcardUri) SetUser(user MaybeString) {}
+
+func (uri WildcardUri) Password() MaybeString { return nil }
+
+func (uri WildcardUri) SetPassword(pass MaybeString) {}
+
+func (uri WildcardUri) Host() string { return "" }
+
+func (uri WildcardUri) SetHost(host string) {}
+
+func (uri WildcardUri) Port() *Port { return nil }
+
+func (uri WildcardUri) SetPort(port *Port) {}
+
+func (uri WildcardUri) UriParams() Params { return nil }
+
+func (uri WildcardUri) SetUriParams(params Params) {}
+
+func (uri WildcardUri) Headers() Params { return nil }
+
+func (uri WildcardUri) SetHeaders(params Params) {}
 
 // Copy the wildcard URI. Not hard!
 func (uri WildcardUri) Clone() Uri { return uri }
