@@ -282,7 +282,7 @@ func (srv *Server) prepareResponse(res sip.Response) sip.Response {
 	}
 
 	if cseq, ok := res.CSeq(); ok {
-		if _, ok := autoAppendMethods[cseq.MethodName]; ok {
+		if _, ok := autoAppendMethods[cseq.MethodName]; ok && !res.IsProvisional() {
 			hdrs := res.GetHeaders("Allow")
 			if len(hdrs) == 0 {
 				allow := make(sip.AllowHeader, 0)
