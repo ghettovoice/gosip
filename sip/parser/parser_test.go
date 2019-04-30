@@ -1086,6 +1086,13 @@ func TestViaHeaders(t *testing.T) {
 	}, t)
 }
 
+func TestSupported(t *testing.T) {
+	doTests([]test{
+		{supportedInput("Supported: replaces, tdialog"), &supportedResult{pass, &sip.SupportedHeader{Options: []string{"replaces", "tdialog"}}}},
+		{supportedInput("Supported: replaces, \n\ttdialog"), &supportedResult{pass, &sip.SupportedHeader{Options: []string{"replaces", "tdialog"}}}},
+	}, t)
+}
+
 // Basic test of unstreamed parsing, using empty INVITE.
 func TestUnstreamedParse1(t *testing.T) {
 	test := ParserTest{false, []parserTestStep{
@@ -1964,7 +1971,7 @@ func (expected *maxForwardsResult) equals(other result) (equal bool, reason stri
 	} else if expected.err != nil && actual.err == nil {
 		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
 	} else if actual.err == nil && expected.header != actual.header {
-		return false, fmt.Sprintf("unexpected max forwards value: expected \"%d\", got \"%d\"",
+		return false, fmt.Sprintf("unexpected Max-Forwards value: expected \"%d\", got \"%d\"",
 			expected.header, actual.header)
 	}
 	return true, ""
@@ -1983,7 +1990,7 @@ func (data expiresInput) evaluate() result {
 	} else if len(headers) == 0 {
 		return &expiresResult{err, sip.Expires(0)}
 	} else {
-		panic(fmt.Sprintf("Multiple headers returned by Max-Forwards test: %s", string(data)))
+		panic(fmt.Sprintf("Multiple headers returned by Expires test: %s", string(data)))
 	}
 }
 
@@ -1999,7 +2006,7 @@ func (expected *expiresResult) equals(other result) (equal bool, reason string) 
 	} else if expected.err != nil && actual.err == nil {
 		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
 	} else if actual.err == nil && expected.header != actual.header {
-		return false, fmt.Sprintf("unexpected expires value: expected \"%d\", got \"%d\"",
+		return false, fmt.Sprintf("unexpected Expires value: expected \"%d\", got \"%d\"",
 			expected.header, actual.header)
 	}
 	return true, ""
@@ -2018,7 +2025,7 @@ func (data userAgentInput) evaluate() result {
 	} else if len(headers) == 0 {
 		return &userAgentResult{err, sip.UserAgentHeader("")}
 	} else {
-		panic(fmt.Sprintf("Multiple headers returned by Max-Forwards test: %s", string(data)))
+		panic(fmt.Sprintf("Multiple headers returned by User-Agent test: %s", string(data)))
 	}
 }
 
@@ -2034,7 +2041,7 @@ func (expected *userAgentResult) equals(other result) (equal bool, reason string
 	} else if expected.err != nil && actual.err == nil {
 		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
 	} else if actual.err == nil && expected.header != actual.header {
-		return false, fmt.Sprintf("unexpected user agent value: expected \"%s\", got \"%s\"",
+		return false, fmt.Sprintf("unexpected User-Agent value: expected \"%s\", got \"%s\"",
 			expected.header, actual.header)
 	}
 	return true, ""
@@ -2053,7 +2060,7 @@ func (data allowInput) evaluate() result {
 	} else if len(headers) == 0 {
 		return &allowResult{err, sip.AllowHeader{}}
 	} else {
-		panic(fmt.Sprintf("Multiple headers returned by Max-Forwards test: %s", string(data)))
+		panic(fmt.Sprintf("Multiple headers returned by Allow test: %s", string(data)))
 	}
 }
 
@@ -2069,7 +2076,7 @@ func (expected *allowResult) equals(other result) (equal bool, reason string) {
 	} else if expected.err != nil && actual.err == nil {
 		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
 	} else if actual.err == nil && !expected.header.Equals(actual.header) {
-		return false, fmt.Sprintf("unexpected user agent value: expected \"%s\", got \"%s\"",
+		return false, fmt.Sprintf("unexpected Allow value: expected \"%s\", got \"%s\"",
 			expected.header, actual.header)
 	}
 	return true, ""
@@ -2174,6 +2181,41 @@ func (expected *viaResult) equals(other result) (equal bool, reason string) {
 		}
 	}
 
+	return true, ""
+}
+
+type supportedInput string
+
+func (data supportedInput) String() string {
+	return string(data)
+}
+
+func (data supportedInput) evaluate() result {
+	headers, err := parseHeader(data.String())
+	if len(headers) == 1 {
+		return &supportedResult{err, headers[0].(*sip.SupportedHeader)}
+	} else if len(headers) == 0 {
+		return &supportedResult{err, &sip.SupportedHeader{}}
+	} else {
+		panic(fmt.Sprintf("Multiple headers returned by Supported test: %s", string(data)))
+	}
+}
+
+type supportedResult struct {
+	err    error
+	header *sip.SupportedHeader
+}
+
+func (expected *supportedResult) equals(other result) (equal bool, reason string) {
+	actual := *(other.(*supportedResult))
+	if expected.err == nil && actual.err != nil {
+		return false, fmt.Sprintf("unexpected error: %s", actual.err.Error())
+	} else if expected.err != nil && actual.err == nil {
+		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
+	} else if actual.err == nil && !expected.header.Equals(actual.header) {
+		return false, fmt.Sprintf("unexpected Supported value: expected \"%s\", got \"%s\"",
+			expected.header, actual.header)
+	}
 	return true, ""
 }
 
