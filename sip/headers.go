@@ -264,7 +264,7 @@ func (uri *SipUri) SetEncrypted(flag bool) {
 }
 
 func (uri *SipUri) User() MaybeString {
-	return uri.FUriParams
+	return uri.FUser
 }
 
 func (uri *SipUri) SetUser(user MaybeString) {

@@ -30,15 +30,24 @@ type clientTx struct {
 }
 
 func NewClientTx(origin sip.Request, tpl transport.Layer) (ClientTx, error) {
+	key, err := MakeClientTxKey(origin)
+	if err != nil {
+		return nil, err
+	}
+
 	tx := new(clientTx)
-	tx.logger = log.NewSafeLocalLogger()
+	tx.key = key
 	tx.origin = origin
 	tx.tpl = tpl
+	tx.logger = log.NewSafeLocalLogger()
 	// buffer chan - about ~10 retransmit responses
 	tx.responses = make(chan sip.Response, 10)
 	tx.errs = make(chan error, 10)
 	tx.done = make(chan bool)
 	tx.mu = new(sync.RWMutex)
+	if viaHop, ok := origin.ViaHop(); ok {
+		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
+	}
 
 	return tx, nil
 }
@@ -52,19 +61,6 @@ func (tx *clientTx) Init() error {
 		tx.mu.Unlock()
 		tx.fsm.Spin(client_input_transport_err)
 		return err
-	}
-
-	if key, err := MakeClientTxKey(tx.Origin()); err != nil {
-		tx.mu.Lock()
-		tx.lastErr = err
-		tx.mu.Unlock()
-		tx.fsm.Spin(client_input_transport_err)
-		return err
-	} else {
-		tx.key = key
-		if viaHop, ok := tx.Origin().ViaHop(); ok {
-			tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
-		}
 	}
 
 	if tx.reliable {

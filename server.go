@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -36,6 +39,8 @@ var defaultConfig = &ServerConfig{
 type Server struct {
 	tp              transport.Layer
 	tx              transaction.Layer
+	host            string
+	port            *uint
 	inShutdown      int32
 	hwg             *sync.WaitGroup
 	hmu             *sync.RWMutex
@@ -45,24 +50,30 @@ type Server struct {
 
 // NewServer creates new instance of SIP server.
 func NewServer(config *ServerConfig) *Server {
-	var hostAddr string
-
 	if config == nil {
 		config = defaultConfig
 	}
 
+	var hostAddr, host string
+	var port *uint
 	if config.HostAddr != "" {
 		hostAddr = config.HostAddr
 	} else {
 		hostAddr = defaultHostAddr
 	}
+	host, port, err := parseHostAddr(hostAddr)
+	if err != nil {
+		log.Panicf(err.Error())
+	}
 
 	ctx := context.Background()
-	tp := transport.NewLayer(hostAddr)
+	tp := transport.NewLayer(host, port)
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
 		tp:              tp,
 		tx:              tx,
+		host:            host,
+		port:            port,
 		hwg:             new(sync.WaitGroup),
 		hmu:             new(sync.RWMutex),
 		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
@@ -213,6 +224,49 @@ func (srv *Server) RequestAsync(
 }
 
 func (srv *Server) prepareRequest(req sip.Request) sip.Request {
+	if viaHop, ok := req.ViaHop(); ok {
+		viaHop.Host = srv.host
+		if srv.port != nil {
+			port := sip.Port(*srv.port)
+			viaHop.Port = &port
+		}
+		if viaHop.Params == nil {
+			viaHop.Params = sip.NewParams()
+		}
+		if !viaHop.Params.Has("branch") {
+			viaHop.Params.Add("branch", sip.String{Str: sip.GenerateBranch()})
+		}
+		if !viaHop.Params.Has("rport") {
+			viaHop.Params.Add("rport", nil)
+		}
+	} else {
+		msgLen := len(req.String())
+
+		var protocol string
+		if msgLen > int(transport.MTU)-200 {
+			protocol = "TCP"
+		} else {
+			protocol = "UDP"
+		}
+
+		viaHop = &sip.ViaHop{
+			ProtocolName:    "SIP",
+			ProtocolVersion: "2.0",
+			Transport:       protocol,
+			Host:            srv.host,
+			Params: sip.NewParams().
+				Add("branch", sip.String{Str: sip.GenerateBranch()}).
+				Add("rport", nil),
+		}
+		if srv.port != nil {
+			port := sip.Port(*srv.port)
+			viaHop.Port = &port
+		}
+		req.PrependHeaderAfter(sip.ViaHeader{
+			viaHop,
+		}, "Route")
+	}
+
 	autoAppendMethods := map[sip.RequestMethod]bool{
 		sip.INVITE:   true,
 		sip.REGISTER: true,
@@ -268,6 +322,13 @@ func (srv *Server) RespondOnRequest(request sip.Request, status sip.StatusCode, 
 func (srv *Server) Send(msg sip.Message) error {
 	if srv.shuttingDown() {
 		return fmt.Errorf("can not send through stopped server")
+	}
+
+	switch m := msg.(type) {
+	case sip.Request:
+		msg = srv.prepareRequest(m)
+	case sip.Response:
+		msg = srv.prepareResponse(m)
 	}
 
 	return srv.tp.Send(msg)
@@ -372,4 +433,26 @@ func (srv *Server) getAllowedMethods() []sip.RequestMethod {
 	srv.hmu.RUnlock()
 
 	return methods
+}
+
+func parseHostAddr(hostAddr string) (host string, port *uint, err error) {
+	if strings.Contains(hostAddr, ":") {
+		if h, p, er := net.SplitHostPort(hostAddr); er == nil {
+			host = h
+
+			if pi, er := strconv.Atoi(p); er == nil {
+				pii := uint(pi)
+				port = &pii
+			} else {
+				err = fmt.Errorf("failed to parse port: %s", er)
+				return
+			}
+		} else {
+			err = fmt.Errorf("failed to parse hostAddr: %s", er)
+			return
+		}
+	} else {
+		host = hostAddr
+	}
+	return
 }

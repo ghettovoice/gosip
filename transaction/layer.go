@@ -186,7 +186,7 @@ func (txl *layer) listenMessages() {
 				return
 			}
 
-			txl.handleMessage(msg)
+			go txl.handleMessage(msg)
 		}
 	}
 }
@@ -238,6 +238,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 	}
 
 	// try to match to existent tx: request retransmission, or ACKs on non-2xx, or CANCEL
+
 	tx, err := txl.getServerTx(req)
 	if err == nil {
 		if err := tx.Receive(req); err != nil {
