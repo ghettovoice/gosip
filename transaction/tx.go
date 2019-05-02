@@ -47,7 +47,7 @@ func (tx *commonTx) String() string {
 		return "Tx <nil>"
 	}
 
-	return fmt.Sprintf("Tx %p [%s]", tx, tx.Origin().Short())
+	return fmt.Sprintf("Tx %p [key=%s] [%s]", tx, tx.Key(), tx.Origin().Short())
 }
 
 func (tx *commonTx) Log() log.Logger {

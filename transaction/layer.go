@@ -119,6 +119,11 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	txl.Log().Debugf("%s creates new %s", txl, tx)
+
+	txl.transactions.put(tx.Key(), tx)
+
 	tx.SetLog(txl.Log())
 
 	err = tx.Init()
@@ -130,8 +135,6 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 	txl.txWg.Add(1)
 	txl.txWgLock.Unlock()
 	go txl.serveTransaction(tx)
-
-	txl.transactions.put(tx.Key(), tx)
 
 	return tx, nil
 }
@@ -182,8 +185,8 @@ func (txl *layer) listenMessages() {
 			if !ok {
 				return
 			}
-			// start handle goroutine
-			go txl.handleMessage(msg)
+
+			txl.handleMessage(msg)
 		}
 	}
 }
@@ -244,12 +247,15 @@ func (txl *layer) handleRequest(req sip.Request) {
 		return
 	}
 
-	txl.Log().Debugf("%s creates new server transaction for %s", txl, req.Short())
 	tx, err = NewServerTx(req, txl.tpl)
 	if err != nil {
 		txl.Log().Error(err)
 		return
 	}
+
+	txl.Log().Debugf("%s creates new %s", txl, tx)
+	// put tx to store, to match retransmitting requests later
+	txl.transactions.put(tx.Key(), tx)
 
 	if err := tx.Init(); err != nil {
 		txl.Log().Error(err)
@@ -257,8 +263,6 @@ func (txl *layer) handleRequest(req sip.Request) {
 	}
 
 	tx.SetLog(txl.Log())
-	// put tx to store, to match retransmitting requests later
-	txl.transactions.put(tx.Key(), tx)
 
 	txl.txWgLock.Lock()
 	txl.txWg.Add(1)
