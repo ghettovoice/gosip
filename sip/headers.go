@@ -1102,7 +1102,7 @@ func (route *RouteHeader) String() string {
 	var addrs []string
 
 	for _, uri := range route.Addresses {
-		addrs = append(addrs, uri.String())
+		addrs = append(addrs, "<"+uri.String()+">")
 	}
 
 	return fmt.Sprintf("Route: %s", strings.Join(addrs, ", "))
@@ -1144,7 +1144,7 @@ func (route *RecordRouteHeader) String() string {
 	var addrs []string
 
 	for _, uri := range route.Addresses {
-		addrs = append(addrs, uri.String())
+		addrs = append(addrs, "<"+uri.String()+">")
 	}
 
 	return fmt.Sprintf("Record-Route: %s", strings.Join(addrs, ", "))

@@ -32,7 +32,6 @@ type serverTx struct {
 	timer_i_time time.Duration
 	timer_j      timing.Timer
 	timer_1xx    timing.Timer
-	timer_term   timing.Timer
 	reliable     bool
 	mu           *sync.RWMutex
 }
@@ -80,15 +79,6 @@ func (tx *serverTx) Init() error {
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
 			tx.Log().Debugf("%s, timer_1xx fired", tx)
 			_ = tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
-		})
-		tx.mu.Unlock()
-	}
-	// auto-terminate ACK on 2xx transaction
-	if tx.Origin().IsAck() {
-		tx.mu.Lock()
-		tx.timer_term = timing.AfterFunc(Timer_J, func() {
-			tx.Log().Debugf("%s, timer_term fired", tx)
-			tx.Terminate()
 		})
 		tx.mu.Unlock()
 	}
@@ -425,9 +415,6 @@ func (tx *serverTx) delete() {
 	}
 	if tx.timer_1xx != nil {
 		tx.timer_1xx.Stop()
-	}
-	if tx.timer_term != nil {
-		tx.timer_term.Stop()
 	}
 	tx.mu.Unlock()
 

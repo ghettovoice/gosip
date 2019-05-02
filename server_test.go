@@ -53,8 +53,9 @@ var _ = Describe("GoSIP Server", func() {
 		wg := new(sync.WaitGroup)
 
 		wg.Add(1)
-		Expect(srv.OnRequest(sip.INVITE, func(tx sip.ServerTransaction) {
+		Expect(srv.OnRequest(sip.INVITE, func(req sip.Request, tx sip.ServerTransaction) {
 			defer wg.Done()
+			Expect(req.Method()).To(Equal(sip.INVITE))
 			Expect(tx.Origin().Method()).To(Equal(sip.INVITE))
 		})).To(BeNil())
 

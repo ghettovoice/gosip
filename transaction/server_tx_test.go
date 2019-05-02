@@ -174,9 +174,9 @@ var _ = Describe("ServerTx", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					By(fmt.Sprintf("UAS receives %s", ack.Short()))
-					ackReq := <-txl.Requests()
+					ackReq := <-txl.Acks()
 					Expect(ackReq).ToNot(BeNil())
-					Expect(ackReq.Origin().String()).To(Equal(ack.String()))
+					Expect(ackReq.String()).To(Equal(ack.String()))
 
 					close(done)
 				})

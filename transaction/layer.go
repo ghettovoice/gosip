@@ -20,6 +20,8 @@ type Layer interface {
 	Transport() transport.Layer
 	// Requests returns channel with new incoming server transactions.
 	Requests() <-chan sip.ServerTransaction
+	// ACKs on 2xx
+	Acks() <-chan sip.Request
 	// Responses returns channel with not matched responses.
 	Responses() <-chan sip.Response
 	Errors() <-chan error
@@ -29,6 +31,7 @@ type layer struct {
 	logger       log.LocalLogger
 	tpl          transport.Layer
 	requests     chan sip.ServerTransaction
+	acks         chan sip.Request
 	responses    chan sip.Response
 	errs         chan error
 	done         chan struct{}
@@ -43,6 +46,7 @@ func NewLayer(tpl transport.Layer) Layer {
 		logger:       log.NewSafeLocalLogger(),
 		tpl:          tpl,
 		requests:     make(chan sip.ServerTransaction),
+		acks:         make(chan sip.Request),
 		responses:    make(chan sip.Response),
 		errs:         make(chan error),
 		done:         make(chan struct{}),
@@ -94,6 +98,10 @@ func (txl *layer) Requests() <-chan sip.ServerTransaction {
 	return txl.requests
 }
 
+func (txl *layer) Acks() <-chan sip.Request {
+	return txl.acks
+}
+
 func (txl *layer) Responses() <-chan sip.Response {
 	return txl.responses
 }
@@ -114,6 +122,10 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 	}
 
 	txl.Log().Debugf("%s sends %s", txl, req.Short())
+
+	if req.IsAck() {
+		return nil, fmt.Errorf("ack request must be sent directly through transport")
+	}
 
 	tx, err := NewClientTx(req, txl.tpl)
 	if err != nil {
@@ -238,13 +250,20 @@ func (txl *layer) handleRequest(req sip.Request) {
 	}
 
 	// try to match to existent tx: request retransmission, or ACKs on non-2xx, or CANCEL
-
 	tx, err := txl.getServerTx(req)
 	if err == nil {
 		if err := tx.Receive(req); err != nil {
 			txl.Log().Error(err)
 		}
 
+		return
+	}
+	// ACK on 2xx
+	if req.IsAck() {
+		select {
+		case <-txl.canceled:
+		case txl.acks <- req:
+		}
 		return
 	}
 
@@ -275,7 +294,6 @@ func (txl *layer) handleRequest(req sip.Request) {
 
 	select {
 	case <-txl.canceled:
-		return
 	case txl.requests <- tx:
 	}
 }

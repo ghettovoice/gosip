@@ -22,7 +22,7 @@ const (
 
 // RequestHandler is a callback that will be called on the incoming request
 // of the certain method
-type RequestHandler func(tx sip.ServerTransaction)
+type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
 
 // ServerConfig describes available options
 type ServerConfig struct {
@@ -66,7 +66,6 @@ func NewServer(config *ServerConfig) *Server {
 		log.Panicf(err.Error())
 	}
 
-	ctx := context.Background()
 	tp := transport.NewLayer(host, port)
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
@@ -80,17 +79,17 @@ func NewServer(config *ServerConfig) *Server {
 		extensions:      config.Extensions,
 	}
 	// setup default handlers
-	_ = srv.OnRequest(sip.ACK, func(tx sip.ServerTransaction) {
-		log.Infof("GoSIP server received ACK request: %s", tx.Origin().Short())
+	_ = srv.OnRequest(sip.ACK, func(req sip.Request, tx sip.ServerTransaction) {
+		log.Infof("GoSIP server received ACK request: %s", req.Short())
 	})
-	_ = srv.OnRequest(sip.CANCEL, func(tx sip.ServerTransaction) {
+	_ = srv.OnRequest(sip.CANCEL, func(req sip.Request, tx sip.ServerTransaction) {
 		response := sip.NewResponseFromRequest(tx.Origin(), 481, "Transaction Does Not Exist", "")
 		if _, err := srv.Respond(response); err != nil {
 			log.Errorf("failed to send response: %s", err)
 		}
 	})
 
-	go srv.serve(ctx)
+	go srv.serve()
 
 	return srv
 }
@@ -105,28 +104,46 @@ func (srv *Server) Listen(network string, listenAddr string) error {
 	return nil
 }
 
-func (srv *Server) serve(ctx context.Context) {
+func (srv *Server) serve() {
 	defer srv.Shutdown()
 
 	for {
 		select {
-		case <-ctx.Done():
-			return
-		case tx := <-srv.tx.Requests():
+		case tx, ok := <-srv.tx.Requests():
+			if !ok {
+				return
+			}
 			if tx != nil { // if chan is closed or early exit
 				srv.hwg.Add(1)
-				go srv.handleRequest(ctx, tx)
+				go srv.handleRequest(tx.Origin(), tx)
 			}
-		case res := <-srv.tx.Responses():
+		case ack, ok := <-srv.tx.Acks():
+			if !ok {
+				return
+			}
+			if ack != nil {
+				srv.hwg.Add(1)
+				go srv.handleRequest(ack, nil)
+			}
+		case res, ok := <-srv.tx.Responses():
+			if !ok {
+				return
+			}
 			if res != nil {
 				log.Warnf("GoSIP server received not matched response: %s", res.Short())
 				log.Debugf("message:\n%s", res.String())
 			}
-		case err := <-srv.tx.Errors():
+		case err, ok := <-srv.tx.Errors():
+			if !ok {
+				return
+			}
 			if err != nil {
 				log.Errorf("GoSIP server received transaction error: %s", err)
 			}
-		case err := <-srv.tp.Errors():
+		case err, ok := <-srv.tp.Errors():
+			if !ok {
+				return
+			}
 			if err != nil {
 				log.Error("GoSIP server received transport error: %s", err)
 			}
@@ -134,7 +151,7 @@ func (srv *Server) serve(ctx context.Context) {
 	}
 }
 
-func (srv *Server) handleRequest(ctx context.Context, tx sip.ServerTransaction) {
+func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
 	log.Infof("GoSIP server handles incoming message %s", tx.Origin().Short())
@@ -149,7 +166,7 @@ func (srv *Server) handleRequest(ctx context.Context, tx sip.ServerTransaction) 
 
 	if len(handlers) > 0 {
 		for _, handler := range handlers {
-			go handler(tx)
+			go handler(req, tx)
 		}
 	} else {
 		log.Warnf("GoSIP server not found handler registered for the request %s", tx.Origin().Short())
