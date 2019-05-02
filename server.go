@@ -22,6 +22,7 @@ const (
 
 // RequestHandler is a callback that will be called on the incoming request
 // of the certain method
+// tx argument can be nil for 2xx ACK request
 type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
 
 // ServerConfig describes available options
@@ -154,12 +155,12 @@ func (srv *Server) serve() {
 func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
-	log.Infof("GoSIP server handles incoming message %s", tx.Origin().Short())
-	log.Debugf("message:\n%s", tx.Origin())
+	log.Infof("GoSIP server handles incoming message %s", req.Short())
+	log.Debugf("message:\n%s", req)
 
 	var handlers []RequestHandler
 	srv.hmu.RLock()
-	if value, ok := srv.requestHandlers[tx.Origin().Method()]; ok {
+	if value, ok := srv.requestHandlers[req.Method()]; ok {
 		handlers = value[:]
 	}
 	srv.hmu.RUnlock()
@@ -169,9 +170,9 @@ func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 			go handler(req, tx)
 		}
 	} else {
-		log.Warnf("GoSIP server not found handler registered for the request %s", tx.Origin().Short())
+		log.Warnf("GoSIP server not found handler registered for the request %s", req.Short())
 
-		res := sip.NewResponseFromRequest(tx.Origin(), 405, "Method Not Allowed", "")
+		res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", "")
 		if _, err := srv.Respond(res); err != nil {
 			log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
 		}
@@ -243,10 +244,15 @@ func (srv *Server) RequestAsync(
 func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	if viaHop, ok := req.ViaHop(); ok {
 		viaHop.Host = srv.host
+
+		var port sip.Port
 		if srv.port != nil {
-			port := sip.Port(*srv.port)
-			viaHop.Port = &port
+			port = sip.Port(*srv.port)
+		} else {
+			port = sip.DefaultPort(viaHop.Transport)
 		}
+		viaHop.Port = &port
+
 		if viaHop.Params == nil {
 			viaHop.Params = sip.NewParams()
 		}
@@ -275,10 +281,15 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 				Add("branch", sip.String{Str: sip.GenerateBranch()}).
 				Add("rport", nil),
 		}
+
+		var port sip.Port
 		if srv.port != nil {
-			port := sip.Port(*srv.port)
-			viaHop.Port = &port
+			port = sip.Port(*srv.port)
+		} else {
+			port = sip.DefaultPort(viaHop.Transport)
 		}
+		viaHop.Port = &port
+
 		req.PrependHeaderAfter(sip.ViaHeader{
 			viaHop,
 		}, "Route")

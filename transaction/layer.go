@@ -266,6 +266,10 @@ func (txl *layer) handleRequest(req sip.Request) {
 		}
 		return
 	}
+	if req.IsCancel() {
+		// transaction for CANCEL already completed and terminated
+		return
+	}
 
 	tx, err = NewServerTx(req, txl.tpl)
 	if err != nil {
