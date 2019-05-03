@@ -63,7 +63,8 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	conn := NewConnection(udpConn)
 	conn.SetLog(udp.Log())
 	// index by local address, TTL=0 - unlimited expiry time
-	err = udp.connections.Put(ConnectionKey(laddr.String()), conn, 0)
+	key := ConnectionKey(fmt.Sprintf("0.0.0.0:%d", laddr.Port))
+	err = udp.connections.Put(key, conn, 0)
 
 	return err // should be nil here
 }
@@ -95,7 +96,8 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 
 	// send through already opened by connection
 	// to always use same local port
-	conn, err := udp.connections.Get(ConnectionKey(msg.Source()))
+	_, port, err := net.SplitHostPort(msg.Source())
+	conn, err := udp.connections.Get(ConnectionKey("0.0.0.0:" + port))
 	if err != nil {
 		// todo change this bloody patch
 		if len(udp.connections.All()) == 0 {

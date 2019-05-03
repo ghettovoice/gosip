@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -106,7 +107,7 @@ func (srv *Server) Listen(network string, listenAddr string) error {
 		return err
 	}
 
-	srv.listeners[network] = intPort
+	srv.listeners[strings.ToLower(network)] = intPort
 
 	return nil
 }
@@ -250,7 +251,7 @@ func (srv *Server) RequestAsync(
 func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	if viaHop, ok := req.ViaHop(); ok {
 		viaHop.Host = srv.host
-		port := sip.Port(srv.listeners[viaHop.Transport])
+		port := sip.Port(srv.listeners[strings.ToLower(viaHop.Transport)])
 		viaHop.Port = &port
 		if viaHop.Params == nil {
 			viaHop.Params = sip.NewParams()
@@ -269,7 +270,7 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 		} else {
 			protocol = "UDP"
 		}
-		port := sip.Port(srv.listeners[viaHop.Transport])
+		port := sip.Port(srv.listeners[strings.ToLower(protocol)])
 		viaHop = &sip.ViaHop{
 			ProtocolName:    "SIP",
 			ProtocolVersion: "2.0",
@@ -289,9 +290,9 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	autoAppendMethods := map[sip.RequestMethod]bool{
 		sip.INVITE:   true,
 		sip.REGISTER: true,
-		sip.OPTIONS:  true,
-		sip.REFER:    true,
-		sip.NOTIFY:   true,
+		// sip.OPTIONS:  true,
+		sip.REFER:  true,
+		sip.NOTIFY: true,
 	}
 	if _, ok := autoAppendMethods[req.Method()]; ok {
 		hdrs := req.GetHeaders("Allow")
@@ -359,6 +360,7 @@ func (srv *Server) prepareResponse(res sip.Response) sip.Response {
 		sip.REGISTER: true,
 		sip.OPTIONS:  true,
 		sip.REFER:    true,
+		sip.NOTIFY:   true,
 	}
 
 	if cseq, ok := res.CSeq(); ok {
