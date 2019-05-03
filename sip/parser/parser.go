@@ -259,14 +259,14 @@ func (p *parser) parse(requireContentLength bool) {
 
 		var termErr error
 		if isRequest(startLine) {
-			method, recipient, sipVersion, err := parseRequestLine(startLine)
+			method, recipient, sipVersion, err := ParseRequestLine(startLine)
 			if err == nil {
 				msg = sip.NewRequest(method, recipient, sipVersion, []sip.Header{}, "")
 			} else {
 				termErr = err
 			}
 		} else if isResponse(startLine) {
-			sipVersion, statusCode, reason, err := parseStatusLine(startLine)
+			sipVersion, statusCode, reason, err := ParseStatusLine(startLine)
 			if err == nil {
 				msg = sip.NewResponse(sipVersion, statusCode, reason, []sip.Header{}, "")
 			} else {
@@ -486,7 +486,7 @@ func isResponse(startLine string) bool {
 // Parse the first line of a SIP request, e.g:
 //   INVITE bob@example.com SIP/2.0
 //   REGISTER jane@telco.com SIP/1.0
-func parseRequestLine(requestLine string) (
+func ParseRequestLine(requestLine string) (
 	method sip.RequestMethod, recipient sip.Uri, sipVersion string, err error) {
 	parts := strings.Split(requestLine, " ")
 	if len(parts) != 3 {
@@ -509,7 +509,7 @@ func parseRequestLine(requestLine string) (
 // Parse the first line of a SIP response, e.g:
 //   SIP/2.0 200 OK
 //   SIP/1.0 403 Forbidden
-func parseStatusLine(statusLine string) (
+func ParseStatusLine(statusLine string) (
 	sipVersion string, statusCode sip.StatusCode, reasonPhrase string, err error) {
 	parts := strings.Split(statusLine, " ")
 	if len(parts) < 3 {
