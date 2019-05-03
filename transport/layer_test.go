@@ -20,7 +20,6 @@ var _ = Describe("TransportLayer", func() {
 		client net.Conn
 	)
 	host := "192.168.0.1"
-	port := uint(5060)
 	localAddr1 := "127.0.0.1:5060"
 	clientPort := sip.Port(9001)
 	clientHost := "127.0.0.1"
@@ -28,7 +27,7 @@ var _ = Describe("TransportLayer", func() {
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)
-		tpl = transport.NewLayer(host, &port)
+		tpl = transport.NewLayer(host)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
@@ -39,7 +38,7 @@ var _ = Describe("TransportLayer", func() {
 
 	Context("just initialized", func() {
 		It("should has correct host address", func() {
-			Expect(tpl.HostAddr()).To(Equal(fmt.Sprintf("%s:%d", host, port)))
+			Expect(tpl.Host()).To(Equal(host))
 		})
 	})
 

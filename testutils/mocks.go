@@ -109,7 +109,7 @@ func NewMockTransportLayer() *MockTransportLayer {
 	}
 }
 
-func (tpl *MockTransportLayer) HostAddr() string {
+func (tpl *MockTransportLayer) Host() string {
 	return "127.0.0.1"
 }
 

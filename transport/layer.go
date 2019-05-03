@@ -14,7 +14,7 @@ type Layer interface {
 	log.LocalLogger
 	Cancel()
 	Done() <-chan struct{}
-	HostAddr() string
+	Host() string
 	Messages() <-chan sip.Message
 	Errors() <-chan error
 	// Listen starts listening on `addr` for each registered protocol.
@@ -68,11 +68,10 @@ type layer struct {
 
 // NewLayer creates transport layer.
 // 	- hostAddr - current server host address (IP or FQDN)
-func NewLayer(host string, port *uint) Layer {
+func NewLayer(host string) Layer {
 	tpl := &layer{
 		logger:    log.NewSafeLocalLogger(),
 		host:      host,
-		port:      port,
 		wg:        new(sync.WaitGroup),
 		protocols: newProtocolStore(),
 		msgs:      make(chan sip.Message),
@@ -110,13 +109,8 @@ func (tpl *layer) SetLog(logger log.Logger) {
 	}
 }
 
-func (tpl *layer) HostAddr() string {
-	addr := tpl.host
-	if tpl.port != nil {
-		addr += fmt.Sprintf(":%d", *tpl.port)
-	}
-
-	return addr
+func (tpl *layer) Host() string {
+	return tpl.host
 }
 
 func (tpl *layer) Cancel() {

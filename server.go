@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -17,7 +14,7 @@ import (
 )
 
 const (
-	defaultHostAddr = "localhost"
+	defaultHost = "localhost"
 )
 
 // RequestHandler is a callback that will be called on the incoming request
@@ -27,12 +24,13 @@ type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
 
 // ServerConfig describes available options
 type ServerConfig struct {
-	HostAddr   string
+	// IP address or domain name
+	Host       string
 	Extensions []string
 }
 
 var defaultConfig = &ServerConfig{
-	HostAddr:   defaultHostAddr,
+	Host:       defaultHost,
 	Extensions: make([]string, 0),
 }
 
@@ -41,7 +39,6 @@ type Server struct {
 	tp              transport.Layer
 	tx              transaction.Layer
 	host            string
-	port            *uint
 	inShutdown      int32
 	hwg             *sync.WaitGroup
 	hmu             *sync.RWMutex
@@ -55,25 +52,19 @@ func NewServer(config *ServerConfig) *Server {
 		config = defaultConfig
 	}
 
-	var hostAddr, host string
-	var port *uint
-	if config.HostAddr != "" {
-		hostAddr = config.HostAddr
+	var host string
+	if config.Host != "" {
+		host = config.Host
 	} else {
-		hostAddr = defaultHostAddr
-	}
-	host, port, err := parseHostAddr(hostAddr)
-	if err != nil {
-		log.Panicf(err.Error())
+		host = defaultHost
 	}
 
-	tp := transport.NewLayer(host, port)
+	tp := transport.NewLayer(host)
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
 		tp:              tp,
 		tx:              tx,
 		host:            host,
-		port:            port,
 		hwg:             new(sync.WaitGroup),
 		hmu:             new(sync.RWMutex),
 		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
@@ -244,15 +235,6 @@ func (srv *Server) RequestAsync(
 func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	if viaHop, ok := req.ViaHop(); ok {
 		viaHop.Host = srv.host
-
-		var port sip.Port
-		if srv.port != nil {
-			port = sip.Port(*srv.port)
-		} else {
-			port = sip.DefaultPort(viaHop.Transport)
-		}
-		viaHop.Port = &port
-
 		if viaHop.Params == nil {
 			viaHop.Params = sip.NewParams()
 		}
@@ -264,7 +246,6 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 		}
 	} else {
 		msgLen := len(req.String())
-
 		var protocol string
 		if msgLen > int(transport.MTU)-200 {
 			protocol = "TCP"
@@ -281,13 +262,7 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 				Add("branch", sip.String{Str: sip.GenerateBranch()}).
 				Add("rport", nil),
 		}
-
-		var port sip.Port
-		if srv.port != nil {
-			port = sip.Port(*srv.port)
-		} else {
-			port = sip.DefaultPort(viaHop.Transport)
-		}
+		port := sip.DefaultPort(viaHop.Transport)
 		viaHop.Port = &port
 
 		req.PrependHeaderAfter(sip.ViaHeader{
@@ -461,26 +436,4 @@ func (srv *Server) getAllowedMethods() []sip.RequestMethod {
 	srv.hmu.RUnlock()
 
 	return methods
-}
-
-func parseHostAddr(hostAddr string) (host string, port *uint, err error) {
-	if strings.Contains(hostAddr, ":") {
-		if h, p, er := net.SplitHostPort(hostAddr); er == nil {
-			host = h
-
-			if pi, er := strconv.Atoi(p); er == nil {
-				pii := uint(pi)
-				port = &pii
-			} else {
-				err = fmt.Errorf("failed to parse port: %s", er)
-				return
-			}
-		} else {
-			err = fmt.Errorf("failed to parse hostAddr: %s", er)
-			return
-		}
-	} else {
-		host = hostAddr
-	}
-	return
 }
