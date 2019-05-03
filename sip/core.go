@@ -52,12 +52,19 @@ func NewAddressFromContactHeader(cnt *ContactHeader) *Address {
 func (addr *Address) String() string {
 	var buffer bytes.Buffer
 
-	if displayName, ok := addr.DisplayName.(String); ok && displayName.String() != "" {
-		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
+	if addr == nil {
+		return "<nil>"
+	}
+
+	if addr.DisplayName != nil {
+		if displayName, ok := addr.DisplayName.(String); ok && displayName.String() != "" {
+			buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
+		}
 	}
 
 	buffer.WriteString(fmt.Sprintf("<%s>", addr.Uri))
-	if addr.Params.Length() > 0 {
+
+	if addr.Params != nil && addr.Params.Length() > 0 {
 		buffer.WriteString(";")
 		buffer.WriteString(addr.Params.ToString(';'))
 	}

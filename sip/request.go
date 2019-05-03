@@ -176,12 +176,13 @@ func (req *request) Destination() string {
 // NewAckForInvite creates ACK request for 2xx INVITE
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
 func NewAckForInvite(inviteReq Request, inviteResp Response) Request {
-	contact, _ := inviteReq.Contact()
-	ackReq := NewRequest(ACK, contact.Address, inviteReq.SipVersion(), []Header{}, "")
-	CopyHeaders("Call-ID", inviteReq, ackReq)
+	contact, _ := inviteResp.Contact()
+	ackReq := NewRequest(ACK, contact.Address, inviteResp.SipVersion(), []Header{}, "")
+	CopyHeaders("Route", inviteReq, ackReq)
+	CopyHeaders("Via", inviteReq, ackReq)
 	CopyHeaders("From", inviteReq, ackReq)
 	CopyHeaders("To", inviteResp, ackReq)
-	CopyHeaders("Route", inviteReq, ackReq)
+	CopyHeaders("Call-ID", inviteReq, ackReq)
 	CopyHeaders("CSeq", inviteReq, ackReq)
 
 	cseq, _ := ackReq.CSeq()

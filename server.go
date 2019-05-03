@@ -209,10 +209,16 @@ func (srv *Server) RequestAsync(
 		for {
 			select {
 			case <-ctx.Done():
-				onComplete(nil, fmt.Errorf("request '%s' canceled", request.Short()))
+				onComplete(nil, &Error{
+					Message: fmt.Sprintf("request '%s' canceled", request.Short()),
+					Code:    RequestCanceled,
+				})
 				return
 			case <-tx.Done():
-				onComplete(nil, fmt.Errorf("transaction '%s' terminated", tx))
+				onComplete(nil, &Error{
+					Message: fmt.Sprintf("transaction '%s' terminated", tx),
+					Code:    TransactionTerminated,
+				})
 				return
 			case err, ok := <-tx.Errors():
 				if !ok {
