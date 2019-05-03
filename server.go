@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -44,6 +46,7 @@ type Server struct {
 	hmu             *sync.RWMutex
 	requestHandlers map[sip.RequestMethod][]RequestHandler
 	extensions      []string
+	listeners       map[string]int
 }
 
 // NewServer creates new instance of SIP server.
@@ -69,6 +72,7 @@ func NewServer(config *ServerConfig) *Server {
 		hmu:             new(sync.RWMutex),
 		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
 		extensions:      config.Extensions,
+		listeners:       make(map[string]int),
 	}
 	// setup default handlers
 	_ = srv.OnRequest(sip.ACK, func(req sip.Request, tx sip.ServerTransaction) {
@@ -88,10 +92,21 @@ func NewServer(config *ServerConfig) *Server {
 
 // ListenAndServe starts serving listeners on the provided address
 func (srv *Server) Listen(network string, listenAddr string) error {
+	_, port, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return err
+	}
+	intPort, err := strconv.Atoi(port)
+	if err != nil {
+		return err
+	}
+
 	if err := srv.tp.Listen(network, listenAddr); err != nil {
 		// return immediately
 		return err
 	}
+
+	srv.listeners[network] = intPort
 
 	return nil
 }
@@ -235,6 +250,8 @@ func (srv *Server) RequestAsync(
 func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	if viaHop, ok := req.ViaHop(); ok {
 		viaHop.Host = srv.host
+		port := sip.Port(srv.listeners[viaHop.Transport])
+		viaHop.Port = &port
 		if viaHop.Params == nil {
 			viaHop.Params = sip.NewParams()
 		}
@@ -252,18 +269,17 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 		} else {
 			protocol = "UDP"
 		}
-
+		port := sip.Port(srv.listeners[viaHop.Transport])
 		viaHop = &sip.ViaHop{
 			ProtocolName:    "SIP",
 			ProtocolVersion: "2.0",
 			Transport:       protocol,
 			Host:            srv.host,
+			Port:            &port,
 			Params: sip.NewParams().
 				Add("branch", sip.String{Str: sip.GenerateBranch()}).
 				Add("rport", nil),
 		}
-		port := sip.DefaultPort(viaHop.Transport)
-		viaHop.Port = &port
 
 		req.PrependHeaderAfter(sip.ViaHeader{
 			viaHop,
