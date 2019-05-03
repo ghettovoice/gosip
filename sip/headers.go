@@ -1092,6 +1092,25 @@ func (ct *ContentType) Equals(other interface{}) bool {
 	return false
 }
 
+type Accept string
+
+func (ct Accept) String() string { return "Accept: " + string(ct) }
+
+func (ct *Accept) Name() string { return "Accept" }
+
+func (ct *Accept) Clone() Header { return ct }
+
+func (ct *Accept) Equals(other interface{}) bool {
+	if h, ok := other.(Accept); ok {
+		return *ct == h
+	}
+	if h, ok := other.(*Accept); ok {
+		return *ct == *h
+	}
+
+	return false
+}
+
 type RouteHeader struct {
 	Addresses []Uri
 }

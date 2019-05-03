@@ -71,6 +71,7 @@ func defaultHeaderParsers() map[string]HeaderParser {
 		"user-agent":     parseUserAgent,
 		"allow":          parseAllow,
 		"content-type":   parseContentType,
+		"accept":         parseAccept,
 		"c":              parseContentType,
 		"require":        parseRequire,
 		"supported":      parseSupported,
@@ -1167,6 +1168,15 @@ func parseContentType(headerName string, headerText string) (headers []sip.Heade
 	headerText = strings.TrimSpace(headerText)
 	contentType = sip.ContentType(headerText)
 	headers = []sip.Header{&contentType}
+
+	return
+}
+
+func parseAccept(headerName string, headerText string) (headers []sip.Header, err error) {
+	var accept sip.Accept
+	headerText = strings.TrimSpace(headerText)
+	accept = sip.Accept(headerText)
+	headers = []sip.Header{&accept}
 
 	return
 }

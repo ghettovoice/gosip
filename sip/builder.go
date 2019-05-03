@@ -27,6 +27,7 @@ type RequestBuilder struct {
 	require         *RequireHeader
 	allow           AllowHeader
 	contentType     *ContentType
+	accept          *Accept
 	route           *RouteHeader
 	generic         map[string]Header
 }
@@ -226,6 +227,12 @@ func (rb *RequestBuilder) SetContentType(contentType *ContentType) *RequestBuild
 	return rb
 }
 
+func (rb *RequestBuilder) SetAccept(accept *Accept) *RequestBuilder {
+	rb.accept = accept
+
+	return rb
+}
+
 func (rb *RequestBuilder) SetRoutes(routes []Uri) *RequestBuilder {
 	if len(routes) == 0 {
 		rb.route = nil
@@ -298,6 +305,9 @@ func (rb *RequestBuilder) Build() (Request, error) {
 	}
 	if rb.contentType != nil {
 		hdrs = append(hdrs, rb.contentType)
+	}
+	if rb.accept != nil {
+		hdrs = append(hdrs, rb.accept)
 	}
 	if rb.userAgent != nil {
 		hdrs = append(hdrs, rb.userAgent)
