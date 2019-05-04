@@ -296,9 +296,9 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	autoAppendMethods := map[sip.RequestMethod]bool{
 		sip.INVITE:   true,
 		sip.REGISTER: true,
-		// sip.OPTIONS:  true,
-		sip.REFER:  true,
-		sip.NOTIFY: true,
+		sip.OPTIONS:  true,
+		sip.REFER:    true,
+		sip.NOTIFY:   true,
 	}
 	if _, ok := autoAppendMethods[req.Method()]; ok {
 		hdrs := req.GetHeaders("Allow")
