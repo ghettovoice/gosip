@@ -15,12 +15,16 @@ import (
 type ServerTx interface {
 	Tx
 	Respond(res sip.Response) error
-	Ack() <-chan sip.Request
+	Acks() <-chan sip.Request
+	Cancels() <-chan sip.Request
 }
 
 type serverTx struct {
 	commonTx
-	ack          chan sip.Request
+	lastAck      sip.Request
+	lastCancel   sip.Request
+	acks         chan sip.Request
+	cancels      chan sip.Request
 	timer_g      timing.Timer
 	timer_g_time time.Duration
 	timer_h      timing.Timer
@@ -39,15 +43,17 @@ func NewServerTx(origin sip.Request, tpl transport.Layer) (ServerTx, error) {
 	}
 
 	tx := new(serverTx)
-	tx.logger = log.NewSafeLocalLogger()
 	tx.key = key
 	tx.origin = origin
 	tx.tpl = tpl
-	tx.ack = make(chan sip.Request, 1)
-	tx.errs = make(chan error, 1)
-	tx.done = make(chan bool, 1)
+	tx.logger = log.NewSafeLocalLogger()
+	// about ~10 retransmits
+	tx.acks = make(chan sip.Request, 10)
+	tx.cancels = make(chan sip.Request, 10)
+	tx.errs = make(chan error, 10)
+	tx.done = make(chan bool)
 	tx.mu = new(sync.RWMutex)
-	if viaHop, ok := tx.Origin().ViaHop(); ok {
+	if viaHop, ok := origin.ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
 	}
 
@@ -68,11 +74,11 @@ func (tx *serverTx) Init() error {
 	// RFC 3261 - 17.2.1
 	if tx.Origin().IsInvite() {
 		tx.Log().Debugf("%s, set timer_1xx to %v", tx, Timer_1xx)
-		// todo set as timer, reset in Respond
+
 		tx.mu.Lock()
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
 			tx.Log().Debugf("%s, timer_1xx fired", tx)
-			tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
+			_ = tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
 		})
 		tx.mu.Unlock()
 	}
@@ -106,12 +112,14 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 		input = server_input_request
 	case req.IsAck(): // ACK for non-2xx response
 		input = server_input_ack
-		tx.mu.RLock()
-		select {
-		case <-tx.done:
-		case tx.ack <- req:
-		}
-		tx.mu.RUnlock()
+		tx.mu.Lock()
+		tx.lastAck = req
+		tx.mu.Unlock()
+	case req.IsCancel():
+		input = server_input_cancel
+		tx.mu.Lock()
+		tx.lastCancel = req
+		tx.mu.Unlock()
 	default:
 		return &sip.UnexpectedMessageError{
 			fmt.Errorf("invalid %s correlated to %s", msg, tx),
@@ -145,8 +153,12 @@ func (tx *serverTx) Respond(res sip.Response) error {
 	return tx.fsm.Spin(input)
 }
 
-func (tx *serverTx) Ack() <-chan sip.Request {
-	return tx.ack
+func (tx *serverTx) Acks() <-chan sip.Request {
+	return tx.acks
+}
+
+func (tx *serverTx) Cancels() <-chan sip.Request {
+	return tx.cancels
 }
 
 func (tx *serverTx) Terminate() {
@@ -171,6 +183,7 @@ const (
 const (
 	server_input_request fsm.Input = iota
 	server_input_ack
+	server_input_cancel
 	server_input_user_1xx
 	server_input_user_2xx
 	server_input_user_300_plus
@@ -200,6 +213,7 @@ func (tx *serverTx) initInviteFSM() {
 		Index: server_state_proceeding,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_proceeding, tx.act_respond},
+			server_input_cancel:        {server_state_proceeding, tx.act_cancel},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_terminated, tx.act_respond_delete},
 			server_input_user_300_plus: {server_state_completed, tx.act_respond_complete},
@@ -213,6 +227,7 @@ func (tx *serverTx) initInviteFSM() {
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_completed, tx.act_respond},
 			server_input_ack:           {server_state_confirmed, tx.act_confirm},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
@@ -227,6 +242,7 @@ func (tx *serverTx) initInviteFSM() {
 		Index: server_state_confirmed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_confirmed, fsm.NO_ACTION},
@@ -241,6 +257,7 @@ func (tx *serverTx) initInviteFSM() {
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_terminated, fsm.NO_ACTION},
 			server_input_ack:           {server_state_terminated, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_terminated, fsm.NO_ACTION},
@@ -272,6 +289,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_trying,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_trying, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_completed, tx.act_respond},
 			server_input_user_300_plus: {server_state_completed, tx.act_respond},
@@ -283,6 +301,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_proceeding,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_proceeding, tx.act_respond},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_completed, tx.act_final},
 			server_input_user_300_plus: {server_state_completed, tx.act_final},
@@ -295,6 +314,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_completed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_completed, tx.act_respond},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
@@ -308,6 +328,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_terminated,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_terminated, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_terminated, fsm.NO_ACTION},
@@ -335,17 +356,21 @@ func (tx *serverTx) transportErr() {
 	// todo bloody patch
 	defer func() { recover() }()
 
-	err := &TxTransportError{
-		fmt.Errorf("%s failed to send %s: %s", tx, tx.lastResp.Short(), tx.lastErr),
+	tx.mu.RLock()
+	res := tx.lastResp
+	err := tx.lastErr
+	tx.mu.RUnlock()
+
+	err = &TxTransportError{
+		fmt.Errorf("%s failed to send %s: %s", tx, res, err),
 		tx.Key(),
 		tx.String(),
 	}
-	tx.mu.RLock()
+
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
-	tx.mu.RUnlock()
 }
 
 func (tx *serverTx) timeoutErr() {
@@ -357,12 +382,11 @@ func (tx *serverTx) timeoutErr() {
 		tx.Key(),
 		tx.String(),
 	}
-	tx.mu.RLock()
+
 	select {
 	case <-tx.done:
 	case tx.errs <- err:
 	}
-	tx.mu.RUnlock()
 }
 
 func (tx *serverTx) delete() {
@@ -394,8 +418,11 @@ func (tx *serverTx) delete() {
 	}
 	tx.mu.Unlock()
 
+	time.Sleep(time.Microsecond)
+
 	tx.mu.Lock()
-	close(tx.ack)
+	close(tx.acks)
+	close(tx.cancels)
 	close(tx.errs)
 	tx.mu.Unlock()
 }
@@ -403,9 +430,17 @@ func (tx *serverTx) delete() {
 // Define actions.
 // Send response
 func (tx *serverTx) act_respond() fsm.Input {
-	tx.Log().Debugf("%s, act_respond %s", tx, tx.lastResp.Short())
+	tx.mu.RLock()
+	lastResp := tx.lastResp
+	tx.mu.RUnlock()
 
-	lastErr := tx.tpl.Send(tx.lastResp)
+	if lastResp == nil {
+		return fsm.NO_INPUT
+	}
+
+	tx.Log().Debugf("%s, act_respond %s", tx, lastResp.Short())
+
+	lastErr := tx.tpl.Send(lastResp)
 
 	tx.mu.Lock()
 	tx.lastErr = lastErr
@@ -419,9 +454,17 @@ func (tx *serverTx) act_respond() fsm.Input {
 }
 
 func (tx *serverTx) act_respond_complete() fsm.Input {
-	tx.Log().Debugf("%s, act_respond_complete %s", tx, tx.lastResp.Short())
+	tx.mu.RLock()
+	lastResp := tx.lastResp
+	tx.mu.RUnlock()
 
-	lastErr := tx.tpl.Send(tx.lastResp)
+	if lastResp == nil {
+		return fsm.NO_INPUT
+	}
+
+	tx.Log().Debugf("%s, act_respond_complete %s", tx, lastResp.Short())
+
+	lastErr := tx.tpl.Send(lastResp)
 
 	tx.mu.Lock()
 	tx.lastErr = lastErr
@@ -462,6 +505,14 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 
 // Send final response
 func (tx *serverTx) act_final() fsm.Input {
+	tx.mu.RLock()
+	lastResp := tx.lastResp
+	tx.mu.RUnlock()
+
+	if lastResp == nil {
+		return fsm.NO_INPUT
+	}
+
 	lastErr := tx.tpl.Send(tx.lastResp)
 
 	tx.mu.Lock()
@@ -508,7 +559,9 @@ func (tx *serverTx) act_respond_delete() fsm.Input {
 	tx.Log().Debugf("%s, act_respond_delete", tx)
 	tx.delete()
 
+	tx.mu.RLock()
 	lastErr := tx.tpl.Send(tx.lastResp)
+	tx.mu.RUnlock()
 
 	tx.mu.Lock()
 	tx.lastErr = lastErr
@@ -530,6 +583,38 @@ func (tx *serverTx) act_confirm() fsm.Input {
 		tx.fsm.Spin(server_input_timer_i)
 	})
 	tx.mu.Unlock()
+
+	tx.mu.RLock()
+	ack := tx.lastAck
+
+	tx.mu.RUnlock()
+	if ack != nil {
+		select {
+		case <-tx.done:
+		case tx.acks <- ack:
+		}
+	}
+
+	return fsm.NO_INPUT
+}
+
+func (tx *serverTx) act_cancel() fsm.Input {
+	tx.Log().Debugf("%s, act_cancel")
+
+	tx.mu.RLock()
+	_ = tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 487, "Canceled", ""))
+	tx.mu.RUnlock()
+
+	tx.mu.RLock()
+	cancel := tx.lastCancel
+	tx.mu.RUnlock()
+
+	if cancel != nil {
+		select {
+		case <-tx.done:
+		case tx.cancels <- cancel:
+		}
+	}
 
 	return fsm.NO_INPUT
 }

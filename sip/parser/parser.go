@@ -67,6 +67,16 @@ func defaultHeaderParsers() map[string]HeaderParser {
 		"max-forwards":   parseMaxForwards,
 		"content-length": parseContentLength,
 		"l":              parseContentLength,
+		"expires":        parseExpires,
+		"user-agent":     parseUserAgent,
+		"allow":          parseAllow,
+		"content-type":   parseContentType,
+		"accept":         parseAccept,
+		"c":              parseContentType,
+		"require":        parseRequire,
+		"supported":      parseSupported,
+		"route":          parseRouteHeader,
+		"record-route":   parseRecordRouteHeader,
 	}
 }
 
@@ -249,14 +259,14 @@ func (p *parser) parse(requireContentLength bool) {
 
 		var termErr error
 		if isRequest(startLine) {
-			method, recipient, sipVersion, err := parseRequestLine(startLine)
+			method, recipient, sipVersion, err := ParseRequestLine(startLine)
 			if err == nil {
 				msg = sip.NewRequest(method, recipient, sipVersion, []sip.Header{}, "")
 			} else {
 				termErr = err
 			}
 		} else if isResponse(startLine) {
-			sipVersion, statusCode, reason, err := parseStatusLine(startLine)
+			sipVersion, statusCode, reason, err := ParseStatusLine(startLine)
 			if err == nil {
 				msg = sip.NewResponse(sipVersion, statusCode, reason, []sip.Header{}, "")
 			} else {
@@ -476,7 +486,7 @@ func isResponse(startLine string) bool {
 // Parse the first line of a SIP request, e.g:
 //   INVITE bob@example.com SIP/2.0
 //   REGISTER jane@telco.com SIP/1.0
-func parseRequestLine(requestLine string) (
+func ParseRequestLine(requestLine string) (
 	method sip.RequestMethod, recipient sip.Uri, sipVersion string, err error) {
 	parts := strings.Split(requestLine, " ")
 	if len(parts) != 3 {
@@ -499,7 +509,7 @@ func parseRequestLine(requestLine string) (
 // Parse the first line of a SIP response, e.g:
 //   SIP/2.0 200 OK
 //   SIP/1.0 403 Forbidden
-func parseStatusLine(statusLine string) (
+func ParseStatusLine(statusLine string) (
 	sipVersion string, statusCode sip.StatusCode, reasonPhrase string, err error) {
 	parts := strings.Split(statusLine, " ")
 	if len(parts) < 3 {
@@ -561,7 +571,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 
 	if strings.ToLower(uriStr[0:1]) == "s" {
 		// URI started 'sips', so it's encrypted.
-		uri.IsEncrypted = true
+		uri.FIsEncrypted = true
 		uriStr = uriStr[1:]
 	}
 
@@ -587,10 +597,10 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 		if endOfUsernamePart == -1 {
 			// No password component; the whole of the user-info part before
 			// the '@' is a username.
-			uri.User = sip.String{Str: uriStr[:endOfUserInfoPart]}
+			uri.FUser = sip.String{Str: uriStr[:endOfUserInfoPart]}
 		} else {
-			uri.User = sip.String{Str: uriStr[:endOfUsernamePart]}
-			uri.Password = sip.String{Str: uriStr[endOfUsernamePart+1 : endOfUserInfoPart]}
+			uri.FUser = sip.String{Str: uriStr[:endOfUsernamePart]}
+			uri.FPassword = sip.String{Str: uriStr[endOfUsernamePart+1 : endOfUserInfoPart]}
 		}
 		uriStr = uriStr[endOfUserInfoPart+1:]
 	}
@@ -606,13 +616,13 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 		endOfUriPart = len(uriStr)
 	}
 
-	uri.Host, uri.Port, err = parseHostPort(uriStr[:endOfUriPart])
+	uri.FHost, uri.FPort, err = parseHostPort(uriStr[:endOfUriPart])
 	uriStr = uriStr[endOfUriPart:]
 	if err != nil {
 		return
 	} else if len(uriStr) == 0 {
-		uri.UriParams = sip.NewParams()
-		uri.Headers = sip.NewParams()
+		uri.FUriParams = sip.NewParams()
+		uri.FHeaders = sip.NewParams()
 		return
 	}
 
@@ -630,7 +640,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 	} else {
 		uriParams, n = sip.NewParams(), 0
 	}
-	uri.UriParams = uriParams
+	uri.FUriParams = uriParams
 	uriStr = uriStr[n:]
 
 	// Finally parse any URI headers.
@@ -640,7 +650,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 	if err != nil {
 		return
 	}
-	uri.Headers = headers
+	uri.FHeaders = headers
 	uriStr = uriStr[n:]
 	if len(uriStr) > 0 {
 		err = fmt.Errorf("internal error: parse of SIP uri ended early! '%s'",
@@ -1134,6 +1144,78 @@ func parseMaxForwards(headerName string, headerText string) (
 	return
 }
 
+func parseExpires(headerName string, headerText string) (headers []sip.Header, err error) {
+	var expires sip.Expires
+	var value uint64
+	value, err = strconv.ParseUint(strings.TrimSpace(headerText), 10, 32)
+	expires = sip.Expires(value)
+	headers = []sip.Header{&expires}
+
+	return
+}
+
+func parseUserAgent(headerName string, headerText string) (headers []sip.Header, err error) {
+	var userAgent sip.UserAgentHeader
+	headerText = strings.TrimSpace(headerText)
+	userAgent = sip.UserAgentHeader(headerText)
+	headers = []sip.Header{&userAgent}
+
+	return
+}
+
+func parseContentType(headerName string, headerText string) (headers []sip.Header, err error) {
+	var contentType sip.ContentType
+	headerText = strings.TrimSpace(headerText)
+	contentType = sip.ContentType(headerText)
+	headers = []sip.Header{&contentType}
+
+	return
+}
+
+func parseAccept(headerName string, headerText string) (headers []sip.Header, err error) {
+	var accept sip.Accept
+	headerText = strings.TrimSpace(headerText)
+	accept = sip.Accept(headerText)
+	headers = []sip.Header{&accept}
+
+	return
+}
+
+func parseAllow(headerName string, headerText string) (headers []sip.Header, err error) {
+	allow := make(sip.AllowHeader, 0)
+	methods := strings.Split(headerText, ",")
+	for _, method := range methods {
+		allow = append(allow, sip.RequestMethod(strings.TrimSpace(method)))
+	}
+	headers = []sip.Header{allow}
+
+	return
+}
+
+func parseRequire(headerName string, headerText string) (headers []sip.Header, err error) {
+	var require sip.RequireHeader
+	require.Options = make([]string, 0)
+	extensions := strings.Split(headerText, ",")
+	for _, ext := range extensions {
+		require.Options = append(require.Options, strings.TrimSpace(ext))
+	}
+	headers = []sip.Header{&require}
+
+	return
+}
+
+func parseSupported(headerName string, headerText string) (headers []sip.Header, err error) {
+	var supported sip.SupportedHeader
+	supported.Options = make([]string, 0)
+	extensions := strings.Split(headerText, ",")
+	for _, ext := range extensions {
+		supported.Options = append(supported.Options, strings.TrimSpace(ext))
+	}
+	headers = []sip.Header{&supported}
+
+	return
+}
+
 // Parse a string representation of a Content-Length header into a slice of at most one ContentLength header object.
 func parseContentLength(headerName string, headerText string) (
 	headers []sip.Header, err error) {
@@ -1301,6 +1383,28 @@ func ParseAddressValue(addressText string) (
 	addressText = addressText[startOfParams:]
 	headerParams, _, err = parseParams(addressText, ';', ';', ',', true, true)
 	return
+}
+
+func parseRouteHeader(headerName string, headerText string) (headers []sip.Header, err error) {
+	var routeHeader sip.RouteHeader
+	routeHeader.Addresses = make([]sip.Uri, 0)
+	if _, uris, _, err := ParseAddressValues(headerText); err == nil {
+		routeHeader.Addresses = uris
+	} else {
+		return nil, err
+	}
+	return []sip.Header{&routeHeader}, nil
+}
+
+func parseRecordRouteHeader(headerName string, headerText string) (headers []sip.Header, err error) {
+	var routeHeader sip.RecordRouteHeader
+	routeHeader.Addresses = make([]sip.Uri, 0)
+	if _, uris, _, err := ParseAddressValues(headerText); err == nil {
+		routeHeader.Addresses = uris
+	} else {
+		return nil, err
+	}
+	return []sip.Header{&routeHeader}, nil
 }
 
 // Extract the next logical header line from the message.

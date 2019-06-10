@@ -32,15 +32,31 @@ type Uri interface {
 	Equals(other interface{}) bool
 	String() string
 	Clone() Uri
+
+	IsEncrypted() bool
+	SetEncrypted(flag bool)
+	User() MaybeString
+	SetUser(user MaybeString)
+	Password() MaybeString
+	SetPassword(pass MaybeString)
+	Host() string
+	SetHost(host string)
+	Port() *Port
+	SetPort(port *Port)
+	UriParams() Params
+	SetUriParams(params Params)
+	Headers() Params
+	SetHeaders(params Params)
+	// Return true if and only if the URI is the special wildcard URI '*'; that is, if it is
+	// a WildcardUri struct.
+	IsWildcard() bool
 }
 
 // A URI from a schema suitable for inclusion in a Contact: header.
 // The only such URIs are sip/sips URIs and the special wildcard URI '*'.
+// hold this interface to not break other code
 type ContactUri interface {
 	Uri
-	// Return true if and only if the URI is the special wildcard URI '*'; that is, if it is
-	// a WildcardUri struct.
-	IsWildcard() bool
 }
 
 // Generic list of parameters on a header.
@@ -206,37 +222,93 @@ func cloneWithNil(params Params) Params {
 // A SIP or SIPS URI, including all params and URI header params.
 type SipUri struct {
 	// True if and only if the URI is a SIPS URI.
-	IsEncrypted bool
+	FIsEncrypted bool
 
 	// The user part of the URI: the 'joe' in sip:joe@bloggs.com
 	// This is a pointer, so that URIs without a user part can have 'nil'.
-	User MaybeString
+	FUser MaybeString
 
 	// The password field of the URI. This is represented in the URI as joe:hunter2@bloggs.com.
 	// Note that if a URI has a password field, it *must* have a user field as well.
 	// This is a pointer, so that URIs without a password field can have 'nil'.
 	// Note that RFC 3261 strongly recommends against the use of password fields in SIP URIs,
 	// as they are fundamentally insecure.
-	Password MaybeString
+	FPassword MaybeString
 
 	// The host part of the URI. This can be a domain, or a string representation of an IP address.
-	Host string
+	FHost string
 
 	// The port part of the URI. This is optional, and so is represented here as a pointer type.
-	Port *Port
+	FPort *Port
 
 	// Any parameters associated with the URI.
 	// These are used to provide information about requests that may be constructed from the URI.
 	// (For more details, see RFC 3261 section 19.1.1).
 	// These appear as a semicolon-separated list of key=value pairs following the host[:port] part.
-	UriParams Params
+	FUriParams Params
 
 	// Any headers to be included on requests constructed from this URI.
 	// These appear as a '&'-separated list at the end of the URI, introduced by '?'.
 	// Although the values of the map are MaybeStrings, they will never be NoString in practice as the parser
 	// guarantees to not return blank values for header elements in SIP URIs.
 	// You should not set the values of headers to NoString.
-	Headers Params
+	FHeaders Params
+}
+
+func (uri *SipUri) IsEncrypted() bool {
+	return uri.FIsEncrypted
+}
+
+func (uri *SipUri) SetEncrypted(flag bool) {
+	uri.FIsEncrypted = flag
+}
+
+func (uri *SipUri) User() MaybeString {
+	return uri.FUser
+}
+
+func (uri *SipUri) SetUser(user MaybeString) {
+	uri.FUser = user
+}
+
+func (uri *SipUri) Password() MaybeString {
+	return uri.FPassword
+}
+
+func (uri *SipUri) SetPassword(pass MaybeString) {
+	uri.FPassword = pass
+}
+
+func (uri *SipUri) Host() string {
+	return uri.FHost
+}
+
+func (uri *SipUri) SetHost(host string) {
+	uri.FHost = host
+}
+
+func (uri *SipUri) Port() *Port {
+	return uri.FPort
+}
+
+func (uri *SipUri) SetPort(port *Port) {
+	uri.FPort = port
+}
+
+func (uri *SipUri) UriParams() Params {
+	return uri.FUriParams
+}
+
+func (uri *SipUri) SetUriParams(params Params) {
+	uri.FUriParams = params
+}
+
+func (uri *SipUri) Headers() Params {
+	return uri.FHeaders
+}
+
+func (uri *SipUri) SetHeaders(params Params) {
+	uri.FHeaders = params
 }
 
 func (uri *SipUri) IsWildcard() bool {
@@ -252,21 +324,21 @@ func (uri *SipUri) Equals(val interface{}) bool {
 	}
 
 	other := *otherPtr
-	result := uri.IsEncrypted == other.IsEncrypted &&
-		uri.User == other.User &&
-		uri.Password == other.Password &&
-		uri.Host == other.Host &&
-		util.Uint16PtrEq((*uint16)(uri.Port), (*uint16)(other.Port))
+	result := uri.FIsEncrypted == other.FIsEncrypted &&
+		uri.FUser == other.FUser &&
+		uri.FPassword == other.FPassword &&
+		uri.FHost == other.FHost &&
+		util.Uint16PtrEq((*uint16)(uri.FPort), (*uint16)(other.FPort))
 
 	if !result {
 		return false
 	}
 
-	if !uri.UriParams.Equals(other.UriParams) {
+	if !uri.FUriParams.Equals(other.FUriParams) {
 		return false
 	}
 
-	if !uri.Headers.Equals(other.Headers) {
+	if !uri.FHeaders.Equals(other.FHeaders) {
 		return false
 	}
 
@@ -278,7 +350,7 @@ func (uri *SipUri) String() string {
 	var buffer bytes.Buffer
 
 	// Compulsory protocol identifier.
-	if uri.IsEncrypted {
+	if uri.FIsEncrypted {
 		buffer.WriteString("sips")
 		buffer.WriteString(":")
 	} else {
@@ -287,9 +359,9 @@ func (uri *SipUri) String() string {
 	}
 
 	// Optional userinfo part.
-	if user, ok := uri.User.(String); ok && user.String() != "" {
-		buffer.WriteString(uri.User.String())
-		if pass, ok := uri.Password.(String); ok && pass.String() != "" {
+	if user, ok := uri.FUser.(String); ok && user.String() != "" {
+		buffer.WriteString(uri.FUser.String())
+		if pass, ok := uri.FPassword.(String); ok && pass.String() != "" {
 			buffer.WriteString(":")
 			buffer.WriteString(pass.String())
 		}
@@ -297,21 +369,21 @@ func (uri *SipUri) String() string {
 	}
 
 	// Compulsory hostname.
-	buffer.WriteString(uri.Host)
+	buffer.WriteString(uri.FHost)
 
 	// Optional port number.
-	if uri.Port != nil {
-		buffer.WriteString(fmt.Sprintf(":%d", *uri.Port))
+	if uri.FPort != nil {
+		buffer.WriteString(fmt.Sprintf(":%d", *uri.FPort))
 	}
 
-	if (uri.UriParams != nil) && uri.UriParams.Length() > 0 {
+	if (uri.FUriParams != nil) && uri.FUriParams.Length() > 0 {
 		buffer.WriteString(";")
-		buffer.WriteString(uri.UriParams.ToString(';'))
+		buffer.WriteString(uri.FUriParams.ToString(';'))
 	}
 
-	if (uri.Headers != nil) && uri.Headers.Length() > 0 {
+	if (uri.FHeaders != nil) && uri.FHeaders.Length() > 0 {
 		buffer.WriteString("?")
-		buffer.WriteString(uri.Headers.ToString('&'))
+		buffer.WriteString(uri.FHeaders.ToString('&'))
 	}
 
 	return buffer.String()
@@ -320,18 +392,46 @@ func (uri *SipUri) String() string {
 // Clone the Sip URI.
 func (uri *SipUri) Clone() Uri {
 	return &SipUri{
-		IsEncrypted: uri.IsEncrypted,
-		User:        uri.User,
-		Password:    uri.Password,
-		Host:        uri.Host,
-		Port:        uri.Port.Clone(),
-		UriParams:   cloneWithNil(uri.UriParams),
-		Headers:     cloneWithNil(uri.Headers),
+		FIsEncrypted: uri.FIsEncrypted,
+		FUser:        uri.FUser,
+		FPassword:    uri.FPassword,
+		FHost:        uri.FHost,
+		FPort:        uri.FPort.Clone(),
+		FUriParams:   cloneWithNil(uri.FUriParams),
+		FHeaders:     cloneWithNil(uri.FHeaders),
 	}
 }
 
 // The special wildcard URI used in Contact: headers in REGISTER requests when expiring all registrations.
 type WildcardUri struct{}
+
+func (uri WildcardUri) IsEncrypted() bool { return false }
+
+func (uri WildcardUri) SetEncrypted(flag bool) {}
+
+func (uri WildcardUri) User() MaybeString { return nil }
+
+func (uri WildcardUri) SetUser(user MaybeString) {}
+
+func (uri WildcardUri) Password() MaybeString { return nil }
+
+func (uri WildcardUri) SetPassword(pass MaybeString) {}
+
+func (uri WildcardUri) Host() string { return "" }
+
+func (uri WildcardUri) SetHost(host string) {}
+
+func (uri WildcardUri) Port() *Port { return nil }
+
+func (uri WildcardUri) SetPort(port *Port) {}
+
+func (uri WildcardUri) UriParams() Params { return nil }
+
+func (uri WildcardUri) SetUriParams(params Params) {}
+
+func (uri WildcardUri) Headers() Params { return nil }
+
+func (uri WildcardUri) SetHeaders(params Params) {}
 
 // Copy the wildcard URI. Not hard!
 func (uri WildcardUri) Clone() Uri { return uri }
@@ -547,17 +647,19 @@ func (contact *ContactHeader) Equals(other interface{}) bool {
 type CallID string
 
 func (callId CallID) String() string {
-	return "Call-ID: " + (string)(callId)
+	return "Call-ID: " + string(callId)
 }
 
 func (callId *CallID) Name() string { return "Call-ID" }
 
 func (callId *CallID) Clone() Header {
-	temp := *callId
-	return &temp
+	return callId
 }
 
 func (callId *CallID) Equals(other interface{}) bool {
+	if h, ok := other.(CallID); ok {
+		return *callId == h
+	}
 	if h, ok := other.(*CallID); ok {
 		return *callId == *h
 	}
@@ -598,13 +700,37 @@ func (maxForwards MaxForwards) String() string {
 	return fmt.Sprintf("Max-Forwards: %d", int(maxForwards))
 }
 
-func (maxForwards MaxForwards) Name() string { return "Max-Forwards" }
+func (maxForwards *MaxForwards) Name() string { return "Max-Forwards" }
 
-func (maxForwards MaxForwards) Clone() Header { return maxForwards }
+func (maxForwards *MaxForwards) Clone() Header { return maxForwards }
 
-func (maxForwards MaxForwards) Equals(other interface{}) bool {
+func (maxForwards *MaxForwards) Equals(other interface{}) bool {
 	if h, ok := other.(MaxForwards); ok {
-		return maxForwards == h
+		return *maxForwards == h
+	}
+	if h, ok := other.(*MaxForwards); ok {
+		return *maxForwards == *h
+	}
+
+	return false
+}
+
+type Expires uint32
+
+func (expires Expires) String() string {
+	return fmt.Sprintf("Expires: %d", int(expires))
+}
+
+func (expires *Expires) Name() string { return "Expires" }
+
+func (expires *Expires) Clone() Header { return expires }
+
+func (expires *Expires) Equals(other interface{}) bool {
+	if h, ok := other.(Expires); ok {
+		return *expires == h
+	}
+	if h, ok := other.(*Expires); ok {
+		return *expires == *h
 	}
 
 	return false
@@ -616,13 +742,16 @@ func (contentLength ContentLength) String() string {
 	return fmt.Sprintf("Content-Length: %d", int(contentLength))
 }
 
-func (contentLength ContentLength) Name() string { return "Content-Length" }
+func (contentLength *ContentLength) Name() string { return "Content-Length" }
 
-func (contentLength ContentLength) Clone() Header { return contentLength }
+func (contentLength *ContentLength) Clone() Header { return contentLength }
 
-func (contentLength ContentLength) Equals(other interface{}) bool {
+func (contentLength *ContentLength) Equals(other interface{}) bool {
 	if h, ok := other.(ContentLength); ok {
-		return contentLength == h
+		return *contentLength == h
+	}
+	if h, ok := other.(*ContentLength); ok {
+		return *contentLength == *h
 	}
 
 	return false
@@ -875,6 +1004,187 @@ func (unsupported *UnsupportedHeader) Equals(other interface{}) bool {
 
 		for i, opt := range unsupported.Options {
 			if opt != h.Options[i] {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
+}
+
+type UserAgentHeader string
+
+func (ua UserAgentHeader) String() string {
+	return "User-Agent: " + string(ua)
+}
+
+func (ua *UserAgentHeader) Name() string { return "User-Agent" }
+
+func (ua *UserAgentHeader) Clone() Header { return ua }
+
+func (ua *UserAgentHeader) Equals(other interface{}) bool {
+	if h, ok := other.(UserAgentHeader); ok {
+		return *ua == h
+	}
+	if h, ok := other.(*UserAgentHeader); ok {
+		return *ua == *h
+	}
+
+	return false
+}
+
+type AllowHeader []RequestMethod
+
+func (allow AllowHeader) String() string {
+	parts := make([]string, 0)
+	for _, method := range allow {
+		parts = append(parts, string(method))
+	}
+
+	return fmt.Sprintf("Allow: %s", strings.Join(parts, ", "))
+}
+
+func (allow AllowHeader) Name() string { return "Allow" }
+
+func (allow AllowHeader) Clone() Header {
+	newAllow := make(AllowHeader, len(allow))
+	copy(newAllow, allow)
+
+	return newAllow
+}
+
+func (allow AllowHeader) Equals(other interface{}) bool {
+	if h, ok := other.(AllowHeader); ok {
+		if len(allow) != len(h) {
+			return false
+		}
+
+		for i, v := range allow {
+			if v != h[i] {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
+}
+
+type ContentType string
+
+func (ct ContentType) String() string { return "Content-Type: " + string(ct) }
+
+func (ct *ContentType) Name() string { return "Content-Type" }
+
+func (ct *ContentType) Clone() Header { return ct }
+
+func (ct *ContentType) Equals(other interface{}) bool {
+	if h, ok := other.(ContentType); ok {
+		return *ct == h
+	}
+	if h, ok := other.(*ContentType); ok {
+		return *ct == *h
+	}
+
+	return false
+}
+
+type Accept string
+
+func (ct Accept) String() string { return "Accept: " + string(ct) }
+
+func (ct *Accept) Name() string { return "Accept" }
+
+func (ct *Accept) Clone() Header { return ct }
+
+func (ct *Accept) Equals(other interface{}) bool {
+	if h, ok := other.(Accept); ok {
+		return *ct == h
+	}
+	if h, ok := other.(*Accept); ok {
+		return *ct == *h
+	}
+
+	return false
+}
+
+type RouteHeader struct {
+	Addresses []Uri
+}
+
+func (route *RouteHeader) Name() string { return "Route" }
+
+func (route *RouteHeader) String() string {
+	var addrs []string
+
+	for _, uri := range route.Addresses {
+		addrs = append(addrs, "<"+uri.String()+">")
+	}
+
+	return fmt.Sprintf("Route: %s", strings.Join(addrs, ", "))
+}
+
+func (route *RouteHeader) Clone() Header {
+	newRoute := &RouteHeader{
+		Addresses: make([]Uri, len(route.Addresses)),
+	}
+
+	for i, uri := range route.Addresses {
+		newRoute.Addresses[i] = uri.Clone()
+	}
+
+	return newRoute
+}
+
+func (route *RouteHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*RouteHeader); ok {
+		for i, uri := range route.Addresses {
+			if !uri.Equals(h.Addresses[i]) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
+}
+
+type RecordRouteHeader struct {
+	Addresses []Uri
+}
+
+func (route *RecordRouteHeader) Name() string { return "Record-Route" }
+
+func (route *RecordRouteHeader) String() string {
+	var addrs []string
+
+	for _, uri := range route.Addresses {
+		addrs = append(addrs, "<"+uri.String()+">")
+	}
+
+	return fmt.Sprintf("Record-Route: %s", strings.Join(addrs, ", "))
+}
+
+func (route *RecordRouteHeader) Clone() Header {
+	newRoute := &RecordRouteHeader{
+		Addresses: make([]Uri, len(route.Addresses)),
+	}
+
+	for i, uri := range route.Addresses {
+		newRoute.Addresses[i] = uri.Clone()
+	}
+
+	return newRoute
+}
+
+func (route *RecordRouteHeader) Equals(other interface{}) bool {
+	if h, ok := other.(*RecordRouteHeader); ok {
+		for i, uri := range route.Addresses {
+			if !uri.Equals(h.Addresses[i]) {
 				return false
 			}
 		}

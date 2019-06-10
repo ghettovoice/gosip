@@ -207,77 +207,77 @@ func TestParams(t *testing.T) {
 
 func TestSipUris(t *testing.T) {
 	doTests([]test{
-		{sipUriInput("sip:bob@example.com"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", UriParams: noParams, Headers: noParams}}},
-		{sipUriInput("sip:bob@192.168.0.1"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "192.168.0.1", UriParams: noParams, Headers: noParams}}},
-		{sipUriInput("sip:bob:Hunter2@example.com"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: sip.String{"Hunter2"}, Host: "example.com", UriParams: noParams, Headers: noParams}}},
-		{sipUriInput("sips:bob:Hunter2@example.com"), &sipUriResult{pass, sip.SipUri{IsEncrypted: true, User: sip.String{"bob"}, Password: sip.String{"Hunter2"},
-			Host: "example.com", UriParams: noParams, Headers: noParams}}},
-		{sipUriInput("sips:bob@example.com"), &sipUriResult{pass, sip.SipUri{IsEncrypted: true, User: sip.String{"bob"}, Password: nil, Host: "example.com", UriParams: noParams, Headers: noParams}}},
-		{sipUriInput("sip:example.com"), &sipUriResult{pass, sip.SipUri{User: nil, Password: nil, Host: "example.com", UriParams: noParams, Headers: noParams}}},
+		{sipUriInput("sip:bob@example.com"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FUriParams: noParams, FHeaders: noParams}}},
+		{sipUriInput("sip:bob@192.168.0.1"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "192.168.0.1", FUriParams: noParams, FHeaders: noParams}}},
+		{sipUriInput("sip:bob:Hunter2@example.com"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: sip.String{"Hunter2"}, FHost: "example.com", FUriParams: noParams, FHeaders: noParams}}},
+		{sipUriInput("sips:bob:Hunter2@example.com"), &sipUriResult{pass, sip.SipUri{FIsEncrypted: true, FUser: sip.String{"bob"}, FPassword: sip.String{"Hunter2"},
+			FHost: "example.com", FUriParams: noParams, FHeaders: noParams}}},
+		{sipUriInput("sips:bob@example.com"), &sipUriResult{pass, sip.SipUri{FIsEncrypted: true, FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FUriParams: noParams, FHeaders: noParams}}},
+		{sipUriInput("sip:example.com"), &sipUriResult{pass, sip.SipUri{FUser: nil, FPassword: nil, FHost: "example.com", FUriParams: noParams, FHeaders: noParams}}},
 		{sipUriInput("example.com"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("bob@example.com"), &sipUriResult{fail, sip.SipUri{}}},
-		{sipUriInput("sip:bob@example.com:5060"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5060, UriParams: noParams, Headers: noParams}}},
-		{sipUriInput("sip:bob@88.88.88.88:5060"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "88.88.88.88", Port: &port5060, UriParams: noParams, Headers: noParams}}},
-		{sipUriInput("sip:bob:Hunter2@example.com:5060"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: sip.String{"Hunter2"},
-			Host: "example.com", Port: &port5060, UriParams: noParams, Headers: noParams}}},
-		{sipUriInput("sip:bob@example.com:5"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5, UriParams: noParams, Headers: noParams}}},
-		{sipUriInput("sip:bob@example.com;foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: sip.NewParams().Add("foo", sip.String{"bar"}), Headers: noParams}}},
-		{sipUriInput("sip:bob@example.com:5060;foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5060,
-			UriParams: sip.NewParams().Add("foo", sip.String{"bar"}), Headers: noParams}}},
-		{sipUriInput("sip:bob@example.com:5;foo"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: sip.NewParams().Add("foo", nil), Headers: noParams}}},
-		{sipUriInput("sip:bob@example.com:5;foo;baz=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: sip.NewParams().Add("foo", nil).Add("baz", sip.String{"bar"}), Headers: noParams}}},
-		{sipUriInput("sip:bob@example.com:5;baz=bar;foo"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: sip.NewParams().Add("foo", nil).Add("baz", sip.String{"bar"}), Headers: noParams}}},
-		{sipUriInput("sip:bob@example.com:5;foo;baz=bar;a=b"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: sip.NewParams().Add("foo", nil).Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"}), Headers: noParams}}},
-		{sipUriInput("sip:bob@example.com:5;baz=bar;foo;a=b"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: sip.NewParams().Add("foo", nil).Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"}), Headers: noParams}}},
-		{sipUriInput("sip:bob@example.com?foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: noParams, Headers: sip.NewParams().Add("foo", sip.String{"bar"})}}},
-		{sipUriInput("sip:bob@example.com?foo="), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: noParams, Headers: sip.NewParams().Add("foo", sip.String{""})}}},
-		{sipUriInput("sip:bob@example.com:5060?foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5060,
-			UriParams: noParams, Headers: sip.NewParams().Add("foo", sip.String{"bar"})}}},
-		{sipUriInput("sip:bob@example.com:5?foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: noParams, Headers: sip.NewParams().Add("foo", sip.String{"bar"})}}},
-		{sipUriInput("sips:bob@example.com:5?baz=bar&foo=&a=b"), &sipUriResult{pass, sip.SipUri{IsEncrypted: true, User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: noParams, Headers: sip.NewParams().Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"}).Add("foo", sip.String{""})}}},
+		{sipUriInput("sip:bob@example.com:5060"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5060, FUriParams: noParams, FHeaders: noParams}}},
+		{sipUriInput("sip:bob@88.88.88.88:5060"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "88.88.88.88", FPort: &port5060, FUriParams: noParams, FHeaders: noParams}}},
+		{sipUriInput("sip:bob:Hunter2@example.com:5060"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: sip.String{"Hunter2"},
+			FHost: "example.com", FPort: &port5060, FUriParams: noParams, FHeaders: noParams}}},
+		{sipUriInput("sip:bob@example.com:5"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5, FUriParams: noParams, FHeaders: noParams}}},
+		{sipUriInput("sip:bob@example.com;foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com",
+			FUriParams: sip.NewParams().Add("foo", sip.String{"bar"}), FHeaders: noParams}}},
+		{sipUriInput("sip:bob@example.com:5060;foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5060,
+			FUriParams: sip.NewParams().Add("foo", sip.String{"bar"}), FHeaders: noParams}}},
+		{sipUriInput("sip:bob@example.com:5;foo"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: sip.NewParams().Add("foo", nil), FHeaders: noParams}}},
+		{sipUriInput("sip:bob@example.com:5;foo;baz=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: sip.NewParams().Add("foo", nil).Add("baz", sip.String{"bar"}), FHeaders: noParams}}},
+		{sipUriInput("sip:bob@example.com:5;baz=bar;foo"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: sip.NewParams().Add("foo", nil).Add("baz", sip.String{"bar"}), FHeaders: noParams}}},
+		{sipUriInput("sip:bob@example.com:5;foo;baz=bar;a=b"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: sip.NewParams().Add("foo", nil).Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"}), FHeaders: noParams}}},
+		{sipUriInput("sip:bob@example.com:5;baz=bar;foo;a=b"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: sip.NewParams().Add("foo", nil).Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"}), FHeaders: noParams}}},
+		{sipUriInput("sip:bob@example.com?foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com",
+			FUriParams: noParams, FHeaders: sip.NewParams().Add("foo", sip.String{"bar"})}}},
+		{sipUriInput("sip:bob@example.com?foo="), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com",
+			FUriParams: noParams, FHeaders: sip.NewParams().Add("foo", sip.String{""})}}},
+		{sipUriInput("sip:bob@example.com:5060?foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5060,
+			FUriParams: noParams, FHeaders: sip.NewParams().Add("foo", sip.String{"bar"})}}},
+		{sipUriInput("sip:bob@example.com:5?foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: noParams, FHeaders: sip.NewParams().Add("foo", sip.String{"bar"})}}},
+		{sipUriInput("sips:bob@example.com:5?baz=bar&foo=&a=b"), &sipUriResult{pass, sip.SipUri{FIsEncrypted: true, FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: noParams, FHeaders: sip.NewParams().Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"}).Add("foo", sip.String{""})}}},
 		{sipUriInput("sip:bob@example.com:5?baz=bar&foo&a=b"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:5?foo"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50?foo"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50?foo=bar&baz"), &sipUriResult{fail, sip.SipUri{}}},
-		{sipUriInput("sip:bob@example.com;foo?foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: sip.NewParams().Add("foo", nil),
-			Headers:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
-		{sipUriInput("sip:bob@example.com:5060;foo?foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5060,
-			UriParams: sip.NewParams().Add("foo", nil),
-			Headers:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
-		{sipUriInput("sip:bob@example.com:5;foo?foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: sip.NewParams().Add("foo", nil),
-			Headers:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
-		{sipUriInput("sips:bob@example.com:5;foo?baz=bar&a=b&foo="), &sipUriResult{pass, sip.SipUri{IsEncrypted: true, User: sip.String{"bob"},
-			Password: nil, Host: "example.com", Port: &port5,
-			UriParams: sip.NewParams().Add("foo", nil),
-			Headers:   sip.NewParams().Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"}).Add("foo", sip.String{""})}}},
+		{sipUriInput("sip:bob@example.com;foo?foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com",
+			FUriParams: sip.NewParams().Add("foo", nil),
+			FHeaders:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
+		{sipUriInput("sip:bob@example.com:5060;foo?foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5060,
+			FUriParams: sip.NewParams().Add("foo", nil),
+			FHeaders:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
+		{sipUriInput("sip:bob@example.com:5;foo?foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: sip.NewParams().Add("foo", nil),
+			FHeaders:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
+		{sipUriInput("sips:bob@example.com:5;foo?baz=bar&a=b&foo="), &sipUriResult{pass, sip.SipUri{FIsEncrypted: true, FUser: sip.String{"bob"},
+			FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: sip.NewParams().Add("foo", nil),
+			FHeaders:   sip.NewParams().Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"}).Add("foo", sip.String{""})}}},
 		{sipUriInput("sip:bob@example.com:5;foo?baz=bar&foo&a=b"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:5;foo?foo"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50;foo?foo"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50;foo?foo=bar&baz"), &sipUriResult{fail, sip.SipUri{}}},
-		{sipUriInput("sip:bob@example.com;foo=baz?foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com",
-			UriParams: sip.NewParams().Add("foo", sip.String{"baz"}),
-			Headers:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
-		{sipUriInput("sip:bob@example.com:5060;foo=baz?foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5060,
-			UriParams: sip.NewParams().Add("foo", sip.String{"baz"}),
-			Headers:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
-		{sipUriInput("sip:bob@example.com:5;foo=baz?foo=bar"), &sipUriResult{pass, sip.SipUri{User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: sip.NewParams().Add("foo", sip.String{"baz"}),
-			Headers:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
-		{sipUriInput("sips:bob@example.com:5;foo=baz?baz=bar&a=b"), &sipUriResult{pass, sip.SipUri{IsEncrypted: true, User: sip.String{"bob"}, Password: nil, Host: "example.com", Port: &port5,
-			UriParams: sip.NewParams().Add("foo", sip.String{"baz"}),
-			Headers:   sip.NewParams().Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"})}}},
+		{sipUriInput("sip:bob@example.com;foo=baz?foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com",
+			FUriParams: sip.NewParams().Add("foo", sip.String{"baz"}),
+			FHeaders:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
+		{sipUriInput("sip:bob@example.com:5060;foo=baz?foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5060,
+			FUriParams: sip.NewParams().Add("foo", sip.String{"baz"}),
+			FHeaders:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
+		{sipUriInput("sip:bob@example.com:5;foo=baz?foo=bar"), &sipUriResult{pass, sip.SipUri{FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: sip.NewParams().Add("foo", sip.String{"baz"}),
+			FHeaders:   sip.NewParams().Add("foo", sip.String{"bar"})}}},
+		{sipUriInput("sips:bob@example.com:5;foo=baz?baz=bar&a=b"), &sipUriResult{pass, sip.SipUri{FIsEncrypted: true, FUser: sip.String{"bob"}, FPassword: nil, FHost: "example.com", FPort: &port5,
+			FUriParams: sip.NewParams().Add("foo", sip.String{"baz"}),
+			FHeaders:   sip.NewParams().Add("baz", sip.String{"bar"}).Add("a", sip.String{"b"})}}},
 		{sipUriInput("sip:bob@example.com:5;foo=baz?baz=bar&foo&a=b"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:5;foo=baz?foo"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50;foo=baz?foo"), &sipUriResult{fail, sip.SipUri{}}},
@@ -996,6 +996,41 @@ func TestMaxForwards(t *testing.T) {
 	}, t)
 }
 
+func TestExpires(t *testing.T) {
+	doTests([]test{
+		{expiresInput("Expires: 9"), &expiresResult{pass, sip.Expires(9)}},
+		{expiresInput("Expires: 600"), &expiresResult{pass, sip.Expires(600)}},
+		{expiresInput("Expires: 3600"), &expiresResult{pass, sip.Expires(3600)}},
+		{expiresInput("Expires: 0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires:      0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires:\t0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires: \t 0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires:\n  0"), &expiresResult{pass, sip.Expires(0)}},
+		{expiresInput("Expires: -1"), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires:"), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires: "), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires:\t"), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires:\n"), &expiresResult{fail, sip.Expires(0)}},
+		{expiresInput("Expires: \n"), &expiresResult{fail, sip.Expires(0)}},
+	}, t)
+}
+
+func TestUserAgent(t *testing.T) {
+	doTests([]test{
+		{userAgentInput("User-Agent: GoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
+		{userAgentInput("User-Agent:      GoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
+		{userAgentInput("User-Agent:\tGoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
+		{userAgentInput("User-Agent:\n  GoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
+	}, t)
+}
+
+func TestAllow(t *testing.T) {
+	doTests([]test{
+		{allowInput("Allow: INVITE, ACK, BYE"), &allowResult{pass, sip.AllowHeader{sip.INVITE, sip.ACK, sip.BYE}}},
+		{allowInput("Allow: INVITE , ACK ,\nBYE "), &allowResult{pass, sip.AllowHeader{sip.INVITE, sip.ACK, sip.BYE}}},
+	}, t)
+}
+
 func TestContentLength(t *testing.T) {
 	doTests([]test{
 		{contentLengthInput("Content-Length: 9"), &contentLengthResult{pass, sip.ContentLength(9)}},
@@ -1051,6 +1086,13 @@ func TestViaHeaders(t *testing.T) {
 	}, t)
 }
 
+func TestSupported(t *testing.T) {
+	doTests([]test{
+		{supportedInput("Supported: replaces, tdialog"), &supportedResult{pass, &sip.SupportedHeader{Options: []string{"replaces", "tdialog"}}}},
+		{supportedInput("Supported: replaces, \n\ttdialog"), &supportedResult{pass, &sip.SupportedHeader{Options: []string{"replaces", "tdialog"}}}},
+	}, t)
+}
+
 // Basic test of unstreamed parsing, using empty INVITE.
 func TestUnstreamedParse1(t *testing.T) {
 	test := ParserTest{false, []parserTestStep{
@@ -1094,13 +1136,13 @@ func TestUnstreamedParse2(t *testing.T) {
 			sip.NewRequest(
 				sip.INVITE,
 				&sip.SipUri{
-					IsEncrypted: false,
-					User:        sip.String{Str: "bob"},
-					Password:    nil,
-					Host:        "biloxi.com",
-					Port:        nil,
-					UriParams:   noParams,
-					Headers:     noParams,
+					FIsEncrypted: false,
+					FUser:        sip.String{Str: "bob"},
+					FPassword:    nil,
+					FHost:        "biloxi.com",
+					FPort:        nil,
+					FUriParams:   noParams,
+					FHeaders:     noParams,
 				},
 				"SIP/2.0",
 				[]sip.Header{&sip.CSeq{SeqNo: 13, MethodName: sip.INVITE}},
@@ -1230,13 +1272,13 @@ func TestUnstreamedParse7(t *testing.T) {
 			sip.NewRequest(
 				sip.ACK,
 				&sip.SipUri{
-					IsEncrypted: false,
-					User:        sip.String{Str: "foo"},
-					Password:    nil,
-					Host:        "bar.com",
-					Port:        nil,
-					UriParams:   noParams,
-					Headers:     noParams,
+					FIsEncrypted: false,
+					FUser:        sip.String{Str: "foo"},
+					FPassword:    nil,
+					FHost:        "bar.com",
+					FPort:        nil,
+					FUriParams:   noParams,
+					FHeaders:     noParams,
 				},
 				"SIP/2.0",
 				[]sip.Header{},
@@ -1257,13 +1299,13 @@ func TestUnstreamedParse8(t *testing.T) {
 			sip.NewRequest(
 				sip.ACK,
 				&sip.SipUri{
-					IsEncrypted: false,
-					User:        sip.String{Str: "foo"},
-					Password:    nil,
-					Host:        "bar.com",
-					Port:        nil,
-					UriParams:   noParams,
-					Headers:     noParams,
+					FIsEncrypted: false,
+					FUser:        sip.String{Str: "foo"},
+					FPassword:    nil,
+					FHost:        "bar.com",
+					FPort:        nil,
+					FUriParams:   noParams,
+					FHeaders:     noParams,
 				},
 				"SIP/2.0",
 				[]sip.Header{},
@@ -1303,13 +1345,13 @@ func TestStreamedParse1(t *testing.T) {
 			sip.NewRequest(
 				sip.INVITE,
 				&sip.SipUri{
-					IsEncrypted: false,
-					User:        sip.String{Str: "bob"},
-					Password:    nil,
-					Host:        "biloxi.com",
-					Port:        nil,
-					UriParams:   noParams,
-					Headers:     noParams,
+					FIsEncrypted: false,
+					FUser:        sip.String{Str: "bob"},
+					FPassword:    nil,
+					FHost:        "biloxi.com",
+					FPort:        nil,
+					FUriParams:   noParams,
+					FHeaders:     noParams,
 				},
 				"SIP/2.0",
 				[]sip.Header{&contentLength},
@@ -1332,13 +1374,13 @@ func TestStreamedParse2(t *testing.T) {
 			sip.NewRequest(
 				sip.INVITE,
 				&sip.SipUri{
-					IsEncrypted: false,
-					User:        sip.String{Str: "bob"},
-					Password:    nil,
-					Host:        "biloxi.com",
-					Port:        nil,
-					UriParams:   noParams,
-					Headers:     noParams,
+					FIsEncrypted: false,
+					FUser:        sip.String{Str: "bob"},
+					FPassword:    nil,
+					FHost:        "biloxi.com",
+					FPort:        nil,
+					FUriParams:   noParams,
+					FHeaders:     noParams,
 				},
 				"SIP/2.0",
 				[]sip.Header{&contentLength},
@@ -1363,13 +1405,13 @@ func TestStreamedParse3(t *testing.T) {
 			sip.NewRequest(
 				sip.INVITE,
 				&sip.SipUri{
-					IsEncrypted: false,
-					User:        sip.String{"bob"},
-					Password:    nil,
-					Host:        "biloxi.com",
-					Port:        nil,
-					UriParams:   noParams,
-					Headers:     noParams,
+					FIsEncrypted: false,
+					FUser:        sip.String{"bob"},
+					FPassword:    nil,
+					FHost:        "biloxi.com",
+					FPort:        nil,
+					FUriParams:   noParams,
+					FHeaders:     noParams,
 				},
 				"SIP/2.0",
 				[]sip.Header{&contentLength23},
@@ -1384,22 +1426,22 @@ func TestStreamedParse3(t *testing.T) {
 			sip.NewRequest(
 				sip.ACK,
 				&sip.SipUri{
-					User:      sip.String{"bob"},
-					Password:  nil,
-					Host:      "biloxi.com",
-					UriParams: noParams,
-					Headers:   noParams,
+					FUser:      sip.String{"bob"},
+					FPassword:  nil,
+					FHost:      "biloxi.com",
+					FUriParams: noParams,
+					FHeaders:   noParams,
 				},
 				"SIP/2.0",
 				[]sip.Header{
 					&contentLength33,
 					&sip.ContactHeader{
 						Address: &sip.SipUri{
-							User:      sip.String{"alice"},
-							Password:  nil,
-							Host:      "biloxi.com",
-							UriParams: noParams,
-							Headers:   noParams,
+							FUser:      sip.String{"alice"},
+							FPassword:  nil,
+							FHost:      "biloxi.com",
+							FUriParams: noParams,
+							FHeaders:   noParams,
 						},
 						Params: noParams,
 					},
@@ -1929,7 +1971,112 @@ func (expected *maxForwardsResult) equals(other result) (equal bool, reason stri
 	} else if expected.err != nil && actual.err == nil {
 		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
 	} else if actual.err == nil && expected.header != actual.header {
-		return false, fmt.Sprintf("unexpected max forwards value: expected \"%d\", got \"%d\"",
+		return false, fmt.Sprintf("unexpected Max-Forwards value: expected \"%d\", got \"%d\"",
+			expected.header, actual.header)
+	}
+	return true, ""
+}
+
+type expiresInput string
+
+func (data expiresInput) String() string {
+	return string(data)
+}
+
+func (data expiresInput) evaluate() result {
+	headers, err := parseHeader(string(data))
+	if len(headers) == 1 {
+		return &expiresResult{err, *(headers[0].(*sip.Expires))}
+	} else if len(headers) == 0 {
+		return &expiresResult{err, sip.Expires(0)}
+	} else {
+		panic(fmt.Sprintf("Multiple headers returned by Expires test: %s", string(data)))
+	}
+}
+
+type expiresResult struct {
+	err    error
+	header sip.Expires
+}
+
+func (expected *expiresResult) equals(other result) (equal bool, reason string) {
+	actual := *(other.(*expiresResult))
+	if expected.err == nil && actual.err != nil {
+		return false, fmt.Sprintf("unexpected error: %s", actual.err.Error())
+	} else if expected.err != nil && actual.err == nil {
+		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
+	} else if actual.err == nil && expected.header != actual.header {
+		return false, fmt.Sprintf("unexpected Expires value: expected \"%d\", got \"%d\"",
+			expected.header, actual.header)
+	}
+	return true, ""
+}
+
+type userAgentInput string
+
+func (data userAgentInput) String() string {
+	return string(data)
+}
+
+func (data userAgentInput) evaluate() result {
+	headers, err := parseHeader(string(data))
+	if len(headers) == 1 {
+		return &userAgentResult{err, *(headers[0].(*sip.UserAgentHeader))}
+	} else if len(headers) == 0 {
+		return &userAgentResult{err, sip.UserAgentHeader("")}
+	} else {
+		panic(fmt.Sprintf("Multiple headers returned by User-Agent test: %s", string(data)))
+	}
+}
+
+type userAgentResult struct {
+	err    error
+	header sip.UserAgentHeader
+}
+
+func (expected *userAgentResult) equals(other result) (equal bool, reason string) {
+	actual := *(other.(*userAgentResult))
+	if expected.err == nil && actual.err != nil {
+		return false, fmt.Sprintf("unexpected error: %s", actual.err.Error())
+	} else if expected.err != nil && actual.err == nil {
+		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
+	} else if actual.err == nil && expected.header != actual.header {
+		return false, fmt.Sprintf("unexpected User-Agent value: expected \"%s\", got \"%s\"",
+			expected.header, actual.header)
+	}
+	return true, ""
+}
+
+type allowInput string
+
+func (data allowInput) String() string {
+	return string(data)
+}
+
+func (data allowInput) evaluate() result {
+	headers, err := parseHeader(data.String())
+	if len(headers) == 1 {
+		return &allowResult{err, headers[0].(sip.AllowHeader)}
+	} else if len(headers) == 0 {
+		return &allowResult{err, sip.AllowHeader{}}
+	} else {
+		panic(fmt.Sprintf("Multiple headers returned by Allow test: %s", string(data)))
+	}
+}
+
+type allowResult struct {
+	err    error
+	header sip.AllowHeader
+}
+
+func (expected *allowResult) equals(other result) (equal bool, reason string) {
+	actual := *(other.(*allowResult))
+	if expected.err == nil && actual.err != nil {
+		return false, fmt.Sprintf("unexpected error: %s", actual.err.Error())
+	} else if expected.err != nil && actual.err == nil {
+		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
+	} else if actual.err == nil && !expected.header.Equals(actual.header) {
+		return false, fmt.Sprintf("unexpected Allow value: expected \"%s\", got \"%s\"",
 			expected.header, actual.header)
 	}
 	return true, ""
@@ -2034,6 +2181,41 @@ func (expected *viaResult) equals(other result) (equal bool, reason string) {
 		}
 	}
 
+	return true, ""
+}
+
+type supportedInput string
+
+func (data supportedInput) String() string {
+	return string(data)
+}
+
+func (data supportedInput) evaluate() result {
+	headers, err := parseHeader(data.String())
+	if len(headers) == 1 {
+		return &supportedResult{err, headers[0].(*sip.SupportedHeader)}
+	} else if len(headers) == 0 {
+		return &supportedResult{err, &sip.SupportedHeader{}}
+	} else {
+		panic(fmt.Sprintf("Multiple headers returned by Supported test: %s", string(data)))
+	}
+}
+
+type supportedResult struct {
+	err    error
+	header *sip.SupportedHeader
+}
+
+func (expected *supportedResult) equals(other result) (equal bool, reason string) {
+	actual := *(other.(*supportedResult))
+	if expected.err == nil && actual.err != nil {
+		return false, fmt.Sprintf("unexpected error: %s", actual.err.Error())
+	} else if expected.err != nil && actual.err == nil {
+		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
+	} else if actual.err == nil && !expected.header.Equals(actual.header) {
+		return false, fmt.Sprintf("unexpected Supported value: expected \"%s\", got \"%s\"",
+			expected.header, actual.header)
+	}
 	return true, ""
 }
 

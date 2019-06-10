@@ -2,7 +2,6 @@ package sip
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/ghettovoice/gosip/util"
 )
@@ -16,20 +15,27 @@ type RequestBuilder struct {
 	cseq            *CSeq
 	recipient       Uri
 	body            string
-	callID          CallID
+	callID          *CallID
 	via             ViaHeader
 	from            *FromHeader
 	to              *ToHeader
 	contact         *ContactHeader
-	expires         *GenericHeader
-	userAgent       *GenericHeader
-	maxForwards     *GenericHeader
+	expires         *Expires
+	userAgent       *UserAgentHeader
+	maxForwards     *MaxForwards
 	supported       *SupportedHeader
 	require         *RequireHeader
-	allow           *GenericHeader
+	allow           AllowHeader
+	contentType     *ContentType
+	accept          *Accept
+	route           *RouteHeader
+	generic         map[string]Header
 }
 
 func NewRequestBuilder() *RequestBuilder {
+	callID := CallID(util.RandString(32))
+	maxForwards := MaxForwards(70)
+	userAgent := UserAgentHeader("GoSIP")
 	rb := &RequestBuilder{
 		protocol:        "SIP",
 		protocolVersion: "2.0",
@@ -38,15 +44,19 @@ func NewRequestBuilder() *RequestBuilder {
 		cseq:            &CSeq{SeqNo: 1},
 		body:            "",
 		via:             make(ViaHeader, 0),
-		callID:          CallID(util.RandString(32)),
-		userAgent:       &GenericHeader{HeaderName: "User-Agent", Contents: "GoSIP"},
+		callID:          &callID,
+		userAgent:       &userAgent,
+		maxForwards:     &maxForwards,
+		generic:         make(map[string]Header),
 	}
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetTransport(transport string) *RequestBuilder {
-	if transport != "" {
+	if transport == "" {
+		rb.transport = "UDP"
+	} else {
 		rb.transport = transport
 	}
 
@@ -54,7 +64,9 @@ func (rb *RequestBuilder) SetTransport(transport string) *RequestBuilder {
 }
 
 func (rb *RequestBuilder) SetHost(host string) *RequestBuilder {
-	if host != "" {
+	if host == "" {
+		rb.host = "localhost"
+	} else {
 		rb.host = host
 	}
 
@@ -86,8 +98,8 @@ func (rb *RequestBuilder) SetBody(body string) *RequestBuilder {
 	return rb
 }
 
-func (rb *RequestBuilder) SetCallID(callID CallID) *RequestBuilder {
-	if callID != "" {
+func (rb *RequestBuilder) SetCallID(callID *CallID) *RequestBuilder {
+	if callID != nil {
 		rb.callID = callID
 	}
 
@@ -118,8 +130,8 @@ func (rb *RequestBuilder) AddVia(via *ViaHop) *RequestBuilder {
 
 func (rb *RequestBuilder) SetFrom(address *Address) *RequestBuilder {
 	address = address.Clone()
-	if address.Uri.Host == "" {
-		address.Uri.Host = rb.host
+	if address.Uri.Host() == "" {
+		address.Uri.SetHost(rb.host)
 	}
 
 	rb.from = &FromHeader{
@@ -133,8 +145,8 @@ func (rb *RequestBuilder) SetFrom(address *Address) *RequestBuilder {
 
 func (rb *RequestBuilder) SetTo(address *Address) *RequestBuilder {
 	address = address.Clone()
-	if address.Uri.Host == "" {
-		address.Uri.Host = rb.host
+	if address.Uri.Host() == "" {
+		address.Uri.SetHost(rb.host)
 	}
 
 	rb.to = &ToHeader{
@@ -148,8 +160,8 @@ func (rb *RequestBuilder) SetTo(address *Address) *RequestBuilder {
 
 func (rb *RequestBuilder) SetContact(address *Address) *RequestBuilder {
 	address = address.Clone()
-	if address.Uri.Host == "" {
-		address.Uri.Host = rb.host
+	if address.Uri.Host() == "" {
+		address.Uri.SetHost(rb.host)
 	}
 
 	rb.contact = &ContactHeader{
@@ -161,55 +173,87 @@ func (rb *RequestBuilder) SetContact(address *Address) *RequestBuilder {
 	return rb
 }
 
-func (rb *RequestBuilder) SetExpires(expires uint) *RequestBuilder {
-	rb.expires = &GenericHeader{
-		HeaderName: "Expires",
-		Contents:   fmt.Sprintf("%d", expires),
-	}
+func (rb *RequestBuilder) SetExpires(expires *Expires) *RequestBuilder {
+	rb.expires = expires
 
 	return rb
 }
 
-func (rb *RequestBuilder) SetUserAgent(userAgent string) *RequestBuilder {
-	rb.userAgent.Contents = userAgent
+func (rb *RequestBuilder) SetUserAgent(userAgent *UserAgentHeader) *RequestBuilder {
+	rb.userAgent = userAgent
 
 	return rb
 }
 
-func (rb *RequestBuilder) SetMaxForwards(maxForwards uint) *RequestBuilder {
-	rb.maxForwards = &GenericHeader{
-		HeaderName: "Max-Forwards",
-		Contents:   fmt.Sprintf("%d", maxForwards),
-	}
+func (rb *RequestBuilder) SetMaxForwards(maxForwards *MaxForwards) *RequestBuilder {
+	rb.maxForwards = maxForwards
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetAllow(methods []RequestMethod) *RequestBuilder {
-	parts := make([]string, 0)
-	for _, method := range methods {
-		parts = append(parts, string(method))
-	}
-
-	rb.allow = &GenericHeader{
-		HeaderName: "Allow",
-		Contents:   strings.Join(parts, ", "),
-	}
+	rb.allow = methods
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetSupported(options []string) *RequestBuilder {
-	rb.supported = &SupportedHeader{
-		Options: options,
+	if len(options) == 0 {
+		rb.supported = nil
+	} else {
+		rb.supported = &SupportedHeader{
+			Options: options,
+		}
 	}
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetRequire(options []string) *RequestBuilder {
-	rb.require = &RequireHeader{
-		Options: options,
+	if len(options) == 0 {
+		rb.require = nil
+	} else {
+		rb.require = &RequireHeader{
+			Options: options,
+		}
+	}
+
+	return rb
+}
+
+func (rb *RequestBuilder) SetContentType(contentType *ContentType) *RequestBuilder {
+	rb.contentType = contentType
+
+	return rb
+}
+
+func (rb *RequestBuilder) SetAccept(accept *Accept) *RequestBuilder {
+	rb.accept = accept
+
+	return rb
+}
+
+func (rb *RequestBuilder) SetRoutes(routes []Uri) *RequestBuilder {
+	if len(routes) == 0 {
+		rb.route = nil
+	} else {
+		rb.route = &RouteHeader{
+			Addresses: routes,
+		}
+	}
+
+	return rb
+}
+
+func (rb *RequestBuilder) AddHeader(header Header) *RequestBuilder {
+	rb.generic[header.Name()] = header
+
+	return rb
+}
+
+func (rb *RequestBuilder) RemoveHeader(headerName string) *RequestBuilder {
+	if _, ok := rb.generic[headerName]; ok {
+		delete(rb.generic, headerName)
 	}
 
 	return rb
@@ -229,21 +273,21 @@ func (rb *RequestBuilder) Build() (Request, error) {
 		return nil, fmt.Errorf("empty 'From' header")
 	}
 
-	hdrs := []Header{
-		rb.cseq,
-		rb.from,
-		rb.to,
-		&rb.callID,
-		rb.userAgent,
-	}
+	hdrs := make([]Header, 0)
 
+	if rb.route != nil {
+		hdrs = append(hdrs, rb.route)
+	}
 	if len(rb.via) != 0 {
 		via := make(ViaHeader, 0)
 		for _, viaHop := range rb.via {
 			via = append(via, viaHop)
 		}
-		hdrs = append([]Header{via}, hdrs...)
+		hdrs = append(hdrs, via)
 	}
+
+	hdrs = append(hdrs, rb.cseq, rb.from, rb.to, rb.callID)
+
 	if rb.contact != nil {
 		hdrs = append(hdrs, rb.contact)
 	}
@@ -258,6 +302,19 @@ func (rb *RequestBuilder) Build() (Request, error) {
 	}
 	if rb.allow != nil {
 		hdrs = append(hdrs, rb.allow)
+	}
+	if rb.contentType != nil {
+		hdrs = append(hdrs, rb.contentType)
+	}
+	if rb.accept != nil {
+		hdrs = append(hdrs, rb.accept)
+	}
+	if rb.userAgent != nil {
+		hdrs = append(hdrs, rb.userAgent)
+	}
+
+	for _, header := range rb.generic {
+		hdrs = append(hdrs, header)
 	}
 
 	sipVersion := rb.protocol + "/" + rb.protocolVersion

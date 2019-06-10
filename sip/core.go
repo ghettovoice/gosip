@@ -21,19 +21,50 @@ const (
 
 type Address struct {
 	DisplayName MaybeString
-	Uri         *SipUri
+	Uri         Uri
 	Params      Params
+}
+
+func NewAddressFromFromHeader(from *FromHeader) *Address {
+	return &Address{
+		DisplayName: from.DisplayName,
+		Uri:         from.Address.Clone(),
+		Params:      from.Params.Clone(),
+	}
+}
+
+func NewAddressFromToHeader(to *ToHeader) *Address {
+	return &Address{
+		DisplayName: to.DisplayName,
+		Uri:         to.Address.Clone(),
+		Params:      to.Params.Clone(),
+	}
+}
+
+func NewAddressFromContactHeader(cnt *ContactHeader) *Address {
+	return &Address{
+		DisplayName: cnt.DisplayName,
+		Uri:         cnt.Address.Clone(),
+		Params:      cnt.Params.Clone(),
+	}
 }
 
 func (addr *Address) String() string {
 	var buffer bytes.Buffer
 
-	if displayName, ok := addr.DisplayName.(String); ok && displayName.String() != "" {
-		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
+	if addr == nil {
+		return "<nil>"
+	}
+
+	if addr.DisplayName != nil {
+		if displayName, ok := addr.DisplayName.(String); ok && displayName.String() != "" {
+			buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
+		}
 	}
 
 	buffer.WriteString(fmt.Sprintf("<%s>", addr.Uri))
-	if addr.Params.Length() > 0 {
+
+	if addr.Params != nil && addr.Params.Length() > 0 {
 		buffer.WriteString(";")
 		buffer.WriteString(addr.Params.ToString(';'))
 	}
@@ -44,7 +75,7 @@ func (addr *Address) String() string {
 func (addr *Address) Clone() *Address {
 	return &Address{
 		DisplayName: addr.DisplayName,
-		Uri:         addr.Uri.Clone().(*SipUri),
+		Uri:         addr.Uri.Clone(),
 		Params:      addr.Params.Clone(),
 	}
 }
@@ -57,6 +88,30 @@ func (addr *Address) Equals(other interface{}) bool {
 	}
 
 	return false
+}
+
+func (addr *Address) AsToHeader() *ToHeader {
+	return &ToHeader{
+		DisplayName: addr.DisplayName,
+		Address:     addr.Uri.Clone(),
+		Params:      addr.Params.Clone(),
+	}
+}
+
+func (addr *Address) AsFromHeader() *FromHeader {
+	return &FromHeader{
+		DisplayName: addr.DisplayName,
+		Address:     addr.Uri.Clone(),
+		Params:      addr.Params.Clone(),
+	}
+}
+
+func (addr *Address) AsContactHeader() *ContactHeader {
+	return &ContactHeader{
+		DisplayName: addr.DisplayName,
+		Address:     addr.Uri.Clone(),
+		Params:      addr.Params.Clone(),
+	}
 }
 
 // Port number

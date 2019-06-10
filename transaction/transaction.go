@@ -173,7 +173,7 @@ func (err *TxTransportError) Error() string {
 
 // MakeServerTxKey creates server commonTx key for matching retransmitting requests - RFC 3261 17.2.3.
 func MakeServerTxKey(msg sip.Message) (TxKey, error) {
-	var sep = "$"
+	var sep = "__"
 
 	firstViaHop, ok := msg.ViaHop()
 	if !ok {
@@ -185,7 +185,7 @@ func MakeServerTxKey(msg sip.Message) (TxKey, error) {
 		return "", fmt.Errorf("'CSeq' header not found in %s", msg.Short())
 	}
 	method := cseq.MethodName
-	if method == sip.ACK {
+	if method == sip.ACK || method == sip.CANCEL {
 		method = sip.INVITE
 	}
 
@@ -244,7 +244,7 @@ func MakeServerTxKey(msg sip.Message) (TxKey, error) {
 
 // MakeClientTxKey creates client commonTx key for matching responses - RFC 3261 17.1.3.
 func MakeClientTxKey(msg sip.Message) (TxKey, error) {
-	var sep = "$"
+	var sep = "__"
 
 	cseq, ok := msg.CSeq()
 	if !ok {

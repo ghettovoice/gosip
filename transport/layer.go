@@ -2,8 +2,6 @@ package transport
 
 import (
 	"fmt"
-	"net"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -16,7 +14,7 @@ type Layer interface {
 	log.LocalLogger
 	Cancel()
 	Done() <-chan struct{}
-	HostAddr() string
+	Host() string
 	Messages() <-chan sip.Message
 	Errors() <-chan error
 	// Listen starts listening on `addr` for each registered protocol.
@@ -56,7 +54,6 @@ func GetProtocolFactory() ProtocolFactory {
 // TransportLayer implementation.
 type layer struct {
 	logger    log.LocalLogger
-	hostAddr  string
 	host      string
 	port      *uint
 	protocols *protocolStore
@@ -71,32 +68,10 @@ type layer struct {
 
 // NewLayer creates transport layer.
 // 	- hostAddr - current server host address (IP or FQDN)
-func NewLayer(hostAddr string) Layer {
-	// todo pass up error
-	var host string
-	var port *uint
-	if strings.Contains(hostAddr, ":") {
-		if h, p, err := net.SplitHostPort(hostAddr); err == nil {
-			host = h
-
-			if pi, err := strconv.Atoi(p); err == nil {
-				pii := uint(pi)
-				port = &pii
-			} else {
-				log.Panicf("invalid hostAddr argument: %s", hostAddr)
-			}
-		} else {
-			log.Panicf("invalid hostAddr argument: %s", hostAddr)
-		}
-	} else {
-		host = hostAddr
-	}
-
+func NewLayer(host string) Layer {
 	tpl := &layer{
 		logger:    log.NewSafeLocalLogger(),
-		hostAddr:  hostAddr,
 		host:      host,
-		port:      port,
 		wg:        new(sync.WaitGroup),
 		protocols: newProtocolStore(),
 		msgs:      make(chan sip.Message),
@@ -134,8 +109,8 @@ func (tpl *layer) SetLog(logger log.Logger) {
 	}
 }
 
-func (tpl *layer) HostAddr() string {
-	return tpl.hostAddr
+func (tpl *layer) Host() string {
+	return tpl.host
 }
 
 func (tpl *layer) Cancel() {
@@ -185,107 +160,26 @@ func (tpl *layer) Listen(network string, addr string) error {
 }
 
 func (tpl *layer) Send(msg sip.Message) error {
-	nets := make([]string, 0)
-
-	switch msg := msg.(type) {
-	// RFC 3261 - 18.1.1.
-	case sip.Request:
-		msgLen := len(msg.String())
-		// todo check for reliable/non-reliable
-		if msgLen > int(MTU)-200 {
-			nets = append(nets, "TCP", "UDP")
-		} else {
-			nets = append(nets, "UDP")
-		}
-
-		viaHop, ok := msg.ViaHop()
-		if !ok {
-			viaHop = &sip.ViaHop{
-				ProtocolName:    "SIP",
-				ProtocolVersion: "2.0",
-				Host:            tpl.host,
-				Params: sip.NewParams().
-					Add("branch", sip.String{Str: sip.GenerateBranch()}).
-					Add("rport", nil),
-			}
-			if tpl.port != nil {
-				port := sip.Port(*tpl.port)
-				viaHop.Port = &port
-			}
-			msg.PrependHeaderAfter(sip.ViaHeader{
-				viaHop,
-			}, "Record-Route")
-		} else {
-			viaHop.Host = tpl.host
-			if tpl.port != nil {
-				port := sip.Port(*tpl.port)
-				viaHop.Port = &port
-			}
-			if viaHop.Params == nil {
-				viaHop.Params = sip.NewParams()
-			}
-			if !viaHop.Params.Has("branch") {
-				viaHop.Params.Add("branch", sip.String{Str: sip.GenerateBranch()})
-			}
-			if !viaHop.Params.Has("rport") {
-				viaHop.Params.Add("rport", nil)
-			}
-		}
-
-		var err error
-		for _, nt := range nets {
-			protocol, ok := tpl.protocols.get(protocolKey(nt))
-			if !ok {
-				err = UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", nt))
-				continue
-			}
-			// rewrite sent-by transport
-			viaHop.Transport = nt
-			// rewrite sent-by port
-			if viaHop.Port == nil {
-				defPort := DefaultPort(nt)
-				viaHop.Port = &defPort
-			}
-
-			target, err := NewTargetFromAddr(msg.Destination())
-			if err != nil {
-				return err
-			}
-
-			err = protocol.Send(target, msg)
-			if err == nil {
-				break
-			}
-		}
-
-		return err
-		// RFC 3261 - 18.2.2.
-	case sip.Response:
-		viaHop, ok := msg.ViaHop()
-		if !ok {
-			return &sip.MalformedMessageError{
-				Err: fmt.Errorf("missing required 'Via' header"),
-				Msg: msg.String(),
-			}
-		}
-		// resolve protocol from Via
-		protocol, ok := tpl.protocols.get(protocolKey(viaHop.Transport))
-		if !ok {
-			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", viaHop.Transport))
-		}
-
-		target, err := NewTargetFromAddr(msg.Destination())
-		if err != nil {
-			return err
-		}
-
-		return protocol.Send(target, msg)
-	default:
-		return &sip.UnsupportedMessageError{
-			Err: fmt.Errorf("unsupported message %s", msg.Short()),
+	viaHop, ok := msg.ViaHop()
+	if !ok {
+		return &sip.MalformedMessageError{
+			Err: fmt.Errorf("missing required 'Via' header"),
 			Msg: msg.String(),
 		}
 	}
+
+	// resolve protocol from Via
+	protocol, ok := tpl.protocols.get(protocolKey(viaHop.Transport))
+	if !ok {
+		return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", viaHop.Transport))
+	}
+
+	target, err := NewTargetFromAddr(msg.Destination())
+	if err != nil {
+		return err
+	}
+
+	return protocol.Send(target, msg)
 }
 
 func (tpl *layer) serveProtocols() {

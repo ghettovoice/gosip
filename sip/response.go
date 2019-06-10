@@ -140,6 +140,7 @@ func NewResponseFromRequest(
 	)
 	res.SetLog(req.Log())
 
+	CopyHeaders("Record-Route", req, res)
 	CopyHeaders("Via", req, res)
 	CopyHeaders("From", req, res)
 	CopyHeaders("To", req, res)

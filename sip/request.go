@@ -19,6 +19,7 @@ type Request interface {
 	/* Common Helpers */
 	IsInvite() bool
 	IsAck() bool
+	IsCancel() bool
 }
 
 type request struct {
@@ -104,6 +105,10 @@ func (req *request) IsAck() bool {
 	return req.Method() == ACK
 }
 
+func (req *request) IsCancel() bool {
+	return req.Method() == CANCEL
+}
+
 func (req *request) Source() string {
 	if req.src != "" {
 		return req.src
@@ -142,18 +147,46 @@ func (req *request) Destination() string {
 		return req.dest
 	}
 
-	uri, ok := req.Recipient().(*SipUri)
-	if !ok {
-		return ""
+	var uri *SipUri
+	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
+		routeHeader := hdrs[0].(*RouteHeader)
+		if len(routeHeader.Addresses) > 0 {
+			uri = routeHeader.Addresses[0].(*SipUri)
+		}
+	}
+	if uri == nil {
+		if u, ok := req.Recipient().(*SipUri); ok {
+			uri = u
+		} else {
+			return ""
+		}
 	}
 
-	host := uri.Host
+	host := uri.FHost
 	var port Port
-	if uri.Port == nil {
+	if uri.FPort == nil {
 		port = DefaultPort(req.Transport())
 	} else {
-		port = *uri.Port
+		port = *uri.FPort
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)
+}
+
+// NewAckForInvite creates ACK request for 2xx INVITE
+// https://tools.ietf.org/html/rfc3261#section-13.2.2.4
+func NewAckForInvite(inviteReq Request, inviteResp Response) Request {
+	contact, _ := inviteResp.Contact()
+	ackReq := NewRequest(ACK, contact.Address, inviteResp.SipVersion(), []Header{}, "")
+	CopyHeaders("Route", inviteReq, ackReq)
+	CopyHeaders("Via", inviteReq, ackReq)
+	CopyHeaders("From", inviteReq, ackReq)
+	CopyHeaders("To", inviteResp, ackReq)
+	CopyHeaders("Call-ID", inviteReq, ackReq)
+	CopyHeaders("CSeq", inviteReq, ackReq)
+
+	cseq, _ := ackReq.CSeq()
+	cseq.MethodName = ACK
+
+	return ackReq
 }
