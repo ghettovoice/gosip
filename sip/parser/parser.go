@@ -207,6 +207,10 @@ func (p *parser) Write(data []byte) (int, error) {
 
 	if !p.streamed {
 		bl := getBodyLength(data)
+		if bl == -1 {
+			return 0, WriteError(fmt.Sprintf("%p cannot write data: double CRLF sequence not found in the input data", p))
+		}
+
 		p.bodyLengths.In <- []int{bl, len(data)}
 	}
 
@@ -438,6 +442,11 @@ func getBodyLength(data []byte) int {
 	s := string(data)
 
 	// Body starts with first character following a double-CRLF.
+	idx := strings.Index(s, "\r\n\r\n")
+	if idx == -1 {
+		return -1
+	}
+
 	bodyStart := strings.Index(s, "\r\n\r\n") + 4
 
 	return len(s) - bodyStart
