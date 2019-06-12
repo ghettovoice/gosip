@@ -739,9 +739,9 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 			if _, err := prs.Write(append([]byte{}, buf[:num]...)); err != nil {
 				select {
 				case <-handler.canceled:
+					return
 				case errs <- err:
 				}
-				return
 			}
 		}
 	}()

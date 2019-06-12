@@ -447,7 +447,7 @@ func getBodyLength(data []byte) int {
 		return -1
 	}
 
-	bodyStart := strings.Index(s, "\r\n\r\n") + 4
+	bodyStart := idx + 4
 
 	return len(s) - bodyStart
 }

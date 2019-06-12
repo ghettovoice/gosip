@@ -165,6 +165,8 @@ var _ = Describe("UdpProtocol", func() {
 				// here we should check actual client remote address, because SIP Response gets Remote Address from connection
 				testutils.AssertMessageArrived(output, msg3, client3.(*testutils.MockConn).Conn.LocalAddr().String(), "pc33.example.com:5060")
 				By(fmt.Sprintf("bullshit arrives from client2 and ignored %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
+				err := <-errs
+				Expect(err).To(HaveOccurred())
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
 				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.UDPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5060")

@@ -587,10 +587,9 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 			// pass up error and exit
 			select {
 			case <-handler.canceled:
-				return
 			case errs <- err:
-				return
 			}
+			return
 		}
 
 		conn := NewConnection(baseConn)
