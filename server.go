@@ -230,7 +230,7 @@ func (srv *Server) RequestAsync(
 					err = errors.New("unknown transaction error")
 				}
 
-				onComplete(nil, fmt.Errorf("trasaction '%s' error: %s", tx, err))
+				onComplete(nil, fmt.Errorf("transaction '%s' error: %s", tx, err))
 				return
 			case response, ok := <-tx.Responses():
 				if !ok {
