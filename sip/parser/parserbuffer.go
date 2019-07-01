@@ -71,7 +71,7 @@ func (pb *parserBuffer) NextLine() (response string, err error) {
 		if b == '\n' {
 			response = buffer.String()
 			response = response[:len(response)-2]
-			pb.Log().Debugf("ParserBuffer %p returns line '%s'", pb, response)
+			// pb.Log().Debugf("ParserBuffer %p returns line '%s'", pb, response)
 			return
 		}
 	}
@@ -92,7 +92,7 @@ func (pb *parserBuffer) NextChunk(n int) (response string, err error) {
 	}
 
 	response = string(data)
-	pb.Log().Debugf("ParserBuffer %p returns chunk '%s'", pb, response)
+	// pb.Log().Debugf("ParserBuffer %p returns chunk '%s'", pb, response)
 	return
 }
 

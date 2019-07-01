@@ -214,7 +214,7 @@ func (p *parser) Write(data []byte) (int, error) {
 		p.bodyLengths.In <- []int{bl, len(data)}
 	}
 
-	p.Log().Debugf("%s writes data to input buffer:\n%s", p, data)
+	// p.Log().Debugf("%s writes data to input buffer:\n%s", p, data)
 	p.input.Write(data)
 
 	return len(data), nil
@@ -259,7 +259,7 @@ func (p *parser) parse(requireContentLength bool) {
 			break
 		}
 
-		p.Log().Debugf("%s starts reading start line: %s", p, startLine)
+		// p.Log().Debugf("%s starts reading start line: %s", p, startLine)
 
 		var termErr error
 		if isRequest(startLine) {
@@ -290,7 +290,7 @@ func (p *parser) parse(requireContentLength bool) {
 			if !p.streamed {
 				slice := (<-p.bodyLengths.Out).([]int)
 				skip := slice[1] - len(startLine) - 2
-				p.Log().Debugf("%s skips %d - %d - 2 = %d bytes", p, slice[1], len(startLine), skip)
+				// p.Log().Debugf("%s skips %d - %d - 2 = %d bytes", p, slice[1], len(startLine), skip)
 				p.input.NextChunk(skip)
 			}
 
@@ -298,7 +298,7 @@ func (p *parser) parse(requireContentLength bool) {
 		}
 
 		msg.SetLog(p.Log())
-		p.Log().Debugf("%s starts reading headers", p)
+		// p.Log().Debugf("%s starts reading headers", p)
 		// Parse the header section.
 		// Headers can be split across lines (marked by whitespace at the start of subsequent lines),
 		// so store lines into a buffer, and then flush and parse it when we hit the end of the header.
@@ -396,7 +396,7 @@ func (p *parser) parse(requireContentLength bool) {
 		}
 
 		// Extract the message body.
-		p.Log().Debugf("%s reads body with length = %d bytes", p, contentLength)
+		// p.Log().Debugf("%s reads body with length = %d bytes", p, contentLength)
 		body, err := p.input.NextChunk(contentLength)
 		if err != nil {
 			termErr := &sip.BrokenMessageError{
@@ -845,7 +845,7 @@ parseLoop:
 // (SIP messages containing multiple headers of the same type can express them as a
 // single header containing a comma-separated argument list).
 func (p *parser) parseHeader(headerText string) (headers []sip.Header, err error) {
-	p.Log().Debugf("%s parsing header \"%s\"", p, headerText)
+	// p.Log().Debugf("%s parsing header \"%s\"", p, headerText)
 	headers = make([]sip.Header, 0)
 
 	colonIdx := strings.Index(headerText, ":")
