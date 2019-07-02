@@ -178,8 +178,20 @@ func (req *request) Destination() string {
 func NewAckForInvite(inviteReq Request, inviteResp Response) Request {
 	contact, _ := inviteResp.Contact()
 	ackReq := NewRequest(ACK, contact.Address, inviteResp.SipVersion(), []Header{}, "")
-	CopyHeaders("Route", inviteReq, ackReq)
 	CopyHeaders("Via", inviteReq, ackReq)
+	if len(inviteReq.GetHeaders("Route")) > 0 {
+		CopyHeaders("Route", inviteReq, ackReq)
+	} else {
+		for _, h := range inviteResp.GetHeaders("Record-Route") {
+			uris := make([]Uri, 0)
+			for _, u := range h.(*RecordRouteHeader).Addresses {
+				uris = append(uris, u.Clone())
+			}
+			ackReq.AppendHeader(&RouteHeader{
+				Addresses: uris,
+			})
+		}
+	}
 	CopyHeaders("From", inviteReq, ackReq)
 	CopyHeaders("To", inviteResp, ackReq)
 	CopyHeaders("Call-ID", inviteReq, ackReq)

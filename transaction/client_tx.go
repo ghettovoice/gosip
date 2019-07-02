@@ -142,6 +142,9 @@ func (tx *clientTx) Terminate() {
 }
 
 func (tx clientTx) ack() {
+	tx.mu.RLock()
+	lastResp := tx.lastResp
+	tx.mu.RUnlock()
 	ack := sip.NewRequest(
 		sip.ACK,
 		tx.Origin().Recipient(),
@@ -152,8 +155,26 @@ func (tx clientTx) ack() {
 	ack.SetLog(tx.Log())
 
 	// Copy headers from original request.
-	// TODO: Safety
-	sip.CopyHeaders("Route", tx.Origin(), ack)
+	via, ok := tx.Origin().Via()
+	if !ok {
+		tx.Log().Errorf("failed to send ACK request on client transaction %p: %s", tx)
+		return
+	}
+	via = via.Clone().(sip.ViaHeader)
+	ack.AppendHeader(via)
+	if len(tx.Origin().GetHeaders("Route")) > 0 {
+		sip.CopyHeaders("Route", tx.Origin(), ack)
+	} else {
+		for _, h := range lastResp.GetHeaders("Record-Route") {
+			uris := make([]sip.Uri, 0)
+			for _, u := range h.(*sip.RecordRouteHeader).Addresses {
+				uris = append(uris, u.Clone())
+			}
+			ack.AppendHeader(&sip.RouteHeader{
+				Addresses: uris,
+			})
+		}
+	}
 	sip.CopyHeaders("From", tx.Origin(), ack)
 	sip.CopyHeaders("Call-ID", tx.Origin(), ack)
 	sip.CopyHeaders("To", tx.lastResp, ack)
@@ -165,13 +186,6 @@ func (tx clientTx) ack() {
 	cseq = cseq.Clone().(*sip.CSeq)
 	cseq.MethodName = sip.ACK
 	ack.AppendHeader(cseq)
-	via, ok := tx.Origin().Via()
-	if !ok {
-		tx.Log().Errorf("failed to send ACK request on client transaction %p: %s", tx)
-		return
-	}
-	via = via.Clone().(sip.ViaHeader)
-	ack.AppendHeader(via)
 
 	// Send the ACK.
 	err := tx.tpl.Send(ack)
