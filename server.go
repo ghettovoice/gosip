@@ -238,10 +238,6 @@ func (srv *Server) RequestAsync(
 					return
 				}
 
-				if response.IsProvisional() {
-					continue
-				}
-
 				if onComplete(response, nil) {
 					continue
 				} else {
