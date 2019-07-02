@@ -71,10 +71,10 @@ loop:
 					c.Log().Debugf("ElasticChan %p will dispose", c)
 					break loop
 				}
-				c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
+				// c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
 				c.buffer = append(c.buffer, in)
 			case c.Out <- c.buffer[0]:
-				c.Log().Debugf("ElasticChan %p sends '%v'", c, c.buffer[0])
+				// c.Log().Debugf("ElasticChan %p sends '%v'", c, c.buffer[0])
 				c.buffer = c.buffer[1:]
 			}
 		} else {
@@ -85,7 +85,7 @@ loop:
 				c.Log().Debugf("ElasticChan %p will dispose", c)
 				break loop
 			}
-			c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
+			// c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
 			c.buffer = append(c.buffer, in)
 		}
 	}
