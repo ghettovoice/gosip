@@ -22,9 +22,10 @@ type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
 
 // ServerConfig describes available options
 type ServerConfig struct {
-	// Public IP address or domain name, if empty auto resolved IP will be used
-	Host       string
-	DnsAddr    string
+	// Public IP address or domain name, if empty auto resolved IP will be used.
+	Host string
+	// Dns is an address of the public DNS server to use in SRV lookup.
+	Dns        string
 	Extensions []string
 }
 
@@ -66,12 +67,12 @@ func NewServer(config *ServerConfig) *Server {
 	}
 
 	var dnsResolver *net.Resolver
-	if config.DnsAddr != "" {
+	if config.Dns != "" {
 		dnsResolver = &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 				d := net.Dialer{}
-				return d.DialContext(ctx, "udp", config.DnsAddr)
+				return d.DialContext(ctx, "udp", config.Dns)
 			},
 		}
 	} else {

@@ -155,13 +155,8 @@ func (tx clientTx) ack() {
 	ack.SetLog(tx.Log())
 
 	// Copy headers from original request.
-	via, ok := tx.Origin().Via()
-	if !ok {
-		tx.Log().Errorf("failed to send ACK request on client transaction %p: %s", tx)
-		return
-	}
-	via = via.Clone().(sip.ViaHeader)
-	ack.AppendHeader(via)
+	sip.CopyHeaders("Via", tx.Origin(), ack)
+
 	if len(tx.Origin().GetHeaders("Route")) > 0 {
 		sip.CopyHeaders("Route", tx.Origin(), ack)
 	} else {
@@ -175,9 +170,11 @@ func (tx clientTx) ack() {
 			})
 		}
 	}
+
 	sip.CopyHeaders("From", tx.Origin(), ack)
+	sip.CopyHeaders("To", lastResp, ack)
 	sip.CopyHeaders("Call-ID", tx.Origin(), ack)
-	sip.CopyHeaders("To", tx.lastResp, ack)
+
 	cseq, ok := tx.Origin().CSeq()
 	if !ok {
 		tx.Log().Errorf("failed to send ACK request on client transaction %p: %s", tx)

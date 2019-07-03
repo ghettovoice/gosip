@@ -178,7 +178,12 @@ func (req *request) Destination() string {
 func NewAckForInvite(inviteReq Request, inviteResp Response) Request {
 	contact, _ := inviteResp.Contact()
 	ackReq := NewRequest(ACK, contact.Address, inviteResp.SipVersion(), []Header{}, "")
+
 	CopyHeaders("Via", inviteReq, ackReq)
+	viaHop, _ := ackReq.ViaHop()
+	// update branch, 2xx ACK is separate Tx
+	viaHop.Params.Add("branch", String{Str: GenerateBranch()})
+
 	if len(inviteReq.GetHeaders("Route")) > 0 {
 		CopyHeaders("Route", inviteReq, ackReq)
 	} else {
@@ -192,11 +197,12 @@ func NewAckForInvite(inviteReq Request, inviteResp Response) Request {
 			})
 		}
 	}
+
 	CopyHeaders("From", inviteReq, ackReq)
 	CopyHeaders("To", inviteResp, ackReq)
 	CopyHeaders("Call-ID", inviteReq, ackReq)
-	CopyHeaders("CSeq", inviteReq, ackReq)
 
+	CopyHeaders("CSeq", inviteReq, ackReq)
 	cseq, _ := ackReq.CSeq()
 	cseq.MethodName = ACK
 

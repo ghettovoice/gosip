@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -216,13 +217,34 @@ func (tpl *layer) Send(msg sip.Message) error {
 				continue
 			}
 
-			// todo dns srv lookup
+			// dns srv lookup
 			if net.ParseIP(target.Host) == nil {
-
+				ctx := context.Background()
+				proto := strings.ToLower(nt)
+				if _, addrs, err := tpl.dnsResolver.LookupSRV(ctx, "sip", proto, target.Host); err == nil && len(addrs) > 0 {
+					addr := addrs[0]
+					addrStr := fmt.Sprintf("%s:%d", addr.Target[:len(addr.Target)-1], addr.Port)
+					switch nt {
+					case "UDP":
+						if addr, err := net.ResolveUDPAddr("udp", addrStr); err == nil {
+							port := sip.Port(addr.Port)
+							target.Host = addr.IP.String()
+							target.Port = &port
+						}
+					case "TCP":
+						if addr, err := net.ResolveTCPAddr("tcp", addrStr); err == nil {
+							port := sip.Port(addr.Port)
+							target.Host = addr.IP.String()
+							target.Port = &port
+						}
+					}
+				}
 			}
 
 			err = protocol.Send(target, msg)
 			if err == nil {
+				break
+			} else {
 				continue
 			}
 		}
