@@ -15,10 +15,6 @@ import (
 	"github.com/ghettovoice/gosip/util"
 )
 
-const (
-	defaultHost = "localhost"
-)
-
 // RequestHandler is a callback that will be called on the incoming request
 // of the certain method
 // tx argument can be nil for 2xx ACK request
@@ -28,12 +24,8 @@ type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
 type ServerConfig struct {
 	// Public IP address or domain name, if empty auto resolved IP will be used
 	Host       string
+	DnsAddr    string
 	Extensions []string
-}
-
-var defaultConfig = &ServerConfig{
-	Host:       defaultHost,
-	Extensions: make([]string, 0),
 }
 
 // Server is a SIP server
@@ -52,7 +44,7 @@ type Server struct {
 // NewServer creates new instance of SIP server.
 func NewServer(config *ServerConfig) *Server {
 	if config == nil {
-		config = defaultConfig
+		config = &ServerConfig{}
 	}
 
 	var host string
@@ -73,7 +65,25 @@ func NewServer(config *ServerConfig) *Server {
 		}
 	}
 
-	tp := transport.NewLayer(ip)
+	var dnsResolver *net.Resolver
+	if config.DnsAddr != "" {
+		dnsResolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, "udp", config.DnsAddr)
+			},
+		}
+	} else {
+		dnsResolver = net.DefaultResolver
+	}
+
+	var extensions []string
+	if config.Extensions != nil {
+		extensions = config.Extensions
+	}
+
+	tp := transport.NewLayer(ip, dnsResolver)
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
 		tp:              tp,
@@ -83,7 +93,7 @@ func NewServer(config *ServerConfig) *Server {
 		hwg:             new(sync.WaitGroup),
 		hmu:             new(sync.RWMutex),
 		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
-		extensions:      config.Extensions,
+		extensions:      extensions,
 	}
 	// setup default handlers
 	_ = srv.OnRequest(sip.ACK, func(req sip.Request, tx sip.ServerTransaction) {

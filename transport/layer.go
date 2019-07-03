@@ -57,6 +57,7 @@ type layer struct {
 	protocols   *protocolStore
 	listenPorts map[string]*sip.Port
 	ip          net.IP
+	dnsResolver *net.Resolver
 	msgs        chan sip.Message
 	errs        chan error
 	pmsgs       chan sip.Message
@@ -67,14 +68,16 @@ type layer struct {
 }
 
 // NewLayer creates transport layer.
-// 	- ip - host IP
-func NewLayer(ip net.IP) Layer {
+// - ip - host IP
+// - dnsAddr - DNS server address, default is 127.0.0.1:53
+func NewLayer(ip net.IP, dnsResolver *net.Resolver) Layer {
 	tpl := &layer{
 		logger:      log.NewSafeLocalLogger(),
 		wg:          new(sync.WaitGroup),
 		protocols:   newProtocolStore(),
 		listenPorts: make(map[string]*sip.Port),
 		ip:          ip,
+		dnsResolver: dnsResolver,
 		msgs:        make(chan sip.Message),
 		errs:        make(chan error),
 		pmsgs:       make(chan sip.Message),
@@ -214,6 +217,9 @@ func (tpl *layer) Send(msg sip.Message) error {
 			}
 
 			// todo dns srv lookup
+			if net.ParseIP(target.Host) == nil {
+
+			}
 
 			err = protocol.Send(target, msg)
 			if err == nil {

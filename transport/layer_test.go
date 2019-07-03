@@ -27,7 +27,7 @@ var _ = Describe("TransportLayer", func() {
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)
-		tpl = transport.NewLayer(net.ParseIP(ip))
+		tpl = transport.NewLayer(net.ParseIP(ip), net.DefaultResolver)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
