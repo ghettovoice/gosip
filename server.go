@@ -63,7 +63,7 @@ func NewServer(config *ServerConfig) *Server {
 		host = defaultHost
 	}
 
-	tp := transport.NewLayer(host)
+	tp := transport.NewLayer()
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
 		tp:              tp,

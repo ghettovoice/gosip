@@ -16,7 +16,7 @@ const (
 	MTU uint = 1500
 
 	DefaultHost     = "0.0.0.0"
-	DefaultProtocol = "TCP"
+	DefaultProtocol = "UDP"
 
 	DefaultUdpPort sip.Port = 5060
 	DefaultTcpPort sip.Port = 5060

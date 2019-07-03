@@ -14,7 +14,6 @@ type Layer interface {
 	log.LocalLogger
 	Cancel()
 	Done() <-chan struct{}
-	Host() string
 	Messages() <-chan sip.Message
 	Errors() <-chan error
 	// Listen starts listening on `addr` for each registered protocol.
@@ -54,8 +53,6 @@ func GetProtocolFactory() ProtocolFactory {
 // TransportLayer implementation.
 type layer struct {
 	logger    log.LocalLogger
-	host      string
-	port      *uint
 	protocols *protocolStore
 	msgs      chan sip.Message
 	errs      chan error
@@ -68,10 +65,9 @@ type layer struct {
 
 // NewLayer creates transport layer.
 // 	- hostAddr - current server host address (IP or FQDN)
-func NewLayer(host string) Layer {
+func NewLayer() Layer {
 	tpl := &layer{
 		logger:    log.NewSafeLocalLogger(),
-		host:      host,
 		wg:        new(sync.WaitGroup),
 		protocols: newProtocolStore(),
 		msgs:      make(chan sip.Message),
@@ -82,6 +78,7 @@ func NewLayer(host string) Layer {
 		done:      make(chan struct{}),
 	}
 	go tpl.serveProtocols()
+
 	return tpl
 }
 
@@ -107,10 +104,6 @@ func (tpl *layer) SetLog(logger log.Logger) {
 	for _, protocol := range tpl.protocols.all() {
 		protocol.SetLog(tpl.Log())
 	}
-}
-
-func (tpl *layer) Host() string {
-	return tpl.host
 }
 
 func (tpl *layer) Cancel() {
@@ -220,49 +213,6 @@ func (tpl *layer) dispose() {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tpl *layer) handleMessage(msg sip.Message) {
-	tpl.Log().Debugf("%s received %s\r\n%s", tpl, msg.Short(), msg)
-
-	switch msg.(type) {
-	case sip.Response:
-		// incoming Response
-		// RFC 3261 - 18.1.2. - Receiving Responses.
-		viaHop, ok := msg.ViaHop()
-		if !ok {
-			tpl.Log().Warnf("%s received response without Via header %s", tpl, msg.Short())
-
-			return
-		}
-
-		if viaHop.Host != tpl.host {
-			tpl.Log().Warnf(
-				"%s discards unexpected response %s %s -> %s over %s: 'sent-by' in the first 'Via' header "+
-					" equals to %s, but expected %s",
-				tpl,
-				msg.Short(),
-				msg.Source(),
-				msg.Destination(),
-				msg.Transport(),
-				viaHop.Host,
-				tpl.host,
-			)
-			return
-		}
-	case sip.Request:
-		// incoming Request
-		// RFC 3261 - 18.2.1. - Receiving Request. already done in ConnectionHandler
-	default:
-		// unsupported message received, log and discard
-		tpl.Log().Warnf(
-			"%s discards unsupported message %s %s -> %s over %s",
-			tpl,
-			msg.Short(),
-			msg.Source(),
-			msg.Destination(),
-			msg.Transport(),
-		)
-		return
-	}
-
 	tpl.Log().Debugf("%s passes up %s", tpl, msg.Short())
 	// pass up message
 	select {
