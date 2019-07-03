@@ -2,6 +2,7 @@ package transport
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 
@@ -52,30 +53,34 @@ func GetProtocolFactory() ProtocolFactory {
 
 // TransportLayer implementation.
 type layer struct {
-	logger    log.LocalLogger
-	protocols *protocolStore
-	msgs      chan sip.Message
-	errs      chan error
-	pmsgs     chan sip.Message
-	perrs     chan error
-	canceled  chan struct{}
-	done      chan struct{}
-	wg        *sync.WaitGroup
+	logger      log.LocalLogger
+	protocols   *protocolStore
+	listenPorts map[string]*sip.Port
+	ip          net.IP
+	msgs        chan sip.Message
+	errs        chan error
+	pmsgs       chan sip.Message
+	perrs       chan error
+	canceled    chan struct{}
+	done        chan struct{}
+	wg          *sync.WaitGroup
 }
 
 // NewLayer creates transport layer.
-// 	- hostAddr - current server host address (IP or FQDN)
-func NewLayer() Layer {
+// 	- ip - host IP
+func NewLayer(ip net.IP) Layer {
 	tpl := &layer{
-		logger:    log.NewSafeLocalLogger(),
-		wg:        new(sync.WaitGroup),
-		protocols: newProtocolStore(),
-		msgs:      make(chan sip.Message),
-		errs:      make(chan error),
-		pmsgs:     make(chan sip.Message),
-		perrs:     make(chan error),
-		canceled:  make(chan struct{}),
-		done:      make(chan struct{}),
+		logger:      log.NewSafeLocalLogger(),
+		wg:          new(sync.WaitGroup),
+		protocols:   newProtocolStore(),
+		listenPorts: make(map[string]*sip.Port),
+		ip:          ip,
+		msgs:        make(chan sip.Message),
+		errs:        make(chan error),
+		pmsgs:       make(chan sip.Message),
+		perrs:       make(chan error),
+		canceled:    make(chan struct{}),
+		done:        make(chan struct{}),
 	}
 	go tpl.serveProtocols()
 
@@ -149,6 +154,10 @@ func (tpl *layer) Listen(network string, addr string) error {
 		return err
 	}
 	target = FillTargetHostAndPort(network, target)
+	if _, ok := tpl.listenPorts[network]; !ok {
+		tpl.listenPorts[network] = target.Port
+	}
+
 	return protocol.Listen(target)
 }
 
@@ -161,18 +170,78 @@ func (tpl *layer) Send(msg sip.Message) error {
 		}
 	}
 
-	// resolve protocol from Via
-	protocol, ok := tpl.protocols.get(protocolKey(viaHop.Transport))
-	if !ok {
-		return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", viaHop.Transport))
-	}
+	switch msg := msg.(type) {
+	// RFC 3261 - 18.1.1.
+	case sip.Request:
+		nets := make([]string, 0)
+		msgLen := len(msg.String())
+		// todo check for reliable/non-reliable
+		if msgLen > int(MTU)-200 {
+			nets = append(nets, "TCP", "UDP")
+		} else {
+			nets = append(nets, "UDP", "TCP")
+		}
 
-	target, err := NewTargetFromAddr(msg.Destination())
-	if err != nil {
+		viaHop.Host = tpl.ip.String()
+		if viaHop.Params == nil {
+			viaHop.Params = sip.NewParams()
+		}
+		if !viaHop.Params.Has("rport") {
+			viaHop.Params.Add("rport", nil)
+		}
+
+		var err error
+		for _, nt := range nets {
+			protocol, ok := tpl.protocols.get(protocolKey(nt))
+			if !ok {
+				err = UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", nt))
+				continue
+			}
+			// rewrite sent-by transport
+			viaHop.Transport = nt
+			// rewrite sent-by port
+			if port, ok := tpl.listenPorts[nt]; ok {
+				viaHop.Port = port
+			} else {
+				defPort := DefaultPort(nt)
+				viaHop.Port = &defPort
+			}
+
+			var target *Target
+			target, err = NewTargetFromAddr(msg.Destination())
+			if err != nil {
+				continue
+			}
+
+			// todo dns srv lookup
+
+			err = protocol.Send(target, msg)
+			if err == nil {
+				continue
+			}
+		}
+
 		return err
-	}
+		// RFC 3261 - 18.2.2.
+	case sip.Response:
+		// resolve protocol from Via
+		protocol, ok := tpl.protocols.get(protocolKey(viaHop.Transport))
+		if !ok {
+			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", viaHop.Transport))
+		}
 
-	return protocol.Send(target, msg)
+		target, err := NewTargetFromAddr(msg.Destination())
+		if err != nil {
+			return err
+		}
+
+		return protocol.Send(target, msg)
+	default:
+		return &sip.UnsupportedMessageError{
+			Err: fmt.Errorf("unsupported message %s", msg.Short()),
+			Msg: msg.String(),
+		}
+	}
 }
 
 func (tpl *layer) serveProtocols() {
@@ -203,6 +272,8 @@ func (tpl *layer) dispose() {
 		tpl.protocols.drop(protocolKey(protocol.Network()))
 		<-protocol.Done()
 	}
+
+	tpl.listenPorts = make(map[string]*sip.Port)
 
 	close(tpl.pmsgs)
 	close(tpl.perrs)

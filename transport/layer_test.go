@@ -19,6 +19,7 @@ var _ = Describe("TransportLayer", func() {
 		wg     *sync.WaitGroup
 		client net.Conn
 	)
+	ip := "127.0.0.1"
 	localAddr1 := "127.0.0.1:5060"
 	clientPort := sip.Port(9001)
 	clientHost := "127.0.0.1"
@@ -26,7 +27,7 @@ var _ = Describe("TransportLayer", func() {
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)
-		tpl = transport.NewLayer()
+		tpl = transport.NewLayer(net.ParseIP(ip))
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
