@@ -73,7 +73,7 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	target = FillTargetHostAndPort(udp.Network(), target)
 
 	udp.Log().Infof("%s sends message '%s' to %s", udp, msg.Short(), target.Addr())
-	udp.Log().Debugf("message:\n%s", msg)
+	udp.Log().Infof("message:\n%s", msg)
 
 	// validate remote address
 	if target.Host == "" {

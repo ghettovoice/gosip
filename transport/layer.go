@@ -312,7 +312,8 @@ func (tpl *layer) dispose() {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tpl *layer) handleMessage(msg sip.Message) {
-	tpl.Log().Debugf("%s passes up %s", tpl, msg.Short())
+	tpl.Log().Infof("%s passes up %s", tpl, msg.Short())
+	tpl.Log().Infof("message:\n%s", msg)
 	// pass up message
 	select {
 	case <-tpl.canceled:
