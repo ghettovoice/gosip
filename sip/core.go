@@ -73,10 +73,24 @@ func (addr *Address) String() string {
 }
 
 func (addr *Address) Clone() *Address {
+	var name MaybeString
+	var uri Uri
+	var params Params
+
+	if addr.DisplayName != nil {
+		name = String{Str: addr.DisplayName.String()}
+	}
+	if addr.Uri != nil {
+		uri = addr.Uri.Clone()
+	}
+	if addr.Params != nil {
+		params = addr.Params.Clone()
+	}
+
 	return &Address{
-		DisplayName: addr.DisplayName,
-		Uri:         addr.Uri.Clone(),
-		Params:      addr.Params.Clone(),
+		DisplayName: name,
+		Uri:         uri,
+		Params:      params,
 	}
 }
 
