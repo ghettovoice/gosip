@@ -219,12 +219,6 @@ func (srv *Server) RequestAsync(
 					Code:    RequestCanceled,
 				})
 				return
-			case <-tx.Done():
-				onComplete(nil, &Error{
-					Message: fmt.Sprintf("transaction '%s' terminated", tx),
-					Code:    TransactionTerminated,
-				})
-				return
 			case err, ok := <-tx.Errors():
 				if !ok {
 					// todo

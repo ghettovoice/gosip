@@ -398,8 +398,6 @@ func (tx *serverTx) delete() {
 	// todo bloody patch
 	defer func() { recover() }()
 
-	close(tx.done)
-
 	tx.mu.Lock()
 	if tx.timer_i != nil {
 		tx.timer_i.Stop()
@@ -424,6 +422,7 @@ func (tx *serverTx) delete() {
 	close(tx.acks)
 	close(tx.cancels)
 	close(tx.errs)
+	close(tx.done)
 	tx.mu.Unlock()
 }
 

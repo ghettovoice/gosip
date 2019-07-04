@@ -437,8 +437,6 @@ func (tx *clientTx) delete() {
 	// todo bloody patch
 	defer func() { recover() }()
 
-	close(tx.done)
-
 	tx.mu.Lock()
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
@@ -456,6 +454,7 @@ func (tx *clientTx) delete() {
 	tx.mu.Lock()
 	close(tx.responses)
 	close(tx.errs)
+	close(tx.done)
 	tx.mu.Unlock()
 }
 
@@ -487,6 +486,11 @@ func (tx *clientTx) act_non_invite_resend() fsm.Input {
 func (tx *clientTx) act_passup() fsm.Input {
 	tx.Log().Debugf("%s, act_passup", tx)
 	tx.passUp()
+	tx.mu.Lock()
+	if tx.timer_a != nil {
+		tx.timer_a.Stop()
+	}
+	tx.mu.Unlock()
 	return fsm.NO_INPUT
 }
 
@@ -495,6 +499,9 @@ func (tx *clientTx) act_invite_final() fsm.Input {
 	tx.passUp()
 	tx.ack()
 	tx.mu.Lock()
+	if tx.timer_a != nil {
+		tx.timer_a.Stop()
+	}
 	if tx.timer_d != nil {
 		tx.timer_d.Stop()
 	}
@@ -509,6 +516,9 @@ func (tx *clientTx) act_non_invite_final() fsm.Input {
 	tx.Log().Debugf("%s, act_non_invite_final", tx)
 	tx.passUp()
 	tx.mu.Lock()
+	if tx.timer_a != nil {
+		tx.timer_a.Stop()
+	}
 	if tx.timer_d != nil {
 		tx.timer_d.Stop()
 	}
@@ -528,18 +538,33 @@ func (tx *clientTx) act_ack() fsm.Input {
 func (tx *clientTx) act_trans_err() fsm.Input {
 	tx.Log().Debugf("%s, act_trans_err", tx)
 	tx.transportErr()
+	tx.mu.Lock()
+	if tx.timer_a != nil {
+		tx.timer_a.Stop()
+	}
+	tx.mu.Unlock()
 	return client_input_delete
 }
 
 func (tx *clientTx) act_timeout() fsm.Input {
 	tx.Log().Debugf("%s, act_timeout", tx)
 	tx.timeoutErr()
+	tx.mu.Lock()
+	if tx.timer_a != nil {
+		tx.timer_a.Stop()
+	}
+	tx.mu.Unlock()
 	return client_input_delete
 }
 
 func (tx *clientTx) act_passup_delete() fsm.Input {
 	tx.Log().Debugf("%s, act_passup_delete", tx)
 	tx.passUp()
+	tx.mu.Lock()
+	if tx.timer_a != nil {
+		tx.timer_a.Stop()
+	}
+	tx.mu.Unlock()
 	return client_input_delete
 }
 
