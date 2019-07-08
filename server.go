@@ -312,8 +312,17 @@ func (srv *Server) Respond(res sip.Response) (sip.ServerTransaction, error) {
 	return srv.tx.Respond(srv.prepareResponse(res))
 }
 
-func (srv *Server) RespondOnRequest(request sip.Request, status sip.StatusCode, reason, body string) (sip.ServerTransaction, error) {
+func (srv *Server) RespondOnRequest(
+	request sip.Request,
+	status sip.StatusCode,
+	reason, body string,
+	headers []sip.Header,
+) (sip.ServerTransaction, error) {
 	response := sip.NewResponseFromRequest(request, status, reason, body)
+	for _, header := range headers {
+		response.AppendHeader(header)
+	}
+
 	tx, err := srv.Respond(response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to respond on request '%s': %s", request.Short(), err)
