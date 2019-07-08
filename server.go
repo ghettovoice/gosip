@@ -270,36 +270,7 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 		}, "Route")
 	}
 
-	autoAppendMethods := map[sip.RequestMethod]bool{
-		sip.INVITE:   true,
-		sip.REGISTER: true,
-		sip.OPTIONS:  true,
-		sip.REFER:    true,
-		sip.NOTIFY:   true,
-	}
-	if _, ok := autoAppendMethods[req.Method()]; ok {
-		hdrs := req.GetHeaders("Allow")
-		if len(hdrs) == 0 {
-			allow := make(sip.AllowHeader, 0)
-			for _, method := range srv.getAllowedMethods() {
-				allow = append(allow, method)
-			}
-			req.AppendHeader(allow)
-		}
-
-		hdrs = req.GetHeaders("Supported")
-		if len(hdrs) == 0 {
-			req.AppendHeader(&sip.SupportedHeader{
-				Options: srv.extensions,
-			})
-		}
-	}
-
-	hdrs := req.GetHeaders("User-Agent")
-	if len(hdrs) == 0 {
-		userAgent := sip.UserAgentHeader("GoSIP")
-		req.AppendHeader(&userAgent)
-	}
+	srv.appendAutoHeaders(req)
 
 	return req
 }
@@ -347,34 +318,7 @@ func (srv *Server) Send(msg sip.Message) error {
 }
 
 func (srv *Server) prepareResponse(res sip.Response) sip.Response {
-	autoAppendMethods := map[sip.RequestMethod]bool{
-		sip.INVITE:   true,
-		sip.REGISTER: true,
-		sip.OPTIONS:  true,
-		sip.REFER:    true,
-		sip.NOTIFY:   true,
-	}
-
-	if cseq, ok := res.CSeq(); ok {
-		if _, ok := autoAppendMethods[cseq.MethodName]; ok && !res.IsProvisional() {
-			hdrs := res.GetHeaders("Allow")
-			if len(hdrs) == 0 {
-				allow := make(sip.AllowHeader, 0)
-				for _, method := range srv.getAllowedMethods() {
-					allow = append(allow, method)
-				}
-
-				res.AppendHeader(allow)
-			}
-
-			hdrs = res.GetHeaders("Supported")
-			if len(hdrs) == 0 {
-				res.AppendHeader(&sip.SupportedHeader{
-					Options: srv.extensions,
-				})
-			}
-		}
-	}
+	srv.appendAutoHeaders(res)
 
 	return res
 }
@@ -423,6 +367,51 @@ func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) e
 	srv.hmu.Unlock()
 
 	return nil
+}
+
+func (srv *Server) appendAutoHeaders(msg sip.Message) {
+	autoAppendMethods := map[sip.RequestMethod]bool{
+		sip.INVITE:   true,
+		sip.REGISTER: true,
+		sip.OPTIONS:  true,
+		sip.REFER:    true,
+		sip.NOTIFY:   true,
+	}
+
+	var msgMethod sip.RequestMethod
+	switch m := msg.(type) {
+	case sip.Request:
+		msgMethod = m.Method()
+	case sip.Response:
+		if cseq, ok := m.CSeq(); ok && !m.IsProvisional() {
+			msgMethod = cseq.MethodName
+		}
+	}
+	if len(msgMethod) > 0 {
+		if _, ok := autoAppendMethods[msgMethod]; ok {
+			hdrs := msg.GetHeaders("Allow")
+			if len(hdrs) == 0 {
+				allow := make(sip.AllowHeader, 0)
+				for _, method := range srv.getAllowedMethods() {
+					allow = append(allow, method)
+				}
+
+				msg.AppendHeader(allow)
+			}
+
+			hdrs = msg.GetHeaders("Supported")
+			if len(hdrs) == 0 {
+				msg.AppendHeader(&sip.SupportedHeader{
+					Options: srv.extensions,
+				})
+			}
+		}
+	}
+
+	if hdrs := msg.GetHeaders("User-Agent"); len(hdrs) == 0 {
+		userAgent := sip.UserAgentHeader("GoSIP")
+		msg.AppendHeader(&userAgent)
+	}
 }
 
 func (srv *Server) getAllowedMethods() []sip.RequestMethod {
