@@ -2,10 +2,10 @@ package log
 
 import (
 	"fmt"
-	"go/build"
-	"path/filepath"
+	"path"
 	"regexp"
 	"runtime"
+	"strings"
 
 	"github.com/ghettovoice/logrus"
 )
@@ -29,9 +29,8 @@ func NewCallInfoHook() *CallInfoHook {
 func (hook *CallInfoHook) Fire(entry *logrus.Entry) error {
 	file, line, fn := GetStackInfo()
 
-	if rel, err := filepath.Rel(filepath.Join(build.Default.GOPATH, "/src"), file); err == nil {
-		file = rel
-	}
+	idx := strings.Index(file, path.Dir(fn))
+	file = file[idx:]
 
 	entry.SetField("file", file)
 	entry.SetField("line", line)
