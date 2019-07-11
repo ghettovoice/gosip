@@ -208,7 +208,7 @@ func (p *parser) Write(data []byte) (int, error) {
 	if !p.streamed {
 		bl := getBodyLength(data)
 		if bl == -1 {
-			return 0, WriteError(fmt.Sprintf("%p cannot write data: double CRLF sequence not found in the input data", p))
+			return 0, InvalidMessageFormat(fmt.Sprintf("%s cannot write data: double CRLF sequence not found in the input data", p))
 		}
 
 		p.bodyLengths.In <- []int{bl, len(data)}
