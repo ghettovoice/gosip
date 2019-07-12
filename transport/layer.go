@@ -322,7 +322,6 @@ func (tpl *layer) handleMessage(msg sip.Message) {
 }
 
 func (tpl *layer) handlerError(err error) {
-	tpl.Log().Debugf("%s received %s", tpl, err)
 	// TODO: implement re-connection strategy for listeners
 	if err, ok := err.(Error); ok {
 		// currently log and ignore
