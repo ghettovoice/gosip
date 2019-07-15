@@ -211,12 +211,19 @@ func (srv *Server) RequestAsync(
 	}
 
 	go func() {
+		var lastResp sip.Response
+
 		for {
 			select {
 			case <-ctx.Done():
-				onComplete(nil, &Error{
-					Message: fmt.Sprintf("request '%s' canceled", request.Short()),
-					Code:    RequestCanceled,
+				if request.IsInvite() && lastResp.IsProvisional() {
+					cancelRequest := sip.NewCancelForInvite(request)
+					srv.Request(cancelRequest)
+				}
+
+				onComplete(lastResp, &gserror{
+					msg:  fmt.Sprintf("request '%s' canceled", request.Short()),
+					code: RequestCanceled,
 				})
 				return
 			case err, ok := <-tx.Errors():
@@ -229,13 +236,15 @@ func (srv *Server) RequestAsync(
 					err = errors.New("unknown transaction error")
 				}
 
-				onComplete(nil, fmt.Errorf("transaction '%s' error: %s", tx, err))
+				onComplete(lastResp, fmt.Errorf("transaction '%s' error: %s", tx, err))
 				return
 			case response, ok := <-tx.Responses():
 				if !ok {
 					// todo
 					return
 				}
+
+				lastResp = response
 
 				if onComplete(response, nil) {
 					continue

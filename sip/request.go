@@ -177,7 +177,7 @@ func (req *request) Destination() string {
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
 func NewAckForInvite(inviteReq Request, inviteResp Response) Request {
 	contact, _ := inviteResp.Contact()
-	ackReq := NewRequest(ACK, contact.Address, inviteResp.SipVersion(), []Header{}, "")
+	ackReq := NewRequest(ACK, contact.Address, inviteReq.SipVersion(), []Header{}, "")
 
 	CopyHeaders("Via", inviteReq, ackReq)
 	viaHop, _ := ackReq.ViaHop()
@@ -207,4 +207,20 @@ func NewAckForInvite(inviteReq Request, inviteResp Response) Request {
 	cseq.MethodName = ACK
 
 	return ackReq
+}
+
+func NewCancelForInvite(inviteReq Request) Request {
+	cancelReq := NewRequest(CANCEL, inviteReq.Recipient(), inviteReq.SipVersion(), []Header{}, "")
+
+	viaHop, _ := inviteReq.ViaHop()
+	cancelReq.AppendHeader(ViaHeader{viaHop.Clone()})
+	CopyHeaders("Route", inviteReq, cancelReq)
+	CopyHeaders("From", inviteReq, cancelReq)
+	CopyHeaders("To", inviteReq, cancelReq)
+	CopyHeaders("Call-ID", inviteReq, cancelReq)
+	CopyHeaders("CSeq", inviteReq, cancelReq)
+	cseq, _ := cancelReq.CSeq()
+	cseq.MethodName = CANCEL
+
+	return cancelReq
 }

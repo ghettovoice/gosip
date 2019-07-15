@@ -5,26 +5,46 @@ import "fmt"
 const (
 	Unknown = iota
 	RequestCanceled
-	TransactionTerminated
 )
 
-type Error struct {
-	Message string
-	Code    int
+type Error interface {
+	Prefix(prefix string)
+	Code() int
+	Canceled() bool
 }
 
-func (err *Error) Error() string {
+type gserror struct {
+	msg  string
+	code int
+}
+
+func (err *gserror) Error() string {
 	if err == nil {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("SIP error (%d): %s", err.Code, err.Message)
+	return fmt.Sprintf("SIP error (%d): %s", err.code, err.msg)
 }
 
-func (err *Error) String() string {
+func (err *gserror) String() string {
 	if err == nil {
 		return "<nil>"
 	}
 
 	return err.String()
+}
+
+func (err *gserror) Code() int {
+	return err.code
+}
+
+func (err *gserror) Canceled() bool {
+	if err == nil {
+		return false
+	}
+	return err.code == RequestCanceled
+}
+
+func (err *gserror) Prefix(prefix string) {
+	err.msg = prefix + err.msg
 }
