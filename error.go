@@ -8,7 +8,7 @@ const (
 )
 
 type Error interface {
-	Prefix(prefix string)
+	AddContext(context string)
 	Code() int
 	Canceled() bool
 }
@@ -45,6 +45,6 @@ func (err *gserror) Canceled() bool {
 	return err.code == RequestCanceled
 }
 
-func (err *gserror) Prefix(prefix string) {
-	err.msg = prefix + err.msg
+func (err *gserror) AddContext(context string) {
+	err.msg = context + ": " + err.msg
 }
