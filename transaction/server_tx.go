@@ -48,9 +48,9 @@ func NewServerTx(origin sip.Request, tpl transport.Layer) (ServerTx, error) {
 	tx.tpl = tpl
 	tx.logger = log.NewSafeLocalLogger()
 	// about ~10 retransmits
-	tx.acks = make(chan sip.Request, 10)
-	tx.cancels = make(chan sip.Request, 10)
-	tx.errs = make(chan error, 10)
+	tx.acks = make(chan sip.Request, 64)
+	tx.cancels = make(chan sip.Request, 64)
+	tx.errs = make(chan error, 64)
 	tx.done = make(chan bool)
 	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := origin.ViaHop(); ok {

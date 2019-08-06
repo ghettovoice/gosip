@@ -41,8 +41,8 @@ func NewClientTx(origin sip.Request, tpl transport.Layer) (ClientTx, error) {
 	tx.tpl = tpl
 	tx.logger = log.NewSafeLocalLogger()
 	// buffer chan - about ~10 retransmit responses
-	tx.responses = make(chan sip.Response, 10)
-	tx.errs = make(chan error, 10)
+	tx.responses = make(chan sip.Response, 64)
+	tx.errs = make(chan error, 64)
 	tx.done = make(chan bool)
 	tx.mu = new(sync.RWMutex)
 	if viaHop, ok := origin.ViaHop(); ok {
