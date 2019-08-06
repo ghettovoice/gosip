@@ -2,7 +2,6 @@ package gosip
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -198,64 +197,6 @@ func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
 	}
 
 	return srv.tx.Request(srv.prepareRequest(req))
-}
-
-func (srv *Server) RequestAsync(
-	ctx context.Context,
-	request sip.Request,
-	onComplete func(response sip.Response, err error) bool,
-) error {
-	tx, err := srv.Request(request)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		var lastResp sip.Response
-
-		for {
-			select {
-			case <-ctx.Done():
-				if request.IsInvite() && lastResp.IsProvisional() {
-					cancelRequest := sip.NewCancelForInvite(request)
-					srv.Request(cancelRequest)
-				}
-
-				onComplete(lastResp, &gserror{
-					msg:  fmt.Sprintf("request '%s' canceled", request.Short()),
-					code: RequestCanceled,
-				})
-				return
-			case err, ok := <-tx.Errors():
-				if !ok {
-					// todo
-					return
-				}
-
-				if err == nil {
-					err = errors.New("unknown transaction error")
-				}
-
-				onComplete(lastResp, err)
-				return
-			case response, ok := <-tx.Responses():
-				if !ok {
-					// todo
-					return
-				}
-
-				lastResp = response
-
-				if onComplete(response, nil) {
-					continue
-				} else {
-					return
-				}
-			}
-		}
-	}()
-
-	return nil
 }
 
 func (srv *Server) prepareRequest(req sip.Request) sip.Request {
