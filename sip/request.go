@@ -175,50 +175,49 @@ func (req *request) Destination() string {
 
 // NewAckForInvite creates ACK request for 2xx INVITE
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
-func NewAckRequest(inviteRequest Request, inviteResp Response) Request {
-	contact, _ := inviteResp.Contact()
-	ackReq := NewRequest(ACK, contact.Address, inviteReq.SipVersion(), []Header{}, "")
+func NewAckRequest(inviteRequest Request, inviteResponse Response) Request {
+	contact, _ := inviteResponse.Contact()
+	ackRequest := NewRequest(ACK, contact.Address, inviteResponse.SipVersion(), []Header{}, "")
 
-	CopyHeaders("Via", inviteReq, ackReq)
-	viaHop, _ := ackReq.ViaHop()
+	CopyHeaders("Via", inviteRequest, ackRequest)
+	viaHop, _ := ackRequest.ViaHop()
 	// update branch, 2xx ACK is separate Tx
 	viaHop.Params.Add("branch", String{Str: GenerateBranch()})
 
-	if len(inviteReq.GetHeaders("Route")) > 0 {
-		CopyHeaders("Route", inviteReq, ackReq)
+	if len(inviteRequest.GetHeaders("Route")) > 0 {
+		CopyHeaders("Route", inviteRequest, ackRequest)
 	} else {
-		for _, h := range inviteResp.GetHeaders("Record-Route") {
+		for _, h := range inviteResponse.GetHeaders("Record-Route") {
 			uris := make([]Uri, 0)
 			for _, u := range h.(*RecordRouteHeader).Addresses {
 				uris = append(uris, u.Clone())
 			}
-			ackReq.AppendHeader(&RouteHeader{
+			ackRequest.AppendHeader(&RouteHeader{
 				Addresses: uris,
 			})
 		}
 	}
 
-	CopyHeaders("From", inviteReq, ackReq)
-	CopyHeaders("To", inviteResp, ackReq)
-	CopyHeaders("Call-ID", inviteReq, ackReq)
-
-	CopyHeaders("CSeq", inviteReq, ackReq)
-	cseq, _ := ackReq.CSeq()
+	CopyHeaders("From", inviteRequest, ackRequest)
+	CopyHeaders("To", inviteResponse, ackRequest)
+	CopyHeaders("Call-ID", inviteRequest, ackRequest)
+	CopyHeaders("CSeq", inviteRequest, ackRequest)
+	cseq, _ := ackRequest.CSeq()
 	cseq.MethodName = ACK
 
-	return ackReq
+	return ackRequest
 }
 
 func NewCancelRequest(requestForCancel Request) Request {
-	cancelReq := NewRequest(CANCEL, inviteReq.Recipient(), inviteReq.SipVersion(), []Header{}, "")
+	cancelReq := NewRequest(CANCEL, requestForCancel.Recipient(), requestForCancel.SipVersion(), []Header{}, "")
 
-	viaHop, _ := inviteReq.ViaHop()
+	viaHop, _ := requestForCancel.ViaHop()
 	cancelReq.AppendHeader(ViaHeader{viaHop.Clone()})
-	CopyHeaders("Route", inviteReq, cancelReq)
-	CopyHeaders("From", inviteReq, cancelReq)
-	CopyHeaders("To", inviteReq, cancelReq)
-	CopyHeaders("Call-ID", inviteReq, cancelReq)
-	CopyHeaders("CSeq", inviteReq, cancelReq)
+	CopyHeaders("Route", requestForCancel, cancelReq)
+	CopyHeaders("From", requestForCancel, cancelReq)
+	CopyHeaders("To", requestForCancel, cancelReq)
+	CopyHeaders("Call-ID", requestForCancel, cancelReq)
+	CopyHeaders("CSeq", requestForCancel, cancelReq)
 	cseq, _ := cancelReq.CSeq()
 	cseq.MethodName = CANCEL
 

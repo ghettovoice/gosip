@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -39,6 +40,8 @@ type Server struct {
 	hmu             *sync.RWMutex
 	requestHandlers map[sip.RequestMethod][]RequestHandler
 	extensions      []string
+	invites         map[transaction.TxKey]sip.Request
+	invitesLock     *sync.RWMutex
 }
 
 // NewServer creates new instance of SIP server.
@@ -94,6 +97,8 @@ func NewServer(config *ServerConfig) *Server {
 		hmu:             new(sync.RWMutex),
 		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
 		extensions:      extensions,
+		invites:         make(map[transaction.TxKey]sip.Request),
+		invitesLock:     new(sync.RWMutex),
 	}
 	// setup default handlers
 	_ = srv.OnRequest(sip.ACK, func(req sip.Request, tx sip.ServerTransaction) {
@@ -125,40 +130,39 @@ func (srv *Server) serve() {
 			if !ok {
 				return
 			}
-			if tx != nil { // if chan is closed or early exit
-				srv.hwg.Add(1)
-				go srv.handleRequest(tx.Origin(), tx)
-			}
+			srv.hwg.Add(1)
+			go srv.handleRequest(tx.Origin(), tx)
 		case ack, ok := <-srv.tx.Acks():
 			if !ok {
 				return
 			}
-			if ack != nil {
-				srv.hwg.Add(1)
-				go srv.handleRequest(ack, nil)
-			}
-		case res, ok := <-srv.tx.Responses():
+			srv.hwg.Add(1)
+			go srv.handleRequest(ack, nil)
+		case response, ok := <-srv.tx.Responses():
 			if !ok {
 				return
 			}
-			if res != nil {
-				log.Warnf("GoSIP server received not matched response: %s", res.Short())
-				log.Debugf("message:\n%s", res.String())
+			if key, err := transaction.MakeClientTxKey(response); err == nil {
+				srv.invitesLock.RLock()
+				inviteRequest, ok := srv.invites[key]
+				srv.invitesLock.RUnlock()
+				if ok {
+					srv.ackInviteRequest(inviteRequest, response)
+				}
+			} else {
+				log.Warnf("GoSIP server received not matched response: %s", response.Short())
+				log.Debugf("message:\n%s", response.String())
 			}
 		case err, ok := <-srv.tx.Errors():
 			if !ok {
 				return
 			}
-			if err != nil {
-				log.Errorf("GoSIP server received transaction error: %s", err)
-			}
+			log.Errorf("GoSIP server received transaction error: %s", err)
 		case err, ok := <-srv.tp.Errors():
 			if !ok {
 				return
 			}
-			if err != nil {
-				log.Error("GoSIP server received transport error: %s", err)
-			}
+			log.Error("GoSIP server received transport error: %s", err)
 		}
 	}
 }
@@ -197,6 +201,97 @@ func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
 	}
 
 	return srv.tx.Request(srv.prepareRequest(req))
+}
+
+func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request) (sip.Response, error) {
+	tx, err := srv.Request(request)
+	if err != nil {
+		return nil, err
+	}
+
+	responses := make(chan sip.Response)
+	errs := make(chan error)
+	go func() {
+		var response sip.Response
+		for {
+			select {
+			case <-ctx.Done():
+				if response != nil && response.IsProvisional() {
+					srv.cancelRequest(request, response)
+				}
+			case err, ok := <-tx.Errors():
+				if !ok {
+					return
+				}
+				errs <- err
+				return
+			case res, ok := <-tx.Responses():
+				if !ok {
+					return
+				}
+				response = res
+				if response.IsProvisional() {
+					continue
+				}
+				if request.IsInvite() && response.IsSuccess() {
+					srv.ackInviteRequest(request, response)
+					srv.rememberInviteRequest(request)
+					go func() {
+						for response := range tx.Responses() {
+							srv.ackInviteRequest(request, response)
+						}
+					}()
+				}
+				if response.IsSuccess() {
+					responses <- response
+				} else {
+					errs <- &sip.RequestError{
+						Request: request.Short(),
+						Code:    uint(response.StatusCode()),
+						Reason:  response.Reason(),
+					}
+				}
+				return
+			}
+		}
+	}()
+
+	select {
+	case err := <-errs:
+		return nil, err
+	case response := <-responses:
+		return response, nil
+	}
+}
+
+func (srv *Server) rememberInviteRequest(request sip.Request) {
+	if key, err := transaction.MakeClientTxKey(request); err == nil {
+		srv.invitesLock.Lock()
+		srv.invites[key] = request
+		srv.invitesLock.Unlock()
+
+		time.AfterFunc(time.Minute, func() {
+			srv.invitesLock.Lock()
+			delete(srv.invites, key)
+			srv.invitesLock.Unlock()
+		})
+	} else {
+		log.Errorf("remember of the request %s failed: %s", request.Short(), err)
+	}
+}
+
+func (srv *Server) ackInviteRequest(request sip.Request, response sip.Response) {
+	ackRequest := sip.NewAckRequest(request, response)
+	if err := srv.Send(ackRequest); err != nil {
+		log.Errorf("ack of the request %s failed: %s", request.Short(), err)
+	}
+}
+
+func (srv *Server) cancelRequest(request sip.Request, response sip.Response) {
+	cancelRequest := sip.NewCancelRequest(request)
+	if err := srv.Send(cancelRequest); err != nil {
+		log.Errorf("cancel of the request %s failed: %s", request.Short(), err)
+	}
 }
 
 func (srv *Server) prepareRequest(req sip.Request) sip.Request {
