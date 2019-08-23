@@ -27,6 +27,7 @@ type ServerConfig struct {
 	// Dns is an address of the public DNS server to use in SRV lookup.
 	Dns        string
 	Extensions []string
+	Authorizer sip.Authorizer
 }
 
 // Server is a SIP server
@@ -42,6 +43,7 @@ type Server struct {
 	extensions      []string
 	invites         map[transaction.TxKey]sip.Request
 	invitesLock     *sync.RWMutex
+	authorizer      sip.Authorizer
 }
 
 // NewServer creates new instance of SIP server.
@@ -86,6 +88,11 @@ func NewServer(config *ServerConfig) *Server {
 		extensions = config.Extensions
 	}
 
+	var authorizer sip.Authorizer
+	if config.Authorizer != nil {
+		authorizer = config.Authorizer
+	}
+
 	tp := transport.NewLayer(ip, dnsResolver)
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
@@ -99,6 +106,7 @@ func NewServer(config *ServerConfig) *Server {
 		extensions:      extensions,
 		invites:         make(map[transaction.TxKey]sip.Request),
 		invitesLock:     new(sync.RWMutex),
+		authorizer:      authorizer,
 	}
 	// setup default handlers
 	_ = srv.OnRequest(sip.ACK, func(req sip.Request, tx sip.ServerTransaction) {
@@ -257,21 +265,45 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request) 
 						}
 					}()
 				}
+				// success
 				if response.IsSuccess() {
 					select {
 					case <-ctx.Done():
 					case responses <- response:
 					}
-				} else {
-					err := &sip.RequestError{
-						Request: request.Short(),
-						Code:    uint(response.StatusCode()),
-						Reason:  response.Reason(),
+					return
+				}
+				// unauth request
+				if response.StatusCode() == 401 || response.StatusCode() == 407 {
+					if err := srv.AuthorizeRequest(request, response); err != nil {
+						select {
+						case <-ctx.Done():
+						case errs <- err:
+						}
+						return
 					}
-					select {
-					case <-ctx.Done():
-					case errs <- err:
+					if response, err := srv.RequestWithContext(ctx, request); err == nil {
+						select {
+						case <-ctx.Done():
+						case responses <- response:
+						}
+					} else {
+						select {
+						case <-ctx.Done():
+						case errs <- err:
+						}
 					}
+					return
+				}
+				// failed request
+				err := &sip.RequestError{
+					Request: request.Short(),
+					Code:    uint(response.StatusCode()),
+					Reason:  response.Reason(),
+				}
+				select {
+				case <-ctx.Done():
+				case errs <- err:
 				}
 				return
 			}
@@ -502,4 +534,11 @@ func (srv *Server) getAllowedMethods() []sip.RequestMethod {
 	srv.hmu.RUnlock()
 
 	return methods
+}
+
+func (srv *Server) AuthorizeRequest(request sip.Request, response sip.Response) error {
+	if srv.authorizer == nil {
+		return nil
+	}
+	return srv.authorizer.AuthorizeRequest(request, response)
 }
