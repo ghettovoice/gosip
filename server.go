@@ -209,27 +209,42 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request) 
 		return nil, err
 	}
 
+	var lastResponse sip.Response
 	responses := make(chan sip.Response)
 	errs := make(chan error)
 	go func() {
-		var response sip.Response
+		select {
+		case <-tx.Done():
+			return
+		case <-ctx.Done():
+			if lastResponse != nil && lastResponse.IsProvisional() {
+				srv.cancelRequest(request, lastResponse)
+			}
+			errs <- &sip.RequestError{
+				Request: request.Short(),
+				Code:    487,
+				Reason:  "Request Terminated",
+			}
+			return
+		}
+	}()
+	go func() {
 		for {
 			select {
-			case <-ctx.Done():
-				if response != nil && response.IsProvisional() {
-					srv.cancelRequest(request, response)
-				}
 			case err, ok := <-tx.Errors():
 				if !ok {
 					return
 				}
-				errs <- err
+				select {
+				case <-ctx.Done():
+				case errs <- err:
+				}
 				return
-			case res, ok := <-tx.Responses():
+			case response, ok := <-tx.Responses():
 				if !ok {
 					return
 				}
-				response = res
+				lastResponse = response
 				if response.IsProvisional() {
 					continue
 				}
@@ -243,12 +258,19 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request) 
 					}()
 				}
 				if response.IsSuccess() {
-					responses <- response
+					select {
+					case <-ctx.Done():
+					case responses <- response:
+					}
 				} else {
-					errs <- &sip.RequestError{
+					err := &sip.RequestError{
 						Request: request.Short(),
 						Code:    uint(response.StatusCode()),
 						Reason:  response.Reason(),
+					}
+					select {
+					case <-ctx.Done():
+					case errs <- err:
 					}
 				}
 				return
