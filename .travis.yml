@@ -8,8 +8,3 @@ script:
     - make test
     - make cover-merge
     - goveralls -coverprofile=./gosip.full.coverprofile -service=travis-ci
-branches:
-    only:
-        - master
-        - dev
-        - develop

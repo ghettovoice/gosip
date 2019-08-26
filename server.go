@@ -162,7 +162,7 @@ func (srv *Server) serve() {
 			if !ok {
 				return
 			}
-			log.Error("GoSIP server received transport error: %s", err)
+			log.Errorf("GoSIP server received transport error: %s", err)
 		}
 	}
 }
