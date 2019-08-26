@@ -27,7 +27,6 @@ type ServerConfig struct {
 	// Dns is an address of the public DNS server to use in SRV lookup.
 	Dns        string
 	Extensions []string
-	Authorizer sip.Authorizer
 }
 
 // Server is a SIP server
@@ -43,7 +42,6 @@ type Server struct {
 	extensions      []string
 	invites         map[transaction.TxKey]sip.Request
 	invitesLock     *sync.RWMutex
-	authorizer      sip.Authorizer
 }
 
 // NewServer creates new instance of SIP server.
@@ -88,11 +86,6 @@ func NewServer(config *ServerConfig) *Server {
 		extensions = config.Extensions
 	}
 
-	var authorizer sip.Authorizer
-	if config.Authorizer != nil {
-		authorizer = config.Authorizer
-	}
-
 	tp := transport.NewLayer(ip, dnsResolver)
 	tx := transaction.NewLayer(tp)
 	srv := &Server{
@@ -106,7 +99,6 @@ func NewServer(config *ServerConfig) *Server {
 		extensions:      extensions,
 		invites:         make(map[transaction.TxKey]sip.Request),
 		invitesLock:     new(sync.RWMutex),
-		authorizer:      authorizer,
 	}
 	// setup default handlers
 	_ = srv.OnRequest(sip.ACK, func(req sip.Request, tx sip.ServerTransaction) {
@@ -211,7 +203,7 @@ func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
 	return srv.tx.Request(srv.prepareRequest(req))
 }
 
-func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request) (sip.Response, error) {
+func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, authorizer sip.Authorizer) (sip.Response, error) {
 	tx, err := srv.Request(request)
 	if err != nil {
 		return nil, err
@@ -256,17 +248,18 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request) 
 				if response.IsProvisional() {
 					continue
 				}
-				if request.IsInvite() && response.IsSuccess() {
-					srv.ackInviteRequest(request, response)
-					srv.rememberInviteRequest(request)
-					go func() {
-						for response := range tx.Responses() {
-							srv.ackInviteRequest(request, response)
-						}
-					}()
-				}
 				// success
 				if response.IsSuccess() {
+					if request.IsInvite() {
+						srv.ackInviteRequest(request, response)
+						srv.rememberInviteRequest(request)
+						go func() {
+							for response := range tx.Responses() {
+								srv.ackInviteRequest(request, response)
+							}
+						}()
+					}
+
 					select {
 					case <-ctx.Done():
 					case responses <- response:
@@ -274,15 +267,15 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request) 
 					return
 				}
 				// unauth request
-				if response.StatusCode() == 401 || response.StatusCode() == 407 {
-					if err := srv.AuthorizeRequest(request, response); err != nil {
+				if (response.StatusCode() == 401 || response.StatusCode() == 407) && authorizer != nil {
+					if err := authorizer.AuthorizeRequest(request, response); err != nil {
 						select {
 						case <-ctx.Done():
 						case errs <- err:
 						}
 						return
 					}
-					if response, err := srv.RequestWithContext(ctx, request); err == nil {
+					if response, err := srv.RequestWithContext(ctx, request, nil); err == nil {
 						select {
 						case <-ctx.Done():
 						case responses <- response:
@@ -534,11 +527,4 @@ func (srv *Server) getAllowedMethods() []sip.RequestMethod {
 	srv.hmu.RUnlock()
 
 	return methods
-}
-
-func (srv *Server) AuthorizeRequest(request sip.Request, response sip.Response) error {
-	if srv.authorizer == nil {
-		return nil
-	}
-	return srv.authorizer.AuthorizeRequest(request, response)
 }
