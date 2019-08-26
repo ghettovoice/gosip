@@ -89,43 +89,43 @@ func WithFields(fields map[string]interface{}) Logger {
 }
 
 // Debug logs a message at level Debug on the standard logger.
-func Debug(msg string, args ...interface{}) {
-	Debugf(msg, args...)
+func Debug(args ...interface{}) {
+	logrus.Debug(args...)
 }
 
 // Print logs a message at level Info on the standard logger.
-func Print(msg string, args ...interface{}) {
-	Printf(msg, args...)
+func Print(args ...interface{}) {
+	logrus.Print(args...)
 }
 
 // Info logs a message at level Info on the standard logger.
-func Info(msg string, args ...interface{}) {
-	Infof(msg, args...)
+func Info(args ...interface{}) {
+	logrus.Info(args...)
 }
 
 // Warn logs a message at level Warn on the standard logger.
-func Warn(msg string, args ...interface{}) {
-	Warnf(msg, args...)
+func Warn(args ...interface{}) {
+	logrus.Warn(args...)
 }
 
 // Warning logs a message at level Warn on the standard logger.
-func Warning(msg string, args ...interface{}) {
-	Warning(msg, args...)
+func Warning(args ...interface{}) {
+	logrus.Warning(args...)
 }
 
 // Error logs a message at level Error on the standard logger.
-func Error(msg string, args ...interface{}) {
-	Errorf(msg, args...)
+func Error(args ...interface{}) {
+	logrus.Error(args...)
 }
 
 // Panic logs a message at level Panic on the standard logger.
-func Panic(msg string, args ...interface{}) {
-	Panicf(msg, args...)
+func Panic(args ...interface{}) {
+	logrus.Panic(args...)
 }
 
 // Fatal logs a message at level Fatal on the standard logger.
-func Fatal(msg string, args ...interface{}) {
-	Fatalf(msg, args...)
+func Fatal(args ...interface{}) {
+	logrus.Fatal(args...)
 }
 
 // Debugf logs a message at level Debug on the standard logger.

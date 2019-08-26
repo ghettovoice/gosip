@@ -15,8 +15,8 @@ func (err *RequestError) Error() string {
 
 	reason := err.Reason
 	if err.Code != 0 {
-		reason += fmt.Sprintf("(%d)", err.Code)
+		reason += fmt.Sprintf(" (Code %d)", err.Code)
 	}
 
-	return fmt.Sprintf("request '%s' failed with reason %s", err.Request, reason)
+	return fmt.Sprintf("request '%s' failed with reason '%s'", err.Request, reason)
 }
