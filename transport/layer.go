@@ -38,7 +38,7 @@ var protocolFactory ProtocolFactory = func(
 	case "tcp":
 		return NewTcpProtocol(output, errs, cancel), nil
 	default:
-		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
+		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol '%s' is not supported", network))
 	}
 }
 
@@ -198,7 +198,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		for _, nt := range nets {
 			protocol, ok := tpl.protocols.get(protocolKey(nt))
 			if !ok {
-				err = UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", nt))
+				err = UnsupportedProtocolError(fmt.Sprintf("protocol '%s' is not supported", nt))
 				continue
 			}
 			// rewrite sent-by transport
@@ -255,7 +255,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		// resolve protocol from Via
 		protocol, ok := tpl.protocols.get(protocolKey(viaHop.Transport))
 		if !ok {
-			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", viaHop.Transport))
+			return UnsupportedProtocolError(fmt.Sprintf("protocol '%s' is not supported", viaHop.Transport))
 		}
 
 		target, err := NewTargetFromAddr(msg.Destination())
@@ -266,7 +266,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		return protocol.Send(target, msg)
 	default:
 		return &sip.UnsupportedMessageError{
-			Err: fmt.Errorf("unsupported message %s", msg.Short()),
+			Err: fmt.Errorf("unsupported message '%s'", msg.Short()),
 			Msg: msg.String(),
 		}
 	}
@@ -283,7 +283,7 @@ func (tpl *layer) serveProtocols() {
 	for {
 		select {
 		case <-tpl.canceled:
-			tpl.Log().Warnf("%s received cancel signal", tpl)
+			tpl.Log().Debugf("%s received cancel signal", tpl)
 			return
 		case msg := <-tpl.pmsgs:
 			tpl.handleMessage(msg)
@@ -312,8 +312,8 @@ func (tpl *layer) dispose() {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tpl *layer) handleMessage(msg sip.Message) {
-	tpl.Log().Infof("%s passes up %s", tpl, msg.Short())
-	tpl.Log().Infof("message:\n%s", msg)
+	tpl.Log().Debugf("%s passes up message '%s'", tpl, msg.Short())
+
 	// pass up message
 	select {
 	case <-tpl.canceled:
@@ -329,7 +329,8 @@ func (tpl *layer) handlerError(err error) {
 		return
 	}
 	// core.Message errors
-	tpl.Log().Debugf("%s passes up %s", tpl, err)
+	tpl.Log().Debugf("%s passes up error: %s", tpl, err)
+
 	select {
 	case <-tpl.canceled:
 	case tpl.errs <- err:

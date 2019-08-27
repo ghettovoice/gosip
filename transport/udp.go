@@ -53,12 +53,12 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	udpConn, err := net.ListenUDP(network, laddr)
 	if err != nil {
 		return &ProtocolError{
-			fmt.Errorf("failed to listen address %s: %s", laddr, err),
-			fmt.Sprintf("create %s listener", udp.Network()),
+			fmt.Errorf("failed to listen address '%s': %s", laddr, err),
+			fmt.Sprintf("create '%s' listener", udp.Network()),
 			udp.String(),
 		}
 	}
-	udp.Log().Infof("%s begins listening on %s", udp, target)
+	udp.Log().Infof("%s begins listening on '%s'", udp, target.Addr())
 	// register new connection
 	conn := NewConnection(udpConn)
 	conn.SetLog(udp.Log())
@@ -72,13 +72,12 @@ func (udp *udpProtocol) Listen(target *Target) error {
 func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	target = FillTargetHostAndPort(udp.Network(), target)
 
-	udp.Log().Infof("%s sends message '%s' to %s", udp, msg.Short(), target.Addr())
-	udp.Log().Infof("message:\n%s", msg)
+	udp.Log().Infof("%s sends message:\n%s", udp, msg)
 
 	// validate remote address
 	if target.Host == "" {
 		return &ProtocolError{
-			fmt.Errorf("invalid remote host resolved %s", target.Host),
+			fmt.Errorf("invalid remote host resolved '%s'", target.Host),
 			"resolve destination address",
 			udp.String(),
 		}
@@ -124,8 +123,8 @@ func (udp *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
 	raddr, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {
 		return nil, &ProtocolError{
-			fmt.Errorf("failed to resolve address %s: %s", addr, err),
-			fmt.Sprintf("resolve %s address", addr),
+			fmt.Errorf("failed to resolve address '%s': %s", addr, err),
+			fmt.Sprintf("resolve '%s' address", addr),
 			udp.String(),
 		}
 	}

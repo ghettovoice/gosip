@@ -177,12 +177,12 @@ func MakeServerTxKey(msg sip.Message) (TxKey, error) {
 
 	firstViaHop, ok := msg.ViaHop()
 	if !ok {
-		return "", fmt.Errorf("'Via' header not found or empty in %s", msg.Short())
+		return "", fmt.Errorf("'Via' header not found or empty in message '%s'", msg.Short())
 	}
 
 	cseq, ok := msg.CSeq()
 	if !ok {
-		return "", fmt.Errorf("'CSeq' header not found in %s", msg.Short())
+		return "", fmt.Errorf("'CSeq' header not found in message '%s'", msg.Short())
 	}
 	method := cseq.MethodName
 	if method == sip.ACK || method == sip.CANCEL {
@@ -220,15 +220,15 @@ func MakeServerTxKey(msg sip.Message) (TxKey, error) {
 	// RFC 2543 compliant
 	from, ok := msg.From()
 	if !ok {
-		return "", fmt.Errorf("'From' header not found in %s", msg.Short())
+		return "", fmt.Errorf("'From' header not found in message '%s'", msg.Short())
 	}
 	fromTag, ok := from.Params.Get("tag")
 	if !ok {
-		return "", fmt.Errorf("'tag' param not found in 'From' header of %s", msg.Short())
+		return "", fmt.Errorf("'tag' param not found in 'From' header of message '%s'", msg.Short())
 	}
 	callId, ok := msg.CallID()
 	if !ok {
-		return "", fmt.Errorf("'Call-ID' header not found in %s", msg.Short())
+		return "", fmt.Errorf("'Call-ID' header not found in message '%s'", msg.Short())
 	}
 
 	return TxKey(strings.Join([]string{
@@ -248,7 +248,7 @@ func MakeClientTxKey(msg sip.Message) (TxKey, error) {
 
 	cseq, ok := msg.CSeq()
 	if !ok {
-		return "", fmt.Errorf("'CSeq' header not found in %s", msg.Short())
+		return "", fmt.Errorf("'CSeq' header not found in message '%s'", msg.Short())
 	}
 	method := cseq.MethodName
 	if method == sip.ACK {
@@ -257,14 +257,14 @@ func MakeClientTxKey(msg sip.Message) (TxKey, error) {
 
 	firstViaHop, ok := msg.ViaHop()
 	if !ok {
-		return "", fmt.Errorf("'Via' header not found or empty in %s", msg.Short())
+		return "", fmt.Errorf("'Via' header not found or empty in message '%s'", msg.Short())
 	}
 
 	branch, ok := firstViaHop.Params.Get("branch")
 	if !ok || len(branch.String()) == 0 ||
 		!strings.HasPrefix(branch.String(), sip.RFC3261BranchMagicCookie) ||
 		len(strings.TrimPrefix(branch.String(), sip.RFC3261BranchMagicCookie)) == 0 {
-		return "", fmt.Errorf("'branch' not found or empty in 'Via' header of %s", msg.Short())
+		return "", fmt.Errorf("'branch' not found or empty in 'Via' header of message '%s'", msg.Short())
 	}
 
 	return TxKey(strings.Join([]string{

@@ -52,10 +52,10 @@ func (tcp *tcpProtocol) Done() <-chan struct{} {
 // piping new connections to connection pool for serving
 func (tcp *tcpProtocol) pipePools() {
 	defer func() {
-		tcp.Log().Infof("%s stops pipe pools", tcp)
+		tcp.Log().Debugf("%s stops pipe pools", tcp)
 		close(tcp.conns)
 	}()
-	tcp.Log().Infof("%s starts pipe pools", tcp)
+	tcp.Log().Debugf("%s starts pipe pools", tcp)
 
 	for {
 		select {
@@ -83,12 +83,12 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 	listener, err := net.ListenTCP(network, laddr)
 	if err != nil {
 		return &ProtocolError{
-			fmt.Errorf("failed to listen address %s: %s", laddr, err),
-			fmt.Sprintf("create %s listener", tcp.Network()),
+			fmt.Errorf("failed to listen address '%s': %s", laddr, err),
+			fmt.Sprintf("create '%s' listener", tcp.Network()),
 			tcp.String(),
 		}
 	}
-	tcp.Log().Infof("%s begins listening on %s", tcp, target)
+	tcp.Log().Infof("%s begins listening on '%s'", tcp, target.Addr())
 	// index listeners by local address
 	// should live infinitely
 	key := ListenerKey(fmt.Sprintf("0.0.0.0:%d", laddr.Port))
@@ -100,13 +100,12 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	target = FillTargetHostAndPort(tcp.Network(), target)
 
-	tcp.Log().Infof("%s sends message '%s' to %s", tcp, msg.Short(), target.Addr())
-	tcp.Log().Infof("message:\n%s", msg)
+	tcp.Log().Infof("%s sends message:\n%s", tcp, msg)
 
 	// validate remote address
 	if target.Host == "" {
 		return &ProtocolError{
-			fmt.Errorf("invalid remote host resolved %s", target.Host),
+			fmt.Errorf("invalid remote host resolved '%s'", target.Host),
 			"resolve destination address",
 			tcp.String(),
 		}
@@ -135,8 +134,8 @@ func (tcp *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 	raddr, err := net.ResolveTCPAddr(network, addr)
 	if err != nil {
 		return nil, &ProtocolError{
-			fmt.Errorf("failed to resolve address %s: %s", addr, err),
-			fmt.Sprintf("resolve %s address", addr),
+			fmt.Errorf("failed to resolve address '%s': %s", addr, err),
+			fmt.Sprintf("resolve '%s' address", addr),
 			tcp.String(),
 		}
 	}
@@ -149,13 +148,13 @@ func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 
 	conn, err := tcp.connections.Get(ConnectionKey(raddr.String()))
 	if err != nil {
-		tcp.Log().Debugf("connection for address %s not found; create a new one", raddr)
+		tcp.Log().Debugf("connection for address '%s' not found; create a new one", raddr)
 
 		tcpConn, err := net.DialTCP(network, nil, raddr)
 		if err != nil {
 			return nil, &ProtocolError{
-				fmt.Errorf("failed to create connection to remote address %s: %s", raddr, err),
-				fmt.Sprintf("create %s connection", tcp.Network()),
+				fmt.Errorf("failed to create connection to remote address '%s': %s", raddr, err),
+				fmt.Sprintf("create '%s' connection", tcp.Network()),
 				tcp.String(),
 			}
 		}

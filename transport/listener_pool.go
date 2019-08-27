@@ -251,15 +251,15 @@ func (pool *listenerPool) Length() int {
 
 func (pool *listenerPool) serveStore() {
 	defer func() {
-		pool.Log().Infof("%s stops serve store routine", pool)
+		pool.Log().Debugf("%s stops serve store routine", pool)
 		pool.dispose()
 	}()
-	pool.Log().Infof("%s starts serve store routine", pool)
+	pool.Log().Debugf("%s starts serve store routine", pool)
 
 	for {
 		select {
 		case <-pool.cancel:
-			pool.Log().Warnf("%s received cancel signal", pool)
+			pool.Log().Debugf("%s received cancel signal", pool)
 			return
 		case req := <-pool.updates:
 			pool.handlePut(req)
@@ -288,10 +288,10 @@ func (pool *listenerPool) dispose() {
 
 func (pool *listenerPool) serveHandlers() {
 	defer func() {
-		pool.Log().Infof("%s stops serve handlers routine", pool)
+		pool.Log().Debugf("%s stops serve handlers routine", pool)
 		close(pool.done)
 	}()
-	pool.Log().Infof("%s starts serve handlers routine", pool)
+	pool.Log().Debugf("%s starts serve handlers routine", pool)
 
 	for {
 		select {
@@ -353,7 +353,7 @@ func (pool *listenerPool) allKeys() []ListenerKey {
 
 func (pool *listenerPool) put(key ListenerKey, listener net.Listener) error {
 	if _, err := pool.get(key); err == nil {
-		return &PoolError{fmt.Errorf("%s already has key %s", pool, key),
+		return &PoolError{fmt.Errorf("%s already has key '%s'", pool, key),
 			"put listener", pool.String()}
 	}
 
@@ -408,7 +408,7 @@ func (pool *listenerPool) get(key ListenerKey) (ListenerHandler, error) {
 		return handler, nil
 	}
 
-	return nil, &PoolError{fmt.Errorf("key %s not found in %s", key, pool),
+	return nil, &PoolError{fmt.Errorf("key '%s' not found in %s", key, pool),
 		"get listener", pool.String()}
 }
 
@@ -504,10 +504,10 @@ func (handler *listenerHandler) String() string {
 	var info string
 	parts := make([]string, 0)
 	if handler.Key() != "" {
-		parts = append(parts, fmt.Sprintf("key %s", handler.Key()))
+		parts = append(parts, fmt.Sprintf("key '%s'", handler.Key()))
 	}
 	if handler.Listener() != nil {
-		parts = append(parts, fmt.Sprintf("%s listener %p on %s", listenerNetwork(handler.Listener()),
+		parts = append(parts, fmt.Sprintf("%s listener %p on '%s'", listenerNetwork(handler.Listener()),
 			handler.Listener(), handler.Listener().Addr()))
 	}
 	if len(parts) > 0 {
@@ -538,17 +538,17 @@ func (handler *listenerHandler) Listener() net.Listener {
 func (handler *listenerHandler) Serve(done func()) {
 	defer done()
 	defer func() {
-		handler.Log().Infof("%s stops serve listener routine", handler)
+		handler.Log().Debugf("%s stops serve listener routine", handler)
 		close(handler.done)
 	}()
-	handler.Log().Infof("%s begins serve listener routine", handler)
+	handler.Log().Debugf("%s begins serve listener routine", handler)
 
 	conns := make(chan Connection)
 	errs := make(chan error)
 	// watch for cancel signal
 	go func() {
 		<-handler.cancel
-		handler.Log().Warnf("%s received cancel signal", handler)
+		handler.Log().Debugf("%s received cancel signal", handler)
 		handler.Cancel()
 	}()
 
@@ -619,7 +619,7 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 				return
 			}
 			if conn != nil {
-				handler.Log().Infof("%s accepted new %s; pass it up", handler, conn)
+				handler.Log().Debugf("%s accepted new %s; pass it up", handler, conn)
 				select {
 				case <-handler.canceled:
 					return
@@ -632,7 +632,7 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 				return
 			}
 			if err != nil {
-				handler.Log().Debugf("%s received error %s; pass it up", handler, err)
+				handler.Log().Debugf("%s received error: %s; pass it up", handler, err)
 
 				if _, ok := err.(*ListenerHandlerError); !ok {
 					err = &ListenerHandlerError{err, handler.Key(), handler.String(),

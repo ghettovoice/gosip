@@ -55,7 +55,7 @@ func (pr *protocol) String() string {
 		return "Protocol <nil>"
 	}
 
-	return fmt.Sprintf("Protocol %p (net %s)", pr, pr.Network())
+	return fmt.Sprintf("Protocol %p (net '%s')", pr, pr.Network())
 }
 
 func (pr *protocol) Network() string {

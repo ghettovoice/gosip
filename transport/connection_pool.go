@@ -271,15 +271,15 @@ func (pool *connectionPool) Length() int {
 
 func (pool *connectionPool) serveStore() {
 	defer func() {
-		pool.Log().Infof("%s stops serve store routine", pool)
+		pool.Log().Debugf("%s stops serve store routine", pool)
 		pool.dispose()
 	}()
-	pool.Log().Infof("%s begins serve store routine", pool)
+	pool.Log().Debugf("%s begins serve store routine", pool)
 
 	for {
 		select {
 		case <-pool.cancel:
-			pool.Log().Warnf("%s received cancel signal", pool)
+			pool.Log().Debugf("%s received cancel signal", pool)
 			return
 		case req := <-pool.updates:
 			pool.handlePut(req)
@@ -308,10 +308,10 @@ func (pool *connectionPool) dispose() {
 
 func (pool *connectionPool) serveHandlers() {
 	defer func() {
-		pool.Log().Infof("%s stops serve handlers routine", pool)
+		pool.Log().Debugf("%s stops serve handlers routine", pool)
 		close(pool.done)
 	}()
-	pool.Log().Infof("%s begins serve handlers routine", pool)
+	pool.Log().Debugf("%s begins serve handlers routine", pool)
 
 	for {
 		select {
@@ -324,7 +324,7 @@ func (pool *connectionPool) serveHandlers() {
 				continue
 			}
 
-			pool.Log().Debugf("%s received %s", pool, msg.Short())
+			pool.Log().Debugf("%s received '%s'", pool, msg.Short())
 			select {
 			case <-pool.cancel:
 				return
@@ -345,13 +345,13 @@ func (pool *connectionPool) serveHandlers() {
 			herr, ok := err.(*ConnectionHandlerError)
 			if !ok {
 				// all other possible errors
-				pool.Log().Warnf("%s ignores non-handler error: %s", pool, err)
+				pool.Log().Debugf("%s ignores non-handler error: %s", pool, err)
 				continue
 			}
 			handler, gerr := pool.get(herr.Key)
 			if gerr != nil {
 				// ignore, handler already dropped out
-				pool.Log().Warnf("ignore error from already dropped out handler %s: %s", herr.Key, herr)
+				pool.Log().Debugf("ignore error from already dropped out handler %s: %s", herr.Key, herr)
 				continue
 			}
 
@@ -359,22 +359,22 @@ func (pool *connectionPool) serveHandlers() {
 				// handler expired, drop it from pool and continue without emitting error
 				if handler.Expired() {
 					// connection expired
-					pool.Log().Warnf("%s notified that %s expired, drop it and go further", pool, handler)
+					pool.Log().Debugf("%s notified that %s expired, drop it and go further", pool, handler)
 					pool.Drop(handler.Key())
 				} else {
 					// Due to a race condition, the socket has been updated since this expiry happened.
 					// Ignore the expiry since we already have a new socket for this address.
-					pool.Log().Warnf("ignore spurious expiry of %s in %s", handler, pool)
+					pool.Log().Debugf("ignore spurious expiry of %s in %s", handler, pool)
 				}
 				continue
 			} else if herr.EOF() {
 				// remote endpoint closed
-				pool.Log().Warnf("%s received EOF error: %s; drop %s and go further", pool, herr, handler)
+				pool.Log().Debugf("%s received EOF error: %s; drop %s and go further", pool, herr, handler)
 				pool.Drop(handler.Key())
 				continue
 			} else if herr.Network() {
 				// connection broken or closed
-				pool.Log().Warnf("%s received network error: %s; drop %s and pass up", pool, herr, handler)
+				pool.Log().Debugf("%s received network error: %s; drop %s and pass up", pool, herr, handler)
 				pool.Drop(handler.Key())
 			} else {
 				// syntax errors, malformed message errors and other
@@ -399,7 +399,7 @@ func (pool *connectionPool) allKeys() []ConnectionKey {
 
 func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Duration) error {
 	if _, err := pool.get(key); err == nil {
-		return &PoolError{fmt.Errorf("%s already has key %s", pool, key),
+		return &PoolError{fmt.Errorf("%s already has key '%s'", pool, key),
 			"put connection", pool.String()}
 		// pool.Log().Debugf("update %s in %s", handler, pool)
 		// handler.Update(ttl)
@@ -455,7 +455,7 @@ func (pool *connectionPool) get(key ConnectionKey) (ConnectionHandler, error) {
 		return handler, nil
 	}
 
-	return nil, &PoolError{fmt.Errorf("key %s not found in %s", key, pool),
+	return nil, &PoolError{fmt.Errorf("key '%s' not found in %s", key, pool),
 		"get connection", pool.String()}
 }
 
@@ -645,15 +645,15 @@ func (handler *connectionHandler) Expired() bool {
 func (handler *connectionHandler) Serve(done func()) {
 	defer done()
 	defer func() {
-		handler.Log().Infof("%s stops serve connection routine", handler)
+		handler.Log().Debugf("%s stops serve connection routine", handler)
 		close(handler.done)
 	}()
 
-	handler.Log().Infof("%s begins serve connection routine", handler)
+	handler.Log().Debugf("%s begins serve connection routine", handler)
 	// watch for cancel
 	go func() {
 		<-handler.cancel
-		handler.Log().Warnf("%s received cancel signal", handler)
+		handler.Log().Debugf("%s received cancel signal", handler)
 		handler.Cancel()
 	}()
 	// start connection serving goroutines
@@ -708,7 +708,7 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				// if we get timeout error just go further and try read on the next iteration
 				if err, ok := err.(net.Error); ok {
 					if err.Timeout() || err.Temporary() {
-						handler.Log().Debugf("%s timeout or temporary unavailable, sleep by %d seconds",
+						handler.Log().Warnf("%s timeout or temporary unavailable, sleep by %d seconds",
 							handler.Connection(), netErrRetryTime/time.Second)
 						time.Sleep(netErrRetryTime)
 						continue
@@ -791,8 +791,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				// so we must not get here with zero expiryTime
 				handler.Log().Fatalf("%s fires expiry timer with ZERO expiryTime,", handler)
 			}
-			handler.Log().Debugf("%s received expiry timer signal: %s inactive for too long", handler,
-				handler.Connection())
+
 			// pass up to the pool
 			// pool will make decision to drop out connection or update ttl.
 			err := &ConnectionHandlerError{
@@ -812,7 +811,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			if !ok {
 				return
 			}
-			handler.Log().Infof("%s received message %s; pass it up", handler, msg.Short())
+			handler.Log().Debugf("%s received message '%s'; pass it up", handler, msg.Short())
 			// add Remote Address
 			raddr := getRemoteAddr()
 			rhost, rport, _ := net.SplitHostPort(raddr)
@@ -822,13 +821,13 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				// RFC 3261 - 18.2.1
 				viaHop, ok := msg.ViaHop()
 				if !ok {
-					handler.Log().Warnf("%s ignores message without 'Via' header %s", handler, msg.Short())
+					handler.Log().Warnf("%s ignores message without 'Via' header '%s'", handler, msg.Short())
 					continue
 				}
 
 				if rhost != "" && viaHop.Host != rhost {
-					handler.Log().Debugf("%s adds 'received' = %s param to 'Via' header of %s, "+
-						"because host %s from the first 'Via' header differs from the actual source address %s", handler, rhost,
+					handler.Log().Warnf("%s adds 'received' = '%s' param to 'Via' header of '%s', "+
+						"because host '%s' from the first 'Via' header differs from the actual source address '%s'", handler, rhost,
 						msg.Short(), viaHop.Host, raddr)
 					viaHop.Params.Add("received", sip.String{rhost})
 				}
@@ -866,7 +865,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				if !streamed {
 					<-handler.addrs.Out
 				}
-				handler.Log().Warnf("%s ignores error %s", handler, err)
+				handler.Log().Warnf("%s ignores error: %s", handler, err)
 				continue
 			}
 			var raddr string
@@ -876,7 +875,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				raddr = getRemoteAddr()
 			}
 
-			handler.Log().Debugf("%s received error %s; pass it up", handler, err)
 			err = &ConnectionHandlerError{
 				err,
 				handler.Key(),

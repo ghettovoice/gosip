@@ -119,8 +119,8 @@ func (conn *connection) Read(buf []byte) (int, error) {
 		}
 	}
 
-	conn.Log().Debugf(
-		"%s received %d bytes from %s -> %s:\n%s",
+	conn.Log().Infof(
+		"%s received %d bytes from '%s' -> '%s':\n%s",
 		conn,
 		num,
 		conn.RemoteAddr(),
@@ -149,8 +149,8 @@ func (conn *connection) ReadFrom(buf []byte) (num int, raddr net.Addr, err error
 		}
 	}
 
-	conn.Log().Debugf(
-		"%s received %d bytes %s -> %s:\n%s",
+	conn.Log().Infof(
+		"%s received %d bytes '%s' -> '%s':\n%s",
 		conn,
 		num,
 		raddr,
@@ -183,8 +183,8 @@ func (conn *connection) Write(buf []byte) (int, error) {
 		}
 	}
 
-	conn.Log().Debugf(
-		"%s written %d bytes %s -> %s:\n%s",
+	conn.Log().Infof(
+		"%s written %d bytes '%s' -> '%s':\n%s",
 		conn,
 		num,
 		conn.LocalAddr(),
@@ -212,8 +212,8 @@ func (conn *connection) WriteTo(buf []byte, raddr net.Addr) (num int, err error)
 		}
 	}
 
-	conn.Log().Debugf(
-		"%s written %d bytes %s -> %s:\n%s",
+	conn.Log().Infof(
+		"%s written %d bytes '%s' -> '%s':\n%s",
 		conn,
 		num,
 		conn.LocalAddr(),

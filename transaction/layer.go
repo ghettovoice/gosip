@@ -121,7 +121,7 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 	default:
 	}
 
-	txl.Log().Debugf("%s sends %s", txl, req.Short())
+	txl.Log().Debugf("%s sends request '%s'", txl, req.Short())
 
 	if req.IsAck() {
 		return nil, fmt.Errorf("ack request must be sent directly through transport")
@@ -158,7 +158,7 @@ func (txl *layer) Respond(res sip.Response) (sip.ServerTransaction, error) {
 	default:
 	}
 
-	txl.Log().Debugf("%s sends %s", txl, res.Short())
+	txl.Log().Debugf("%s sends response '%s'", txl, res.Short())
 
 	tx, err := txl.getServerTx(res)
 	if err != nil {
@@ -191,7 +191,7 @@ func (txl *layer) listenMessages() {
 	for {
 		select {
 		case <-txl.canceled:
-			txl.Log().Warnf("%s received cancel signal", txl)
+			txl.Log().Debugf("%s received cancel signal", txl)
 			return
 		case msg, ok := <-txl.tpl.Messages():
 			if !ok {
@@ -229,7 +229,7 @@ func (txl *layer) handleMessage(msg sip.Message) {
 	default:
 	}
 
-	txl.Log().Infof("%s received %s", txl, msg.Short())
+	txl.Log().Debugf("%s handles message '%s'", txl, msg.Short())
 
 	switch msg := msg.(type) {
 	case sip.Request:
@@ -237,7 +237,7 @@ func (txl *layer) handleMessage(msg sip.Message) {
 	case sip.Response:
 		txl.handleResponse(msg)
 	default:
-		txl.Log().Errorf("%s received unsupported message %s", txl, msg.Short())
+		txl.Log().Errorf("%s received unsupported message '%s'", txl, msg.Short())
 		// todo pass up error?
 	}
 }
@@ -294,7 +294,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 	go txl.serveTransaction(tx)
 
 	// pass up request
-	txl.Log().Debugf("%s pass up %s", txl, req.Short())
+	txl.Log().Debugf("%s passes up request '%s'", txl, req.Short())
 
 	select {
 	case <-txl.canceled:
@@ -311,7 +311,7 @@ func (txl *layer) handleResponse(res sip.Response) {
 
 	tx, err := txl.getClientTx(res)
 	if err != nil {
-		txl.Log().Warn(err)
+		txl.Log().Debugf("%s passes up non-matched response '%s'", txl, res.Short())
 		// RFC 3261 - 17.1.1.2.
 		// Not matched responses should be passed directly to the UA
 		select {
@@ -329,50 +329,50 @@ func (txl *layer) handleResponse(res sip.Response) {
 
 // RFC 17.1.3.
 func (txl *layer) getClientTx(msg sip.Message) (ClientTx, error) {
-	txl.Log().Debugf("%s searches client transaction for %s", txl, msg.Short())
+	txl.Log().Debugf("%s searches client transaction for message '%s'", txl, msg.Short())
 
 	key, err := MakeClientTxKey(msg)
 	if err != nil {
-		return nil, fmt.Errorf("%s failed to match %s to client transaction: %s", txl, msg.Short(), err)
+		return nil, fmt.Errorf("%s failed to match message '%s' to client transaction: %s", txl, msg.Short(), err)
 	}
 
 	tx, ok := txl.transactions.get(key)
 	if !ok {
-		return nil, fmt.Errorf("%s failed to match %s to client transaction: transaction with key %s not found",
+		return nil, fmt.Errorf("%s failed to match message '%s' to client transaction: transaction with key '%s' not found",
 			txl, msg.Short(), key)
 	}
 
 	switch tx := tx.(type) {
 	case ClientTx:
-		tx.Log().Debugf("%s found %s for %s", txl, tx, msg.Short())
+		tx.Log().Debugf("%s found %s for message '%s'", txl, tx, msg.Short())
 		return tx, nil
 	default:
-		return nil, fmt.Errorf("%s failed to match %s to client transaction: found %s is not a client transaction",
+		return nil, fmt.Errorf("%s failed to match message '%s' to client transaction: found %s is not a client transaction",
 			txl, msg.Short(), tx)
 	}
 }
 
 // RFC 17.2.3.
 func (txl *layer) getServerTx(msg sip.Message) (ServerTx, error) {
-	txl.Log().Debugf("%s searches server transaction for %s", txl, msg.Short())
+	txl.Log().Debugf("%s searches server transaction for message '%s'", txl, msg.Short())
 
 	key, err := MakeServerTxKey(msg)
 	if err != nil {
-		return nil, fmt.Errorf("%s failed to match %s to server transaction: %s", txl, msg.Short(), err)
+		return nil, fmt.Errorf("%s failed to match message '%s' to server transaction: %s", txl, msg.Short(), err)
 	}
 
 	tx, ok := txl.transactions.get(key)
 	if !ok {
-		return nil, fmt.Errorf("%s failed to match %s to server transaction: transaction with key %s not found",
+		return nil, fmt.Errorf("%s failed to match message '%s' to server transaction: transaction with key '%s' not found",
 			txl, msg.Short(), key)
 	}
 
 	switch tx := tx.(type) {
 	case ServerTx:
-		tx.Log().Debugf("%s found %s for %s", txl, tx, msg.Short())
+		tx.Log().Debugf("%s found %s for message '%s'", txl, tx, msg.Short())
 		return tx, nil
 	default:
-		return nil, fmt.Errorf("%s failed to match %s to server transaction: found %s is not server transaction",
+		return nil, fmt.Errorf("%s failed to match message '%s' to server transaction: found %s is not server transaction",
 			txl, msg.Short(), tx)
 	}
 }

@@ -57,14 +57,14 @@ func NewServer(config *ServerConfig) *Server {
 		if addr, err := net.ResolveIPAddr("ip", host); err == nil {
 			ip = addr.IP
 		} else {
-			log.Fatalf("failed to resolve host ip: %s", err)
+			log.Fatalf("GoSIP failed to resolve host ip: %s", err)
 		}
 	} else {
 		if v, err := util.ResolveSelfIP(); err == nil {
 			ip = v
 			host = v.String()
 		} else {
-			log.Fatalf("failed to resolve host ip: %s", err)
+			log.Fatalf("GoSIP failed to resolve host ip: %s", err)
 		}
 	}
 
@@ -107,7 +107,7 @@ func NewServer(config *ServerConfig) *Server {
 	_ = srv.OnRequest(sip.CANCEL, func(req sip.Request, tx sip.ServerTransaction) {
 		response := sip.NewResponseFromRequest(tx.Origin(), 481, "Transaction Does Not Exist", "")
 		if _, err := srv.Respond(response); err != nil {
-			log.Errorf("failed to send response: %s", err)
+			log.Errorf("GoSIP failed to send response: %s", err)
 		}
 	})
 
@@ -142,16 +142,14 @@ func (srv *Server) serve() {
 			if !ok {
 				return
 			}
+			log.Warnf("GoSIP server received not matched response: %s", response.Short())
 			if key, err := transaction.MakeClientTxKey(response); err == nil {
 				srv.invitesLock.RLock()
 				inviteRequest, ok := srv.invites[key]
 				srv.invitesLock.RUnlock()
 				if ok {
-					srv.ackInviteRequest(inviteRequest, response)
+					go srv.ackInviteRequest(inviteRequest, response)
 				}
-			} else {
-				log.Warnf("GoSIP server received not matched response: %s", response.Short())
-				log.Debugf("message:\n%s", response.String())
 			}
 		case err, ok := <-srv.tx.Errors():
 			if !ok {
@@ -171,7 +169,6 @@ func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
 	log.Infof("GoSIP server handles incoming message %s", req.Short())
-	log.Debugf("message:\n%s", req)
 
 	var handlers []RequestHandler
 	srv.hmu.RLock()
@@ -204,35 +201,31 @@ func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
 }
 
 func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, authorizer sip.Authorizer) (sip.Response, error) {
-	tx, err := srv.Request(request)
+	tx, err := srv.Request(request.Clone().(sip.Request))
 	if err != nil {
 		return nil, err
 	}
 
-	var lastResponse sip.Response
+	errTerminated := &sip.RequestError{
+		Request: request.Short(),
+		Code:    487,
+		Reason:  "Request Terminated",
+	}
+
 	responses := make(chan sip.Response)
 	errs := make(chan error)
 	go func() {
-		select {
-		case <-tx.Done():
-			return
-		case <-ctx.Done():
-			if lastResponse != nil && lastResponse.IsProvisional() {
-				srv.cancelRequest(request, lastResponse)
-			}
-			errs <- &sip.RequestError{
-				Request: request.Short(),
-				Code:    487,
-				Reason:  "Request Terminated",
-			}
-			return
-		}
-	}()
-	go func() {
+		var lastResponse sip.Response
 		for {
 			select {
+			case <-ctx.Done():
+				if lastResponse != nil && lastResponse.IsProvisional() {
+					srv.cancelRequest(request, lastResponse)
+				}
+				errs <- errTerminated
 			case err, ok := <-tx.Errors():
 				if !ok {
+					errs <- errTerminated
 					return
 				}
 				select {
@@ -242,6 +235,7 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 				return
 			case response, ok := <-tx.Responses():
 				if !ok {
+					errs <- errTerminated
 					return
 				}
 				lastResponse = response
@@ -260,31 +254,19 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 						}()
 					}
 
-					select {
-					case <-ctx.Done():
-					case responses <- response:
-					}
+					responses <- response
 					return
 				}
 				// unauth request
 				if (response.StatusCode() == 401 || response.StatusCode() == 407) && authorizer != nil {
 					if err := authorizer.AuthorizeRequest(request, response); err != nil {
-						select {
-						case <-ctx.Done():
-						case errs <- err:
-						}
+						errs <- err
 						return
 					}
 					if response, err := srv.RequestWithContext(ctx, request, nil); err == nil {
-						select {
-						case <-ctx.Done():
-						case responses <- response:
-						}
+						responses <- response
 					} else {
-						select {
-						case <-ctx.Done():
-						case errs <- err:
-						}
+						errs <- err
 					}
 					return
 				}
@@ -294,10 +276,7 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 					Code:    uint(response.StatusCode()),
 					Reason:  response.Reason(),
 				}
-				select {
-				case <-ctx.Done():
-				case errs <- err:
-				}
+				errs <- err
 				return
 			}
 		}
@@ -323,21 +302,21 @@ func (srv *Server) rememberInviteRequest(request sip.Request) {
 			srv.invitesLock.Unlock()
 		})
 	} else {
-		log.Errorf("remember of the request %s failed: %s", request.Short(), err)
+		log.Errorf("GoSIP remember of the request %s failed: %s", request.Short(), err)
 	}
 }
 
 func (srv *Server) ackInviteRequest(request sip.Request, response sip.Response) {
 	ackRequest := sip.NewAckRequest(request, response)
 	if err := srv.Send(ackRequest); err != nil {
-		log.Errorf("ack of the request %s failed: %s", request.Short(), err)
+		log.Errorf("GoSIP ack of the request %s failed: %s", request.Short(), err)
 	}
 }
 
 func (srv *Server) cancelRequest(request sip.Request, response sip.Response) {
 	cancelRequest := sip.NewCancelRequest(request)
 	if err := srv.Send(cancelRequest); err != nil {
-		log.Errorf("cancel of the request %s failed: %s", request.Short(), err)
+		log.Errorf("GoSIP cancel of the request %s failed: %s", request.Short(), err)
 	}
 }
 

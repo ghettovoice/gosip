@@ -391,15 +391,18 @@ func (uri *SipUri) String() string {
 
 // Clone the Sip URI.
 func (uri *SipUri) Clone() Uri {
-	return &SipUri{
+	newUri := &SipUri{
 		FIsEncrypted: uri.FIsEncrypted,
 		FUser:        uri.FUser,
 		FPassword:    uri.FPassword,
 		FHost:        uri.FHost,
-		FPort:        uri.FPort.Clone(),
 		FUriParams:   cloneWithNil(uri.FUriParams),
 		FHeaders:     cloneWithNil(uri.FHeaders),
 	}
+	if uri.FPort != nil {
+		newUri.FPort = uri.FPort.Clone()
+	}
+	return newUri
 }
 
 // The special wildcard URI used in Contact: headers in REGISTER requests when expiring all registrations.
@@ -434,7 +437,7 @@ func (uri WildcardUri) Headers() Params { return nil }
 func (uri WildcardUri) SetHeaders(params Params) {}
 
 // Copy the wildcard URI. Not hard!
-func (uri WildcardUri) Clone() Uri { return uri }
+func (uri WildcardUri) Clone() Uri { return &WildcardUri{} }
 
 // Always returns 'true'.
 func (uri WildcardUri) IsWildcard() bool {
@@ -513,7 +516,7 @@ func (to *ToHeader) String() string {
 
 	buffer.WriteString(fmt.Sprintf("<%s>", to.Address))
 
-	if to.Params.Length() > 0 {
+	if to.Params != nil && to.Params.Length() > 0 {
 		buffer.WriteString(";")
 		buffer.WriteString(to.Params.ToString(';'))
 	}
@@ -525,11 +528,16 @@ func (to *ToHeader) Name() string { return "To" }
 
 // Copy the header.
 func (to *ToHeader) Clone() Header {
-	return &ToHeader{
+	newTo := &ToHeader{
 		DisplayName: to.DisplayName,
-		Address:     to.Address.Clone(),
-		Params:      to.Params.Clone(),
 	}
+	if to.Address != nil {
+		newTo.Address = to.Address.Clone()
+	}
+	if to.Params != nil {
+		newTo.Params = to.Params.Clone()
+	}
+	return newTo
 }
 
 func (to *ToHeader) Equals(other interface{}) bool {
@@ -628,7 +636,7 @@ func (contact *ContactHeader) Name() string { return "Contact" }
 func (contact *ContactHeader) Clone() Header {
 	return &ContactHeader{
 		DisplayName: contact.DisplayName,
-		Address:     contact.Address.Clone().(ContactUri),
+		Address:     contact.Address.Clone(),
 		Params:      contact.Params.Clone(),
 	}
 }
