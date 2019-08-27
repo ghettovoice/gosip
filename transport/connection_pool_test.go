@@ -445,7 +445,7 @@ var _ = Describe("ConnectionPool", func() {
 					err = pool.Put(key1, server3, 0)
 				})
 				It("should return Duplicate error", func() {
-					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s already has key %s", pool, key1)))
+					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s already has key '%s'", pool, key1)))
 				})
 				Context("the pool", func() {
 					It("should has Length = 1", func() {

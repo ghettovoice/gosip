@@ -304,7 +304,7 @@ var _ = Describe("ListenerPool", func() {
 					err = pool.Put(key1, testutils.NewMockListener(addr3))
 				})
 				It("should return Duplicate error", func() {
-					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s already has key %s", pool, key1)))
+					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s already has key '%s'", pool, key1)))
 				})
 				Context("the pool", func() {
 					It("should has Length = 1", func() {
