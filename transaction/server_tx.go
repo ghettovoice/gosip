@@ -585,8 +585,8 @@ func (tx *serverTx) act_confirm() fsm.Input {
 
 	tx.mu.RLock()
 	ack := tx.lastAck
-
 	tx.mu.RUnlock()
+
 	if ack != nil {
 		select {
 		case <-tx.done:
@@ -599,10 +599,6 @@ func (tx *serverTx) act_confirm() fsm.Input {
 
 func (tx *serverTx) act_cancel() fsm.Input {
 	tx.Log().Debugf("%s, act_cancel", tx)
-
-	tx.mu.RLock()
-	_ = tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 487, "Canceled", ""))
-	tx.mu.RUnlock()
 
 	tx.mu.RLock()
 	cancel := tx.lastCancel
