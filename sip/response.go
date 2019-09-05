@@ -124,6 +124,20 @@ func (res *response) IsGlobalError() bool {
 	return res.StatusCode() >= 600
 }
 
+func (res *response) IsAck() bool {
+	if cseq, ok := res.CSeq(); ok {
+		return cseq.MethodName == ACK
+	}
+	return false
+}
+
+func (res *response) IsCancel() bool {
+	if cseq, ok := res.CSeq(); ok {
+		return cseq.MethodName == CANCEL
+	}
+	return false
+}
+
 // RFC 3261 - 8.2.6
 func NewResponseFromRequest(
 	req Request,

@@ -131,6 +131,11 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 }
 
 func (tx *serverTx) Respond(res sip.Response) error {
+	if res.IsCancel() {
+		_ = tx.tpl.Send(res)
+		return nil
+	}
+
 	tx.mu.Lock()
 	tx.lastResp = res
 
@@ -242,6 +247,7 @@ func (tx *serverTx) initInviteFSM() {
 		Index: server_state_confirmed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_confirmed, fsm.NO_ACTION},
+			server_input_ack:           {server_state_terminated, fsm.NO_ACTION},
 			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_confirmed, fsm.NO_ACTION},

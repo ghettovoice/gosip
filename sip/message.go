@@ -95,6 +95,9 @@ type Message interface {
 	SetSource(src string)
 	Destination() string
 	SetDestination(dest string)
+
+	IsCancel() bool
+	IsAck() bool
 }
 
 // headers is a struct with methods to work with SIP headers.

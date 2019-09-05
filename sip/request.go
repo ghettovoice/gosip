@@ -18,8 +18,6 @@ type Request interface {
 	SetRecipient(recipient Uri)
 	/* Common Helpers */
 	IsInvite() bool
-	IsAck() bool
-	IsCancel() bool
 }
 
 type request struct {
