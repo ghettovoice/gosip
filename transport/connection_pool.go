@@ -826,9 +826,6 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				}
 
 				if rhost != "" && viaHop.Host != rhost {
-					handler.Log().Warnf("%s adds 'received' = '%s' param to 'Via' header of '%s', "+
-						"because host '%s' from the first 'Via' header differs from the actual source address '%s'", handler, rhost,
-						msg.Short(), viaHop.Host, raddr)
 					viaHop.Params.Add("received", sip.String{rhost})
 				}
 				// rfc3581

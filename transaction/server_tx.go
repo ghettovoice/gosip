@@ -524,7 +524,7 @@ func (tx *serverTx) act_final() fsm.Input {
 
 	tx.mu.Lock()
 	tx.timer_j = timing.AfterFunc(Timer_J, func() {
-		tx.Log().Debugf("%s, timer_j fired")
+		tx.Log().Debugf("%s, timer_j fired", tx)
 		tx.fsm.Spin(server_input_timer_j)
 	})
 	tx.mu.Unlock()
@@ -574,11 +574,11 @@ func (tx *serverTx) act_respond_delete() fsm.Input {
 }
 
 func (tx *serverTx) act_confirm() fsm.Input {
-	tx.Log().Debugf("%s, act_confirm")
+	tx.Log().Debugf("%s, act_confirm", tx)
 
 	tx.mu.Lock()
 	tx.timer_i = timing.AfterFunc(Timer_I, func() {
-		tx.Log().Debugf("%s, timer_i fired")
+		tx.Log().Debugf("%s, timer_i fired", tx)
 		tx.fsm.Spin(server_input_timer_i)
 	})
 	tx.mu.Unlock()
@@ -598,7 +598,7 @@ func (tx *serverTx) act_confirm() fsm.Input {
 }
 
 func (tx *serverTx) act_cancel() fsm.Input {
-	tx.Log().Debugf("%s, act_cancel")
+	tx.Log().Debugf("%s, act_cancel", tx)
 
 	tx.mu.RLock()
 	_ = tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 487, "Canceled", ""))
