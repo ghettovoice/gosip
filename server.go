@@ -38,7 +38,7 @@ type Server struct {
 	inShutdown      int32
 	hwg             *sync.WaitGroup
 	hmu             *sync.RWMutex
-	requestHandlers map[sip.RequestMethod][]RequestHandler
+	requestHandlers map[sip.RequestMethod]RequestHandler
 	extensions      []string
 	invites         map[transaction.TxKey]sip.Request
 	invitesLock     *sync.RWMutex
@@ -95,7 +95,7 @@ func NewServer(config *ServerConfig) *Server {
 		ip:              ip,
 		hwg:             new(sync.WaitGroup),
 		hmu:             new(sync.RWMutex),
-		requestHandlers: make(map[sip.RequestMethod][]RequestHandler),
+		requestHandlers: make(map[sip.RequestMethod]RequestHandler),
 		extensions:      extensions,
 		invites:         make(map[transaction.TxKey]sip.Request),
 		invitesLock:     new(sync.RWMutex),
@@ -160,25 +160,21 @@ func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 
 	log.Infof("GoSIP server handles incoming message '%s'", req.Short())
 
-	var handlers []RequestHandler
 	srv.hmu.RLock()
-	if value, ok := srv.requestHandlers[req.Method()]; ok {
-		handlers = value[:]
-	}
+	handler, ok := srv.requestHandlers[req.Method()]
 	srv.hmu.RUnlock()
 
-	if len(handlers) > 0 {
-		for _, handler := range handlers {
-			go handler(req, tx)
-		}
-	} else {
+	if !ok {
 		log.Warnf("GoSIP server not found handler registered for the request %s", req.Short())
 
 		res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", "")
 		if _, err := srv.Respond(res); err != nil {
 			log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
 		}
+		return
 	}
+
+	go handler(req, tx)
 }
 
 // Send SIP message
@@ -408,24 +404,9 @@ func (srv *Server) Shutdown() {
 
 // OnRequest registers new request callback
 func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) error {
-	var handlers []RequestHandler
 	srv.hmu.RLock()
-	if value, ok := srv.requestHandlers[method]; ok {
-		handlers = value[:]
-	} else {
-		handlers = make([]RequestHandler, 0)
-	}
+	srv.requestHandlers[method] = handler
 	srv.hmu.RUnlock()
-
-	for _, h := range handlers {
-		if &h == &handler {
-			return fmt.Errorf("handler already binded to %s method", method)
-		}
-	}
-
-	srv.hmu.Lock()
-	srv.requestHandlers[method] = append(srv.requestHandlers[method], handler)
-	srv.hmu.Unlock()
 
 	return nil
 }
