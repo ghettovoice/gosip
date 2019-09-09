@@ -100,16 +100,6 @@ func NewServer(config *ServerConfig) *Server {
 		invites:         make(map[transaction.TxKey]sip.Request),
 		invitesLock:     new(sync.RWMutex),
 	}
-	// setup default handlers
-	_ = srv.OnRequest(sip.ACK, func(req sip.Request, tx sip.ServerTransaction) {
-		log.Infof("GoSIP server received ACK request: %s", req.Short())
-	})
-	_ = srv.OnRequest(sip.CANCEL, func(req sip.Request, tx sip.ServerTransaction) {
-		response := sip.NewResponseFromRequest(tx.Origin(), 481, "Transaction Does Not Exist", "")
-		if _, err := srv.Respond(response); err != nil {
-			log.Errorf("GoSIP failed to send response: %s", err)
-		}
-	})
 
 	go srv.serve()
 
@@ -168,7 +158,7 @@ func (srv *Server) serve() {
 func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
-	log.Infof("GoSIP server handles incoming message %s", req.Short())
+	log.Infof("GoSIP server handles incoming message '%s'", req.Short())
 
 	var handlers []RequestHandler
 	srv.hmu.RLock()
