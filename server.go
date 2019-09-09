@@ -404,9 +404,9 @@ func (srv *Server) Shutdown() {
 
 // OnRequest registers new request callback
 func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) error {
-	srv.hmu.RLock()
+	srv.hmu.Lock()
 	srv.requestHandlers[method] = handler
-	srv.hmu.RUnlock()
+	srv.hmu.Unlock()
 
 	return nil
 }
