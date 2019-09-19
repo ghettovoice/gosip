@@ -39,6 +39,7 @@ const (
 	SUBSCRIBE RequestMethod = "SUBSCRIBE"
 	NOTIFY    RequestMethod = "NOTIFY"
 	REFER     RequestMethod = "REFER"
+	INFO      RequestMethod = "INFO"
 )
 
 // Message introduces common SIP message RFC 3261 - 7.
