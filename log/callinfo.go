@@ -2,10 +2,8 @@ package log
 
 import (
 	"fmt"
-	"path"
 	"regexp"
 	"runtime"
-	"strings"
 
 	"github.com/ghettovoice/logrus"
 )
@@ -27,12 +25,12 @@ func NewCallInfoHook() *CallInfoHook {
 
 // Fire is an callback that will be called by logrus for each log entry.
 func (hook *CallInfoHook) Fire(entry *logrus.Entry) error {
-	file, line, fn := GetStackInfo()
+	_, line, fn := GetStackInfo()
 
-	idx := strings.Index(file, path.Dir(fn))
-	file = file[idx:]
+	// idx := strings.Index(file, path.Dir(fn))
+	// file = file[idx:]
 
-	entry.SetField("file", file)
+	// entry.SetField("file", file)
 	entry.SetField("line", line)
 	entry.SetField("func", fn)
 
