@@ -8,7 +8,8 @@ import (
 	"github.com/ghettovoice/logrus-prefixed-formatter"
 )
 
-const PrefixFormat = "%s (%s:%s)"
+// const PrefixFormat = "%s (%s:%s)"
+const PrefixFormat = "%s"
 
 // Default log entry formatter.
 // Uses logrus-prefixed-formatter as base formatter.
@@ -45,19 +46,19 @@ func (f *Formatter) Format(entry *logrus.Entry) ([]byte, error) {
 	} else {
 		args = append(args, undef)
 	}
-	if val, ok := fields["file"].(string); ok {
-		if f.ShortNames {
-			val = filepath.Base(val)
-		}
-		args = append(args, val)
-	} else {
-		args = append(args, undef)
-	}
-	if val, ok := fields["line"].(string); ok {
-		args = append(args, val)
-	} else {
-		args = append(args, undef)
-	}
+	// if val, ok := fields["file"].(string); ok {
+	// 	if f.ShortNames {
+	// 		val = filepath.Base(val)
+	// 	}
+	// 	args = append(args, val)
+	// } else {
+	// 	args = append(args, undef)
+	// }
+	// if val, ok := fields["line"].(string); ok {
+	// 	args = append(args, val)
+	// } else {
+	// 	args = append(args, undef)
+	// }
 
 	entry.SetField("prefix", fmt.Sprintf(prefixFormat, args...))
 
