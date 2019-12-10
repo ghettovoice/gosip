@@ -2,6 +2,7 @@
 package transport
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 )
 
@@ -50,9 +52,14 @@ func (trg *Target) Addr() string {
 
 func (trg *Target) String() string {
 	if trg == nil {
-		return "Target <nil>"
+		return "<nil>"
 	}
-	return fmt.Sprintf("Target %s", trg.Addr())
+
+	fields := log.Fields{
+		"target_addr": trg.Addr(),
+	}
+
+	return fmt.Sprintf("transport.Target<%s>", fields)
 }
 
 func NewTarget(host string, port int) *Target {
@@ -108,24 +115,40 @@ type Error interface {
 }
 
 func isNetwork(err error) bool {
-	_, ok := err.(net.Error)
-	return ok || err == io.EOF || err == io.ErrClosedPipe
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	} else {
+		return errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe)
+	}
 }
 func isTimeout(err error) bool {
-	e, ok := err.(net.Error)
-	return ok && e.Timeout()
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout()
+	}
+	return false
 }
 func isTemporary(err error) bool {
-	e, ok := err.(net.Error)
-	return ok && e.Temporary()
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Temporary()
+	}
+	return false
 }
 func isCanceled(err error) bool {
-	e, ok := err.(sip.CancelError)
-	return ok && e.Canceled()
+	var cancelErr sip.CancelError
+	if errors.As(err, &cancelErr) {
+		return cancelErr.Canceled()
+	}
+	return false
 }
 func isExpired(err error) bool {
-	e, ok := err.(sip.ExpireError)
-	return ok && e.Expired()
+	var expiryErr sip.ExpireError
+	if errors.As(err, &expiryErr) {
+		return expiryErr.Expired()
+	}
+	return false
 }
 
 // Connection level error.
@@ -138,6 +161,7 @@ type ConnectionError struct {
 	Conn   string
 }
 
+func (err *ConnectionError) Unwrap() error   { return err.Err }
 func (err *ConnectionError) Network() bool   { return isNetwork(err.Err) }
 func (err *ConnectionError) Timeout() bool   { return isTimeout(err.Err) }
 func (err *ConnectionError) Temporary() bool { return isTemporary(err.Err) }
@@ -146,26 +170,28 @@ func (err *ConnectionError) Error() string {
 		return "<nil>"
 	}
 
-	s := "ConnectionError"
-	if err.Conn != "" {
-		s += " [" + err.Conn + "]"
+	fields := log.Fields{
+		"operation":   err.Op,
+		"network":     "???",
+		"connection":  "???",
+		"source":      "???",
+		"destination": "???",
 	}
-	s += " " + err.Op
+
+	if err.Net != "" {
+		fields["net"] = err.Net
+	}
+	if err.Conn != "" {
+		fields["connection"] = err.Conn
+	}
 	if err.Source != "" {
-		s += " " + err.Source
+		fields["source"] = err.Source
 	}
 	if err.Dest != "" {
-		if err.Source != "" {
-			s += "->"
-		} else {
-			s += " "
-		}
-		s += err.Dest
+		fields["destination"] = err.Dest
 	}
 
-	s += ": " + err.Err.Error()
-
-	return s
+	return fmt.Sprintf("transport.ConnectionError<%s>: %s", fields, err.Err)
 }
 
 type ExpireError string
@@ -175,7 +201,7 @@ func (err ExpireError) Timeout() bool   { return true }
 func (err ExpireError) Temporary() bool { return false }
 func (err ExpireError) Canceled() bool  { return false }
 func (err ExpireError) Expired() bool   { return true }
-func (err ExpireError) Error() string   { return "ExpireError: " + string(err) }
+func (err ExpireError) Error() string   { return "transport.ExpireError: " + string(err) }
 
 // Net Protocol level error
 type ProtocolError struct {
@@ -184,6 +210,7 @@ type ProtocolError struct {
 	Protocol string
 }
 
+func (err *ProtocolError) Unwrap() error   { return err.Err }
 func (err *ProtocolError) Network() bool   { return isNetwork(err.Err) }
 func (err *ProtocolError) Timeout() bool   { return isTimeout(err.Err) }
 func (err *ProtocolError) Temporary() bool { return isTemporary(err.Err) }
@@ -192,13 +219,16 @@ func (err *ProtocolError) Error() string {
 		return "<nil>"
 	}
 
-	s := "ProtocolError"
-	if err.Protocol != "" {
-		s += " " + err.Protocol
+	fields := log.Fields{
+		"operation": err.Op,
+		"protocol":  "???",
 	}
-	s += " " + err.Op + ": " + err.Err.Error()
 
-	return s
+	if err.Protocol != "" {
+		fields["protocol"] = err.Protocol
+	}
+
+	return fmt.Sprintf("transport.ProtocolError<%s>: %s", fields, err.Err)
 }
 
 type ConnectionHandlerError struct {
@@ -210,6 +240,7 @@ type ConnectionHandlerError struct {
 	RAddr   string
 }
 
+func (err *ConnectionHandlerError) Unwrap() error   { return err.Err }
 func (err *ConnectionHandlerError) Network() bool   { return isNetwork(err.Err) }
 func (err *ConnectionHandlerError) Timeout() bool   { return isTimeout(err.Err) }
 func (err *ConnectionHandlerError) Temporary() bool { return isTemporary(err.Err) }
@@ -227,26 +258,27 @@ func (err *ConnectionHandlerError) Error() string {
 		return "<nil>"
 	}
 
-	s := "ConnectionHandlerError"
-	if err.Handler != "" {
-		s += " [" + err.Handler + "]"
+	fields := log.Fields{
+		"handler":     "???",
+		"network":     "???",
+		"local_addr":  "???",
+		"remote_addr": "???",
 	}
-	parts := make([]string, 0)
+
+	if err.Handler != "" {
+		fields["handler"] = err.Handler
+	}
 	if err.Net != "" {
-		parts = append(parts, "net "+err.Net)
+		fields["network"] = err.Net
 	}
 	if err.LAddr != "" {
-		parts = append(parts, "laddr "+err.LAddr)
+		fields["local_addr"] = err.LAddr
 	}
 	if err.RAddr != "" {
-		parts = append(parts, "raddr "+err.RAddr)
+		fields["remote_addr"] = err.RAddr
 	}
-	if len(parts) > 0 {
-		s += " (" + strings.Join(parts, ", ") + ")"
-	}
-	s += ": " + err.Err.Error()
 
-	return s
+	return fmt.Sprintf("transport.ConnectionHandlerError<%s>: %s", fields, err.Err)
 }
 
 type ListenerHandlerError struct {
@@ -257,6 +289,7 @@ type ListenerHandlerError struct {
 	Addr    string
 }
 
+func (err *ListenerHandlerError) Unwrap() error   { return err.Err }
 func (err *ListenerHandlerError) Network() bool   { return isNetwork(err.Err) }
 func (err *ListenerHandlerError) Timeout() bool   { return isTimeout(err.Err) }
 func (err *ListenerHandlerError) Temporary() bool { return isTemporary(err.Err) }
@@ -267,23 +300,24 @@ func (err *ListenerHandlerError) Error() string {
 		return "<nil>"
 	}
 
-	s := "ListenerHandlerError"
-	if err.Handler != "" {
-		s += " [" + err.Handler + "]"
+	fields := log.Fields{
+		"handler":     "???",
+		"network":     "???",
+		"local_addr":  "???",
+		"remote_addr": "???",
 	}
-	parts := make([]string, 0)
+
+	if err.Handler != "" {
+		fields["handler"] = err.Handler
+	}
 	if err.Net != "" {
-		parts = append(parts, "net "+err.Net)
+		fields["network"] = err.Net
 	}
 	if err.Addr != "" {
-		parts = append(parts, "laddr "+err.Addr)
+		fields["local_addr"] = err.Addr
 	}
-	if len(parts) > 0 {
-		s += " (" + strings.Join(parts, ", ") + ")"
-	}
-	s += ": " + err.Err.Error()
 
-	return s
+	return fmt.Sprintf("transport.ListenerHandlerError<%s>: %s", fields, err.Err)
 }
 
 type PoolError struct {
@@ -292,6 +326,7 @@ type PoolError struct {
 	Pool string
 }
 
+func (err *PoolError) Unwrap() error   { return err.Err }
 func (err *PoolError) Network() bool   { return isNetwork(err.Err) }
 func (err *PoolError) Timeout() bool   { return isTimeout(err.Err) }
 func (err *PoolError) Temporary() bool { return isTemporary(err.Err) }
@@ -300,13 +335,16 @@ func (err *PoolError) Error() string {
 		return "<nil>"
 	}
 
-	s := "PoolError " + err.Op
-	if err.Pool != "" {
-		s += " (" + err.Pool + ")"
+	fields := log.Fields{
+		"operation": err.Op,
+		"pool":      "???",
 	}
-	s += ": " + err.Err.Error()
 
-	return s
+	if err.Pool != "" {
+		fields["pool"] = err.Pool
+	}
+
+	return fmt.Sprintf("transport.PoolError<%s>: %s", fields, err.Err)
 }
 
 type UnsupportedProtocolError string
@@ -315,5 +353,5 @@ func (err UnsupportedProtocolError) Network() bool   { return false }
 func (err UnsupportedProtocolError) Timeout() bool   { return false }
 func (err UnsupportedProtocolError) Temporary() bool { return false }
 func (err UnsupportedProtocolError) Error() string {
-	return "UnsupportedProtocolError: " + string(err)
+	return "transport.UnsupportedProtocolError: " + string(err)
 }

@@ -23,7 +23,7 @@ func NewTlsProtocol(output chan<- sip.Message, errs chan<- error, cancel <-chan 
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
 	tls.listeners = NewListenerPool(tls.conns, errs, cancel)
 	tls.connections = NewConnectionPool(output, errs, cancel)
-	tls.logger = log.NewSafeLocalLogger()
+	tls.log = log.NewSafeLocalLogger()
 	// pipe listener and connection pools
 	go tls.pipePools()
 

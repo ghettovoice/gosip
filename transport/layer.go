@@ -13,7 +13,8 @@ import (
 
 // TransportLayer layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Layer interface {
-	log.LocalLogger
+	log.Loggable
+
 	Cancel()
 	Done() <-chan struct{}
 	Messages() <-chan sip.Message
@@ -38,7 +39,7 @@ var protocolFactory ProtocolFactory = func(
 	case "tcp":
 		return NewTcpProtocol(output, errs, cancel), nil
 	default:
-		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol '%s' is not supported", network))
+		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 	}
 }
 
@@ -54,7 +55,6 @@ func GetProtocolFactory() ProtocolFactory {
 
 // TransportLayer implementation.
 type layer struct {
-	logger      log.LocalLogger
 	protocols   *protocolStore
 	listenPorts map[string]*sip.Port
 	ip          net.IP
@@ -65,16 +65,16 @@ type layer struct {
 	perrs       chan error
 	canceled    chan struct{}
 	done        chan struct{}
-	wg          *sync.WaitGroup
+	wg          sync.WaitGroup
+
+	log log.Logger
 }
 
 // NewLayer creates transport layer.
 // - ip - host IP
 // - dnsAddr - DNS server address, default is 127.0.0.1:53
-func NewLayer(ip net.IP, dnsResolver *net.Resolver) Layer {
+func NewLayer(ip net.IP, dnsResolver *net.Resolver, logger log.Logger) Layer {
 	tpl := &layer{
-		logger:      log.NewSafeLocalLogger(),
-		wg:          new(sync.WaitGroup),
 		protocols:   newProtocolStore(),
 		listenPorts: make(map[string]*sip.Port),
 		ip:          ip,
@@ -86,33 +86,29 @@ func NewLayer(ip net.IP, dnsResolver *net.Resolver) Layer {
 		canceled:    make(chan struct{}),
 		done:        make(chan struct{}),
 	}
+
+	tpl.log = logger.
+		WithPrefix("transport.Layer").
+		WithFields(map[string]interface{}{
+			"sip_transport_layer_id": fmt.Sprintf("%p", tpl),
+			"sip_transport_ip":       ip.String(),
+		})
+
 	go tpl.serveProtocols()
 
 	return tpl
 }
 
 func (tpl *layer) String() string {
-	var addr string
 	if tpl == nil {
-		addr = "<nil>"
-	} else {
-		addr = fmt.Sprintf("%p", tpl)
+		return "<nil>"
 	}
 
-	return fmt.Sprintf("TransportLayer %s", addr)
+	return fmt.Sprintf("transport.Layer<%s>", tpl.Log().Fields())
 }
 
 func (tpl *layer) Log() log.Logger {
-	return tpl.logger.Log()
-}
-
-func (tpl *layer) SetLog(logger log.Logger) {
-	tpl.logger.SetLog(logger.WithFields(map[string]interface{}{
-		"tp-layer": tpl.String(),
-	}))
-	for _, protocol := range tpl.protocols.all() {
-		protocol.SetLog(tpl.Log())
-	}
+	return tpl.log
 }
 
 func (tpl *layer) Cancel() {
@@ -198,7 +194,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		for _, nt := range nets {
 			protocol, ok := tpl.protocols.get(protocolKey(nt))
 			if !ok {
-				err = UnsupportedProtocolError(fmt.Sprintf("protocol '%s' is not supported", nt))
+				err = UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", nt))
 				continue
 			}
 			// rewrite sent-by transport
@@ -255,7 +251,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		// resolve protocol from Via
 		protocol, ok := tpl.protocols.get(protocolKey(viaHop.Transport))
 		if !ok {
-			return UnsupportedProtocolError(fmt.Sprintf("protocol '%s' is not supported", viaHop.Transport))
+			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", viaHop.Transport))
 		}
 
 		target, err := NewTargetFromAddr(msg.Destination())
@@ -274,16 +270,17 @@ func (tpl *layer) Send(msg sip.Message) error {
 
 func (tpl *layer) serveProtocols() {
 	defer func() {
-		tpl.Log().Infof("%s stops serves protocols", tpl)
 		tpl.dispose()
 		close(tpl.done)
 	}()
-	tpl.Log().Infof("%s begins serve protocols", tpl)
+
+	tpl.Log().Info("begin serve protocols")
+	defer tpl.Log().Info("stop serve protocols")
 
 	for {
 		select {
 		case <-tpl.canceled:
-			tpl.Log().Debugf("%s received cancel signal", tpl)
+			tpl.Log().Debug("received cancel signal")
 			return
 		case msg := <-tpl.pmsgs:
 			tpl.handleMessage(msg)
@@ -294,7 +291,7 @@ func (tpl *layer) serveProtocols() {
 }
 
 func (tpl *layer) dispose() {
-	tpl.Log().Debugf("%s disposing...", tpl)
+	tpl.Log().Debug("disposing...")
 	// wait for protocols
 	for _, protocol := range tpl.protocols.all() {
 		tpl.protocols.drop(protocolKey(protocol.Network()))
@@ -312,7 +309,9 @@ func (tpl *layer) dispose() {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tpl *layer) handleMessage(msg sip.Message) {
-	tpl.Log().Debugf("%s passes up message '%s'", tpl, msg.Short())
+	tpl.Log().WithFields(log.Fields{
+		"sip_message": msg.Short(),
+	}).Debug("passing up SIP message...")
 
 	// pass up message
 	select {
@@ -325,11 +324,14 @@ func (tpl *layer) handlerError(err error) {
 	// TODO: implement re-connection strategy for listeners
 	if err, ok := err.(Error); ok {
 		// currently log and ignore
-		tpl.Log().Error(err)
+		tpl.Log().Errorf("SIP transport error: %s", err)
+
 		return
 	}
 	// core.Message errors
-	tpl.Log().Debugf("%s passes up error: %s", tpl, err)
+	tpl.Log().WithFields(log.Fields{
+		"sip_error": err.Error(),
+	}).Debug("passing up error...")
 
 	select {
 	case <-tpl.canceled:
@@ -341,13 +343,12 @@ type protocolKey string
 
 // Thread-safe protocols pool.
 type protocolStore struct {
-	mu        *sync.RWMutex
 	protocols map[protocolKey]Protocol
+	mu        sync.RWMutex
 }
 
 func newProtocolStore() *protocolStore {
 	return &protocolStore{
-		mu:        new(sync.RWMutex),
 		protocols: make(map[protocolKey]Protocol),
 	}
 }

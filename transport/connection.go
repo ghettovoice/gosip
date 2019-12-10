@@ -37,9 +37,7 @@ type connection struct {
 	mu       *sync.RWMutex
 }
 
-func NewConnection(
-	baseConn net.Conn,
-) Connection {
+func NewConnection(baseConn net.Conn, logger log.Logger) Connection {
 	var stream bool
 	switch baseConn.(type) {
 	case net.PacketConn:

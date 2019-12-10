@@ -70,6 +70,8 @@ var _ = Describe("TcpProtocol", func() {
 		"THIS MESSAGE FROM HELL!\r\n"
 	bullshit := "This is bullshit!\r\n"
 
+	logger := testutils.NewDefaultLogger()
+
 	timing.MockMode = true
 
 	closeClients := func() {
@@ -89,7 +91,7 @@ var _ = Describe("TcpProtocol", func() {
 		output = make(chan sip.Message)
 		errs = make(chan error)
 		cancel = make(chan struct{})
-		protocol = transport.NewTcpProtocol(output, errs, cancel)
+		protocol = transport.NewTcpProtocol(output, errs, cancel, logger)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()

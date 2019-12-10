@@ -67,7 +67,12 @@ type listenerPool struct {
 	mu      *sync.RWMutex
 }
 
-func NewListenerPool(output chan<- Connection, errs chan<- error, cancel <-chan struct{}) ListenerPool {
+func NewListenerPool(
+	output chan<- Connection,
+	errs chan<- error,
+	cancel <-chan struct{},
+	logger log.Logger,
+) ListenerPool {
 	pool := &listenerPool{
 		logger:  log.NewSafeLocalLogger(),
 		hwg:     new(sync.WaitGroup),

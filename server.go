@@ -90,11 +90,7 @@ func NewServer(config *ServerConfig, logger log.Logger) *Server {
 		extensions = config.Extensions
 	}
 
-	tp := transport.NewLayer(ip, dnsResolver)
-	tx := transaction.NewLayer(tp)
 	srv := &Server{
-		tp:              tp,
-		tx:              tx,
 		host:            host,
 		ip:              ip,
 		hwg:             new(sync.WaitGroup),
@@ -103,8 +99,13 @@ func NewServer(config *ServerConfig, logger log.Logger) *Server {
 		extensions:      extensions,
 		invites:         make(map[transaction.TxKey]sip.Request),
 		invitesLock:     new(sync.RWMutex),
-		log:             logger,
 	}
+
+	srv.log = logger.WithFields(log.Fields{
+		"sip_server_id": fmt.Sprintf("%p", srv),
+	})
+	srv.tp = transport.NewLayer(ip, dnsResolver, srv.Log())
+	srv.tx = transaction.NewLayer(srv.tp, srv.Log())
 
 	go srv.serve()
 

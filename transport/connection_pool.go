@@ -81,7 +81,12 @@ type connectionPool struct {
 	mu      *sync.RWMutex
 }
 
-func NewConnectionPool(output chan<- sip.Message, errs chan<- error, cancel <-chan struct{}) ConnectionPool {
+func NewConnectionPool(
+	output chan<- sip.Message,
+	errs chan<- error,
+	cancel <-chan struct{},
+	logger log.Logger,
+) ConnectionPool {
 	pool := &connectionPool{
 		logger:  log.NewSafeLocalLogger(),
 		hwg:     new(sync.WaitGroup),

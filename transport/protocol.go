@@ -16,7 +16,8 @@ const (
 
 // Protocol implements network specific features.
 type Protocol interface {
-	log.LocalLogger
+	log.Loggable
+
 	Done() <-chan struct{}
 	Network() string
 	Reliable() bool
@@ -34,28 +35,23 @@ type ProtocolFactory func(
 ) (Protocol, error)
 
 type protocol struct {
-	logger   log.LocalLogger
 	network  string
 	reliable bool
 	streamed bool
-}
 
-func (pr *protocol) SetLog(logger log.Logger) {
-	pr.logger.SetLog(logger.WithFields(map[string]interface{}{
-		"protocol": pr.String(),
-	}))
+	log log.Logger
 }
 
 func (pr *protocol) Log() log.Logger {
-	return pr.logger.Log()
+	return pr.log
 }
 
 func (pr *protocol) String() string {
 	if pr == nil {
-		return "Protocol <nil>"
+		return "<nil>"
 	}
 
-	return fmt.Sprintf("Protocol %p (net '%s')", pr, pr.Network())
+	return fmt.Sprintf("transport.Protocol<%s>", pr.Log().Fields())
 }
 
 func (pr *protocol) Network() string {

@@ -41,7 +41,7 @@ type layer struct {
 	txWgLock     *sync.RWMutex
 }
 
-func NewLayer(tpl transport.Layer) Layer {
+func NewLayer(tpl transport.Layer, logger log.Logger) Layer {
 	txl := &layer{
 		logger:       log.NewSafeLocalLogger(),
 		tpl:          tpl,

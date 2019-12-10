@@ -72,6 +72,8 @@ var _ = Describe("UdpProtocol", func() {
 		"THIS MESSAGE FROM HELL!"
 	bullshit := "This is bullshit!\r\n"
 
+	logger := testutils.NewDefaultLogger()
+
 	timing.MockMode = true
 
 	closeClients := func() {
@@ -91,7 +93,7 @@ var _ = Describe("UdpProtocol", func() {
 		output = make(chan sip.Message)
 		errs = make(chan error)
 		cancel = make(chan struct{})
-		protocol = transport.NewUdpProtocol(output, errs, cancel)
+		protocol = transport.NewUdpProtocol(output, errs, cancel, logger)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()

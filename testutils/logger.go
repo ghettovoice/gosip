@@ -11,7 +11,7 @@ type Logger struct {
 	logrus.Ext1FieldLogger
 }
 
-func NewLogger(prefix string, fields map[string]interface{}) *Logger {
+func NewLogger(prefix string, fields log.Fields) *Logger {
 	slog := logrus.New()
 	slog.SetLevel(logrus.TraceLevel)
 	slog.Formatter = &prefixed.TextFormatter{
@@ -20,7 +20,7 @@ func NewLogger(prefix string, fields map[string]interface{}) *Logger {
 	}
 
 	entry := slog.
-		WithFields(fields).
+		WithFields(logrus.Fields(fields)).
 		WithField("prefix", prefix)
 
 	return &Logger{
@@ -32,8 +32,8 @@ func NewDefaultLogger() *Logger {
 	return NewLogger("", nil)
 }
 
-func (l *Logger) WithFields(fields map[string]interface{}) log.Logger {
-	newFields := make(map[string]interface{})
+func (l *Logger) WithFields(fields log.Fields) log.Logger {
+	newFields := make(log.Fields)
 
 	for k, v := range l.Fields() {
 		newFields[k] = v
@@ -46,8 +46,8 @@ func (l *Logger) WithFields(fields map[string]interface{}) log.Logger {
 	return NewLogger(l.Prefix(), newFields)
 }
 
-func (l *Logger) Fields() map[string]interface{} {
-	return l.Ext1FieldLogger.(*logrus.Entry).Data
+func (l *Logger) Fields() log.Fields {
+	return log.Fields(l.Ext1FieldLogger.(*logrus.Entry).Data)
 }
 
 func (l *Logger) WithPrefix(prefix string) log.Logger {

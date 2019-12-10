@@ -15,25 +15,26 @@ type udpProtocol struct {
 	connections ConnectionPool
 }
 
-func NewUdpProtocol(output chan<- sip.Message, errs chan<- error, cancel <-chan struct{}) Protocol {
+func NewUdpProtocol(
+	output chan<- sip.Message,
+	errs chan<- error,
+	cancel <-chan struct{},
+	logger log.Logger,
+) Protocol {
 	udp := new(udpProtocol)
 	udp.network = "udp"
 	udp.reliable = false
 	udp.streamed = false
-	udp.logger = log.NewSafeLocalLogger()
+	udp.log = logger.
+		WithPrefix("transport.Protocol").
+		WithFields(log.Fields{
+			"protocol_id":      fmt.Sprintf("%p", udp),
+			"protocol_network": udp.Network(),
+		})
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
-	udp.connections = NewConnectionPool(output, errs, cancel)
-	udp.connections.SetLog(udp.Log())
+	udp.connections = NewConnectionPool(output, errs, cancel, udp.Log())
+
 	return udp
-}
-
-func (udp *udpProtocol) String() string {
-	return fmt.Sprintf("Udp%s", udp.protocol.String())
-}
-
-func (udp *udpProtocol) SetLog(logger log.Logger) {
-	udp.protocol.SetLog(logger)
-	udp.connections.SetLog(udp.Log())
 }
 
 func (udp *udpProtocol) Done() <-chan struct{} {
@@ -53,15 +54,16 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	udpConn, err := net.ListenUDP(network, laddr)
 	if err != nil {
 		return &ProtocolError{
-			fmt.Errorf("failed to listen address '%s': %s", laddr, err),
-			fmt.Sprintf("create '%s' listener", udp.Network()),
+			err,
+			fmt.Sprintf("listen on %s %s address", udp.Network(), laddr),
 			udp.String(),
 		}
 	}
-	udp.Log().Infof("%s begins listening on '%s'", udp, target.Addr())
+
+	udp.Log().Infof("begin listening on %s", laddr)
+
 	// register new connection
-	conn := NewConnection(udpConn)
-	conn.SetLog(udp.Log())
+	conn := NewConnection(udpConn, udp.Log())
 	// index by local address, TTL=0 - unlimited expiry time
 	key := ConnectionKey(fmt.Sprintf("0.0.0.0:%d", laddr.Port))
 	err = udp.connections.Put(key, conn, 0)
@@ -72,13 +74,11 @@ func (udp *udpProtocol) Listen(target *Target) error {
 func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	target = FillTargetHostAndPort(udp.Network(), target)
 
-	udp.Log().Infof("%s sends message:\n%s", udp, msg)
-
 	// validate remote address
 	if target.Host == "" {
 		return &ProtocolError{
-			fmt.Errorf("invalid remote host resolved '%s'", target.Host),
-			"resolve destination address",
+			fmt.Errorf("empty remote target host"),
+			fmt.Sprintf("fill remote target %s", target),
 			udp.String(),
 		}
 	}
@@ -86,11 +86,7 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	// resolve remote address
 	raddr, err := udp.resolveTarget(target)
 	if err != nil {
-		return &ProtocolError{
-			fmt.Errorf("invalid remote target: %s", err),
-			"resolve destination net address",
-			udp.String(),
-		}
+		return err
 	}
 
 	// send through already opened by connection
@@ -101,8 +97,8 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 		// todo change this bloody patch
 		if len(udp.connections.All()) == 0 {
 			return &ProtocolError{
-				fmt.Errorf("connection for send not found: %s", err),
-				"resolve connection",
+				err,
+				fmt.Sprintf("resolve target %s connection", udp.Network()),
 				udp.String(),
 			}
 		}
@@ -110,8 +106,11 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 		conn = udp.connections.All()[0]
 	}
 
-	data := []byte(msg.String())
-	_, err = conn.WriteTo(data, raddr)
+	udp.Log().WithFields(log.Fields{
+		"sip_message": msg.Short(),
+	}).Infof("writing SIP message to %s", raddr)
+
+	_, err = conn.WriteTo([]byte(msg.String()), raddr)
 
 	return err // should be nil
 }
@@ -123,8 +122,8 @@ func (udp *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
 	raddr, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {
 		return nil, &ProtocolError{
-			fmt.Errorf("failed to resolve address '%s': %s", addr, err),
-			fmt.Sprintf("resolve '%s' address", addr),
+			err,
+			fmt.Sprintf("resolve target %s net.Addr", target),
 			udp.String(),
 		}
 	}
