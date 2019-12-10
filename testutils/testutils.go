@@ -4,9 +4,10 @@ import (
 	"net"
 	"strings"
 
-	"github.com/ghettovoice/gosip/sip"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
+	"github.com/ghettovoice/gosip/sip"
 )
 
 func CreateStreamClientServer(network string, addr string) (net.Conn, net.Conn) {
