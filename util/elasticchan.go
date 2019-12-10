@@ -2,6 +2,9 @@
 package util
 
 import (
+	"fmt"
+	"sync"
+
 	"github.com/ghettovoice/gosip/log"
 )
 
@@ -16,8 +19,10 @@ type ElasticChan struct {
 	Out     chan interface{}
 	buffer  []interface{}
 	stopped bool
-	logger  log.LocalLogger
 	done    chan struct{}
+
+	log   log.Logger
+	logMu sync.RWMutex
 }
 
 // Initialise the Elastic channel, and start the management goroutine.
@@ -25,7 +30,6 @@ func (c *ElasticChan) Init() {
 	c.In = make(chan interface{}, c_ELASTIC_CHANSIZE)
 	c.Out = make(chan interface{}, c_ELASTIC_CHANSIZE)
 	c.buffer = make([]interface{}, 0)
-	c.logger = log.NewSafeLocalLogger()
 	c.done = make(chan struct{})
 }
 
@@ -39,18 +43,39 @@ func (c *ElasticChan) Stop() {
 		return
 	default:
 	}
-	c.Log().Debugf("stopping ElasticChan %p", c)
+
+	logger := c.Log()
+
+	if logger != nil {
+		logger.Trace("stopping elastic chan...")
+	}
+
 	close(c.In)
 	<-c.done
-	c.Log().Debugf("ElasticChan %p stopped", c)
+
+	if logger != nil {
+		logger.Trace("elastic chan stopped")
+	}
 }
 
 func (c *ElasticChan) Log() log.Logger {
-	return c.logger.Log()
+	c.logMu.RLock()
+	defer c.logMu.RUnlock()
+
+	return c.log
+
 }
 
 func (c *ElasticChan) SetLog(logger log.Logger) {
-	c.logger.SetLog(logger)
+	c.logMu.Lock()
+
+	c.log = logger.
+		WithPrefix("util.ElasticChan").
+		WithFields(map[string]interface{}{
+			"elastic_chan_ptr": fmt.Sprintf("%p", c),
+		})
+
+	c.logMu.Unlock()
 }
 
 // Poll for input from one end of the channel and add it to the buffer.
@@ -61,6 +86,8 @@ func (c *ElasticChan) manage() {
 
 loop:
 	for {
+		logger := c.Log()
+
 		if len(c.buffer) > 0 {
 			// The buffer has something in it, so try to send as well as
 			// receive.
@@ -68,7 +95,10 @@ loop:
 			select {
 			case in, ok := <-c.In:
 				if !ok {
-					c.Log().Debugf("ElasticChan %p will dispose", c)
+					if logger != nil {
+						logger.Trace("elastic chan will dispose")
+					}
+
 					break loop
 				}
 				// c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
@@ -82,7 +112,10 @@ loop:
 			// Just wait to receive.
 			in, ok := <-c.In
 			if !ok {
-				c.Log().Debugf("ElasticChan %p will dispose", c)
+				if logger != nil {
+					logger.Trace("elastic chan will dispose")
+				}
+
 				break loop
 			}
 			// c.Log().Debugf("ElasticChan %p gets '%v'", c, in)
@@ -94,7 +127,12 @@ loop:
 }
 
 func (c *ElasticChan) dispose() {
-	c.Log().Debugf("ElasticChan %p disposing...", c)
+	logger := c.Log()
+
+	if logger != nil {
+		logger.Trace("elastic chan disposing...")
+	}
+
 	for len(c.buffer) > 0 {
 		select {
 		case c.Out <- c.buffer[0]:
@@ -102,5 +140,8 @@ func (c *ElasticChan) dispose() {
 		default:
 		}
 	}
-	c.Log().Debugf("ElasticChan %p disposed", c)
+
+	if logger != nil {
+		logger.Trace("elastic chan disposed")
+	}
 }
