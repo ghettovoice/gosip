@@ -42,13 +42,17 @@ type Server struct {
 	extensions      []string
 	invites         map[transaction.TxKey]sip.Request
 	invitesLock     *sync.RWMutex
+
+	log log.Logger
 }
 
 // NewServer creates new instance of SIP server.
-func NewServer(config *ServerConfig) *Server {
+func NewServer(config *ServerConfig, logger log.Logger) *Server {
 	if config == nil {
 		config = &ServerConfig{}
 	}
+
+	logger = logger.WithPrefix("gosip.Server")
 
 	var host string
 	var ip net.IP
@@ -57,14 +61,14 @@ func NewServer(config *ServerConfig) *Server {
 		if addr, err := net.ResolveIPAddr("ip", host); err == nil {
 			ip = addr.IP
 		} else {
-			log.Fatalf("GoSIP failed to resolve host ip: %s", err)
+			logger.Panicf("resolve host IP failed: %s", err)
 		}
 	} else {
 		if v, err := util.ResolveSelfIP(); err == nil {
 			ip = v
 			host = v.String()
 		} else {
-			log.Fatalf("GoSIP failed to resolve host ip: %s", err)
+			logger.Panicf("resolve host IP failed: %s", err)
 		}
 	}
 
@@ -99,11 +103,16 @@ func NewServer(config *ServerConfig) *Server {
 		extensions:      extensions,
 		invites:         make(map[transaction.TxKey]sip.Request),
 		invitesLock:     new(sync.RWMutex),
+		log:             logger,
 	}
 
 	go srv.serve()
 
 	return srv
+}
+
+func (srv *Server) Log() log.Logger {
+	return srv.log
 }
 
 // ListenAndServe starts serving listeners on the provided address
@@ -132,7 +141,13 @@ func (srv *Server) serve() {
 			if !ok {
 				return
 			}
-			log.Warnf("GoSIP server received not matched response: %s", response.Short())
+
+			logger := srv.Log().WithFields(map[string]interface{}{
+				"sip_response": response.Short(),
+			})
+
+			logger.Warn("received not matched response")
+
 			if key, err := transaction.MakeClientTxKey(response); err == nil {
 				srv.invitesLock.RLock()
 				inviteRequest, ok := srv.invites[key]
@@ -145,12 +160,14 @@ func (srv *Server) serve() {
 			if !ok {
 				return
 			}
-			log.Errorf("GoSIP server received transaction error: %s", err)
+
+			srv.Log().Errorf("received SIP transaction error: %s", err)
 		case err, ok := <-srv.tp.Errors():
 			if !ok {
 				return
 			}
-			log.Errorf("GoSIP server received transport error: %s", err)
+
+			srv.Log().Errorf("received SIP transport error: %s", err)
 		}
 	}
 }
@@ -158,19 +175,24 @@ func (srv *Server) serve() {
 func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
-	log.Infof("GoSIP server handles incoming message '%s'", req.Short())
+	logger := srv.Log().WithFields(map[string]interface{}{
+		"sip_request": req.Short(),
+	})
+
+	logger.Info("routing incoming SIP request...")
 
 	srv.hmu.RLock()
 	handler, ok := srv.requestHandlers[req.Method()]
 	srv.hmu.RUnlock()
 
 	if !ok {
-		log.Warnf("GoSIP server not found handler registered for the request %s", req.Short())
+		logger.Warnf("SIP request handler not found")
 
 		res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", "")
 		if _, err := srv.Respond(res); err != nil {
-			log.Errorf("GoSIP server failed to respond on the unsupported request: %s", err)
+			logger.Errorf("respond '405 Method Not Allowed' failed: %s", err)
 		}
+
 		return
 	}
 
@@ -288,21 +310,31 @@ func (srv *Server) rememberInviteRequest(request sip.Request) {
 			srv.invitesLock.Unlock()
 		})
 	} else {
-		log.Errorf("GoSIP remember of the request %s failed: %s", request.Short(), err)
+		srv.Log().WithFields(map[string]interface{}{
+			"sip_request": request.Short(),
+		}).Errorf("remember of the request failed: %s", err)
 	}
 }
 
 func (srv *Server) ackInviteRequest(request sip.Request, response sip.Response) {
 	ackRequest := sip.NewAckRequest(request, response)
 	if err := srv.Send(ackRequest); err != nil {
-		log.Errorf("GoSIP ack of the request %s failed: %s", request.Short(), err)
+		srv.Log().WithFields(map[string]interface{}{
+			"invite_sip_request":  request.Short(),
+			"invite_sip_response": response.Short(),
+			"ack_sip_request":     ackRequest.Short(),
+		}).Errorf("send ACK request failed: %s", err)
 	}
 }
 
 func (srv *Server) cancelRequest(request sip.Request, response sip.Response) {
 	cancelRequest := sip.NewCancelRequest(request)
 	if err := srv.Send(cancelRequest); err != nil {
-		log.Errorf("GoSIP cancel of the request %s failed: %s", request.Short(), err)
+		srv.Log().WithFields(map[string]interface{}{
+			"invite_sip_request":  request.Short(),
+			"invite_sip_response": response.Short(),
+			"cancel_sip_request":  cancelRequest.Short(),
+		}).Errorf("send CANCEL request failed: %s", err)
 	}
 }
 
@@ -353,7 +385,7 @@ func (srv *Server) RespondOnRequest(
 
 	tx, err := srv.Respond(response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to respond on request '%s': %s", request.Short(), err)
+		return nil, fmt.Errorf("respond '%d %s' failed: %w", response.StatusCode(), response.Reason(), err)
 	}
 
 	return tx, nil
