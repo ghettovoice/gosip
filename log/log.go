@@ -13,8 +13,8 @@ type Logger interface {
 	Trace(args ...interface{})
 	Tracef(format string, args ...interface{})
 
-	Debugf(format string, args ...interface{})
 	Debug(args ...interface{})
+	Debugf(format string, args ...interface{})
 
 	Info(args ...interface{})
 	Infof(format string, args ...interface{})
@@ -31,11 +31,11 @@ type Logger interface {
 	Panic(args ...interface{})
 	Panicf(format string, args ...interface{})
 
-	WithFields(fields Fields) Logger
-	Fields() Fields
-
 	WithPrefix(prefix string) Logger
 	Prefix() string
+
+	WithFields(fields Fields) Logger
+	Fields() Fields
 }
 
 type Loggable interface {
@@ -52,4 +52,18 @@ func (fields Fields) String() string {
 	}
 
 	return strings.Join(str, " ")
+}
+
+func (fields Fields) WithFields(newFields Fields) Fields {
+	allFields := make(Fields)
+
+	for k, v := range fields {
+		allFields[k] = v
+	}
+
+	for k, v := range newFields {
+		allFields[k] = v
+	}
+
+	return allFields
 }

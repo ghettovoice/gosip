@@ -1,0 +1,107 @@
+package log
+
+import "github.com/sirupsen/logrus"
+
+type LogrusLogger struct {
+	log    logrus.Ext1FieldLogger
+	prefix string
+	fields Fields
+}
+
+func NewLogrusLogger(logrus logrus.Ext1FieldLogger, prefix string, fields Fields) *LogrusLogger {
+	return &LogrusLogger{
+		log:    logrus,
+		prefix: prefix,
+		fields: make(Fields).WithFields(fields),
+	}
+}
+
+func NewDefaultLogrusLogger() *LogrusLogger {
+	return NewLogrusLogger(logrus.New(), "", nil)
+}
+
+func (l *LogrusLogger) Print(args ...interface{}) {
+	l.prepareEntry().Print(args...)
+}
+
+func (l *LogrusLogger) Printf(format string, args ...interface{}) {
+	l.prepareEntry().Printf(format, args...)
+}
+
+func (l *LogrusLogger) Trace(args ...interface{}) {
+	l.prepareEntry().Trace(args...)
+}
+
+func (l *LogrusLogger) Tracef(format string, args ...interface{}) {
+	l.prepareEntry().Tracef(format, args...)
+}
+
+func (l *LogrusLogger) Debug(args ...interface{}) {
+	l.prepareEntry().Debug(args...)
+}
+
+func (l *LogrusLogger) Debugf(format string, args ...interface{}) {
+	l.prepareEntry().Debugf(format, args...)
+}
+
+func (l *LogrusLogger) Info(args ...interface{}) {
+	l.prepareEntry().Info(args...)
+}
+
+func (l *LogrusLogger) Infof(format string, args ...interface{}) {
+	l.prepareEntry().Infof(format, args...)
+}
+
+func (l *LogrusLogger) Warn(args ...interface{}) {
+	l.prepareEntry().Warn(args...)
+}
+
+func (l *LogrusLogger) Warnf(format string, args ...interface{}) {
+	l.prepareEntry().Warnf(format, args...)
+}
+
+func (l *LogrusLogger) Error(args ...interface{}) {
+	l.prepareEntry().Error(args...)
+}
+
+func (l *LogrusLogger) Errorf(format string, args ...interface{}) {
+	l.prepareEntry().Errorf(format, args...)
+}
+
+func (l *LogrusLogger) Fatal(args ...interface{}) {
+	l.prepareEntry().Fatal(args...)
+}
+
+func (l *LogrusLogger) Fatalf(format string, args ...interface{}) {
+	l.prepareEntry().Fatalf(format, args...)
+}
+
+func (l *LogrusLogger) Panic(args ...interface{}) {
+	l.prepareEntry().Panic(args...)
+}
+
+func (l *LogrusLogger) Panicf(format string, args ...interface{}) {
+	l.prepareEntry().Panicf(format, args...)
+}
+
+func (l *LogrusLogger) WithPrefix(prefix string) Logger {
+	return NewLogrusLogger(l.log, prefix, l.Fields())
+}
+
+func (l *LogrusLogger) Prefix() string {
+	return l.prefix
+}
+
+func (l *LogrusLogger) WithFields(fields Fields) Logger {
+	return NewLogrusLogger(l.log, l.Prefix(), l.Fields().WithFields(fields))
+}
+
+func (l *LogrusLogger) Fields() Fields {
+	return l.fields
+}
+
+func (l *LogrusLogger) prepareEntry() *logrus.Entry {
+	return l.log.
+		WithFields(logrus.Fields(l.Fields())).
+		WithField("prefix", l.Prefix())
+}

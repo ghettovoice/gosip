@@ -321,9 +321,9 @@ func (srv *Server) ackInviteRequest(request sip.Request, response sip.Response) 
 	ackRequest := sip.NewAckRequest(request, response)
 	if err := srv.Send(ackRequest); err != nil {
 		srv.Log().WithFields(map[string]interface{}{
-			"invite_sip_request":  request.Short(),
-			"invite_sip_response": response.Short(),
-			"ack_sip_request":     ackRequest.Short(),
+			"invite_request":  request.Short(),
+			"invite_response": response.Short(),
+			"ack_request":     ackRequest.Short(),
 		}).Errorf("send ACK request failed: %s", err)
 	}
 }
@@ -332,9 +332,9 @@ func (srv *Server) cancelRequest(request sip.Request, response sip.Response) {
 	cancelRequest := sip.NewCancelRequest(request)
 	if err := srv.Send(cancelRequest); err != nil {
 		srv.Log().WithFields(map[string]interface{}{
-			"invite_sip_request":  request.Short(),
-			"invite_sip_response": response.Short(),
-			"cancel_sip_request":  cancelRequest.Short(),
+			"invite_request":  request.Short(),
+			"invite_response": response.Short(),
+			"cancel_request":  cancelRequest.Short(),
 		}).Errorf("send CANCEL request failed: %s", err)
 	}
 }

@@ -171,7 +171,6 @@ func (err *ConnectionError) Error() string {
 	}
 
 	fields := log.Fields{
-		"operation":   err.Op,
 		"network":     "???",
 		"connection":  "???",
 		"source":      "???",
@@ -191,7 +190,7 @@ func (err *ConnectionError) Error() string {
 		fields["destination"] = err.Dest
 	}
 
-	return fmt.Sprintf("transport.ConnectionError<%s>: %s", fields, err.Err)
+	return fmt.Sprintf("transport.ConnectionError<%s> %s failed: %s", fields, err.Op, err.Err)
 }
 
 type ExpireError string
@@ -220,15 +219,14 @@ func (err *ProtocolError) Error() string {
 	}
 
 	fields := log.Fields{
-		"operation": err.Op,
-		"protocol":  "???",
+		"protocol": "???",
 	}
 
 	if err.Protocol != "" {
 		fields["protocol"] = err.Protocol
 	}
 
-	return fmt.Sprintf("transport.ProtocolError<%s>: %s", fields, err.Err)
+	return fmt.Sprintf("transport.ProtocolError<%s> %s failed: %s", fields, err.Op, err.Err)
 }
 
 type ConnectionHandlerError struct {
@@ -336,15 +334,14 @@ func (err *PoolError) Error() string {
 	}
 
 	fields := log.Fields{
-		"operation": err.Op,
-		"pool":      "???",
+		"pool": "???",
 	}
 
 	if err.Pool != "" {
 		fields["pool"] = err.Pool
 	}
 
-	return fmt.Sprintf("transport.PoolError<%s>: %s", fields, err.Err)
+	return fmt.Sprintf("transport.PoolError<%s> %s failed: %s", fields, err.Op, err.Err)
 }
 
 type UnsupportedProtocolError string

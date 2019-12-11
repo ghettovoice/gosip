@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
@@ -21,9 +22,11 @@ var _ = Describe("ListenerHandler", func() {
 		handler transport.ListenerHandler
 		wg      *sync.WaitGroup
 	)
-	addr := &testutils.MockAddr{"tcp", localAddr1}
+	addr := &testutils.MockAddr{Net: "tcp", Addr: localAddr1}
 	key := transport.ListenerKey(addr.String())
 	str := "Hello world!"
+
+	logger := log.NewDefaultLogrusLogger()
 
 	Context("just initialized", func() {
 		BeforeEach(func() {
@@ -31,7 +34,7 @@ var _ = Describe("ListenerHandler", func() {
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			ls = testutils.NewMockListener(addr)
-			handler = transport.NewListenerHandler(key, ls, output, errs, cancel)
+			handler = transport.NewListenerHandler(key, ls, output, errs, cancel, logger)
 		})
 
 		It("has ListenerKey", func() {
@@ -48,7 +51,7 @@ var _ = Describe("ListenerHandler", func() {
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			ls = testutils.NewMockListener(addr)
-			handler = transport.NewListenerHandler(key, ls, output, errs, cancel)
+			handler = transport.NewListenerHandler(key, ls, output, errs, cancel, logger)
 
 			wg = new(sync.WaitGroup)
 			wg.Add(1)
@@ -148,6 +151,8 @@ var _ = Describe("ListenerPool", func() {
 	key2 := transport.ListenerKey(addr2.String())
 	key3 := transport.ListenerKey(addr3.String())
 
+	logger := log.NewDefaultLogrusLogger()
+
 	AssertIsEmpty := func() {
 		Expect(pool.Length()).To(Equal(0))
 		Expect(pool.All()).To(BeEmpty())
@@ -163,7 +168,7 @@ var _ = Describe("ListenerPool", func() {
 			output = make(chan transport.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewListenerPool(output, errs, cancel)
+			pool = transport.NewListenerPool(output, errs, cancel, logger)
 		})
 
 		ShouldBeEmpty()
@@ -179,7 +184,7 @@ var _ = Describe("ListenerPool", func() {
 			output = make(chan transport.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewListenerPool(output, errs, cancel)
+			pool = transport.NewListenerPool(output, errs, cancel, logger)
 			expected = fmt.Sprintf("%s canceled", pool)
 
 			close(cancel)
@@ -223,7 +228,7 @@ var _ = Describe("ListenerPool", func() {
 			output = make(chan transport.Connection)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewListenerPool(output, errs, cancel)
+			pool = transport.NewListenerPool(output, errs, cancel, logger)
 
 			ls1 = testutils.NewMockListener(addr1)
 			ls2 = testutils.NewMockListener(addr2)

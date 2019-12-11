@@ -113,7 +113,12 @@ func ParseMessage(msgData []byte, logger log.Logger) (sip.Message, error) {
 
 // 'streamed' should be set to true whenever the caller cannot reliably identify the starts and ends of messages from the transport frames,
 // e.g. when using streamed protocols such as TCP.
-func NewParser(output chan<- sip.Message, errs chan<- error, streamed bool) Parser {
+func NewParser(
+	output chan<- sip.Message,
+	errs chan<- error,
+	streamed bool,
+	log log.Logger,
+) Parser {
 	p := &parser{
 		streamed: streamed,
 		logger:   log.NewSafeLocalLogger(),

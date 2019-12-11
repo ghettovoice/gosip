@@ -83,7 +83,7 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 	listener, err := net.ListenTCP(network, laddr)
 	if err != nil {
 		return &ProtocolError{
-			fmt.Errorf("initialize %s connection failed: %w", tcp.Network(), err),
+			err,
 			fmt.Sprintf("listen on %s %s address", tcp.Network(), laddr),
 			tcp.String(),
 		}
@@ -106,7 +106,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	if target.Host == "" {
 		return &ProtocolError{
 			fmt.Errorf("empty remote target host"),
-			fmt.Sprintf("fill remote target %s", target),
+			fmt.Sprintf("send SIP message to %s", target.Addr()),
 			tcp.String(),
 		}
 	}
@@ -141,7 +141,7 @@ func (tcp *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 	if err != nil {
 		return nil, &ProtocolError{
 			err,
-			fmt.Sprintf("resolve target %s address", target),
+			fmt.Sprintf("resolve target address %s", addr),
 			tcp.String(),
 		}
 	}

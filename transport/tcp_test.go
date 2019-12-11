@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
@@ -70,7 +71,7 @@ var _ = Describe("TcpProtocol", func() {
 		"THIS MESSAGE FROM HELL!\r\n"
 	bullshit := "This is bullshit!\r\n"
 
-	logger := testutils.NewDefaultLogger()
+	logger := log.NewDefaultLogrusLogger()
 
 	timing.MockMode = true
 

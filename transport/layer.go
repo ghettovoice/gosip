@@ -32,12 +32,13 @@ var protocolFactory ProtocolFactory = func(
 	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
+	logger log.Logger,
 ) (Protocol, error) {
 	switch strings.ToLower(network) {
 	case "udp":
-		return NewUdpProtocol(output, errs, cancel), nil
+		return NewUdpProtocol(output, errs, cancel, logger), nil
 	case "tcp":
-		return NewTcpProtocol(output, errs, cancel), nil
+		return NewTcpProtocol(output, errs, cancel, logger), nil
 	default:
 		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 	}
@@ -90,8 +91,7 @@ func NewLayer(ip net.IP, dnsResolver *net.Resolver, logger log.Logger) Layer {
 	tpl.log = logger.
 		WithPrefix("transport.Layer").
 		WithFields(map[string]interface{}{
-			"sip_transport_layer_id": fmt.Sprintf("%p", tpl),
-			"sip_transport_ip":       ip.String(),
+			"transport_layer_id": fmt.Sprintf("%p", tpl),
 		})
 
 	go tpl.serveProtocols()
@@ -143,7 +143,7 @@ func (tpl *layer) Listen(network string, addr string) error {
 	protocol, ok := tpl.protocols.get(protocolKey(network))
 	if !ok {
 		var err error
-		protocol, err = protocolFactory(network, tpl.pmsgs, tpl.perrs, tpl.canceled)
+		protocol, err = protocolFactory(network, tpl.pmsgs, tpl.perrs, tpl.canceled, tpl.Log())
 		if err != nil {
 			return err
 		}
@@ -237,6 +237,11 @@ func (tpl *layer) Send(msg sip.Message) error {
 				}
 			}
 
+			tpl.Log().WithFields(log.Fields{
+				"sip_message": msg.Short(),
+				"protocol":    protocol.String(),
+			}).Infof("sending SIP request:\n%s", msg)
+
 			err = protocol.Send(target, msg)
 			if err == nil {
 				break
@@ -259,10 +264,15 @@ func (tpl *layer) Send(msg sip.Message) error {
 			return err
 		}
 
+		tpl.Log().WithFields(log.Fields{
+			"sip_message": msg.Short(),
+			"protocol":    protocol.String(),
+		}).Infof("send SIP response:\n%s", msg)
+
 		return protocol.Send(target, msg)
 	default:
 		return &sip.UnsupportedMessageError{
-			Err: fmt.Errorf("unsupported message '%s'", msg.Short()),
+			Err: fmt.Errorf("unsupported message %s", msg.Short()),
 			Msg: msg.String(),
 		}
 	}
@@ -280,7 +290,6 @@ func (tpl *layer) serveProtocols() {
 	for {
 		select {
 		case <-tpl.canceled:
-			tpl.Log().Debug("received cancel signal")
 			return
 		case msg := <-tpl.pmsgs:
 			tpl.handleMessage(msg)
@@ -309,14 +318,18 @@ func (tpl *layer) dispose() {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tpl *layer) handleMessage(msg sip.Message) {
-	tpl.Log().WithFields(log.Fields{
+	logger := tpl.Log().WithFields(log.Fields{
 		"sip_message": msg.Short(),
-	}).Debug("passing up SIP message...")
+	})
+
+	logger.Infof("received SIP message:\n%s", msg)
+	logger.Trace("passing up SIP message...")
 
 	// pass up message
 	select {
 	case <-tpl.canceled:
 	case tpl.msgs <- msg:
+		logger.Trace("SIP message passed up")
 	}
 }
 
@@ -328,14 +341,17 @@ func (tpl *layer) handlerError(err error) {
 
 		return
 	}
-	// core.Message errors
-	tpl.Log().WithFields(log.Fields{
+
+	logger := tpl.Log().WithFields(log.Fields{
 		"sip_error": err.Error(),
-	}).Debug("passing up error...")
+	})
+
+	logger.Trace("passing up error...")
 
 	select {
 	case <-tpl.canceled:
 	case tpl.errs <- err:
+		logger.Trace("error passed up")
 	}
 }
 

@@ -19,7 +19,8 @@ var (
 // Wrapper around net.Conn.
 type Connection interface {
 	net.Conn
-	log.LocalLogger
+	log.Loggable
+
 	Network() string
 	Streamed() bool
 	String() string
@@ -29,12 +30,13 @@ type Connection interface {
 
 // Connection implementation.
 type connection struct {
-	logger   log.LocalLogger
 	baseConn net.Conn
 	laddr    net.Addr
 	raddr    net.Addr
 	streamed bool
-	mu       *sync.RWMutex
+	mu       sync.RWMutex
+
+	log log.Logger
 }
 
 func NewConnection(baseConn net.Conn, logger log.Logger) Connection {
@@ -47,43 +49,34 @@ func NewConnection(baseConn net.Conn, logger log.Logger) Connection {
 	}
 
 	conn := &connection{
-		logger:   log.NewSafeLocalLogger(),
 		baseConn: baseConn,
 		laddr:    baseConn.LocalAddr(),
 		raddr:    baseConn.RemoteAddr(),
 		streamed: stream,
-		mu:       new(sync.RWMutex),
 	}
+	conn.log = logger.
+		WithPrefix("transport.Connection").
+		WithFields(log.Fields{
+			"connection_id":         fmt.Sprintf("%p", conn),
+			"connection_network":    strings.ToUpper(conn.LocalAddr().Network()),
+			"connection_local_addr": fmt.Sprintf("%v", conn.LocalAddr()),
+		})
+
 	return conn
 }
 
 func (conn *connection) String() string {
 	if conn == nil {
-		return "Connection <nil>"
+		return "<nil>"
 	}
 
-	return fmt.Sprintf(
-		"Connection %p (net %s, laddr %v, raddr %v)",
-		conn,
-		conn.Network(),
-		conn.LocalAddr(),
-		conn.RemoteAddr(),
-	)
+	return fmt.Sprintf("transport.Connection<%s>", conn.Log().Fields())
 }
 
 func (conn *connection) Log() log.Logger {
-	// remote addr for net.PacketConn resolved in runtime
-	return conn.logger.Log().WithFields(map[string]interface{}{
-		"conn":  conn.String(),
-		"raddr": fmt.Sprintf("%v", conn.RemoteAddr()),
+	return conn.log.WithFields(log.Fields{
+		"connection_remote_addr": fmt.Sprintf("%v", conn.RemoteAddr()),
 	})
-}
-
-func (conn *connection) SetLog(logger log.Logger) {
-	conn.logger.SetLog(logger.WithFields(map[string]interface{}{
-		"laddr": fmt.Sprintf("%v", conn.LocalAddr()),
-		"net":   strings.ToUpper(conn.LocalAddr().Network()),
-	}))
 }
 
 func (conn *connection) Streamed() bool {
@@ -101,7 +94,7 @@ func (conn *connection) Read(buf []byte) (int, error) {
 	)
 
 	if err := conn.baseConn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-		conn.Log().Warnf("%s failed to set read deadline: %s", conn, err)
+		conn.Log().Warnf("set connection read deadline failed: %s", err)
 	}
 
 	num, err = conn.baseConn.Read(buf)
@@ -117,25 +110,17 @@ func (conn *connection) Read(buf []byte) (int, error) {
 		}
 	}
 
-	conn.Log().Infof(
-		"%s received %d bytes from '%s' -> '%s':\n%s",
-		conn,
-		num,
-		conn.RemoteAddr(),
-		conn.LocalAddr(),
-		buf[:num],
-	)
+	conn.Log().Tracef("read %d bytes:\n%s", num, buf[:num])
 
 	return num, err
 }
 
 func (conn *connection) ReadFrom(buf []byte) (num int, raddr net.Addr, err error) {
 	if err := conn.baseConn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-		conn.Log().Warnf("%s failed to set read deadline: %s", conn, err)
+		conn.Log().Warnf("set connection read deadline failed: %s", err)
 	}
 
 	num, raddr, err = conn.baseConn.(net.PacketConn).ReadFrom(buf)
-
 	if err != nil {
 		return num, raddr, &ConnectionError{
 			err,
@@ -147,14 +132,9 @@ func (conn *connection) ReadFrom(buf []byte) (num int, raddr net.Addr, err error
 		}
 	}
 
-	conn.Log().Infof(
-		"%s received %d bytes '%s' -> '%s':\n%s",
-		conn,
-		num,
-		raddr,
-		conn.LocalAddr(),
-		buf[:num],
-	)
+	conn.Log().WithFields(log.Fields{
+		"connection_remote_addr": fmt.Sprintf("%v", raddr),
+	}).Tracef("read %d bytes:\n%s", num, buf[:num])
 
 	return num, raddr, err
 }
@@ -166,7 +146,7 @@ func (conn *connection) Write(buf []byte) (int, error) {
 	)
 
 	if err := conn.baseConn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		conn.Log().Warnf("%s failed to set write deadline: %s", conn, err)
+		conn.Log().Warnf("set connection write deadline: %s", err)
 	}
 
 	num, err = conn.baseConn.Write(buf)
@@ -181,21 +161,14 @@ func (conn *connection) Write(buf []byte) (int, error) {
 		}
 	}
 
-	conn.Log().Infof(
-		"%s written %d bytes '%s' -> '%s':\n%s",
-		conn,
-		num,
-		conn.LocalAddr(),
-		conn.RemoteAddr(),
-		buf[:num],
-	)
+	conn.Log().Tracef("write %d bytes:\n%s", num, buf[:num])
 
 	return num, err
 }
 
 func (conn *connection) WriteTo(buf []byte, raddr net.Addr) (num int, err error) {
 	if err := conn.baseConn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		conn.Log().Warnf("%s failed to set write deadline: %s", conn, err)
+		conn.Log().Warnf("set connection write deadline: %s", err)
 	}
 
 	num, err = conn.baseConn.(net.PacketConn).WriteTo(buf, raddr)
@@ -210,14 +183,9 @@ func (conn *connection) WriteTo(buf []byte, raddr net.Addr) (num int, err error)
 		}
 	}
 
-	conn.Log().Infof(
-		"%s written %d bytes '%s' -> '%s':\n%s",
-		conn,
-		num,
-		conn.LocalAddr(),
-		raddr,
-		buf[:num],
-	)
+	conn.Log().WithFields(log.Fields{
+		"connection_remote_addr": fmt.Sprintf("%v", raddr),
+	}).Tracef("write %d bytes:\n%s", num, buf[:num])
 
 	return num, err
 }
@@ -243,10 +211,7 @@ func (conn *connection) Close() error {
 		}
 	}
 
-	conn.Log().Debugf(
-		"%s closed",
-		conn,
-	)
+	conn.Log().Trace("connection closed")
 
 	return nil
 }

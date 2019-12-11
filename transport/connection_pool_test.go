@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
@@ -45,6 +46,8 @@ var _ = Describe("ConnectionHandler", func() {
 		"\r\n"
 	bullshit := "This is bullshit!\r\n"
 
+	logger := log.NewDefaultLogrusLogger()
+
 	timing.MockMode = true
 
 	Context("just initialized", func() {
@@ -55,9 +58,9 @@ var _ = Describe("ConnectionHandler", func() {
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
-			client = &testutils.MockConn{c1, c1.LocalAddr(), addr}
-			server = &testutils.MockConn{c2, addr, c2.RemoteAddr()}
-			conn = transport.NewConnection(server)
+			client = &testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}
+			server = &testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}
+			conn = transport.NewConnection(server, logger)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -68,7 +71,7 @@ var _ = Describe("ConnectionHandler", func() {
 			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
+			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel, logger)
 		})
 
 		HasCorrectKeyAndConn := func() {
@@ -121,9 +124,9 @@ var _ = Describe("ConnectionHandler", func() {
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
-			client = &testutils.MockConn{c1, c1.LocalAddr(), addr}
-			server = &testutils.MockConn{c2, addr, c2.RemoteAddr()}
-			conn = transport.NewConnection(server)
+			client = &testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}
+			server = &testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}
+			conn = transport.NewConnection(server, logger)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -135,7 +138,7 @@ var _ = Describe("ConnectionHandler", func() {
 			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel)
+			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel, logger)
 			go handler.Serve(util.Noop)
 		})
 
@@ -279,6 +282,8 @@ var _ = Describe("ConnectionPool", func() {
 		"Max-Forwards: 65\r\n" +
 		"\r\n"
 
+	logger := log.NewDefaultLogrusLogger()
+
 	timing.MockMode = true
 
 	AssertIsEmpty := func() {
@@ -296,7 +301,7 @@ var _ = Describe("ConnectionPool", func() {
 			output = make(chan sip.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewConnectionPool(output, errs, cancel)
+			pool = transport.NewConnectionPool(output, errs, cancel, logger)
 		})
 
 		ShouldBeEmpty()
@@ -313,18 +318,18 @@ var _ = Describe("ConnectionPool", func() {
 			output = make(chan sip.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewConnectionPool(output, errs, cancel)
+			pool = transport.NewConnectionPool(output, errs, cancel, logger)
 			expected = fmt.Sprintf("%s canceled", pool)
 
 			_, c2 := net.Pipe()
-			server = &testutils.MockConn{c2, addr1, c2.RemoteAddr()}
+			server = &testutils.MockConn{Conn: c2, LAddr: addr1, RAddr: c2.RemoteAddr()}
 
 			close(cancel)
 			time.Sleep(time.Millisecond)
 		})
 
 		It("should decline Put", func() {
-			err = pool.Put(key1, transport.NewConnection(server), 0)
+			err = pool.Put(key1, transport.NewConnection(server, logger), 0)
 			Expect(err.Error()).To(ContainSubstring(expected))
 			Expect(pool.Length()).To(Equal(0))
 		})
@@ -357,8 +362,8 @@ var _ = Describe("ConnectionPool", func() {
 
 		createConn := func(addr net.Addr) (transport.Connection, transport.Connection) {
 			c1, c2 := net.Pipe()
-			client := transport.NewConnection(&testutils.MockConn{c1, c1.LocalAddr(), addr})
-			server := transport.NewConnection(&testutils.MockConn{c2, addr, c2.RemoteAddr()})
+			client := transport.NewConnection(&testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}, logger)
+			server := transport.NewConnection(&testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}, logger)
 			return client, server
 		}
 
@@ -366,7 +371,7 @@ var _ = Describe("ConnectionPool", func() {
 			output = make(chan sip.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewConnectionPool(output, errs, cancel)
+			pool = transport.NewConnectionPool(output, errs, cancel, logger)
 
 			client1, server1 = createConn(addr1)
 			client2, server2 = createConn(addr2)

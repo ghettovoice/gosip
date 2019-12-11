@@ -12,6 +12,8 @@ import (
 )
 
 var _ = Describe("Connection", func() {
+	logger := log.NewDefaultLogrusLogger()
+
 	Describe("construct", func() {
 		Context("from net.UDPConn", func() {
 			It("should set connection params", func() {
@@ -20,7 +22,7 @@ var _ = Describe("Connection", func() {
 					cUdpConn.Close()
 					sUdpConn.Close()
 				}()
-				conn := transport.NewConnection(sUdpConn)
+				conn := transport.NewConnection(sUdpConn, logger)
 
 				Expect(conn.Network()).To(Equal("UDP"))
 				Expect(conn.Streamed()).To(BeFalse(), "UDP should be non-streamed")
@@ -39,7 +41,7 @@ var _ = Describe("Connection", func() {
 					cTcpConn.Close()
 					sTcpConn.Close()
 				}()
-				conn := transport.NewConnection(sTcpConn)
+				conn := transport.NewConnection(sTcpConn, logger)
 
 				Expect(conn.Network()).To(Equal("TCP"))
 				Expect(conn.Streamed()).To(BeTrue())
@@ -64,8 +66,8 @@ var _ = Describe("Connection", func() {
 					sUdpConn.Close()
 				}()
 
-				sConn := transport.NewConnection(sUdpConn)
-				cConn := transport.NewConnection(cUdpConn)
+				sConn := transport.NewConnection(sUdpConn, logger)
+				cConn := transport.NewConnection(cUdpConn, logger)
 
 				wg := new(sync.WaitGroup)
 				wg.Add(1)
@@ -75,7 +77,7 @@ var _ = Describe("Connection", func() {
 					buf := make([]byte, 65535)
 					num, raddr, err := sConn.ReadFrom(buf)
 					Expect(err).ToNot(HaveOccurred())
-					log.Debugf("%s <- %s: read %d bytes", sConn.LocalAddr(), raddr, num)
+					logger.Debugf("%s <- %s: read %d bytes", sConn.LocalAddr(), raddr, num)
 
 					Expect(fmt.Sprintf("%v", raddr)).To(Equal(fmt.Sprintf("%v", cConn.LocalAddr())))
 					Expect(string(buf[:num])).To(Equal(data))
@@ -84,7 +86,7 @@ var _ = Describe("Connection", func() {
 				num, err := cConn.Write([]byte(data))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(num).To(Equal(len(data)))
-				log.Debugf("%s -> %s: written %d bytes", cConn.LocalAddr(), sConn.LocalAddr(), num)
+				logger.Debugf("%s -> %s: written %d bytes", cConn.LocalAddr(), sConn.LocalAddr(), num)
 
 				wg.Wait()
 			})
