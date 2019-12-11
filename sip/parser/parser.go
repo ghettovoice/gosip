@@ -29,7 +29,8 @@ const maxCseq = 2147483647
 // A Parser converts the raw bytes of SIP messages into core.Message objects.
 // It allows
 type Parser interface {
-	log.LocalLogger
+	log.Loggable
+
 	// Implements io.Writer. Queues the given bytes to be parsed.
 	// If the parser has terminated due to a previous fatal error, it will return n=0 and an appropriate error.
 	// Otherwise, it will return n=len(p) and err=nil.
@@ -87,10 +88,14 @@ func defaultHeaderParsers() map[string]HeaderParser {
 func ParseMessage(msgData []byte, logger log.Logger) (sip.Message, error) {
 	output := make(chan sip.Message, 0)
 	errs := make(chan error, 0)
-	parser := NewParser(output, errs, false)
+
+	parser := NewParser(output, errs, false, logger)
 	defer parser.Stop()
-	parser.SetLog(logger)
-	parser.Write(msgData)
+
+	if _, err := parser.Write(msgData); err != nil {
+		return nil, err
+	}
+
 	select {
 	case msg := <-output:
 		return msg, nil
@@ -117,14 +122,17 @@ func NewParser(
 	output chan<- sip.Message,
 	errs chan<- error,
 	streamed bool,
-	log log.Logger,
+	logger log.Logger,
 ) Parser {
 	p := &parser{
 		streamed: streamed,
-		logger:   log.NewSafeLocalLogger(),
 		done:     make(chan struct{}),
-		mu:       new(sync.Mutex),
 	}
+	p.log = logger.
+		WithPrefix("parser.Parser").
+		WithFields(log.Fields{
+			"parser_id": fmt.Sprintf("%p", p),
+		})
 	// Configure the parser with the standard set of header parsers.
 	p.headerParsers = make(map[string]HeaderParser)
 	for headerName, headerParser := range defaultHeaderParsers() {
@@ -143,8 +151,7 @@ func NewParser(
 
 	// Create a managed buffer to allow message data to be asynchronously provided to the parser, and
 	// to allow the parser to block until enough data is available to parse.
-	p.input = newParserBuffer()
-	p.input.SetLog(p.Log())
+	p.input = newParserBuffer(p.Log())
 	// Done for input a line at a time, and produce SipMessages to send down p.output.
 	go p.parse(streamed)
 
@@ -156,13 +163,16 @@ type parser struct {
 	streamed      bool
 	input         *parserBuffer
 	bodyLengths   util.ElasticChan
-	output        chan<- sip.Message
-	errs          chan<- error
-	terminalErr   error
-	stopped       bool
-	logger        log.LocalLogger
-	done          chan struct{}
-	mu            *sync.Mutex
+	mu            sync.Mutex
+
+	output chan<- sip.Message
+	errs   chan<- error
+
+	terminalErr error
+	stopped     bool
+	done        chan struct{}
+
+	log log.Logger
 }
 
 func (p *parser) String() string {
@@ -173,13 +183,7 @@ func (p *parser) String() string {
 }
 
 func (p *parser) Log() log.Logger {
-	return p.logger.Log()
-}
-
-func (p *parser) SetLog(logger log.Logger) {
-	p.logger.SetLog(logger.WithField("parser", p.String()))
-	p.bodyLengths.SetLog(p.Log())
-	p.input.SetLog(p.Log())
+	return p.log
 }
 
 func (p *parser) setError(err error) {
@@ -195,8 +199,8 @@ func (p *parser) getError() error {
 }
 
 func (p *parser) Write(data []byte) (int, error) {
-	//termErr := p.getError()
-	//if termErr != nil {
+	// termErr := p.getError()
+	// if termErr != nil {
 	//	// The parser has stopped due to a terminal error. Return it.
 	//	p.Log().Warnf(
 	//		"%s ignores %d new bytes due to previous terminal error: %s",
@@ -205,7 +209,7 @@ func (p *parser) Write(data []byte) (int, error) {
 	//		termErr,
 	//	)
 	//	return 0, termErr
-	//} else
+	// } else
 	if p.stopped {
 		return 0, WriteError(fmt.Sprintf("cannot write data to stopped %s", p))
 	}
@@ -219,8 +223,12 @@ func (p *parser) Write(data []byte) (int, error) {
 		p.bodyLengths.In <- []int{bl, len(data)}
 	}
 
-	// p.Log().Debugf("%s writes data to input buffer:\n%s", p, data)
-	p.input.Write(data)
+	num, err := p.input.Write(data)
+	if err != nil {
+		return 0, WriteError(fmt.Sprintf("%s write data failed: %s", p, err))
+	}
+
+	p.Log().Tracef("write %d bytes to input buffer", num)
 
 	return len(data), nil
 }
@@ -229,7 +237,8 @@ func (p *parser) Write(data []byte) (int, error) {
 // The parser will not release its resources until Stop() is called,
 // even if the parser object itself is garbage collected.
 func (p *parser) Stop() {
-	p.Log().Debugf("stopping %s", p)
+	p.Log().Debug("stopping parser...")
+
 	p.stopped = true
 	p.input.Stop()
 	if !p.streamed {
@@ -238,7 +247,8 @@ func (p *parser) Stop() {
 		p.bodyLengths.Stop()
 	}
 	<-p.done
-	p.Log().Debugf("%s stopped", p)
+
+	p.Log().Debug("parser stopped")
 }
 
 func (p *parser) Reset() {
@@ -260,7 +270,8 @@ func (p *parser) parse(requireContentLength bool) {
 		// Parse the StartLine.
 		startLine, err := p.input.NextLine()
 		if err != nil {
-			p.Log().Debugf("%s stopped: %s", p, err)
+			p.Log().Errorf("parser stopped: %s", err)
+
 			break
 		}
 
@@ -295,14 +306,17 @@ func (p *parser) parse(requireContentLength bool) {
 			if !p.streamed {
 				slice := (<-p.bodyLengths.Out).([]int)
 				skip := slice[1] - len(startLine) - 2
-				// p.Log().Debugf("%s skips %d - %d - 2 = %d bytes", p, slice[1], len(startLine), skip)
-				p.input.NextChunk(skip)
+
+				p.Log().Tracef("skip %d - %d - 2 = %d bytes", p, slice[1], len(startLine), skip)
+
+				if _, err := p.input.NextChunk(skip); err != nil {
+					p.Log().Errorf("skip failed: %s", err)
+				}
 			}
 
 			continue
 		}
 
-		msg.SetLog(p.Log())
 		// p.Log().Debugf("%s starts reading headers", p)
 		// Parse the header section.
 		// Headers can be split across lines (marked by whitespace at the start of subsequent lines),
@@ -316,7 +330,7 @@ func (p *parser) parse(requireContentLength bool) {
 				if err == nil {
 					headers = append(headers, newHeaders...)
 				} else {
-					p.Log().Warnf("skipping header '%s' due to error: %s", buffer, err)
+					p.Log().Warnf("skip header '%s' due to error: %s", buffer, err)
 				}
 				buffer.Reset()
 			}
@@ -326,7 +340,8 @@ func (p *parser) parse(requireContentLength bool) {
 			line, err := p.input.NextLine()
 
 			if err != nil {
-				p.Log().Debugf("%s stopped", p)
+				p.Log().Errorf("parser stopped: %s", err)
+
 				break
 			}
 
@@ -334,6 +349,7 @@ func (p *parser) parse(requireContentLength bool) {
 				// We've hit the end of the header section.
 				// Parse anything remaining in the buffer, then break out.
 				flushBuffer()
+
 				break
 			}
 
@@ -349,8 +365,8 @@ func (p *parser) parse(requireContentLength bool) {
 			} else {
 				// This is a continuation line, but also the first line of the whole header section.
 				// Discard it and log.
-				p.Log().Debugf(
-					"discarded unexpected continuation line '%s' at start of header block in message '%s'",
+				p.Log().Tracef(
+					"discard unexpected continuation line '%s' at start of header block in message '%s'",
 					line,
 					msg.Short(),
 				)
@@ -369,7 +385,7 @@ func (p *parser) parse(requireContentLength bool) {
 			contentLengthHeaders := msg.GetHeaders("Content-Length")
 			if len(contentLengthHeaders) == 0 {
 				termErr := &sip.MalformedMessageError{
-					Err: fmt.Errorf("missing required 'Content-Length' header; parser: %s", p),
+					Err: fmt.Errorf("missing required 'Content-Length' header"),
 					Msg: msg.String(),
 				}
 				p.setError(termErr)
@@ -405,32 +421,34 @@ func (p *parser) parse(requireContentLength bool) {
 		body, err := p.input.NextChunk(contentLength)
 		if err != nil {
 			termErr := &sip.BrokenMessageError{
-				Err: fmt.Errorf("%s failed to read message body", p),
+				Err: fmt.Errorf("read message body failed: %w", err),
 				Msg: msg.String(),
 			}
 			p.setError(termErr)
 			p.errs <- termErr
+
 			continue
 		}
 		// RFC 3261 - 18.3.
 		if len(body) != contentLength {
 			termErr := &sip.BrokenMessageError{
 				Err: fmt.Errorf(
-					"incomplete message body: read %d bytes, expected %d bytes; parser: %s",
+					"incomplete message body: read %d bytes, expected %d bytes",
 					len(body),
 					contentLength,
-					p,
 				),
 				Msg: msg.String(),
 			}
 			p.setError(termErr)
 			p.errs <- termErr
+
 			continue
 		}
 
 		if strings.TrimSpace(body) != "" {
 			msg.SetBody(body, false)
 		}
+
 		p.output <- msg
 	}
 	return
@@ -850,7 +868,8 @@ parseLoop:
 // (SIP messages containing multiple headers of the same type can express them as a
 // single header containing a comma-separated argument list).
 func (p *parser) parseHeader(headerText string) (headers []sip.Header, err error) {
-	// p.Log().Debugf("%s parsing header \"%s\"", p, headerText)
+	p.Log().Tracef("parsing header \"%s\"", headerText)
+
 	headers = make([]sip.Header, 0)
 
 	colonIdx := strings.Index(headerText, ":")
@@ -868,7 +887,8 @@ func (p *parser) parseHeader(headerText string) (headers []sip.Header, err error
 	} else {
 		// We have no registered parser for this header type,
 		// so we encapsulate the header data in a GenericHeader struct.
-		p.Log().Debugf("%s has no parser for header type %s", p, fieldName)
+		p.Log().Tracef("no parser for header type %s", fieldName)
+
 		header := sip.GenericHeader{
 			HeaderName: fieldName,
 			Contents:   fieldText,

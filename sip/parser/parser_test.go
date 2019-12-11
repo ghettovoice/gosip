@@ -56,7 +56,6 @@ var port9 sip.Port = 9
 var noParams = sip.NewParams()
 
 func TestAAAASetup(t *testing.T) {
-	log.SetLevel(log.InfoLevel)
 }
 
 func TestParams(t *testing.T) {
@@ -1622,9 +1621,10 @@ func (expected *headerBlockResult) equals(other result) (equal bool, reason stri
 func parseHeader(rawHeader string) (headers []sip.Header, err error) {
 	messages := make(chan sip.Message, 0)
 	errors := make(chan error, 0)
-	p := NewParser(messages, errors, false)
+	logger := log.NewDefaultLogrusLogger()
+	p := NewParser(messages, errors, false, logger)
 	defer func() {
-		log.Debugf("Stopping %p", p)
+		logger.Debugf("Stopping %p", p)
 		p.Stop()
 	}()
 
@@ -2228,8 +2228,8 @@ func (pt *ParserTest) Test(t *testing.T) {
 	testsRun++
 	output := make(chan sip.Message)
 	errs := make(chan error)
-
-	p := NewParser(output, errs, pt.streamed)
+	logger := log.NewDefaultLogrusLogger()
+	p := NewParser(output, errs, pt.streamed, logger)
 	defer p.Stop()
 
 	for stepIdx, step := range pt.steps {

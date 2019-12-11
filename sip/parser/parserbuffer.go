@@ -4,6 +4,7 @@ package parser
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/ghettovoice/gosip/log"
@@ -23,26 +24,27 @@ type parserBuffer struct {
 	// Don't access this directly except when closing.
 	pipeReader *io.PipeReader
 
-	logger log.LocalLogger
+	log log.Logger
 }
 
 // Create a new parserBuffer object (see struct comment for object details).
 // Note that resources owned by the parserBuffer may not be able to be GCed
 // until the Dispose() method is called.
-func newParserBuffer() *parserBuffer {
+func newParserBuffer(logger log.Logger) *parserBuffer {
 	var pb parserBuffer
 	pb.pipeReader, pb.Writer = io.Pipe()
 	pb.reader = bufio.NewReader(pb.pipeReader)
-	pb.logger = log.NewSafeLocalLogger()
+	pb.log = logger.
+		WithPrefix("parser.parserBuffer").
+		WithFields(log.Fields{
+			"parser_buffer_id": fmt.Sprintf("%p", pb),
+		})
+
 	return &pb
 }
 
 func (pb *parserBuffer) Log() log.Logger {
-	return pb.logger.Log()
-}
-
-func (pb *parserBuffer) SetLog(logger log.Logger) {
-	pb.logger.SetLog(logger)
+	return pb.log
 }
 
 // Block until the buffer contains at least one CRLF-terminated line.
@@ -71,7 +73,9 @@ func (pb *parserBuffer) NextLine() (response string, err error) {
 		if b == '\n' {
 			response = buffer.String()
 			response = response[:len(response)-2]
-			// pb.Log().Debugf("ParserBuffer %p returns line '%s'", pb, response)
+
+			pb.Log().Tracef("return line '%s'", response)
+
 			return
 		}
 	}
@@ -92,13 +96,17 @@ func (pb *parserBuffer) NextChunk(n int) (response string, err error) {
 	}
 
 	response = string(data)
-	// pb.Log().Debugf("ParserBuffer %p returns chunk '%s'", pb, response)
+
+	pb.Log().Tracef("return chunk '%s'", response)
+
 	return
 }
 
 // Stop the parser buffer.
 func (pb *parserBuffer) Stop() {
-	pb.Log().Debugf("stopping ParserBuffer %p", pb)
-	pb.pipeReader.Close()
-	pb.Log().Debugf("ParserBuffer %p stopped", pb)
+	if err := pb.pipeReader.Close(); err != nil {
+		pb.Log().Errorf("parser pipe reader close failed: %s", err)
+	}
+
+	pb.Log().Trace("parser buffer stopped")
 }
