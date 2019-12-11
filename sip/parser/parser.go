@@ -46,6 +46,8 @@ type Parser interface {
 	String() string
 	// Reset resets parser state
 	Reset()
+
+	ParseHeader(headerText string) (headers []sip.Header, err error)
 }
 
 // A HeaderParser is any function that turns raw header data into one or more Header objects.
@@ -327,7 +329,7 @@ func (p *parser) parse(requireContentLength bool) {
 
 		flushBuffer := func() {
 			if buffer.Len() > 0 {
-				newHeaders, err := p.parseHeader(buffer.String())
+				newHeaders, err := p.ParseHeader(buffer.String())
 				if err == nil {
 					headers = append(headers, newHeaders...)
 				} else {
@@ -647,7 +649,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 		endOfUriPart = len(uriStr)
 	}
 
-	uri.FHost, uri.FPort, err = parseHostPort(uriStr[:endOfUriPart])
+	uri.FHost, uri.FPort, err = ParseHostPort(uriStr[:endOfUriPart])
 	uriStr = uriStr[endOfUriPart:]
 	if err != nil {
 		return
@@ -664,7 +666,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 	var uriParams sip.Params
 	var n int
 	if uriStr[0] == ';' {
-		uriParams, n, err = parseParams(uriStr, ';', ';', '?', true, true)
+		uriParams, n, err = ParseParams(uriStr, ';', ';', '?', true, true)
 		if err != nil {
 			return
 		}
@@ -677,7 +679,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 	// Finally parse any URI headers.
 	// These are key-value pairs, starting with a '?' and separated by '&'.
 	var headers sip.Params
-	headers, n, err = parseParams(uriStr, '?', '&', 0, true, false)
+	headers, n, err = ParseParams(uriStr, '?', '&', 0, true, false)
 	if err != nil {
 		return
 	}
@@ -695,7 +697,7 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 // Parse a text representation of a host[:port] pair.
 // The port may or may not be present, so we represent it with a *uint16,
 // and return 'nil' if no port was present.
-func parseHostPort(rawText string) (host string, port *sip.Port, err error) {
+func ParseHostPort(rawText string) (host string, port *sip.Port, err error) {
 	colonIdx := strings.Index(rawText, ":")
 	if colonIdx == -1 {
 		host = rawText
@@ -723,7 +725,7 @@ func parseHostPort(rawText string) (host string, port *sip.Port, err error) {
 // parser and omitted from the returned map.
 // If permitSingletons is true, keys with no values are permitted.
 // These will result in a nil value in the returned map.
-func parseParams(
+func ParseParams(
 	source string,
 	start uint8,
 	sep uint8,
@@ -866,7 +868,7 @@ parseLoop:
 // Parse a header string, producing one or more Header objects.
 // (SIP messages containing multiple headers of the same type can express them as a
 // single header containing a comma-separated argument list).
-func (p *parser) parseHeader(headerText string) (headers []sip.Header, err error) {
+func (p *parser) ParseHeader(headerText string) (headers []sip.Header, err error) {
 	p.Log().Tracef("parsing header \"%s\"", headerText)
 
 	headers = make([]sip.Header, 0)
@@ -1026,7 +1028,7 @@ func parseCSeq(headerName string, headerText string) (
 	headers []sip.Header, err error) {
 	var cseq sip.CSeq
 
-	parts := splitByWhitespace(headerText)
+	parts := SplitByWhitespace(headerText)
 	if len(parts) != 2 {
 		err = fmt.Errorf(
 			"CSeq field should have precisely one whitespace section: '%s'",
@@ -1140,7 +1142,7 @@ func parseViaHeader(headerName string, headerText string) (
 		var port *sip.Port
 		if paramsIdx == -1 {
 			// There are no header parameters, so the rest of the Via body is part of the host[:post].
-			host, port, err = parseHostPort(viaBody)
+			host, port, err = ParseHostPort(viaBody)
 			hop.Host = host
 			hop.Port = port
 			if err != nil {
@@ -1148,14 +1150,14 @@ func parseViaHeader(headerName string, headerText string) (
 			}
 			hop.Params = sip.NewParams()
 		} else {
-			host, port, err = parseHostPort(viaBody[:paramsIdx])
+			host, port, err = ParseHostPort(viaBody[:paramsIdx])
 			if err != nil {
 				return
 			}
 			hop.Host = host
 			hop.Port = port
 
-			hop.Params, _, err = parseParams(viaBody[paramsIdx:],
+			hop.Params, _, err = ParseParams(viaBody[paramsIdx:],
 				';', ';', 0, true, true)
 		}
 		via = append(via, &hop)
@@ -1414,7 +1416,7 @@ func ParseAddressValue(addressText string) (
 
 	// Finally, parse any header parameters and then return.
 	addressText = addressText[startOfParams:]
-	headerParams, _, err = parseParams(addressText, ';', ';', ',', true, true)
+	headerParams, _, err = ParseParams(addressText, ';', ';', ',', true, true)
 	return
 }
 
@@ -1445,7 +1447,7 @@ func parseRecordRouteHeader(headerName string, headerText string) (headers []sip
 // a continuation of the previous line.
 // Therefore also return how many lines we consumed so the parent parser can
 // keep track of progress through the message.
-func getNextHeaderLine(contents []string) (headerText string, consumed int) {
+func GetNextHeaderLine(contents []string) (headerText string, consumed int) {
 	if len(contents) == 0 {
 		return
 	}
@@ -1517,7 +1519,7 @@ func findAnyUnescaped(text string, targets string, delims ...delimiter) int {
 
 // Splits the given string into sections, separated by one or more characters
 // from c_ABNF_WS.
-func splitByWhitespace(text string) []string {
+func SplitByWhitespace(text string) []string {
 	var buffer bytes.Buffer
 	var inString = true
 	result := make([]string, 0)

@@ -1,5 +1,5 @@
 // Forked from github.com/StefanKopieczek/gossip by @StefanKopieczek
-package parser
+package parser_test
 
 import (
 	"bytes"
@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/sip/parser"
 	"github.com/ghettovoice/gosip/testutils"
 )
 
@@ -61,7 +61,7 @@ func TestAAAASetup(t *testing.T) {
 
 func TestParams(t *testing.T) {
 	doTests([]test{
-		// TEST: parseParams
+		// TEST: ParseParams
 		{
 			&paramInput{";foo=bar", ';', ';', 0, false, true},
 			&paramResult{pass, sip.NewParams().Add("foo", sip.String{"bar"}), 8},
@@ -1476,7 +1476,7 @@ func (data *paramInput) String() string {
 	)
 }
 func (data *paramInput) evaluate() result {
-	output, consumed, err := parseParams(
+	output, consumed, err := parser.ParseParams(
 		data.paramString,
 		data.start,
 		data.sep,
@@ -1515,7 +1515,7 @@ func (data sipUriInput) String() string {
 	return string(data)
 }
 func (data sipUriInput) evaluate() result {
-	output, err := ParseSipUri(string(data))
+	output, err := parser.ParseSipUri(string(data))
 	return &sipUriResult{err, output}
 }
 
@@ -1549,7 +1549,7 @@ func (data hostPortInput) String() string {
 }
 
 func (data hostPortInput) evaluate() result {
-	host, port, err := parseHostPort(string(data))
+	host, port, err := parser.ParseHostPort(string(data))
 	return &hostPortResult{err, host, port}
 }
 
@@ -1597,7 +1597,7 @@ func (data headerBlockInput) String() string {
 }
 
 func (data headerBlockInput) evaluate() result {
-	contents, linesConsumed := getNextHeaderLine([]string(data))
+	contents, linesConsumed := parser.GetNextHeaderLine(data)
 	return &headerBlockResult{contents, linesConsumed}
 }
 
@@ -1623,13 +1623,13 @@ func parseHeader(rawHeader string) (headers []sip.Header, err error) {
 	messages := make(chan sip.Message, 0)
 	errors := make(chan error, 0)
 	logger := testutils.NewLogrusLogger()
-	p := NewParser(messages, errors, false, logger)
+	p := parser.NewParser(messages, errors, false, logger)
 	defer func() {
 		logger.Debugf("Stopping %p", p)
 		p.Stop()
 	}()
 
-	headers, err = (p.(*parser)).parseHeader(rawHeader)
+	headers, err = p.ParseHeader(rawHeader)
 
 	return
 }
@@ -1850,7 +1850,7 @@ func (data splitByWSInput) String() string {
 }
 
 func (data splitByWSInput) evaluate() result {
-	return splitByWSResult(splitByWhitespace(string(data)))
+	return splitByWSResult(parser.SplitByWhitespace(string(data)))
 }
 
 type splitByWSResult []string
@@ -2230,7 +2230,7 @@ func (pt *ParserTest) Test(t *testing.T) {
 	output := make(chan sip.Message)
 	errs := make(chan error)
 	logger := testutils.NewLogrusLogger()
-	p := NewParser(output, errs, pt.streamed, logger)
+	p := parser.NewParser(output, errs, pt.streamed, logger)
 	defer p.Stop()
 
 	for stepIdx, step := range pt.steps {
@@ -2265,7 +2265,7 @@ type parserTestStep struct {
 	returnedError error
 }
 
-func (step *parserTestStep) Test(parser Parser, msgChan chan sip.Message, errChan chan error) (success bool, reason string) {
+func (step *parserTestStep) Test(parser parser.Parser, msgChan chan sip.Message, errChan chan error) (success bool, reason string) {
 	_, err := parser.Write([]byte(step.input))
 	if err != step.returnedError {
 		success = false

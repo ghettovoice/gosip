@@ -37,7 +37,7 @@ func newParserBuffer(logger log.Logger) *parserBuffer {
 	pb.log = logger.
 		WithPrefix("parser.parserBuffer").
 		WithFields(log.Fields{
-			"parser_buffer_id": fmt.Sprintf("%p", pb),
+			"parser_buffer_id": fmt.Sprintf("%p", &pb),
 		})
 
 	return &pb
