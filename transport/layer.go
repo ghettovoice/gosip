@@ -66,7 +66,9 @@ type layer struct {
 	perrs       chan error
 	canceled    chan struct{}
 	done        chan struct{}
-	wg          sync.WaitGroup
+
+	wg         sync.WaitGroup
+	cancelOnce sync.Once
 
 	log log.Logger
 }
@@ -114,9 +116,15 @@ func (tpl *layer) Log() log.Logger {
 func (tpl *layer) Cancel() {
 	select {
 	case <-tpl.canceled:
+		return
 	default:
-		close(tpl.canceled)
 	}
+
+	tpl.cancelOnce.Do(func() {
+		close(tpl.canceled)
+
+		tpl.Log().Debug("transport layer canceled")
+	})
 }
 
 func (tpl *layer) Done() <-chan struct{} {
@@ -139,6 +147,12 @@ func (tpl *layer) IsReliable(network string) bool {
 }
 
 func (tpl *layer) Listen(network string, addr string) error {
+	select {
+	case <-tpl.canceled:
+		return fmt.Errorf("transport layer is canceled")
+	default:
+	}
+
 	// todo try with separate goroutine/outputs for each protocol
 	protocol, ok := tpl.protocols.get(protocolKey(network))
 	if !ok {
@@ -162,6 +176,12 @@ func (tpl *layer) Listen(network string, addr string) error {
 }
 
 func (tpl *layer) Send(msg sip.Message) error {
+	select {
+	case <-tpl.canceled:
+		return fmt.Errorf("transport layer is canceled")
+	default:
+	}
+
 	viaHop, ok := msg.ViaHop()
 	if !ok {
 		return &sip.MalformedMessageError{

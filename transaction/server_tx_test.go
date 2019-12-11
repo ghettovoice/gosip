@@ -23,7 +23,7 @@ var _ = Describe("ServerTx", func() {
 
 	BeforeEach(func() {
 		tpl = testutils.NewMockTransportLayer()
-		txl = transaction.NewLayer(tpl)
+		txl = transaction.NewLayer(tpl, testutils.NewLogrusLogger())
 	})
 	AfterEach(func(done Done) {
 		txl.Cancel()

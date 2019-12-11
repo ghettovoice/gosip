@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/discoviking/fsm"
+
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/timing"
@@ -33,10 +34,12 @@ type serverTx struct {
 	timer_j      timing.Timer
 	timer_1xx    timing.Timer
 	reliable     bool
-	mu           *sync.RWMutex
+
+	mu        sync.RWMutex
+	closeOnce sync.Once
 }
 
-func NewServerTx(origin sip.Request, tpl transport.Layer) (ServerTx, error) {
+func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (ServerTx, error) {
 	key, err := MakeServerTxKey(origin)
 	if err != nil {
 		return nil, err
@@ -46,13 +49,19 @@ func NewServerTx(origin sip.Request, tpl transport.Layer) (ServerTx, error) {
 	tx.key = key
 	tx.origin = origin
 	tx.tpl = tpl
-	tx.logger = log.NewSafeLocalLogger()
 	// about ~10 retransmits
 	tx.acks = make(chan sip.Request, 64)
 	tx.cancels = make(chan sip.Request, 64)
 	tx.errs = make(chan error, 64)
 	tx.done = make(chan bool)
-	tx.mu = new(sync.RWMutex)
+	tx.log = logger.
+		WithPrefix("transaction.ServerTx").
+		WithFields(log.Fields{
+			"transaction_key":    tx.key,
+			"transaction_id":     fmt.Sprintf("%p", tx),
+			"transaction_origin": tx.origin.Short(),
+		})
+
 	if viaHop, ok := origin.ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
 	}
@@ -64,21 +73,33 @@ func (tx *serverTx) Init() error {
 	tx.initFSM()
 
 	tx.mu.Lock()
+
 	if tx.reliable {
 		tx.timer_i_time = 0
 	} else {
 		tx.timer_g_time = Timer_G
 		tx.timer_i_time = Timer_I
 	}
+
 	tx.mu.Unlock()
+
 	// RFC 3261 - 17.2.1
 	if tx.Origin().IsInvite() {
-		tx.Log().Debugf("%s, set timer_1xx to %v", tx, Timer_1xx)
+		tx.Log().Debugf("set timer_1xx to %v", Timer_1xx)
 
 		tx.mu.Lock()
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
-			tx.Log().Debugf("%s, timer_1xx fired", tx)
-			_ = tx.Respond(sip.NewResponseFromRequest(tx.Origin(), 100, "Trying", ""))
+			tx.Log().Debug("timer_1xx fired")
+
+			if err := tx.Respond(
+				sip.NewResponseFromRequest(
+					tx.Origin(),
+					100,
+					"Trying",
+					""),
+			); err != nil {
+				tx.Log().Errorf("send '100 Trying' response failed: %s", err)
+			}
 		})
 		tx.mu.Unlock()
 	}
@@ -86,16 +107,12 @@ func (tx *serverTx) Init() error {
 	return nil
 }
 
-func (tx *serverTx) String() string {
-	return fmt.Sprintf("Server%s", tx.commonTx.String())
-}
-
 func (tx *serverTx) Receive(msg sip.Message) error {
 	req, ok := msg.(sip.Request)
 	if !ok {
 		return &sip.UnexpectedMessageError{
-			fmt.Errorf("%s recevied unexpected %s", tx, msg),
-			req.String(),
+			Err: fmt.Errorf("%s recevied unexpected %s", tx, msg),
+			Msg: req.String(),
 		}
 	}
 
@@ -122,8 +139,8 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 		tx.mu.Unlock()
 	default:
 		return &sip.UnexpectedMessageError{
-			fmt.Errorf("invalid %s correlated to %s", msg, tx),
-			req.String(),
+			Err: fmt.Errorf("invalid %s correlated to %s", msg, tx),
+			Msg: req.String(),
 		}
 	}
 
@@ -172,6 +189,7 @@ func (tx *serverTx) Terminate() {
 		return
 	default:
 	}
+
 	tx.delete()
 }
 
@@ -211,7 +229,7 @@ func (tx *serverTx) initFSM() {
 
 func (tx *serverTx) initInviteFSM() {
 	// Define States
-	tx.Log().Debugf("%s initialises INVITE FSM", tx)
+	tx.Log().Debug("initialising INVITE transaction FSM")
 
 	// Proceeding
 	server_state_def_proceeding := fsm.State{
@@ -279,7 +297,8 @@ func (tx *serverTx) initInviteFSM() {
 		server_state_def_terminated,
 	)
 	if err != nil {
-		tx.Log().Errorf("%s failed to define FSM: will be dropped, error: %s", tx, err.Error())
+		tx.Log().Errorf("define INVITE transaction FSM failed: %s", err)
+
 		return
 	}
 
@@ -288,7 +307,7 @@ func (tx *serverTx) initInviteFSM() {
 
 func (tx *serverTx) initNonInviteFSM() {
 	// Define States
-	tx.Log().Debugf("%s initialises non-INVITE FSM", tx)
+	tx.Log().Debug("initialising non-INVITE transaction FSM")
 
 	// Trying
 	server_state_def_trying := fsm.State{
@@ -351,7 +370,8 @@ func (tx *serverTx) initNonInviteFSM() {
 		server_state_def_terminated,
 	)
 	if err != nil {
-		tx.Log().Errorf("%s failed to define FSM: will be dropped, error: %s", tx, err.Error())
+		tx.Log().Errorf("define non-INVITE FSM failed: %s", err)
+
 		return
 	}
 
@@ -368,7 +388,7 @@ func (tx *serverTx) transportErr() {
 	tx.mu.RUnlock()
 
 	err = &TxTransportError{
-		fmt.Errorf("%s failed to send %s: %s", tx, res, err),
+		fmt.Errorf("transaction failed to send %s: %w", res, err),
 		tx.Key(),
 		tx.String(),
 	}
@@ -384,7 +404,7 @@ func (tx *serverTx) timeoutErr() {
 	defer func() { recover() }()
 
 	err := &TxTimeoutError{
-		fmt.Errorf("%s timed out", tx),
+		fmt.Errorf("transaction timed out"),
 		tx.Key(),
 		tx.String(),
 	}
@@ -424,12 +444,16 @@ func (tx *serverTx) delete() {
 
 	time.Sleep(time.Microsecond)
 
-	tx.mu.Lock()
-	close(tx.acks)
-	close(tx.cancels)
-	close(tx.errs)
-	close(tx.done)
-	tx.mu.Unlock()
+	tx.closeOnce.Do(func() {
+		tx.mu.Lock()
+
+		close(tx.acks)
+		close(tx.cancels)
+		close(tx.errs)
+		close(tx.done)
+
+		tx.mu.Unlock()
+	})
 }
 
 // Define actions.
@@ -443,7 +467,7 @@ func (tx *serverTx) act_respond() fsm.Input {
 		return fsm.NO_INPUT
 	}
 
-	tx.Log().Debugf("%s, act_respond %s", tx, lastResp.Short())
+	tx.Log().Debug("act_respond")
 
 	lastErr := tx.tpl.Send(lastResp)
 
@@ -467,7 +491,7 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 		return fsm.NO_INPUT
 	}
 
-	tx.Log().Debugf("%s, act_respond_complete %s", tx, lastResp.Short())
+	tx.Log().Debug("act_respond_complete")
 
 	lastErr := tx.tpl.Send(lastResp)
 
@@ -482,15 +506,23 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 	if !tx.reliable {
 		tx.mu.Lock()
 		if tx.timer_g == nil {
+			tx.Log().Debugf("timer_g set to %v", tx.timer_g_time)
+
 			tx.timer_g = timing.AfterFunc(tx.timer_g_time, func() {
-				tx.Log().Debugf("%s, timer_g fired", tx)
-				tx.fsm.Spin(server_input_timer_g)
+				tx.Log().Debug("timer_g fired")
+
+				if err := tx.fsm.Spin(server_input_timer_g); err != nil {
+					tx.Log().Errorf("spin FSM to server_input_timer_g failed: %s", err)
+				}
 			})
 		} else {
 			tx.timer_g_time *= 2
 			if tx.timer_g_time > T2 {
 				tx.timer_g_time = T2
 			}
+
+			tx.Log().Debugf("timer_g reset to %v", tx.timer_g_time)
+
 			tx.timer_g.Reset(tx.timer_g_time)
 		}
 		tx.mu.Unlock()
@@ -498,9 +530,14 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 
 	tx.mu.Lock()
 	if tx.timer_h == nil {
+		tx.Log().Debugf("timer_h set to %v", Timer_H)
+
 		tx.timer_h = timing.AfterFunc(Timer_H, func() {
-			tx.Log().Debugf("%s, timer_h fired", tx)
-			tx.fsm.Spin(server_input_timer_h)
+			tx.Log().Debug("timer_h fired")
+
+			if err := tx.fsm.Spin(server_input_timer_h); err != nil {
+				tx.Log().Errorf("spin FSM to server_input_timer_h failed: %s", err)
+			}
 		})
 	}
 	tx.mu.Unlock()
@@ -518,6 +555,8 @@ func (tx *serverTx) act_final() fsm.Input {
 		return fsm.NO_INPUT
 	}
 
+	tx.Log().Debug("act_final")
+
 	lastErr := tx.tpl.Send(tx.lastResp)
 
 	tx.mu.Lock()
@@ -529,10 +568,17 @@ func (tx *serverTx) act_final() fsm.Input {
 	}
 
 	tx.mu.Lock()
+
+	tx.Log().Debugf("timer_j set to %v", Timer_J)
+
 	tx.timer_j = timing.AfterFunc(Timer_J, func() {
-		tx.Log().Debugf("%s, timer_j fired", tx)
-		tx.fsm.Spin(server_input_timer_j)
+		tx.Log().Debug("timer_j fired")
+
+		if err := tx.fsm.Spin(server_input_timer_j); err != nil {
+			tx.Log().Errorf("spin FSM to server_input_timer_j failed: %s", err)
+		}
 	})
+
 	tx.mu.Unlock()
 
 	return fsm.NO_INPUT
@@ -540,28 +586,35 @@ func (tx *serverTx) act_final() fsm.Input {
 
 // Inform user of transport error
 func (tx *serverTx) act_trans_err() fsm.Input {
-	tx.Log().Debugf("%s, act_trans_err", tx)
+	tx.Log().Debug("act_trans_err")
+
 	tx.transportErr()
+
 	return server_input_delete
 }
 
 // Inform user of timeout error
 func (tx *serverTx) act_timeout() fsm.Input {
-	tx.Log().Debugf("%s, act_timeout", tx)
+	tx.Log().Debug("act_timeout")
+
 	tx.timeoutErr()
+
 	return server_input_delete
 }
 
 // Just delete the transaction.
 func (tx *serverTx) act_delete() fsm.Input {
-	tx.Log().Debugf("%s, act_delete", tx)
+	tx.Log().Debug("act_delete")
+
 	tx.delete()
+
 	return fsm.NO_INPUT
 }
 
 // Send response and delete the transaction.
 func (tx *serverTx) act_respond_delete() fsm.Input {
-	tx.Log().Debugf("%s, act_respond_delete", tx)
+	tx.Log().Debug("act_respond_delete")
+
 	tx.delete()
 
 	tx.mu.RLock()
@@ -580,13 +633,23 @@ func (tx *serverTx) act_respond_delete() fsm.Input {
 }
 
 func (tx *serverTx) act_confirm() fsm.Input {
-	tx.Log().Debugf("%s, act_confirm", tx)
+	tx.Log().Debug("act_confirm")
+
+	// todo bloody patch
+	defer func() { recover() }()
 
 	tx.mu.Lock()
+
+	tx.Log().Debugf("timer_i set to %v", Timer_I)
+
 	tx.timer_i = timing.AfterFunc(Timer_I, func() {
-		tx.Log().Debugf("%s, timer_i fired", tx)
-		tx.fsm.Spin(server_input_timer_i)
+		tx.Log().Debug("timer_i fired")
+
+		if err := tx.fsm.Spin(server_input_timer_i); err != nil {
+			tx.Log().Errorf("spin FSM to server_input_timer_i failed: %s", err)
+		}
 	})
+
 	tx.mu.Unlock()
 
 	tx.mu.RLock()
@@ -604,7 +667,10 @@ func (tx *serverTx) act_confirm() fsm.Input {
 }
 
 func (tx *serverTx) act_cancel() fsm.Input {
-	tx.Log().Debugf("%s, act_cancel", tx)
+	tx.Log().Debug("act_cancel")
+
+	// todo bloody patch
+	defer func() { recover() }()
 
 	tx.mu.RLock()
 	cancel := tx.lastCancel

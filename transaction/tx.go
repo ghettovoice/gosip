@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/discoviking/fsm"
+
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/transport"
@@ -17,7 +18,8 @@ func (key TxKey) String() string {
 
 // Tx is an common SIP transaction
 type Tx interface {
-	log.LocalLogger
+	log.Loggable
+
 	Init() error
 	Key() TxKey
 	Origin() sip.Request
@@ -31,33 +33,29 @@ type Tx interface {
 }
 
 type commonTx struct {
-	logger   log.LocalLogger
 	key      TxKey
 	fsm      *fsm.FSM
 	origin   sip.Request
 	tpl      transport.Layer
 	lastResp sip.Response
-	errs     chan error
-	lastErr  error
-	done     chan bool
+
+	errs    chan error
+	lastErr error
+	done    chan bool
+
+	log log.Logger
 }
 
 func (tx *commonTx) String() string {
 	if tx == nil {
-		return "Tx <nil>"
+		return "<nil>"
 	}
 
-	return fmt.Sprintf("Tx %p [key=%s] [%s]", tx, tx.Key(), tx.Origin().Short())
+	return fmt.Sprintf("%s<%s>", tx.Log().Prefix(), tx.Log().Fields())
 }
 
 func (tx *commonTx) Log() log.Logger {
-	return tx.logger.Log()
-}
-
-func (tx *commonTx) SetLog(logger log.Logger) {
-	tx.logger.SetLog(logger.WithFields(map[string]interface{}{
-		"tx": tx.String(),
-	}))
+	return tx.log
 }
 
 func (tx *commonTx) Origin() sip.Request {

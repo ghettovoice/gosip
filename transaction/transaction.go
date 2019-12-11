@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 )
 
@@ -41,8 +42,36 @@ type txMessage struct {
 	tx Tx
 }
 
+func (msg *txMessage) logFields() log.Fields {
+	fields := log.Fields{
+		"cseq_header":    "???",
+		"call_id_header": "???",
+		"from_header":    "???",
+		"to_header":      "???",
+	}
+
+	if cseq, ok := msg.CSeq(); ok {
+		fields["cseq_header"] = fmt.Sprintf("%s", cseq)
+	}
+	if callId, ok := msg.CallID(); ok {
+		fields["call_id_header"] = fmt.Sprintf("%s", callId)
+	}
+	if from, ok := msg.From(); ok {
+		fields["from_header"] = fmt.Sprintf("%s", from)
+	}
+	if to, ok := msg.To(); ok {
+		fields["to_header"] = fmt.Sprintf("%s", to)
+	}
+
+	return fields
+}
+
 func (msg *txMessage) Short() string {
-	return fmt.Sprintf("Tx%s [%s]", msg.Origin().Short(), msg.Tx())
+	if msg == nil {
+		return "<nil>"
+	}
+
+	return fmt.Sprintf("transaction.TxMessage<%s>", msg.logFields())
 }
 
 func (msg *txMessage) Tx() Tx {
@@ -68,7 +97,6 @@ func (msg *txMessage) Origin() sip.Message {
 
 type TxError interface {
 	error
-	UnwrapError() error
 	Key() TxKey
 	Terminated() bool
 	Timeout() bool
@@ -81,30 +109,29 @@ type TxTerminatedError struct {
 	Tx    string
 }
 
-func (err *TxTerminatedError) InitialError() error { return err.Err }
-func (err *TxTerminatedError) Terminated() bool    { return true }
-func (err *TxTerminatedError) Timeout() bool       { return false }
-func (err *TxTerminatedError) Transport() bool     { return false }
-func (err *TxTerminatedError) Key() TxKey          { return err.TxKey }
+func (err *TxTerminatedError) Unwrap() error    { return err.Err }
+func (err *TxTerminatedError) Terminated() bool { return true }
+func (err *TxTerminatedError) Timeout() bool    { return false }
+func (err *TxTerminatedError) Transport() bool  { return false }
+func (err *TxTerminatedError) Key() TxKey       { return err.TxKey }
 func (err *TxTerminatedError) Error() string {
 	if err == nil {
 		return "<nil>"
 	}
 
-	s := "TxTerminatedError"
-	parts := make([]string, 0)
+	fields := log.Fields{
+		"transaction_key": "???",
+		"transaction":     "???",
+	}
+
 	if err.TxKey != "" {
-		parts = append(parts, "key "+err.TxKey.String())
+		fields["transaction_key"] = err.TxKey
 	}
 	if err.Tx != "" {
-		parts = append(parts, "tx "+err.Tx)
+		fields["transaction"] = err.Tx
 	}
-	if len(parts) > 0 {
-		s += " (" + strings.Join(parts, ", ") + ")"
-	}
-	s += ": " + err.Err.Error()
 
-	return s
+	return fmt.Sprintf("transaction.TxTerminatedError<%s>: %s", fields, err.Err)
 }
 
 type TxTimeoutError struct {
@@ -113,30 +140,29 @@ type TxTimeoutError struct {
 	Tx    string
 }
 
-func (err *TxTimeoutError) InitialError() error { return err.Err }
-func (err *TxTimeoutError) Terminated() bool    { return false }
-func (err *TxTimeoutError) Timeout() bool       { return true }
-func (err *TxTimeoutError) Transport() bool     { return false }
-func (err *TxTimeoutError) Key() TxKey          { return err.TxKey }
+func (err *TxTimeoutError) Unwrap() error    { return err.Err }
+func (err *TxTimeoutError) Terminated() bool { return false }
+func (err *TxTimeoutError) Timeout() bool    { return true }
+func (err *TxTimeoutError) Transport() bool  { return false }
+func (err *TxTimeoutError) Key() TxKey       { return err.TxKey }
 func (err *TxTimeoutError) Error() string {
 	if err == nil {
 		return "<nil>"
 	}
 
-	s := "TxTimeoutError"
-	parts := make([]string, 0)
+	fields := log.Fields{
+		"transaction_key": "???",
+		"transaction":     "???",
+	}
+
 	if err.TxKey != "" {
-		parts = append(parts, "key "+err.TxKey.String())
+		fields["transaction_key"] = err.TxKey
 	}
 	if err.Tx != "" {
-		parts = append(parts, "tx "+err.Tx)
+		fields["transaction"] = err.Tx
 	}
-	if len(parts) > 0 {
-		s += " (" + strings.Join(parts, ", ") + ")"
-	}
-	s += ": " + err.Err.Error()
 
-	return s
+	return fmt.Sprintf("transaction.TxTimeoutError<%s>: %s", fields, err.Err)
 }
 
 type TxTransportError struct {
@@ -145,30 +171,29 @@ type TxTransportError struct {
 	Tx    string
 }
 
-func (err *TxTransportError) InitialError() error { return err.Err }
-func (err *TxTransportError) Terminated() bool    { return false }
-func (err *TxTransportError) Timeout() bool       { return false }
-func (err *TxTransportError) Transport() bool     { return true }
-func (err *TxTransportError) Key() TxKey          { return err.TxKey }
+func (err *TxTransportError) Unwrap() error    { return err.Err }
+func (err *TxTransportError) Terminated() bool { return false }
+func (err *TxTransportError) Timeout() bool    { return false }
+func (err *TxTransportError) Transport() bool  { return true }
+func (err *TxTransportError) Key() TxKey       { return err.TxKey }
 func (err *TxTransportError) Error() string {
 	if err == nil {
 		return "<nil>"
 	}
 
-	s := "TxTransportError"
-	parts := make([]string, 0)
+	fields := log.Fields{
+		"transaction_key": "???",
+		"transaction":     "???",
+	}
+
 	if err.TxKey != "" {
-		parts = append(parts, "key "+err.TxKey.String())
+		fields["transaction_key"] = err.TxKey
 	}
 	if err.Tx != "" {
-		parts = append(parts, "tx "+err.Tx)
+		fields["transaction"] = err.Tx
 	}
-	if len(parts) > 0 {
-		s += " (" + strings.Join(parts, ", ") + ")"
-	}
-	s += ": " + err.Err.Error()
 
-	return s
+	return fmt.Sprintf("transaction.TxTransportError<%s>: %s", fields, err.Err)
 }
 
 // MakeServerTxKey creates server commonTx key for matching retransmitting requests - RFC 3261 17.2.3.

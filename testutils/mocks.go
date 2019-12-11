@@ -110,7 +110,7 @@ func NewMockTransportLayer() *MockTransportLayer {
 		InErrs:  make(chan error),
 		OutMsgs: make(chan sip.Message),
 		done:    make(chan struct{}),
-		logger:  log.NewDefaultLogrusLogger(),
+		logger:  NewLogrusLogger(),
 	}
 }
 

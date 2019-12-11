@@ -11,7 +11,8 @@ import (
 
 // Layer serves client and server transactions.
 type Layer interface {
-	log.LocalLogger
+	log.Loggable
+
 	Cancel()
 	Done() <-chan struct{}
 	String() string
@@ -28,66 +29,70 @@ type Layer interface {
 }
 
 type layer struct {
-	logger       log.LocalLogger
 	tpl          transport.Layer
 	requests     chan sip.ServerTransaction
 	acks         chan sip.Request
 	responses    chan sip.Response
-	errs         chan error
-	done         chan struct{}
-	canceled     chan struct{}
 	transactions *transactionStore
-	txWg         *sync.WaitGroup
-	txWgLock     *sync.RWMutex
+
+	errs     chan error
+	done     chan struct{}
+	canceled chan struct{}
+
+	txWg       sync.WaitGroup
+	cancelOnce sync.Once
+
+	log log.Logger
 }
 
 func NewLayer(tpl transport.Layer, logger log.Logger) Layer {
 	txl := &layer{
-		logger:       log.NewSafeLocalLogger(),
 		tpl:          tpl,
-		requests:     make(chan sip.ServerTransaction),
-		acks:         make(chan sip.Request),
-		responses:    make(chan sip.Response),
-		errs:         make(chan error),
-		done:         make(chan struct{}),
-		canceled:     make(chan struct{}),
 		transactions: newTransactionStore(),
-		txWg:         new(sync.WaitGroup),
-		txWgLock:     new(sync.RWMutex),
+
+		requests:  make(chan sip.ServerTransaction),
+		acks:      make(chan sip.Request),
+		responses: make(chan sip.Response),
+
+		errs:     make(chan error),
+		done:     make(chan struct{}),
+		canceled: make(chan struct{}),
 	}
+	txl.log = logger.
+		WithPrefix("transaction.Layer").
+		WithFields(log.Fields{
+			"transaction_layer_id": fmt.Sprintf("%p", txl),
+		})
+
 	go txl.listenMessages()
 
 	return txl
 }
 
 func (txl *layer) String() string {
-	var addr string
 	if txl == nil {
-		addr = "<nil>"
-	} else {
-		addr = fmt.Sprintf("%p", txl)
+		return "<nil>"
 	}
 
-	return fmt.Sprintf("TransactionLayer %s", addr)
+	return fmt.Sprintf("transaction.Layer<%s>", txl.Log().Fields())
 }
 
 func (txl *layer) Log() log.Logger {
-	return txl.logger.Log()
-}
-
-func (txl *layer) SetLog(logger log.Logger) {
-	txl.logger.SetLog(logger.WithFields(map[string]interface{}{
-		"tx-layer": txl.String(),
-	}))
+	return txl.log
 }
 
 func (txl *layer) Cancel() {
 	select {
 	case <-txl.canceled:
+		return
 	default:
-		txl.Log().Debugf("cancel %s", txl)
-		close(txl.canceled)
 	}
+
+	txl.cancelOnce.Do(func() {
+		close(txl.canceled)
+
+		txl.Log().Debug("transaction layer canceled")
+	})
 }
 
 func (txl *layer) Done() <-chan struct{} {
@@ -117,35 +122,32 @@ func (txl *layer) Transport() transport.Layer {
 func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 	select {
 	case <-txl.canceled:
-		return nil, fmt.Errorf("%s is canceled", txl)
+		return nil, fmt.Errorf("transaction layer is canceled")
 	default:
 	}
 
-	txl.Log().Debugf("%s sends request '%s'", txl, req.Short())
-
 	if req.IsAck() {
-		return nil, fmt.Errorf("ack request must be sent directly through transport")
+		return nil, fmt.Errorf("ACK request must be sent directly through transport")
 	}
 
-	tx, err := NewClientTx(req, txl.tpl)
+	tx, err := NewClientTx(req, txl.tpl, txl.Log())
 	if err != nil {
 		return nil, err
 	}
 
-	txl.Log().Debugf("%s creates new %s", txl, tx)
+	txl.Log().WithFields(log.Fields{
+		"sip_message": req.Short(),
+		"transaction": tx.String(),
+	}).Debug("client transaction created")
 
 	txl.transactions.put(tx.Key(), tx)
-
-	tx.SetLog(txl.Log())
 
 	err = tx.Init()
 	if err != nil {
 		return nil, err
 	}
 
-	txl.txWgLock.Lock()
 	txl.txWg.Add(1)
-	txl.txWgLock.Unlock()
 	go txl.serveTransaction(tx)
 
 	return tx, nil
@@ -154,16 +156,19 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 func (txl *layer) Respond(res sip.Response) (sip.ServerTransaction, error) {
 	select {
 	case <-txl.canceled:
-		return nil, fmt.Errorf("%s is canceled", txl)
+		return nil, fmt.Errorf("transaction layer is canceled")
 	default:
 	}
-
-	txl.Log().Debugf("%s sends response '%s'", txl, res.Short())
 
 	tx, err := txl.getServerTx(res)
 	if err != nil {
 		return nil, err
 	}
+
+	txl.Log().WithFields(log.Fields{
+		"sip_message": res.Short(),
+		"transaction": tx.String(),
+	}).Debug("server transaction found")
 
 	err = tx.Respond(res)
 	if err != nil {
@@ -175,23 +180,20 @@ func (txl *layer) Respond(res sip.Response) (sip.ServerTransaction, error) {
 
 func (txl *layer) listenMessages() {
 	defer func() {
-		txl.Log().Infof("%s stops listen messages routine", txl)
-
-		txl.txWgLock.RLock()
 		txl.txWg.Wait()
-		txl.txWgLock.RUnlock()
 
 		close(txl.requests)
 		close(txl.responses)
 		close(txl.errs)
 		close(txl.done)
 	}()
-	txl.Log().Infof("%s starts listen messages routine", txl)
+
+	txl.Log().Info("start listen messages")
+	defer txl.Log().Info("stop listen messages")
 
 	for {
 		select {
 		case <-txl.canceled:
-			txl.Log().Debugf("%s received cancel signal", txl)
 			return
 		case msg, ok := <-txl.tpl.Messages():
 			if !ok {
@@ -204,12 +206,18 @@ func (txl *layer) listenMessages() {
 }
 
 func (txl *layer) serveTransaction(tx Tx) {
-	defer func() {
-		log.Debugf("%s deletes transaction %s", txl, tx)
+	logger := txl.Log().WithFields(log.Fields{
+		"transaction": tx.String(),
+	})
 
+	defer func() {
 		txl.transactions.drop(tx.Key())
+
 		txl.txWg.Done()
 	}()
+
+	logger.Debug("start serve transaction")
+	defer logger.Debug("stop serve transaction")
 
 	for {
 		select {
@@ -229,7 +237,11 @@ func (txl *layer) handleMessage(msg sip.Message) {
 	default:
 	}
 
-	txl.Log().Debugf("%s handles message '%s'", txl, msg.Short())
+	logger := txl.Log().WithFields(log.Fields{
+		"sip_message": msg.Short(),
+	})
+
+	logger.Debug("handling SIP message")
 
 	switch msg := msg.(type) {
 	case sip.Request:
@@ -237,7 +249,7 @@ func (txl *layer) handleMessage(msg sip.Message) {
 	case sip.Response:
 		txl.handleResponse(msg)
 	default:
-		txl.Log().Errorf("%s received unsupported message '%s'", txl, msg.Short())
+		logger.Error("unsupported message, skip it")
 		// todo pass up error?
 	}
 }
@@ -249,11 +261,19 @@ func (txl *layer) handleRequest(req sip.Request) {
 	default:
 	}
 
+	logger := txl.Log().WithFields(log.Fields{
+		"sip_message": req.Short(),
+	})
+
 	// try to match to existent tx: request retransmission, or ACKs on non-2xx, or CANCEL
 	tx, err := txl.getServerTx(req)
 	if err == nil {
+		logger = logger.WithFields(log.Fields{
+			"transaction": tx.String(),
+		})
+
 		if err := tx.Receive(req); err != nil {
-			txl.Log().Error(err)
+			logger.Error(err)
 		}
 
 		return
@@ -271,34 +291,37 @@ func (txl *layer) handleRequest(req sip.Request) {
 		return
 	}
 
-	tx, err = NewServerTx(req, txl.tpl)
+	tx, err = NewServerTx(req, txl.tpl, txl.Log())
 	if err != nil {
-		txl.Log().Error(err)
+		logger.Error(err)
+
 		return
 	}
 
-	txl.Log().Debugf("%s creates new %s", txl, tx)
+	logger = logger.WithFields(log.Fields{
+		"transaction": tx.String(),
+	})
+
+	logger.Debug("new server transaction created")
 	// put tx to store, to match retransmitting requests later
 	txl.transactions.put(tx.Key(), tx)
 
 	if err := tx.Init(); err != nil {
-		txl.Log().Error(err)
+		logger.Error(err)
+
 		return
 	}
 
-	tx.SetLog(txl.Log())
-
-	txl.txWgLock.Lock()
 	txl.txWg.Add(1)
-	txl.txWgLock.Unlock()
 	go txl.serveTransaction(tx)
 
 	// pass up request
-	txl.Log().Debugf("%s passes up request '%s'", txl, req.Short())
+	logger.Trace("passing up SIP request...")
 
 	select {
 	case <-txl.canceled:
 	case txl.requests <- tx:
+		logger.Trace("SIP request passed up")
 	}
 }
 
@@ -309,27 +332,41 @@ func (txl *layer) handleResponse(res sip.Response) {
 	default:
 	}
 
+	logger := txl.Log().WithFields(log.Fields{
+		"sip_message": res.Short(),
+	})
+
 	tx, err := txl.getClientTx(res)
 	if err != nil {
-		txl.Log().Debugf("%s passes up non-matched response '%s'", txl, res.Short())
+		logger.Trace("passing up non-matched SIP response")
 		// RFC 3261 - 17.1.1.2.
 		// Not matched responses should be passed directly to the UA
 		select {
 		case <-txl.canceled:
 		case txl.responses <- res:
+			logger.Trace("non-matched SIP response passed up")
 		}
 		return
 	}
 
+	logger = logger.WithFields(log.Fields{
+		"transaction": tx.String(),
+	})
+
 	if err := tx.Receive(res); err != nil {
-		txl.Log().Error(err)
+		logger.Error(err)
+
 		return
 	}
 }
 
 // RFC 17.1.3.
 func (txl *layer) getClientTx(msg sip.Message) (ClientTx, error) {
-	txl.Log().Debugf("%s searches client transaction for message '%s'", txl, msg.Short())
+	logger := txl.Log().WithFields(log.Fields{
+		"sip_message": msg.Short(),
+	})
+
+	logger.Trace("searching client transaction")
 
 	key, err := MakeClientTxKey(msg)
 	if err != nil {
@@ -338,23 +375,40 @@ func (txl *layer) getClientTx(msg sip.Message) (ClientTx, error) {
 
 	tx, ok := txl.transactions.get(key)
 	if !ok {
-		return nil, fmt.Errorf("%s failed to match message '%s' to client transaction: transaction with key '%s' not found",
-			txl, msg.Short(), key)
+		return nil, fmt.Errorf(
+			"%s failed to match message '%s' to client transaction: transaction with key '%s' not found",
+			txl,
+			msg.Short(),
+			key,
+		)
 	}
+
+	logger = logger.WithFields(log.Fields{
+		"transaction": tx.String(),
+	})
 
 	switch tx := tx.(type) {
 	case ClientTx:
-		tx.Log().Debugf("%s found %s for message '%s'", txl, tx, msg.Short())
+		logger.Trace("client transaction found")
+
 		return tx, nil
 	default:
-		return nil, fmt.Errorf("%s failed to match message '%s' to client transaction: found %s is not a client transaction",
-			txl, msg.Short(), tx)
+		return nil, fmt.Errorf(
+			"%s failed to match message '%s' to client transaction: found %s is not a client transaction",
+			txl,
+			msg.Short(),
+			tx,
+		)
 	}
 }
 
 // RFC 17.2.3.
 func (txl *layer) getServerTx(msg sip.Message) (ServerTx, error) {
-	txl.Log().Debugf("%s searches server transaction for message '%s'", txl, msg.Short())
+	logger := txl.Log().WithFields(log.Fields{
+		"sip_message": msg.Short(),
+	})
+
+	logger.Trace("searching server transaction")
 
 	key, err := MakeServerTxKey(msg)
 	if err != nil {
@@ -363,28 +417,41 @@ func (txl *layer) getServerTx(msg sip.Message) (ServerTx, error) {
 
 	tx, ok := txl.transactions.get(key)
 	if !ok {
-		return nil, fmt.Errorf("%s failed to match message '%s' to server transaction: transaction with key '%s' not found",
-			txl, msg.Short(), key)
+		return nil, fmt.Errorf(
+			"%s failed to match message '%s' to server transaction: transaction with key '%s' not found",
+			txl,
+			msg.Short(),
+			key,
+		)
 	}
+
+	logger = logger.WithFields(log.Fields{
+		"transaction": tx.String(),
+	})
 
 	switch tx := tx.(type) {
 	case ServerTx:
-		tx.Log().Debugf("%s found %s for message '%s'", txl, tx, msg.Short())
+		logger.Trace("server transaction found")
+
 		return tx, nil
 	default:
-		return nil, fmt.Errorf("%s failed to match message '%s' to server transaction: found %s is not server transaction",
-			txl, msg.Short(), tx)
+		return nil, fmt.Errorf(
+			"%s failed to match message '%s' to server transaction: found %s is not server transaction",
+			txl,
+			msg.Short(),
+			tx,
+		)
 	}
 }
 
 type transactionStore struct {
-	mu           *sync.RWMutex
 	transactions map[TxKey]Tx
+
+	mu sync.RWMutex
 }
 
 func newTransactionStore() *transactionStore {
 	return &transactionStore{
-		mu:           new(sync.RWMutex),
 		transactions: make(map[TxKey]Tx),
 	}
 }
