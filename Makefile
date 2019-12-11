@@ -13,7 +13,7 @@ install: .install-utils
 	go get -v github.com/onsi/gomega/...
 
 test:
-	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --succinct --progress $(GOFLAGS)
+	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --progress $(GOFLAGS)
 
 test-%:
 	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --progress $(GOFLAGS) ./$*
