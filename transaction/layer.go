@@ -147,6 +147,12 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 		return nil, err
 	}
 
+	select {
+	case <-txl.canceled:
+		return nil, fmt.Errorf("transaction layer is canceled")
+	default:
+	}
+
 	txl.txWg.Add(1)
 	go txl.serveTransaction(tx)
 
@@ -310,6 +316,12 @@ func (txl *layer) handleRequest(req sip.Request) {
 		logger.Error(err)
 
 		return
+	}
+
+	select {
+	case <-txl.canceled:
+		return
+	default:
 	}
 
 	txl.txWg.Add(1)

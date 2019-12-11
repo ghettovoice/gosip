@@ -160,7 +160,7 @@ func (pool *connectionPool) Put(key ConnectionKey, connection Connection, ttl ti
 		}
 	}
 
-	response := make(chan *connectionResponse)
+	response := make(chan *connectionResponse, 1)
 	req := &connectionRequest{
 		[]ConnectionKey{key},
 		[]Connection{connection},
@@ -209,7 +209,7 @@ func (pool *connectionPool) Get(key ConnectionKey) (Connection, error) {
 	default:
 	}
 
-	response := make(chan *connectionResponse)
+	response := make(chan *connectionResponse, 1)
 	req := &connectionRequest{
 		[]ConnectionKey{key},
 		nil,
@@ -254,7 +254,7 @@ func (pool *connectionPool) Drop(key ConnectionKey) error {
 	default:
 	}
 
-	response := make(chan *connectionResponse)
+	response := make(chan *connectionResponse, 1)
 	req := &connectionRequest{
 		[]ConnectionKey{key},
 		nil,
@@ -299,7 +299,7 @@ func (pool *connectionPool) DropAll() error {
 	default:
 	}
 
-	response := make(chan *connectionResponse)
+	response := make(chan *connectionResponse, 1)
 	req := &connectionRequest{
 		pool.allKeys(),
 		nil,
@@ -340,7 +340,7 @@ func (pool *connectionPool) All() []Connection {
 	default:
 	}
 
-	response := make(chan *connectionResponse)
+	response := make(chan *connectionResponse, 1)
 	req := &connectionRequest{
 		pool.allKeys(),
 		nil,
@@ -400,7 +400,7 @@ func (pool *connectionPool) dispose() {
 		if err := pool.drop(key, true); err != nil {
 			pool.Log().WithFields(log.Fields{
 				"connection_key": key,
-			}).Errorf("drop connection failed: %s", err)
+			}).Error(err)
 		}
 	}
 
@@ -486,7 +486,7 @@ func (pool *connectionPool) serveHandlers() {
 					logger.Debug("connection expired, drop it and go further")
 
 					if err := pool.Drop(handler.Key()); err != nil {
-						logger.Errorf("drop connection failed: %s", err)
+						logger.Error(err)
 					}
 				} else {
 					// Due to a race condition, the socket has been updated since this expiry happened.
@@ -496,11 +496,17 @@ func (pool *connectionPool) serveHandlers() {
 
 				continue
 			} else if herr.EOF() {
+				select {
+				case <-pool.cancel:
+					return
+				default:
+				}
+
 				// remote endpoint closed
 				logger.Debugf("connection EOF: %s; drop it and go further", herr)
 
 				if err := pool.Drop(handler.Key()); err != nil {
-					logger.Errorf("drop connection failed: %s", err)
+					logger.Error(err)
 				}
 
 				continue
@@ -509,7 +515,7 @@ func (pool *connectionPool) serveHandlers() {
 				logger.Debugf("connection network error: %s; drop it and pass the error up", herr)
 
 				if err := pool.Drop(handler.Key()); err != nil {
-					logger.Errorf("drop connection failed: %s", err)
+					logger.Error(err)
 				}
 			} else {
 				// syntax errors, malformed message errors and other

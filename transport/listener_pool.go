@@ -140,7 +140,7 @@ func (pool *listenerPool) Put(key ListenerKey, listener net.Listener) error {
 		}
 	}
 
-	response := make(chan *listenerResponse)
+	response := make(chan *listenerResponse, 1)
 	req := &listenerRequest{
 		[]ListenerKey{key},
 		[]net.Listener{listener},
@@ -187,7 +187,7 @@ func (pool *listenerPool) Get(key ListenerKey) (net.Listener, error) {
 	default:
 	}
 
-	response := make(chan *listenerResponse)
+	response := make(chan *listenerResponse, 1)
 	req := &listenerRequest{
 		[]ListenerKey{key},
 		nil,
@@ -231,7 +231,7 @@ func (pool *listenerPool) Drop(key ListenerKey) error {
 	default:
 	}
 
-	response := make(chan *listenerResponse)
+	response := make(chan *listenerResponse, 1)
 	req := &listenerRequest{
 		[]ListenerKey{key},
 		nil,
@@ -275,7 +275,7 @@ func (pool *listenerPool) DropAll() error {
 	default:
 	}
 
-	response := make(chan *listenerResponse)
+	response := make(chan *listenerResponse, 1)
 	req := &listenerRequest{
 		pool.allKeys(),
 		nil,
@@ -315,7 +315,7 @@ func (pool *listenerPool) All() []net.Listener {
 	default:
 	}
 
-	response := make(chan *listenerResponse)
+	response := make(chan *listenerResponse, 1)
 	req := &listenerRequest{
 		pool.allKeys(),
 		nil,
@@ -374,7 +374,7 @@ func (pool *listenerPool) dispose() {
 		if err := pool.drop(key, false); err != nil {
 			pool.Log().WithFields(log.Fields{
 				"listener_key": key,
-			}).Errorf("drop listener failed: %s", err)
+			}).Error(err)
 		}
 	}
 
@@ -438,7 +438,7 @@ func (pool *listenerPool) serveHandlers() {
 						logger.Debugf("listener network error: %s; drop it and go further", lerr)
 
 						if err := pool.Drop(handler.Key()); err != nil {
-							logger.Errorf("drop listener failed: %s")
+							logger.Error(err)
 						}
 					} else {
 						// other
