@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/log"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("UdpProtocol", func() {
@@ -73,7 +73,7 @@ var _ = Describe("UdpProtocol", func() {
 		"THIS MESSAGE FROM HELL!"
 	bullshit := "This is bullshit!\r\n"
 
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 
 	timing.MockMode = true
 

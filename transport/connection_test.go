@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/testutils"
-	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
+	"github.com/ghettovoice/gosip/testutils"
+	"github.com/ghettovoice/gosip/transport"
 )
 
 var _ = Describe("Connection", func() {
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 
 	Describe("construct", func() {
 		Context("from net.UDPConn", func() {

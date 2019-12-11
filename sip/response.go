@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/ghettovoice/gosip/log"
 )
 
 // Response RFC 3261 - 7.2.
@@ -39,7 +37,6 @@ func NewResponse(
 	body string,
 ) Response {
 	res := new(response)
-	res.logger = log.NewSafeLocalLogger()
 	res.startLine = res.StartLine
 	res.SetSipVersion(sipVersion)
 	res.headers = newHeaders(hdrs)
@@ -54,7 +51,11 @@ func NewResponse(
 }
 
 func (res *response) Short() string {
-	return fmt.Sprintf("Response%s", res.message.Short())
+	if res == nil {
+		return "<nil>"
+	}
+
+	return fmt.Sprintf("sip.Response<%s>", res.logFields())
 }
 
 func (res *response) StatusCode() StatusCode {
@@ -89,15 +90,13 @@ func (res *response) StartLine() string {
 }
 
 func (res *response) Clone() Message {
-	clone := NewResponse(
+	return NewResponse(
 		res.SipVersion(),
 		res.StatusCode(),
 		res.Reason(),
 		res.headers.CloneHeaders(),
 		res.Body(),
 	)
-	clone.SetLog(res.Log())
-	return clone
 }
 
 func (res *response) IsProvisional() bool {
@@ -152,7 +151,6 @@ func NewResponseFromRequest(
 		[]Header{},
 		"",
 	)
-	res.SetLog(req.Log())
 
 	CopyHeaders("Record-Route", req, res)
 	CopyHeaders("Via", req, res)

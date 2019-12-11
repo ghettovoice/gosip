@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/testutils"
-	"github.com/ghettovoice/gosip/transport"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
+	"github.com/ghettovoice/gosip/testutils"
+	"github.com/ghettovoice/gosip/transport"
 )
 
 var _ = Describe("ListenerHandler", func() {
@@ -26,7 +26,7 @@ var _ = Describe("ListenerHandler", func() {
 	key := transport.ListenerKey(addr.String())
 	str := "Hello world!"
 
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 
 	Context("just initialized", func() {
 		BeforeEach(func() {
@@ -144,14 +144,14 @@ var _ = Describe("ListenerPool", func() {
 	str1 := "Hello world!"
 	str2 := "Bye!"
 	str3 := "What's up, dude?"
-	addr1 := &testutils.MockAddr{"tcp", localAddr1}
-	addr2 := &testutils.MockAddr{"tcp", localAddr2}
-	addr3 := &testutils.MockAddr{"tcp", localAddr3}
+	addr1 := &testutils.MockAddr{Net: "tcp", Addr: localAddr1}
+	addr2 := &testutils.MockAddr{Net: "tcp", Addr: localAddr2}
+	addr3 := &testutils.MockAddr{Net: "tcp", Addr: localAddr3}
 	key1 := transport.ListenerKey(addr1.String())
 	key2 := transport.ListenerKey(addr2.String())
 	key3 := transport.ListenerKey(addr3.String())
 
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 
 	AssertIsEmpty := func() {
 		Expect(pool.Length()).To(Equal(0))
@@ -185,7 +185,7 @@ var _ = Describe("ListenerPool", func() {
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			pool = transport.NewListenerPool(output, errs, cancel, logger)
-			expected = fmt.Sprintf("%s canceled", pool)
+			expected = "listener pool closed"
 
 			close(cancel)
 			time.Sleep(time.Millisecond)
@@ -245,7 +245,7 @@ var _ = Describe("ListenerPool", func() {
 				err = pool.Put("", ls1)
 			})
 			It("should return Invalid Key error", func() {
-				Expect(err.Error()).To(ContainSubstring("invalid key provided"))
+				Expect(err.Error()).To(ContainSubstring("empty listener key"))
 			})
 			Context("the pool", func() {
 				ShouldBeEmpty()
@@ -309,7 +309,7 @@ var _ = Describe("ListenerPool", func() {
 					err = pool.Put(key1, testutils.NewMockListener(addr3))
 				})
 				It("should return Duplicate error", func() {
-					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s already has key '%s'", pool, key1)))
+					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("key %s already exists in the pool", key1)))
 				})
 				Context("the pool", func() {
 					It("should has Length = 1", func() {

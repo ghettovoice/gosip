@@ -18,5 +18,5 @@ func (err *RequestError) Error() string {
 		reason += fmt.Sprintf(" (Code %d)", err.Code)
 	}
 
-	return fmt.Sprintf("request '%s' failed with reason '%s'", err.Request, reason)
+	return fmt.Sprintf("sip.RequestError: request '%s' failed with reason '%s'", err.Request, reason)
 }

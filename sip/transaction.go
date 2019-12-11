@@ -1,6 +1,10 @@
 package sip
 
+import "github.com/ghettovoice/gosip/log"
+
 type Transaction interface {
+	log.Loggable
+
 	Origin() Request
 	String() string
 	Errors() <-chan error

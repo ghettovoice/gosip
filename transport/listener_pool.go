@@ -714,9 +714,11 @@ func (handler *listenerHandler) Serve(done func()) {
 
 func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan<- Connection, errs chan<- error) {
 	defer func() {
-		if err := handler.Listener().Close(); err != nil {
-			handler.Log().Errorf("close listener failed: %s", err)
-		}
+		handler.cancelOnce.Do(func() {
+			if err := handler.Listener().Close(); err != nil {
+				handler.Log().Errorf("close listener failed: %s", err)
+			}
+		})
 
 		close(conns)
 		close(errs)
@@ -833,6 +835,7 @@ func (handler *listenerHandler) Cancel() {
 
 	handler.cancelOnce.Do(func() {
 		close(handler.canceled)
+
 		if err := handler.Listener().Close(); err != nil {
 			handler.Log().Errorf("close listener failed: %s")
 		}

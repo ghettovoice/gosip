@@ -9,7 +9,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/transport"
@@ -26,7 +25,7 @@ var _ = Describe("TransportLayer", func() {
 	clientPort := sip.Port(9001)
 	clientHost := "127.0.0.1"
 	clientAddr := clientHost + ":" + fmt.Sprintf("%v", clientPort)
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 
 	BeforeEach(func() {
 		wg = new(sync.WaitGroup)

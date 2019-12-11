@@ -13,7 +13,7 @@ import (
 )
 
 func Message(rawMsg []string) sip.Message {
-	msg, err := parser.ParseMessage([]byte(strings.Join(rawMsg, "\r\n")), log.StandardLogger())
+	msg, err := parser.ParseMessage([]byte(strings.Join(rawMsg, "\r\n")), log.NewDefaultLogrusLogger())
 	Expect(err).ToNot(HaveOccurred())
 	return msg
 }

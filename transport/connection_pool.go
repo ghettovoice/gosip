@@ -202,7 +202,7 @@ func (pool *connectionPool) Get(key ConnectionKey) (Connection, error) {
 	select {
 	case <-pool.cancel:
 		return nil, &PoolError{
-			fmt.Errorf("connection pool canceled"),
+			fmt.Errorf("connection pool closed"),
 			"get connection",
 			pool.String(),
 		}
@@ -247,7 +247,7 @@ func (pool *connectionPool) Drop(key ConnectionKey) error {
 	select {
 	case <-pool.cancel:
 		return &PoolError{
-			fmt.Errorf("connection pool canceled"),
+			fmt.Errorf("connection pool closed"),
 			"drop connection",
 			pool.String(),
 		}
@@ -840,10 +840,18 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 
 	go func() {
 		defer func() {
+			handler.cancelOnce.Do(func() {
+				if err := handler.Connection().Close(); err != nil {
+					handler.Log().Errorf("connection close failed: %s", err)
+				}
+			})
+
 			prs.Stop()
+
 			if !streamed {
 				handler.addrs.Stop()
 			}
+
 			close(msgs)
 			close(errs)
 		}()
@@ -964,7 +972,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			// pass up to the pool
 			// pool will make decision to drop out connection or update ttl.
 			err := &ConnectionHandlerError{
-				ExpireError(fmt.Sprintf("%s expired", handler.Connection())),
+				ExpireError("connection expired"),
 				handler.Key(),
 				handler.String(),
 				handler.Connection().Network(),
@@ -1090,6 +1098,7 @@ func (handler *connectionHandler) Cancel() {
 
 	handler.cancelOnce.Do(func() {
 		close(handler.canceled)
+
 		if err := handler.Connection().Close(); err != nil {
 			handler.Log().Errorf("connection close failed: %s", err)
 		}

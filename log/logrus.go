@@ -1,6 +1,9 @@
 package log
 
-import "github.com/sirupsen/logrus"
+import (
+	"github.com/sirupsen/logrus"
+	prefixed "github.com/x-cray/logrus-prefixed-formatter"
+)
 
 type LogrusLogger struct {
 	log    logrus.Ext1FieldLogger
@@ -17,7 +20,13 @@ func NewLogrusLogger(logrus logrus.Ext1FieldLogger, prefix string, fields Fields
 }
 
 func NewDefaultLogrusLogger() *LogrusLogger {
-	return NewLogrusLogger(logrus.New(), "", nil)
+	logger := logrus.New()
+	logger.Formatter = &prefixed.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05.000",
+	}
+
+	return NewLogrusLogger(logger, "main", nil)
 }
 
 func (l *LogrusLogger) Print(args ...interface{}) {

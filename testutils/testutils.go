@@ -6,7 +6,10 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/sirupsen/logrus"
+	prefixed "github.com/x-cray/logrus-prefixed-formatter"
 
+	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 )
 
@@ -109,4 +112,17 @@ func AssertIncomingErrorArrived(
 	err := <-fromCh
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring(expected))
+}
+
+func NewLogrusLogger() *log.LogrusLogger {
+	logger := logrus.New()
+	logger.Level = logrus.ErrorLevel
+	logger.Formatter = &prefixed.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05.000",
+		ForceColors:     true,
+		ForceFormatting: true,
+	}
+
+	return log.NewLogrusLogger(logger, "main", nil)
 }

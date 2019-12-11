@@ -10,6 +10,7 @@ import (
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/testutils"
 )
 
 // Level of logs output during testing.
@@ -1621,7 +1622,7 @@ func (expected *headerBlockResult) equals(other result) (equal bool, reason stri
 func parseHeader(rawHeader string) (headers []sip.Header, err error) {
 	messages := make(chan sip.Message, 0)
 	errors := make(chan error, 0)
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 	p := NewParser(messages, errors, false, logger)
 	defer func() {
 		logger.Debugf("Stopping %p", p)
@@ -2228,7 +2229,7 @@ func (pt *ParserTest) Test(t *testing.T) {
 	testsRun++
 	output := make(chan sip.Message)
 	errs := make(chan error)
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 	p := NewParser(output, errs, pt.streamed, logger)
 	defer p.Stop()
 

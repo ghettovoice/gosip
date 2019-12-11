@@ -5,14 +5,14 @@ import (
 	"net"
 	"time"
 
-	"github.com/ghettovoice/gosip/log"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
 	"github.com/ghettovoice/gosip/util"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("ConnectionHandler", func() {
@@ -24,7 +24,7 @@ var _ = Describe("ConnectionHandler", func() {
 		conn           transport.Connection
 		handler        transport.ConnectionHandler
 	)
-	addr := &testutils.MockAddr{"tcp", localAddr1}
+	addr := &testutils.MockAddr{Net: "tcp", Addr: localAddr1}
 	key := transport.ConnectionKey(addr.String())
 	inviteMsg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
@@ -46,7 +46,7 @@ var _ = Describe("ConnectionHandler", func() {
 		"\r\n"
 	bullshit := "This is bullshit!\r\n"
 
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 
 	timing.MockMode = true
 
@@ -168,14 +168,14 @@ var _ = Describe("ConnectionHandler", func() {
 				testutils.AssertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
 				By("second message arrives on output")
 				testutils.AssertMessageArrived(output, inviteMsg, "pipe", "far-far-away.com:5060")
-				//for i := 0; i < 10; i++ {
+				// for i := 0; i < 10; i++ {
 				//	select {
 				//	case msg := <-output:
 				//		fmt.Printf("-------------------------------\n%s\n-------------------------------------\n", msg)
 				//	case err := <-errs:
 				//		fmt.Printf("-------------------------------\n%s\n-------------------------------------\n", err)
 				//	}
-				//}
+				// }
 				close(done)
 			})
 		})
@@ -206,7 +206,7 @@ var _ = Describe("ConnectionHandler", func() {
 				case <-handler.Done():
 					Fail("should never complete")
 				case err := <-errs:
-					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s expired", handler.Connection())))
+					Expect(err.Error()).To(ContainSubstring("connection expired"))
 				case <-time.After(100 * time.Millisecond):
 					Fail("timed out")
 				}
@@ -282,7 +282,7 @@ var _ = Describe("ConnectionPool", func() {
 		"Max-Forwards: 65\r\n" +
 		"\r\n"
 
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 
 	timing.MockMode = true
 
@@ -319,7 +319,7 @@ var _ = Describe("ConnectionPool", func() {
 			errs = make(chan error)
 			cancel = make(chan struct{})
 			pool = transport.NewConnectionPool(output, errs, cancel, logger)
-			expected = fmt.Sprintf("%s canceled", pool)
+			expected = "connection pool closed"
 
 			_, c2 := net.Pipe()
 			server = &testutils.MockConn{Conn: c2, LAddr: addr1, RAddr: c2.RemoteAddr()}
@@ -388,7 +388,7 @@ var _ = Describe("ConnectionPool", func() {
 				err = pool.Put("", server1, 0)
 			})
 			It("should return Invalid Key error", func() {
-				Expect(err.Error()).To(ContainSubstring("invalid key provided"))
+				Expect(err.Error()).To(ContainSubstring("empty connection key"))
 			})
 			Context("the pool", func() {
 				ShouldBeEmpty()
@@ -450,7 +450,7 @@ var _ = Describe("ConnectionPool", func() {
 					err = pool.Put(key1, server3, 0)
 				})
 				It("should return Duplicate error", func() {
-					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("%s already has key '%s'", pool, key1)))
+					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("key %s already exists in the pool", key1)))
 				})
 				Context("the pool", func() {
 					It("should has Length = 1", func() {
@@ -477,7 +477,7 @@ var _ = Describe("ConnectionPool", func() {
 					})
 					It("should has store with 2 connections: server1, server2", func() {
 						// this line sometimes raises DATA RACE warning
-						//Expect(pool.All()).To(ConsistOf(server1, server2))
+						// Expect(pool.All()).To(ConsistOf(server1, server2))
 						// compare by element
 						all := pool.All()
 						Expect(all[0]).To(Equal(server1))
@@ -602,7 +602,7 @@ var _ = Describe("ConnectionPool", func() {
 					By("server2 expired error arrives and ignored")
 					time.Sleep(time.Millisecond)
 					By("server3 falls with error")
-					testutils.AssertIncomingErrorArrived(errs, fmt.Sprintf("read pipe->%s: io: read/write on closed pipe", server3.LocalAddr()))
+					testutils.AssertIncomingErrorArrived(errs, "io: read/write on closed pipe")
 					By(fmt.Sprintf("message msg1 arrives %s -> %s", server1.RemoteAddr(), server1.LocalAddr()))
 					testutils.AssertMessageArrived(output, msg1, "pipe", "far-far-away.com:5060")
 					close(done)

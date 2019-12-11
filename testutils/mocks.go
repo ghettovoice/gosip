@@ -26,8 +26,8 @@ func NewMockListener(addr net.Addr) *MockListener {
 func (ls *MockListener) Accept() (net.Conn, error) {
 	select {
 	case <-ls.closed:
-		return nil, &net.OpError{"accept", ls.addr.Network(), ls.addr, nil,
-			errors.New("listener closed")}
+		return nil, &net.OpError{Op: "accept", Net: ls.addr.Network(), Source: ls.addr,
+			Err: errors.New("listener closed")}
 	case conn := <-ls.connections:
 		return conn, nil
 	}
@@ -46,8 +46,13 @@ func (ls *MockListener) Addr() net.Addr {
 func (ls *MockListener) Dial(network string, addr net.Addr) (net.Conn, error) {
 	select {
 	case <-ls.closed:
-		return nil, &net.OpError{"dial", addr.Network(), ls.addr, addr,
-			errors.New("listener closed")}
+		return nil, &net.OpError{
+			Op:     "dial",
+			Net:    addr.Network(),
+			Source: ls.addr,
+			Addr:   addr,
+			Err:    errors.New("listener closed"),
+		}
 	default:
 	}
 
@@ -92,20 +97,20 @@ func (conn *MockConn) RemoteAddr() net.Addr {
 }
 
 type MockTransportLayer struct {
-	logger  log.LocalLogger
 	InMsgs  chan sip.Message
 	InErrs  chan error
 	OutMsgs chan sip.Message
 	done    chan struct{}
+	logger  log.Logger
 }
 
 func NewMockTransportLayer() *MockTransportLayer {
 	return &MockTransportLayer{
-		logger:  log.NewSafeLocalLogger(),
 		InMsgs:  make(chan sip.Message),
 		InErrs:  make(chan error),
 		OutMsgs: make(chan sip.Message),
 		done:    make(chan struct{}),
+		logger:  log.NewDefaultLogrusLogger(),
 	}
 }
 
@@ -135,24 +140,15 @@ func (tpl *MockTransportLayer) IsReliable(network string) bool {
 }
 
 func (tpl *MockTransportLayer) String() string {
-	var addr string
 	if tpl == nil {
-		addr = "<nil>"
-	} else {
-		addr = fmt.Sprintf("%p", tpl)
+		return "<nil>"
 	}
 
-	return fmt.Sprintf("MockTransportLayer %s", addr)
+	return fmt.Sprintf("testutils.MockTransportLayer<%s>", tpl.Log().Fields())
 }
 
 func (tpl *MockTransportLayer) Log() log.Logger {
-	return tpl.logger.Log()
-}
-
-func (tpl *MockTransportLayer) SetLog(logger log.Logger) {
-	tpl.logger.SetLog(logger.WithFields(map[string]interface{}{
-		"tp-layer": tpl.String(),
-	}))
+	return tpl.logger
 }
 
 func (tpl *MockTransportLayer) Cancel() {

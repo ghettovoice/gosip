@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/ghettovoice/gosip/log"
 )
 
 // Request RFC 3261 - 7.1.
@@ -34,7 +32,6 @@ func NewRequest(
 	body string,
 ) Request {
 	req := new(request)
-	req.logger = log.NewSafeLocalLogger()
 	req.startLine = req.StartLine
 	req.SetSipVersion(sipVersion)
 	req.headers = newHeaders(hdrs)
@@ -49,7 +46,11 @@ func NewRequest(
 }
 
 func (req *request) Short() string {
-	return fmt.Sprintf("Request%s", req.message.Short())
+	if req == nil {
+		return "<nil>"
+	}
+
+	return fmt.Sprintf("sip.Request<%s>", req.logFields())
 }
 
 func (req *request) Method() RequestMethod {
@@ -84,15 +85,13 @@ func (req *request) StartLine() string {
 }
 
 func (req *request) Clone() Message {
-	clone := NewRequest(
+	return NewRequest(
 		req.Method(),
 		req.Recipient().Clone(),
 		req.SipVersion(),
 		req.headers.CloneHeaders(),
 		req.Body(),
 	)
-	clone.SetLog(req.Log())
-	return clone
 }
 
 func (req *request) IsInvite() bool {

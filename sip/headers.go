@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/util"
 )
 
@@ -131,9 +130,6 @@ func (params *headerParams) Clone() Params {
 	for _, key := range params.Keys() {
 		if val, ok := params.Get(key); ok {
 			dup.Add(key, val)
-		} else {
-			log.Errorf("internal consistency error: key %v present in param.Keys() but failed to Get()", key)
-			continue
 		}
 	}
 
@@ -149,7 +145,6 @@ func (params *headerParams) ToString(sep uint8) string {
 	for _, key := range params.Keys() {
 		val, ok := params.Get(key)
 		if !ok {
-			log.Errorf("internal consistency error: key %v present in param.Keys() but failed to Get()", key)
 			continue
 		}
 

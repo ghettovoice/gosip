@@ -44,7 +44,6 @@ const (
 
 // Message introduces common SIP message RFC 3261 - 7.
 type Message interface {
-	log.LocalLogger
 	Clone() Message
 	// Start line returns message start line.
 	StartLine() string
@@ -364,7 +363,6 @@ type message struct {
 	*headers
 	sipVersion string
 	body       string
-	logger     log.LocalLogger
 	startLine  func() string
 	src        string
 	dest       string
@@ -374,31 +372,28 @@ func (msg *message) StartLine() string {
 	return msg.startLine()
 }
 
-func (msg *message) Short() string {
-	if msg == nil {
-		return "<nil>"
+func (msg *message) logFields() log.Fields {
+	fields := log.Fields{
+		"cseq_header":    "???",
+		"call_id_header": "???",
+		"from_header":    "???",
+		"to_header":      "???",
 	}
 
-	s := "Message " + msg.StartLine()
-	parts := make([]string, 0)
 	if cseq, ok := msg.CSeq(); ok {
-		parts = append(parts, fmt.Sprintf("%s", cseq))
+		fields["cseq_header"] = fmt.Sprintf("%s", cseq)
 	}
 	if callId, ok := msg.CallID(); ok {
-		parts = append(parts, fmt.Sprintf("%s", callId))
+		fields["call_id_header"] = fmt.Sprintf("%s", callId)
 	}
 	if from, ok := msg.From(); ok {
-		parts = append(parts, fmt.Sprintf("%s", from))
+		fields["from_header"] = fmt.Sprintf("%s", from)
 	}
 	if to, ok := msg.To(); ok {
-		parts = append(parts, fmt.Sprintf("%s", to))
-	}
-	parts = append(parts, fmt.Sprintf("ptr %p", msg))
-	if len(parts) > 0 {
-		s += " (" + strings.Join(parts, ", ") + ")"
+		fields["to_header"] = fmt.Sprintf("%s", to)
 	}
 
-	return s
+	return fields
 }
 
 func (msg *message) String() string {
@@ -439,41 +434,6 @@ func (msg *message) SetBody(body string, setContentLength bool) {
 			hdrs[0] = &length
 		}
 	}
-}
-
-func (msg *message) Log() log.Logger {
-	return msg.logger.Log().WithFields(msg.logFields())
-}
-
-func (msg *message) SetLog(logger log.Logger) {
-	msg.logger.SetLog(logger)
-}
-
-func (msg *message) logFields() map[string]interface{} {
-	fields := make(map[string]interface{})
-	fields["msg"] = fmt.Sprintf("%p", msg)
-	// add Call-ID
-	if callId, ok := msg.CallID(); ok {
-		fields[strings.ToLower(callId.Name())] = string(*callId)
-	}
-	// add Via
-	if via, ok := msg.Via(); ok {
-		fields[strings.ToLower(via.Name())] = via
-	}
-	// add cseq
-	if cseq, ok := msg.CSeq(); ok {
-		fields[strings.ToLower(cseq.Name())] = cseq
-	}
-	// add From
-	if from, ok := msg.From(); ok {
-		fields[strings.ToLower(from.Name())] = from
-	}
-	// add To
-	if to, ok := msg.To(); ok {
-		fields[strings.ToLower(to.Name())] = to
-	}
-
-	return fields
 }
 
 func (msg *message) Transport() string {

@@ -266,16 +266,17 @@ func (p *parser) parse(requireContentLength bool) {
 
 	var msg sip.Message
 
+	p.Log().Debug("start parsing")
+	defer p.Log().Debug("stop parsing")
+
 	for {
 		// Parse the StartLine.
 		startLine, err := p.input.NextLine()
 		if err != nil {
-			p.Log().Errorf("parser stopped: %s", err)
-
 			break
 		}
 
-		// p.Log().Debugf("%s starts reading start line: %s", p, startLine)
+		p.Log().Tracef("start reading start line: %s", startLine)
 
 		var termErr error
 		if isRequest(startLine) {
@@ -340,8 +341,6 @@ func (p *parser) parse(requireContentLength bool) {
 			line, err := p.input.NextLine()
 
 			if err != nil {
-				p.Log().Errorf("parser stopped: %s", err)
-
 				break
 			}
 

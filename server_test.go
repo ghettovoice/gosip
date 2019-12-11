@@ -8,7 +8,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/ghettovoice/gosip"
-	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/transport"
@@ -24,7 +23,7 @@ var _ = Describe("GoSIP Server", func() {
 
 	clientAddr := "127.0.0.1:9001"
 	localTarget := transport.NewTarget("127.0.0.1", 5060)
-	logger := log.NewDefaultLogrusLogger()
+	logger := testutils.NewLogrusLogger()
 
 	BeforeEach(func() {
 		srv = gosip.NewServer(nil, logger)
