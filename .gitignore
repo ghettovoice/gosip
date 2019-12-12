@@ -119,3 +119,4 @@ fabric.properties
 ### App rules
 out
 *.coverprofile
+go.sum
