@@ -97,7 +97,6 @@ func (tx *serverTx) Init() error {
 					100,
 					"Trying",
 					"",
-					tx.origin.Fields(),
 				),
 			); err != nil {
 				tx.Log().Errorf("send '100 Trying' response failed: %s", err)

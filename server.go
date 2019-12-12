@@ -188,7 +188,7 @@ func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	if !ok {
 		logger.Warnf("SIP request handler not found")
 
-		res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", "", nil)
+		res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", "")
 		if _, err := srv.Respond(res); err != nil {
 			logger.Errorf("respond '405 Method Not Allowed' failed: %s", err)
 		}
@@ -378,7 +378,7 @@ func (srv *Server) RespondOnRequest(
 	reason, body string,
 	headers []sip.Header,
 ) (sip.ServerTransaction, error) {
-	response := sip.NewResponseFromRequest(request, status, reason, body, nil)
+	response := sip.NewResponseFromRequest(request, status, reason, body)
 	for _, header := range headers {
 		response.AppendHeader(header)
 	}
