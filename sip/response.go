@@ -159,7 +159,6 @@ func NewResponseFromRequest(
 	statusCode StatusCode,
 	reason string,
 	body string,
-	fields log.Fields,
 ) Response {
 	res := NewResponse(
 		req.SipVersion(),
@@ -167,7 +166,7 @@ func NewResponseFromRequest(
 		reason,
 		[]Header{},
 		"",
-		fields,
+		req.Fields(),
 	)
 
 	CopyHeaders("Record-Route", req, res)
