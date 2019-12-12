@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/ghettovoice/gosip/log"
 )
 
 // Request RFC 3261 - 7.1.
@@ -30,6 +32,7 @@ func NewRequest(
 	sipVersion string,
 	hdrs []Header,
 	body string,
+	fields log.Fields,
 ) Request {
 	req := new(request)
 	req.startLine = req.StartLine
@@ -37,6 +40,7 @@ func NewRequest(
 	req.headers = newHeaders(hdrs)
 	req.SetMethod(method)
 	req.SetRecipient(recipient)
+	req.fields = fields
 
 	if strings.TrimSpace(body) != "" {
 		req.SetBody(body, true)
@@ -50,7 +54,7 @@ func (req *request) Short() string {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("sip.Request<%s>", req.logFields())
+	return fmt.Sprintf("sip.Request<%s>", req.Fields())
 }
 
 func (req *request) Method() RequestMethod {
@@ -91,6 +95,18 @@ func (req *request) Clone() Message {
 		req.SipVersion(),
 		req.headers.CloneHeaders(),
 		req.Body(),
+		req.Fields(),
+	)
+}
+
+func (req *request) WithFields(fields log.Fields) Message {
+	return NewRequest(
+		req.Method(),
+		req.Recipient().Clone(),
+		req.SipVersion(),
+		req.headers.CloneHeaders(),
+		req.Body(),
+		req.Fields().WithFields(fields),
 	)
 }
 
@@ -174,7 +190,14 @@ func (req *request) Destination() string {
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
 func NewAckRequest(inviteRequest Request, inviteResponse Response) Request {
 	contact, _ := inviteResponse.Contact()
-	ackRequest := NewRequest(ACK, contact.Address, inviteResponse.SipVersion(), []Header{}, "")
+	ackRequest := NewRequest(
+		ACK,
+		contact.Address,
+		inviteResponse.SipVersion(),
+		[]Header{},
+		"",
+		inviteRequest.Fields(),
+	)
 
 	CopyHeaders("Via", inviteRequest, ackRequest)
 	viaHop, _ := ackRequest.ViaHop()
@@ -206,7 +229,14 @@ func NewAckRequest(inviteRequest Request, inviteResponse Response) Request {
 }
 
 func NewCancelRequest(requestForCancel Request) Request {
-	cancelReq := NewRequest(CANCEL, requestForCancel.Recipient(), requestForCancel.SipVersion(), []Header{}, "")
+	cancelReq := NewRequest(
+		CANCEL,
+		requestForCancel.Recipient(),
+		requestForCancel.SipVersion(),
+		[]Header{},
+		"",
+		requestForCancel.Fields(),
+	)
 
 	viaHop, _ := requestForCancel.ViaHop()
 	cancelReq.AppendHeader(ViaHeader{viaHop.Clone()})

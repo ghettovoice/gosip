@@ -72,6 +72,7 @@ func TestMessage_String(t *testing.T) {
 					&callId,
 				},
 				"",
+				nil,
 			),
 			"INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 				"To: \"bob\" <sip:bob@far-far-away.com>\r\n" +

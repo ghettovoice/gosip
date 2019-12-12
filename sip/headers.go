@@ -215,6 +215,7 @@ func cloneWithNil(params Params) Params {
 
 // SipUri
 // A SIP or SIPS URI, including all params and URI header params.
+//noinspection GoNameStartsWithPackageName
 type SipUri struct {
 	// True if and only if the URI is a SIPS URI.
 	FIsEncrypted bool

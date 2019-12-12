@@ -103,6 +103,7 @@ var _ = Describe("TransportLayer", func() {
 						200,
 						"OK",
 						"",
+						nil,
 					)
 				})
 
@@ -180,6 +181,7 @@ var _ = Describe("TransportLayer", func() {
 						200,
 						"OK",
 						"",
+						nil,
 					)
 				})
 

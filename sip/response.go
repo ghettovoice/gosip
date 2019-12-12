@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/ghettovoice/gosip/log"
 )
 
 // Response RFC 3261 - 7.2.
@@ -35,6 +37,7 @@ func NewResponse(
 	reason string,
 	hdrs []Header,
 	body string,
+	fields log.Fields,
 ) Response {
 	res := new(response)
 	res.startLine = res.StartLine
@@ -42,6 +45,7 @@ func NewResponse(
 	res.headers = newHeaders(hdrs)
 	res.SetStatusCode(statusCode)
 	res.SetReason(reason)
+	res.fields = fields
 
 	if strings.TrimSpace(body) != "" {
 		res.SetBody(body, true)
@@ -55,7 +59,7 @@ func (res *response) Short() string {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("sip.Response<%s>", res.logFields())
+	return fmt.Sprintf("sip.Response<%s>", res.Fields())
 }
 
 func (res *response) StatusCode() StatusCode {
@@ -96,6 +100,18 @@ func (res *response) Clone() Message {
 		res.Reason(),
 		res.headers.CloneHeaders(),
 		res.Body(),
+		res.Fields(),
+	)
+}
+
+func (res *response) WithFields(fields log.Fields) Message {
+	return NewResponse(
+		res.SipVersion(),
+		res.StatusCode(),
+		res.Reason(),
+		res.headers.CloneHeaders(),
+		res.Body(),
+		res.Fields().WithFields(fields),
 	)
 }
 
@@ -143,6 +159,7 @@ func NewResponseFromRequest(
 	statusCode StatusCode,
 	reason string,
 	body string,
+	fields log.Fields,
 ) Response {
 	res := NewResponse(
 		req.SipVersion(),
@@ -150,6 +167,7 @@ func NewResponseFromRequest(
 		reason,
 		[]Header{},
 		"",
+		fields,
 	)
 
 	CopyHeaders("Record-Route", req, res)

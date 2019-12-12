@@ -168,14 +168,14 @@ var _ = Describe("TcpProtocol", func() {
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
 				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5060")
-				//for i := 0; i < 4; i++ {
+				// for i := 0; i < 4; i++ {
 				//	select {
 				//	case msg := <-output:
 				//		fmt.Printf("\n-------------------------------\n%s\n-------------------------------------\n\n", msg)
 				//	case err := <-errs:
 				//		fmt.Printf("\n-------------------------------\n%s\n-------------------------------------\n\n", err)
 				//	}
-				//}
+				// }
 				close(done)
 			}, 3)
 		})
@@ -203,9 +203,11 @@ var _ = Describe("TcpProtocol", func() {
 					200,
 					"OK",
 					[]sip.Header{
-						&sip.CSeq{2, sip.INVITE},
+						&sip.CSeq{SeqNo: 2, MethodName: sip.INVITE},
 					},
-					"")
+					"",
+					nil,
+				)
 				twg := new(sync.WaitGroup)
 				twg.Add(2)
 				go func() {

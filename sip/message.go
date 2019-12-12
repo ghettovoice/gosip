@@ -98,6 +98,9 @@ type Message interface {
 
 	IsCancel() bool
 	IsAck() bool
+
+	Fields() log.Fields
+	WithFields(fields log.Fields) Message
 }
 
 // headers is a struct with methods to work with SIP headers.
@@ -366,14 +369,16 @@ type message struct {
 	startLine  func() string
 	src        string
 	dest       string
+
+	fields log.Fields
 }
 
 func (msg *message) StartLine() string {
 	return msg.startLine()
 }
 
-func (msg *message) logFields() log.Fields {
-	fields := log.Fields{
+func (msg *message) Fields() log.Fields {
+	baseFields := log.Fields{
 		"cseq_header":    "???",
 		"call_id_header": "???",
 		"from_header":    "???",
@@ -381,19 +386,19 @@ func (msg *message) logFields() log.Fields {
 	}
 
 	if cseq, ok := msg.CSeq(); ok {
-		fields["cseq_header"] = fmt.Sprintf("%s", cseq)
+		baseFields["cseq_header"] = fmt.Sprintf("%s", cseq)
 	}
 	if callId, ok := msg.CallID(); ok {
-		fields["call_id_header"] = fmt.Sprintf("%s", callId)
+		baseFields["call_id_header"] = fmt.Sprintf("%s", callId)
 	}
 	if from, ok := msg.From(); ok {
-		fields["from_header"] = fmt.Sprintf("%s", from)
+		baseFields["from_header"] = fmt.Sprintf("%s", from)
 	}
 	if to, ok := msg.To(); ok {
-		fields["to_header"] = fmt.Sprintf("%s", to)
+		baseFields["to_header"] = fmt.Sprintf("%s", to)
 	}
 
-	return fields
+	return msg.fields.WithFields(baseFields)
 }
 
 func (msg *message) String() string {

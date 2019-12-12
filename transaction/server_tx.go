@@ -47,7 +47,6 @@ func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Se
 
 	tx := new(serverTx)
 	tx.key = key
-	tx.origin = origin
 	tx.tpl = tpl
 	// about ~10 retransmits
 	tx.acks = make(chan sip.Request, 64)
@@ -59,8 +58,9 @@ func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Se
 		WithFields(log.Fields{
 			"transaction_key":    tx.key,
 			"transaction_id":     fmt.Sprintf("%p", tx),
-			"transaction_origin": tx.origin.Short(),
+			"transaction_origin": origin.Short(),
 		})
+	tx.origin = origin.WithFields(tx.Log().Fields()).(sip.Request)
 
 	if viaHop, ok := origin.ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
@@ -96,7 +96,9 @@ func (tx *serverTx) Init() error {
 					tx.Origin(),
 					100,
 					"Trying",
-					""),
+					"",
+					tx.origin.Fields(),
+				),
 			); err != nil {
 				tx.Log().Errorf("send '100 Trying' response failed: %s", err)
 			}

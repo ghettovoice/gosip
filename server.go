@@ -100,12 +100,11 @@ func NewServer(config *ServerConfig, logger log.Logger) *Server {
 		invites:         make(map[transaction.TxKey]sip.Request),
 		invitesLock:     new(sync.RWMutex),
 	}
-
 	srv.log = logger.WithFields(log.Fields{
 		"sip_server_id": fmt.Sprintf("%p", srv),
 	})
 	srv.tp = transport.NewLayer(ip, dnsResolver, srv.Log())
-	srv.tx = transaction.NewLayer(srv.tp, srv.Log())
+	srv.tx = transaction.NewLayer(srv.tp, srv.Log().WithFields(srv.tp.Log().Fields()))
 
 	go srv.serve()
 
@@ -189,7 +188,7 @@ func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	if !ok {
 		logger.Warnf("SIP request handler not found")
 
-		res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", "")
+		res := sip.NewResponseFromRequest(req, 405, "Method Not Allowed", "", nil)
 		if _, err := srv.Respond(res); err != nil {
 			logger.Errorf("respond '405 Method Not Allowed' failed: %s", err)
 		}
@@ -379,7 +378,7 @@ func (srv *Server) RespondOnRequest(
 	reason, body string,
 	headers []sip.Header,
 ) (sip.ServerTransaction, error) {
-	response := sip.NewResponseFromRequest(request, status, reason, body)
+	response := sip.NewResponseFromRequest(request, status, reason, body, nil)
 	for _, header := range headers {
 		response.AppendHeader(header)
 	}

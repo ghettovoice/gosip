@@ -9,9 +9,9 @@ import (
 // Controls whether library calls should be mocked, or whether we should use the standard Go time library.
 // If we're in Mock Mode, then time does not pass as normal, but only progresses when Elapse is called.
 // False by default, indicating that we just call through to standard Go functions.
-var MockMode bool = false
-var currentTimeMock time.Time = time.Unix(0, 0)
-var mockTimers []*mockTimer = make([]*mockTimer, 0)
+var MockMode = false
+var currentTimeMock = time.Unix(0, 0)
+var mockTimers = make([]*mockTimer, 0)
 var mockTimerMu = new(sync.Mutex)
 
 // Interface over Golang's built-in Timers, allowing them to be swapped out for mocked timers.
@@ -44,7 +44,7 @@ func (t *realTimer) Reset(d time.Duration) bool {
 }
 
 func (t *realTimer) Stop() bool {
-	//return t.Timer.Stop()
+	// return t.Timer.Stop()
 	if !t.Timer.Stop() {
 		select {
 		case <-t.Timer.C:

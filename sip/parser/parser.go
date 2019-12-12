@@ -284,14 +284,14 @@ func (p *parser) parse(requireContentLength bool) {
 		if isRequest(startLine) {
 			method, recipient, sipVersion, err := ParseRequestLine(startLine)
 			if err == nil {
-				msg = sip.NewRequest(method, recipient, sipVersion, []sip.Header{}, "")
+				msg = sip.NewRequest(method, recipient, sipVersion, []sip.Header{}, "", nil)
 			} else {
 				termErr = err
 			}
 		} else if isResponse(startLine) {
 			sipVersion, statusCode, reason, err := ParseStatusLine(startLine)
 			if err == nil {
-				msg = sip.NewResponse(sipVersion, statusCode, reason, []sip.Header{}, "")
+				msg = sip.NewResponse(sipVersion, statusCode, reason, []sip.Header{}, "", nil)
 			} else {
 				termErr = err
 			}
@@ -791,7 +791,7 @@ parseLoop:
 				)
 				return
 			} else {
-				params.Add(key, sip.String{buffer.String()})
+				params.Add(key, sip.String{Str: buffer.String()})
 			}
 			buffer.Reset()
 			parsingKey = true
@@ -860,7 +860,7 @@ parseLoop:
 		err = fmt.Errorf("singleton param '%s' when parsing params which disallow singletons: \"%s\"",
 			buffer.String(), source)
 	} else {
-		params.Add(key, sip.String{buffer.String()})
+		params.Add(key, sip.String{Str: buffer.String()})
 	}
 	return
 }

@@ -40,7 +40,6 @@ func NewClientTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Cl
 
 	tx := new(clientTx)
 	tx.key = key
-	tx.origin = origin
 	tx.tpl = tpl
 	// buffer chan - about ~10 retransmit responses
 	tx.responses = make(chan sip.Response, 64)
@@ -51,8 +50,9 @@ func NewClientTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Cl
 		WithFields(log.Fields{
 			"transaction_key":    tx.key,
 			"transaction_id":     fmt.Sprintf("%p", tx),
-			"transaction_origin": tx.origin.Short(),
+			"transaction_origin": origin.Short(),
 		})
+	tx.origin = origin.WithFields(tx.Log().Fields()).(sip.Request)
 
 	if viaHop, ok := origin.ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
@@ -173,6 +173,7 @@ func (tx clientTx) ack() {
 		tx.Origin().SipVersion(),
 		[]sip.Header{},
 		"",
+		tx.Origin().Fields(),
 	)
 
 	// Copy headers from original request.

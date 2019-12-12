@@ -256,9 +256,9 @@ var _ = Describe("ConnectionPool", func() {
 		cancel chan struct{}
 		pool   transport.ConnectionPool
 	)
-	addr1 := &testutils.MockAddr{"tcp", localAddr1}
-	addr2 := &testutils.MockAddr{"tcp", localAddr2}
-	addr3 := &testutils.MockAddr{"tcp", localAddr3}
+	addr1 := &testutils.MockAddr{Net: "tcp", Addr: localAddr1}
+	addr2 := &testutils.MockAddr{Net: "tcp", Addr: localAddr2}
+	addr3 := &testutils.MockAddr{Net: "tcp", Addr: localAddr3}
 	key1 := transport.ConnectionKey(addr1.String())
 	key2 := transport.ConnectionKey(addr2.String())
 	key3 := transport.ConnectionKey(addr3.String())

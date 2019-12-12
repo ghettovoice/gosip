@@ -962,18 +962,18 @@ func TestCSeqs(t *testing.T) {
 
 func TestCallIds(t *testing.T) {
 	doTests([]test{
-		{callIdInput("Call-ID: fdlknfa32bse3yrbew23bf"), &callIdResult{pass, sip.CallID("fdlknfa32bse3yrbew23bf")}},
-		{callIdInput("Call-ID : fdlknfa32bse3yrbew23bf"), &callIdResult{pass, sip.CallID("fdlknfa32bse3yrbew23bf")}},
-		{callIdInput("Call-ID  : fdlknfa32bse3yrbew23bf"), &callIdResult{pass, sip.CallID("fdlknfa32bse3yrbew23bf")}},
-		{callIdInput("Call-ID\t: fdlknfa32bse3yrbew23bf"), &callIdResult{pass, sip.CallID("fdlknfa32bse3yrbew23bf")}},
-		{callIdInput("Call-ID: banana"), &callIdResult{pass, sip.CallID("banana")}},
-		{callIdInput("Call-ID: banana"), &callIdResult{pass, sip.CallID("banana")}},
-		{callIdInput("Call-ID: 1banana"), &callIdResult{pass, sip.CallID("1banana")}},
-		{callIdInput("Call-ID:"), &callIdResult{fail, sip.CallID("")}},
-		{callIdInput("Call-ID: banana spaghetti"), &callIdResult{fail, sip.CallID("")}},
-		{callIdInput("Call-ID: banana\tspaghetti"), &callIdResult{fail, sip.CallID("")}},
-		{callIdInput("Call-ID: banana;spaghetti"), &callIdResult{fail, sip.CallID("")}},
-		{callIdInput("Call-ID: banana;spaghetti=tasty"), &callIdResult{fail, sip.CallID("")}},
+		{callIdInput("Call-ID: fdlknfa32bse3yrbew23bf"), &callIdResult{pass, "fdlknfa32bse3yrbew23bf"}},
+		{callIdInput("Call-ID : fdlknfa32bse3yrbew23bf"), &callIdResult{pass, "fdlknfa32bse3yrbew23bf"}},
+		{callIdInput("Call-ID  : fdlknfa32bse3yrbew23bf"), &callIdResult{pass, "fdlknfa32bse3yrbew23bf"}},
+		{callIdInput("Call-ID\t: fdlknfa32bse3yrbew23bf"), &callIdResult{pass, "fdlknfa32bse3yrbew23bf"}},
+		{callIdInput("Call-ID: banana"), &callIdResult{pass, "banana"}},
+		{callIdInput("Call-ID: banana"), &callIdResult{pass, "banana"}},
+		{callIdInput("Call-ID: 1banana"), &callIdResult{pass, "1banana"}},
+		{callIdInput("Call-ID:"), &callIdResult{fail, ""}},
+		{callIdInput("Call-ID: banana spaghetti"), &callIdResult{fail, ""}},
+		{callIdInput("Call-ID: banana\tspaghetti"), &callIdResult{fail, ""}},
+		{callIdInput("Call-ID: banana;spaghetti"), &callIdResult{fail, ""}},
+		{callIdInput("Call-ID: banana;spaghetti=tasty"), &callIdResult{fail, ""}},
 	}, t)
 }
 
@@ -1017,10 +1017,10 @@ func TestExpires(t *testing.T) {
 
 func TestUserAgent(t *testing.T) {
 	doTests([]test{
-		{userAgentInput("User-Agent: GoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
-		{userAgentInput("User-Agent:      GoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
-		{userAgentInput("User-Agent:\tGoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
-		{userAgentInput("User-Agent:\n  GoSIP v1.2.3"), &userAgentResult{pass, sip.UserAgentHeader("GoSIP v1.2.3")}},
+		{userAgentInput("User-Agent: GoSIP v1.2.3"), &userAgentResult{pass, "GoSIP v1.2.3"}},
+		{userAgentInput("User-Agent:      GoSIP v1.2.3"), &userAgentResult{pass, "GoSIP v1.2.3"}},
+		{userAgentInput("User-Agent:\tGoSIP v1.2.3"), &userAgentResult{pass, "GoSIP v1.2.3"}},
+		{userAgentInput("User-Agent:\n  GoSIP v1.2.3"), &userAgentResult{pass, "GoSIP v1.2.3"}},
 	}, t)
 }
 
@@ -1114,6 +1114,7 @@ func TestUnstreamedParse1(t *testing.T) {
 				"SIP/2.0",
 				make([]sip.Header, 0),
 				"",
+				nil,
 			),
 			nil,
 			nil,
@@ -1147,6 +1148,7 @@ func TestUnstreamedParse2(t *testing.T) {
 				"SIP/2.0",
 				[]sip.Header{&sip.CSeq{SeqNo: 13, MethodName: sip.INVITE}},
 				"I am a banana",
+				nil,
 			),
 			nil,
 			nil},
@@ -1171,6 +1173,7 @@ func TestUnstreamedParse3(t *testing.T) {
 				"OK",
 				[]sip.Header{&sip.CSeq{SeqNo: 2, MethodName: sip.INVITE}},
 				"Everything is awesome.",
+				nil,
 			),
 			nil,
 			nil},
@@ -1205,6 +1208,7 @@ func TestUnstreamedParse4(t *testing.T) {
 					&contentLength,
 				},
 				"Everything is awesome.",
+				nil,
 			),
 			nil,
 			nil},
@@ -1238,6 +1242,7 @@ func TestUnstreamedParse5(t *testing.T) {
 					&callId,
 					&maxForwards},
 				"Everything is awesome.",
+				nil,
 			),
 			nil,
 			nil},
@@ -1256,6 +1261,7 @@ func TestUnstreamedParse6(t *testing.T) {
 				"Forbidden",
 				[]sip.Header{},
 				"",
+				nil,
 			),
 			nil,
 			nil},
@@ -1283,6 +1289,7 @@ func TestUnstreamedParse7(t *testing.T) {
 				"SIP/2.0",
 				[]sip.Header{},
 				"",
+				nil,
 			),
 			nil,
 			nil},
@@ -1310,6 +1317,7 @@ func TestUnstreamedParse8(t *testing.T) {
 				"SIP/2.0",
 				[]sip.Header{},
 				"",
+				nil,
 			),
 			nil,
 			nil},
@@ -1324,6 +1332,7 @@ func TestUnstreamedParse8(t *testing.T) {
 				"OK",
 				[]sip.Header{&sip.CSeq{SeqNo: 2, MethodName: sip.INVITE}},
 				"Everything is awesome.",
+				nil,
 			),
 			nil,
 			nil},
@@ -1356,6 +1365,7 @@ func TestStreamedParse1(t *testing.T) {
 				"SIP/2.0",
 				[]sip.Header{&contentLength},
 				"",
+				nil,
 			),
 			nil,
 			nil},
@@ -1385,6 +1395,7 @@ func TestStreamedParse2(t *testing.T) {
 				"SIP/2.0",
 				[]sip.Header{&contentLength},
 				"",
+				nil,
 			),
 			nil,
 			nil},
@@ -1416,6 +1427,7 @@ func TestStreamedParse3(t *testing.T) {
 				"SIP/2.0",
 				[]sip.Header{&contentLength23},
 				"Hello!\r\nThis is a test.",
+				nil,
 			),
 			nil,
 			nil},
@@ -1447,6 +1459,7 @@ func TestStreamedParse3(t *testing.T) {
 					},
 				},
 				"This is an ack! : \n ! \r\n contact:",
+				nil,
 			),
 			nil,
 			nil},
@@ -1593,7 +1606,7 @@ func (expected *hostPortResult) equals(other result) (equal bool, reason string)
 type headerBlockInput []string
 
 func (data headerBlockInput) String() string {
-	return "['" + strings.Join([]string(data), "', '") + "']"
+	return "['" + strings.Join(data, "', '") + "']"
 }
 
 func (data headerBlockInput) evaluate() result {
@@ -1919,7 +1932,7 @@ func (data callIdInput) evaluate() result {
 	if len(headers) == 1 {
 		return &callIdResult{err, *(headers[0].(*sip.CallID))}
 	} else if len(headers) == 0 {
-		return &callIdResult{err, sip.CallID("")}
+		return &callIdResult{err, ""}
 	} else {
 		panic(fmt.Sprintf("Multiple headers returned by core.CallID test: %s", string(data)))
 	}
@@ -2024,7 +2037,7 @@ func (data userAgentInput) evaluate() result {
 	if len(headers) == 1 {
 		return &userAgentResult{err, *(headers[0].(*sip.UserAgentHeader))}
 	} else if len(headers) == 0 {
-		return &userAgentResult{err, sip.UserAgentHeader("")}
+		return &userAgentResult{err, ""}
 	} else {
 		panic(fmt.Sprintf("Multiple headers returned by User-Agent test: %s", string(data)))
 	}

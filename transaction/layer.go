@@ -219,6 +219,8 @@ func (txl *layer) serveTransaction(tx Tx) {
 	defer func() {
 		txl.transactions.drop(tx.Key())
 
+		logger.Debug("transaction deleted")
+
 		txl.txWg.Done()
 	}()
 
