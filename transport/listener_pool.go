@@ -96,7 +96,7 @@ func NewListenerPool(
 	pool.log = logger.
 		WithPrefix("transport.ListenerPool").
 		WithFields(log.Fields{
-			"listener_pool_id": fmt.Sprintf("%p", pool),
+			"listener_pool_ptr": fmt.Sprintf("%p", pool),
 		})
 
 	go pool.serveStore()
@@ -148,7 +148,7 @@ func (pool *listenerPool) Put(key ListenerKey, listener net.Listener) error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_pool_request": fmt.Sprintf("%+v", req),
 	})
 	logger.Trace("sending put listener request")
 
@@ -195,7 +195,7 @@ func (pool *listenerPool) Get(key ListenerKey) (net.Listener, error) {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_pool_request": fmt.Sprintf("%+v", req),
 	})
 
 	logger.Trace("sending get listener request")
@@ -239,7 +239,7 @@ func (pool *listenerPool) Drop(key ListenerKey) error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_pool_request": fmt.Sprintf("%+v", req),
 	})
 
 	logger.Trace("sending drop listener request")
@@ -283,7 +283,7 @@ func (pool *listenerPool) DropAll() error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_pool_request": fmt.Sprintf("%+v", req),
 	})
 
 	logger.Trace("sending drop all listeners request")
@@ -323,7 +323,7 @@ func (pool *listenerPool) All() []net.Listener {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_pool_request": fmt.Sprintf("%+v", req),
 	})
 
 	logger.Trace("sending get all listeners request")
@@ -555,7 +555,7 @@ func (pool *listenerPool) handlePut(req *listenerRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_pool_request": fmt.Sprintf("%+v", req),
 	})
 
 	res := &listenerResponse{nil, []error{}}
@@ -576,7 +576,7 @@ func (pool *listenerPool) handleGet(req *listenerRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_pool_request": fmt.Sprintf("%+v", req),
 	})
 
 	res := &listenerResponse{[]net.Listener{}, []error{}}
@@ -603,7 +603,7 @@ func (pool *listenerPool) handleDrop(req *listenerRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_pool_request": fmt.Sprintf("%+v", req),
 	})
 
 	res := &listenerResponse{nil, []error{}}
@@ -658,8 +658,8 @@ func NewListenerHandler(
 	handler.log = logger.
 		WithPrefix("transport.ListenerHandler").
 		WithFields(log.Fields{
-			"listener_handler_id": fmt.Sprintf("%p", handler),
-			"listener_key":        key,
+			"listener_handler_ptr": fmt.Sprintf("%p", handler),
+			"listener_key":         key,
 		})
 
 	return handler

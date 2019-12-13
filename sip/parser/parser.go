@@ -133,7 +133,7 @@ func NewParser(
 	p.log = logger.
 		WithPrefix("parser.Parser").
 		WithFields(log.Fields{
-			"parser_id": fmt.Sprintf("%p", p),
+			"sip_parser_ptr": fmt.Sprintf("%p", p),
 		})
 	// Configure the parser with the standard set of header parsers.
 	p.headerParsers = make(map[string]HeaderParser)

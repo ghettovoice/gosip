@@ -48,10 +48,10 @@ func NewClientTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Cl
 	tx.log = logger.
 		WithPrefix("transaction.ClientTx").
 		WithFields(log.Fields{
-			"transaction_key":    tx.key,
-			"transaction_id":     fmt.Sprintf("%p", tx),
-			"transaction_origin": origin.Short(),
-		})
+			"transaction_key": tx.key,
+			"transaction_ptr": fmt.Sprintf("%p", tx),
+		}).
+		WithFields(origin.Fields())
 	tx.origin = origin.WithFields(tx.Log().Fields()).(sip.Request)
 
 	if viaHop, ok := origin.ViaHop(); ok {

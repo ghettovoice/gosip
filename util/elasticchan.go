@@ -72,7 +72,7 @@ func (c *ElasticChan) SetLog(logger log.Logger) {
 	c.log = logger.
 		WithPrefix("util.ElasticChan").
 		WithFields(log.Fields{
-			"elastic_chan_id": fmt.Sprintf("%p", c),
+			"elastic_chan_ptr": fmt.Sprintf("%p", c),
 		})
 
 	c.logMu.Unlock()

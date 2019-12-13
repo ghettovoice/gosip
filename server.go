@@ -101,7 +101,7 @@ func NewServer(config *ServerConfig, logger log.Logger) *Server {
 		invitesLock:     new(sync.RWMutex),
 	}
 	srv.log = logger.WithFields(log.Fields{
-		"sip_server_id": fmt.Sprintf("%p", srv),
+		"sip_server_ptr": fmt.Sprintf("%p", srv),
 	})
 	srv.tp = transport.NewLayer(ip, dnsResolver, srv.Log())
 	srv.tx = transaction.NewLayer(srv.tp, srv.Log().WithFields(srv.tp.Log().Fields()))

@@ -3,6 +3,7 @@ package transaction
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -61,7 +62,7 @@ func NewLayer(tpl transport.Layer, logger log.Logger) Layer {
 	txl.log = logger.
 		WithPrefix("transaction.Layer").
 		WithFields(log.Fields{
-			"transaction_layer_id": fmt.Sprintf("%p", txl),
+			"transaction_layer_ptr": fmt.Sprintf("%p", txl),
 		})
 
 	go txl.listenMessages()
@@ -135,22 +136,17 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 		return nil, err
 	}
 
-	txl.Log().WithFields(log.Fields{
-		"sip_message": req.Short(),
-		"transaction": tx.String(),
-	}).Debug("client transaction created")
+	logger := txl.Log().
+		WithFields(req.Fields()).
+		WithFields(tx.Log().Fields())
+
+	logger.Debug("client transaction created")
 
 	txl.transactions.put(tx.Key(), tx)
 
 	err = tx.Init()
 	if err != nil {
 		return nil, err
-	}
-
-	select {
-	case <-txl.canceled:
-		return nil, fmt.Errorf("transaction layer is canceled")
-	default:
 	}
 
 	txl.txWg.Add(1)
@@ -171,10 +167,11 @@ func (txl *layer) Respond(res sip.Response) (sip.ServerTransaction, error) {
 		return nil, err
 	}
 
-	txl.Log().WithFields(log.Fields{
-		"sip_message": res.Short(),
-		"transaction": tx.String(),
-	}).Debug("server transaction found")
+	logger := txl.Log().
+		WithFields(res.Fields()).
+		WithFields(tx.Log().Fields())
+
+	logger.Debug("server transaction found")
 
 	err = tx.Respond(res)
 	if err != nil {
@@ -186,6 +183,12 @@ func (txl *layer) Respond(res sip.Response) (sip.ServerTransaction, error) {
 
 func (txl *layer) listenMessages() {
 	defer func() {
+		txl.txWg.Add(1)
+		go func() {
+			time.Sleep(time.Millisecond)
+			txl.txWg.Done()
+		}()
+
 		txl.txWg.Wait()
 
 		close(txl.requests)
@@ -212,9 +215,7 @@ func (txl *layer) listenMessages() {
 }
 
 func (txl *layer) serveTransaction(tx Tx) {
-	logger := txl.Log().WithFields(log.Fields{
-		"transaction": tx.String(),
-	})
+	logger := txl.Log().WithFields(tx.Log().Fields())
 
 	defer func() {
 		txl.transactions.drop(tx.Key())
@@ -245,9 +246,7 @@ func (txl *layer) handleMessage(msg sip.Message) {
 	default:
 	}
 
-	logger := txl.Log().WithFields(log.Fields{
-		"sip_message": msg.Short(),
-	})
+	logger := txl.Log().WithFields(msg.Fields())
 
 	logger.Debug("handling SIP message")
 
@@ -269,16 +268,12 @@ func (txl *layer) handleRequest(req sip.Request) {
 	default:
 	}
 
-	logger := txl.Log().WithFields(log.Fields{
-		"sip_message": req.Short(),
-	})
+	logger := txl.Log().WithFields(req.Fields())
 
 	// try to match to existent tx: request retransmission, or ACKs on non-2xx, or CANCEL
 	tx, err := txl.getServerTx(req)
 	if err == nil {
-		logger = logger.WithFields(log.Fields{
-			"transaction": tx.String(),
-		})
+		logger = logger.WithFields(tx.Log().Fields())
 
 		if err := tx.Receive(req); err != nil {
 			logger.Error(err)
@@ -306,9 +301,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 		return
 	}
 
-	logger = logger.WithFields(log.Fields{
-		"transaction": tx.String(),
-	})
+	logger = logger.WithFields(tx.Log().Fields())
 
 	logger.Debug("new server transaction created")
 	// put tx to store, to match retransmitting requests later
@@ -346,9 +339,7 @@ func (txl *layer) handleResponse(res sip.Response) {
 	default:
 	}
 
-	logger := txl.Log().WithFields(log.Fields{
-		"sip_message": res.Short(),
-	})
+	logger := txl.Log().WithFields(res.Fields())
 
 	tx, err := txl.getClientTx(res)
 	if err != nil {
@@ -363,9 +354,7 @@ func (txl *layer) handleResponse(res sip.Response) {
 		return
 	}
 
-	logger = logger.WithFields(log.Fields{
-		"transaction": tx.String(),
-	})
+	logger = logger.WithFields(tx.Log().Fields())
 
 	if err := tx.Receive(res); err != nil {
 		logger.Error(err)
@@ -376,9 +365,7 @@ func (txl *layer) handleResponse(res sip.Response) {
 
 // RFC 17.1.3.
 func (txl *layer) getClientTx(msg sip.Message) (ClientTx, error) {
-	logger := txl.Log().WithFields(log.Fields{
-		"sip_message": msg.Short(),
-	})
+	logger := txl.Log().WithFields(msg.Fields())
 
 	logger.Trace("searching client transaction")
 
@@ -397,9 +384,7 @@ func (txl *layer) getClientTx(msg sip.Message) (ClientTx, error) {
 		)
 	}
 
-	logger = logger.WithFields(log.Fields{
-		"transaction": tx.String(),
-	})
+	logger = logger.WithFields(tx.Log().Fields())
 
 	switch tx := tx.(type) {
 	case ClientTx:
@@ -418,9 +403,7 @@ func (txl *layer) getClientTx(msg sip.Message) (ClientTx, error) {
 
 // RFC 17.2.3.
 func (txl *layer) getServerTx(msg sip.Message) (ServerTx, error) {
-	logger := txl.Log().WithFields(log.Fields{
-		"sip_message": msg.Short(),
-	})
+	logger := txl.Log().WithFields(msg.Fields())
 
 	logger.Trace("searching server transaction")
 
@@ -439,9 +422,7 @@ func (txl *layer) getServerTx(msg sip.Message) (ServerTx, error) {
 		)
 	}
 
-	logger = logger.WithFields(log.Fields{
-		"transaction": tx.String(),
-	})
+	logger = logger.WithFields(tx.Log().Fields())
 
 	switch tx := tx.(type) {
 	case ServerTx:

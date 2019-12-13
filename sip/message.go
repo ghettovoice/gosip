@@ -379,23 +379,23 @@ func (msg *message) StartLine() string {
 
 func (msg *message) Fields() log.Fields {
 	baseFields := log.Fields{
-		"cseq_header":    "???",
-		"call_id_header": "???",
-		"from_header":    "???",
-		"to_header":      "???",
+		"sip_cseq_header":    "???",
+		"sip_call_id_header": "???",
+		"sip_from_header":    "???",
+		"sip_to_header":      "???",
 	}
 
 	if cseq, ok := msg.CSeq(); ok {
-		baseFields["cseq_header"] = fmt.Sprintf("%s", cseq)
+		baseFields["sip_cseq_header"] = fmt.Sprintf("%s", cseq)
 	}
 	if callId, ok := msg.CallID(); ok {
-		baseFields["call_id_header"] = fmt.Sprintf("%s", callId)
+		baseFields["sip_call_id_header"] = fmt.Sprintf("%s", callId)
 	}
 	if from, ok := msg.From(); ok {
-		baseFields["from_header"] = fmt.Sprintf("%s", from)
+		baseFields["sip_from_header"] = fmt.Sprintf("%s", from)
 	}
 	if to, ok := msg.To(); ok {
-		baseFields["to_header"] = fmt.Sprintf("%s", to)
+		baseFields["sip_to_header"] = fmt.Sprintf("%s", to)
 	}
 
 	return msg.fields.WithFields(baseFields)

@@ -93,7 +93,7 @@ func NewLayer(ip net.IP, dnsResolver *net.Resolver, logger log.Logger) Layer {
 	tpl.log = logger.
 		WithPrefix("transport.Layer").
 		WithFields(map[string]interface{}{
-			"transport_layer_id": fmt.Sprintf("%p", tpl),
+			"transport_layer_ptr": fmt.Sprintf("%p", tpl),
 		})
 
 	go tpl.serveProtocols()
@@ -257,10 +257,11 @@ func (tpl *layer) Send(msg sip.Message) error {
 				}
 			}
 
-			tpl.Log().WithFields(log.Fields{
-				"sip_message": msg.Short(),
-				"protocol":    protocol.String(),
-			}).Infof("sending SIP request:\n%s", msg)
+			logger := tpl.Log().
+				WithFields(protocol.Log().Fields()).
+				WithFields(msg.Fields())
+
+			logger.Infof("sending SIP request:\n%s", msg)
 
 			err = protocol.Send(target, msg)
 			if err == nil {
@@ -284,10 +285,11 @@ func (tpl *layer) Send(msg sip.Message) error {
 			return err
 		}
 
-		tpl.Log().WithFields(log.Fields{
-			"sip_message": msg.Short(),
-			"protocol":    protocol.String(),
-		}).Infof("send SIP response:\n%s", msg)
+		logger := tpl.Log().
+			WithFields(protocol.Log().Fields()).
+			WithFields(msg.Fields())
+
+		logger.Infof("send SIP response:\n%s", msg)
 
 		return protocol.Send(target, msg)
 	default:
@@ -338,9 +340,8 @@ func (tpl *layer) dispose() {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tpl *layer) handleMessage(msg sip.Message) {
-	logger := tpl.Log().WithFields(log.Fields{
-		"sip_message": msg.Short(),
-	})
+	logger := tpl.Log().
+		WithFields(msg.Fields())
 
 	logger.Infof("received SIP message:\n%s", msg)
 	logger.Trace("passing up SIP message...")

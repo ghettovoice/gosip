@@ -31,7 +31,7 @@ func NewTcpProtocol(
 	tcp.log = logger.
 		WithPrefix("transport.Protocol").
 		WithFields(log.Fields{
-			"protocol_id":      fmt.Sprintf("%p", tcp),
+			"protocol_ptr":     fmt.Sprintf("%p", tcp),
 			"protocol_network": tcp.network,
 		})
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
@@ -59,11 +59,12 @@ func (tcp *tcpProtocol) pipePools() {
 		case <-tcp.listeners.Done():
 			return
 		case conn := <-tcp.conns:
+			logger := tcp.Log().
+				WithFields(conn.Log().Fields())
+
 			if err := tcp.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
-				tcp.Log().WithFields(log.Fields{
-					"protocol_connection": conn.String(),
-				}).Errorf("put new TCP connection failed: %s", err)
+				logger.Errorf("put new TCP connection failed: %s", err)
 
 				continue
 			}
@@ -123,9 +124,11 @@ func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 		return err
 	}
 
-	tcp.Log().WithFields(log.Fields{
-		"sip_message": msg.Short(),
-	}).Infof("writing SIP message to %s", raddr)
+	logger := tcp.Log().
+		WithFields(conn.Log().Fields()).
+		WithFields(msg.Fields())
+
+	logger.Infof("writing SIP message to %s", raddr)
 
 	// send message
 	_, err = conn.Write([]byte(msg.String()))

@@ -28,7 +28,7 @@ func NewUdpProtocol(
 	udp.log = logger.
 		WithPrefix("transport.Protocol").
 		WithFields(log.Fields{
-			"protocol_id":      fmt.Sprintf("%p", udp),
+			"protocol_ptr":     fmt.Sprintf("%p", udp),
 			"protocol_network": udp.Network(),
 		})
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
@@ -106,9 +106,11 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 		conn = udp.connections.All()[0]
 	}
 
-	udp.Log().WithFields(log.Fields{
-		"sip_message": msg.Short(),
-	}).Infof("writing SIP message to %s", raddr)
+	logger := udp.Log().
+		WithFields(conn.Log().Fields()).
+		WithFields(msg.Fields())
+
+	logger.Infof("writing SIP message to %s", raddr)
 
 	_, err = conn.WriteTo([]byte(msg.String()), raddr)
 
