@@ -256,7 +256,7 @@ func (tx *serverTx) initInviteFSM() {
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
 			server_input_timer_g:       {server_state_completed, tx.act_respond_complete},
-			server_input_timer_h:       {server_state_terminated, tx.act_timeout},
+			server_input_timer_h:       {server_state_terminated, tx.act_delete},
 			server_input_transport_err: {server_state_terminated, tx.act_trans_err},
 		},
 	}
@@ -317,8 +317,8 @@ func (tx *serverTx) initNonInviteFSM() {
 			server_input_request:       {server_state_trying, fsm.NO_ACTION},
 			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
-			server_input_user_2xx:      {server_state_completed, tx.act_respond},
-			server_input_user_300_plus: {server_state_completed, tx.act_respond},
+			server_input_user_2xx:      {server_state_completed, tx.act_final},
+			server_input_user_300_plus: {server_state_completed, tx.act_final},
 		},
 	}
 
@@ -344,7 +344,7 @@ func (tx *serverTx) initNonInviteFSM() {
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
-			server_input_timer_j:       {server_state_terminated, tx.act_timeout},
+			server_input_timer_j:       {server_state_terminated, tx.act_delete},
 			server_input_transport_err: {server_state_terminated, tx.act_trans_err},
 		},
 	}
