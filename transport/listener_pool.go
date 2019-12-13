@@ -660,6 +660,7 @@ func NewListenerHandler(
 		WithFields(log.Fields{
 			"listener_handler_ptr": fmt.Sprintf("%p", handler),
 			"listener_key":         key,
+			"listener_ptr":         fmt.Sprintf("%p", listener),
 		})
 
 	return handler

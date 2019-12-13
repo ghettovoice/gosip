@@ -12,8 +12,8 @@ import (
 
 var (
 	bufferSize   uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
-	readTimeout         = 30 * time.Second
-	writeTimeout        = 30 * time.Second
+	readTimeout         = time.Minute
+	writeTimeout        = time.Minute
 )
 
 // Wrapper around net.Conn.
