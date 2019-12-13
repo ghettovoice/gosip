@@ -231,15 +231,24 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 					srv.cancelRequest(request, lastResponse)
 				}
 				errs <- errTerminated
+				// pull out later possible transaction responses and errors
+				go func() {
+					for {
+						select {
+						case <-tx.Done():
+							return
+						case <-tx.Errors():
+						case <-tx.Responses():
+						}
+					}
+				}()
+				return
 			case err, ok := <-tx.Errors():
 				if !ok {
 					errs <- errTerminated
 					return
 				}
-				select {
-				case <-ctx.Done():
-				case errs <- err:
-				}
+				errs <- err
 				return
 			case response, ok := <-tx.Responses():
 				if !ok {
