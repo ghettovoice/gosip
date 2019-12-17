@@ -92,7 +92,7 @@ var _ = Describe("TcpProtocol", func() {
 		output = make(chan sip.Message)
 		errs = make(chan error)
 		cancel = make(chan struct{})
-		protocol = transport.NewTcpProtocol(output, errs, cancel, logger)
+		protocol = transport.NewTcpProtocol(output, errs, cancel, nil, logger)
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()

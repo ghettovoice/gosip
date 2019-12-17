@@ -19,6 +19,7 @@ func NewUdpProtocol(
 	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
+	msgMapper sip.MessageMapper,
 	logger log.Logger,
 ) Protocol {
 	udp := new(udpProtocol)
@@ -32,7 +33,7 @@ func NewUdpProtocol(
 			"protocol_network": udp.Network(),
 		})
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
-	udp.connections = NewConnectionPool(output, errs, cancel, udp.Log())
+	udp.connections = NewConnectionPool(output, errs, cancel, msgMapper, udp.Log())
 
 	return udp
 }

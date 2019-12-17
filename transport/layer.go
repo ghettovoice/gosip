@@ -32,13 +32,14 @@ var protocolFactory ProtocolFactory = func(
 	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
+	msgMapper sip.MessageMapper,
 	logger log.Logger,
 ) (Protocol, error) {
 	switch strings.ToLower(network) {
 	case "udp":
-		return NewUdpProtocol(output, errs, cancel, logger), nil
+		return NewUdpProtocol(output, errs, cancel, msgMapper, logger), nil
 	case "tcp":
-		return NewTcpProtocol(output, errs, cancel, logger), nil
+		return NewTcpProtocol(output, errs, cancel, msgMapper, logger), nil
 	default:
 		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 	}
@@ -60,12 +61,14 @@ type layer struct {
 	listenPorts map[string]*sip.Port
 	ip          net.IP
 	dnsResolver *net.Resolver
-	msgs        chan sip.Message
-	errs        chan error
-	pmsgs       chan sip.Message
-	perrs       chan error
-	canceled    chan struct{}
-	done        chan struct{}
+	msgMapper   sip.MessageMapper
+
+	msgs     chan sip.Message
+	errs     chan error
+	pmsgs    chan sip.Message
+	perrs    chan error
+	canceled chan struct{}
+	done     chan struct{}
 
 	wg         sync.WaitGroup
 	cancelOnce sync.Once
@@ -76,18 +79,25 @@ type layer struct {
 // NewLayer creates transport layer.
 // - ip - host IP
 // - dnsAddr - DNS server address, default is 127.0.0.1:53
-func NewLayer(ip net.IP, dnsResolver *net.Resolver, logger log.Logger) Layer {
+func NewLayer(
+	ip net.IP,
+	dnsResolver *net.Resolver,
+	msgMapper sip.MessageMapper,
+	logger log.Logger,
+) Layer {
 	tpl := &layer{
 		protocols:   newProtocolStore(),
 		listenPorts: make(map[string]*sip.Port),
 		ip:          ip,
 		dnsResolver: dnsResolver,
-		msgs:        make(chan sip.Message),
-		errs:        make(chan error),
-		pmsgs:       make(chan sip.Message),
-		perrs:       make(chan error),
-		canceled:    make(chan struct{}),
-		done:        make(chan struct{}),
+		msgMapper:   msgMapper,
+
+		msgs:     make(chan sip.Message),
+		errs:     make(chan error),
+		pmsgs:    make(chan sip.Message),
+		perrs:    make(chan error),
+		canceled: make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 
 	tpl.log = logger.
@@ -157,7 +167,14 @@ func (tpl *layer) Listen(network string, addr string) error {
 	protocol, ok := tpl.protocols.get(protocolKey(network))
 	if !ok {
 		var err error
-		protocol, err = protocolFactory(network, tpl.pmsgs, tpl.perrs, tpl.canceled, tpl.Log())
+		protocol, err = protocolFactory(
+			network,
+			tpl.pmsgs,
+			tpl.perrs,
+			tpl.canceled,
+			tpl.msgMapper,
+			tpl.Log(),
+		)
 		if err != nil {
 			return err
 		}

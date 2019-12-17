@@ -71,7 +71,7 @@ var _ = Describe("ConnectionHandler", func() {
 			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel, logger)
+			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel, nil, logger)
 		})
 
 		HasCorrectKeyAndConn := func() {
@@ -138,7 +138,7 @@ var _ = Describe("ConnectionHandler", func() {
 			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel, logger)
+			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel, nil, logger)
 			go handler.Serve(util.Noop)
 		})
 
@@ -301,7 +301,7 @@ var _ = Describe("ConnectionPool", func() {
 			output = make(chan sip.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewConnectionPool(output, errs, cancel, logger)
+			pool = transport.NewConnectionPool(output, errs, cancel, nil, logger)
 		})
 
 		ShouldBeEmpty()
@@ -318,7 +318,7 @@ var _ = Describe("ConnectionPool", func() {
 			output = make(chan sip.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewConnectionPool(output, errs, cancel, logger)
+			pool = transport.NewConnectionPool(output, errs, cancel, nil, logger)
 			expected = "connection pool closed"
 
 			_, c2 := net.Pipe()
@@ -371,7 +371,7 @@ var _ = Describe("ConnectionPool", func() {
 			output = make(chan sip.Message)
 			errs = make(chan error)
 			cancel = make(chan struct{})
-			pool = transport.NewConnectionPool(output, errs, cancel, logger)
+			pool = transport.NewConnectionPool(output, errs, cancel, nil, logger)
 
 			client1, server1 = createConn(addr1)
 			client2, server2 = createConn(addr2)

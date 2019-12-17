@@ -27,6 +27,7 @@ type ServerConfig struct {
 	// Dns is an address of the public DNS server to use in SRV lookup.
 	Dns        string
 	Extensions []string
+	MsgMapper  sip.MessageMapper
 }
 
 // Server is a SIP server
@@ -103,7 +104,7 @@ func NewServer(config *ServerConfig, logger log.Logger) *Server {
 	srv.log = logger.WithFields(log.Fields{
 		"sip_server_ptr": fmt.Sprintf("%p", srv),
 	})
-	srv.tp = transport.NewLayer(ip, dnsResolver, srv.Log())
+	srv.tp = transport.NewLayer(ip, dnsResolver, config.MsgMapper, srv.Log())
 	srv.tx = transaction.NewLayer(srv.tp, srv.Log().WithFields(srv.tp.Log().Fields()))
 
 	go srv.serve()

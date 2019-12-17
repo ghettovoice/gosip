@@ -477,3 +477,5 @@ func PrependCopyHeaders(name string, from, to Message) {
 		to.PrependHeader(h.Clone())
 	}
 }
+
+type MessageMapper func(msg Message) Message

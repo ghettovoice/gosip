@@ -68,8 +68,9 @@ type connectionResponse struct {
 }
 
 type connectionPool struct {
-	store map[ConnectionKey]ConnectionHandler
-	keys  []ConnectionKey
+	store     map[ConnectionKey]ConnectionHandler
+	keys      []ConnectionKey
+	msgMapper sip.MessageMapper
 
 	output chan<- sip.Message
 	errs   chan<- error
@@ -93,11 +94,13 @@ func NewConnectionPool(
 	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
+	msgMapper sip.MessageMapper,
 	logger log.Logger,
 ) ConnectionPool {
 	pool := &connectionPool{
-		store: make(map[ConnectionKey]ConnectionHandler),
-		keys:  make([]ConnectionKey, 0),
+		store:     make(map[ConnectionKey]ConnectionHandler),
+		keys:      make([]ConnectionKey, 0),
+		msgMapper: msgMapper,
 
 		output: output,
 		errs:   errs,
@@ -551,7 +554,16 @@ func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Dur
 	}
 
 	// wrap to handler
-	handler := NewConnectionHandler(key, conn, ttl, pool.hmess, pool.herrs, pool.cancel, pool.Log())
+	handler := NewConnectionHandler(
+		key,
+		conn,
+		ttl,
+		pool.hmess,
+		pool.herrs,
+		pool.cancel,
+		pool.msgMapper,
+		pool.Log(),
+	)
 
 	pool.Log().WithFields(log.Fields{
 		"connection_handler": handler.String(),
@@ -698,6 +710,7 @@ func (pool *connectionPool) handleDrop(req *connectionRequest) {
 type connectionHandler struct {
 	key        ConnectionKey
 	connection Connection
+	msgMapper  sip.MessageMapper
 
 	timer  timing.Timer
 	ttl    time.Duration
@@ -721,17 +734,22 @@ func NewConnectionHandler(
 	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
+	msgMapper sip.MessageMapper,
 	logger log.Logger,
 ) ConnectionHandler {
 	handler := &connectionHandler{
 		key:        key,
 		connection: conn,
-		output:     output,
-		errs:       errs,
-		cancel:     cancel,
-		canceled:   make(chan struct{}),
-		done:       make(chan struct{}),
-		ttl:        ttl,
+		msgMapper:  msgMapper,
+
+		output: output,
+		errs:   errs,
+		cancel: cancel,
+
+		canceled: make(chan struct{}),
+		done:     make(chan struct{}),
+
+		ttl: ttl,
 	}
 
 	handler.log = logger.
@@ -997,6 +1015,10 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 		case msg, ok := <-msgs:
 			if !ok {
 				return
+			}
+
+			if handler.msgMapper != nil {
+				msg = handler.msgMapper(msg)
 			}
 
 			logger := handler.Log().WithFields(log.Fields{
