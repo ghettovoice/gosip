@@ -391,7 +391,7 @@ func (tx *serverTx) transportErr() {
 	err = &TxTransportError{
 		fmt.Errorf("transaction failed to send %s: %w", res, err),
 		tx.Key(),
-		tx.String(),
+		fmt.Sprintf("%p", tx),
 	}
 
 	select {
@@ -407,7 +407,7 @@ func (tx *serverTx) timeoutErr() {
 	err := &TxTimeoutError{
 		fmt.Errorf("transaction timed out"),
 		tx.Key(),
-		tx.String(),
+		fmt.Sprintf("%p", tx),
 	}
 
 	select {

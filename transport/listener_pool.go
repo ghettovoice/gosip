@@ -806,7 +806,7 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 					err = &ListenerHandlerError{
 						err,
 						handler.Key(),
-						handler.String(),
+						fmt.Sprintf("%p", handler),
 						listenerNetwork(handler.Listener()),
 						handler.Listener().Addr().String(),
 					}

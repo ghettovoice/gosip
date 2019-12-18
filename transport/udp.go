@@ -57,7 +57,7 @@ func (udp *udpProtocol) Listen(target *Target) error {
 		return &ProtocolError{
 			err,
 			fmt.Sprintf("listen on %s %s address", udp.Network(), laddr),
-			udp.String(),
+			fmt.Sprintf("%p", udp),
 		}
 	}
 
@@ -80,7 +80,7 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 		return &ProtocolError{
 			fmt.Errorf("empty remote target host"),
 			fmt.Sprintf("send SIP message to %s", target.Addr()),
-			udp.String(),
+			fmt.Sprintf("%p", udp),
 		}
 	}
 
@@ -100,7 +100,7 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 			return &ProtocolError{
 				fmt.Errorf("connection not found: %w", err),
 				fmt.Sprintf("send SIP message to %s", raddr),
-				udp.String(),
+				fmt.Sprintf("%p", udp),
 			}
 		}
 
@@ -127,7 +127,7 @@ func (udp *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
 		return nil, &ProtocolError{
 			err,
 			fmt.Sprintf("resolve target address %s", addr),
-			udp.String(),
+			fmt.Sprintf("%p", udp),
 		}
 	}
 

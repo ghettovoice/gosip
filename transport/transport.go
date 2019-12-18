@@ -153,12 +153,12 @@ func isExpired(err error) bool {
 
 // Connection level error.
 type ConnectionError struct {
-	Err    error
-	Op     string
-	Net    string
-	Source string
-	Dest   string
-	Conn   string
+	Err     error
+	Op      string
+	Net     string
+	Source  string
+	Dest    string
+	ConnPtr string
 }
 
 func (err *ConnectionError) Unwrap() error   { return err.Err }
@@ -171,17 +171,17 @@ func (err *ConnectionError) Error() string {
 	}
 
 	fields := log.Fields{
-		"network":     "???",
-		"connection":  "???",
-		"source":      "???",
-		"destination": "???",
+		"network":        "???",
+		"connection_ptr": "???",
+		"source":         "???",
+		"destination":    "???",
 	}
 
 	if err.Net != "" {
 		fields["net"] = err.Net
 	}
-	if err.Conn != "" {
-		fields["connection"] = err.Conn
+	if err.ConnPtr != "" {
+		fields["connection_ptr"] = err.ConnPtr
 	}
 	if err.Source != "" {
 		fields["source"] = err.Source
@@ -206,7 +206,7 @@ func (err ExpireError) Error() string   { return "transport.ExpireError: " + str
 type ProtocolError struct {
 	Err      error
 	Op       string
-	Protocol string
+	ProtoPtr string
 }
 
 func (err *ProtocolError) Unwrap() error   { return err.Err }
@@ -219,23 +219,23 @@ func (err *ProtocolError) Error() string {
 	}
 
 	fields := log.Fields{
-		"protocol": "???",
+		"protocol_ptr": "???",
 	}
 
-	if err.Protocol != "" {
-		fields["protocol"] = err.Protocol
+	if err.ProtoPtr != "" {
+		fields["protocol_ptr"] = err.ProtoPtr
 	}
 
 	return fmt.Sprintf("transport.ProtocolError<%s> %s failed: %s", fields, err.Op, err.Err)
 }
 
 type ConnectionHandlerError struct {
-	Err     error
-	Key     ConnectionKey
-	Handler string
-	Net     string
-	LAddr   string
-	RAddr   string
+	Err        error
+	Key        ConnectionKey
+	HandlerPtr string
+	Net        string
+	LAddr      string
+	RAddr      string
 }
 
 func (err *ConnectionHandlerError) Unwrap() error   { return err.Err }
@@ -257,14 +257,14 @@ func (err *ConnectionHandlerError) Error() string {
 	}
 
 	fields := log.Fields{
-		"handler":     "???",
+		"handler_ptr": "???",
 		"network":     "???",
 		"local_addr":  "???",
 		"remote_addr": "???",
 	}
 
-	if err.Handler != "" {
-		fields["handler"] = err.Handler
+	if err.HandlerPtr != "" {
+		fields["handler_ptr"] = err.HandlerPtr
 	}
 	if err.Net != "" {
 		fields["network"] = err.Net
@@ -280,11 +280,11 @@ func (err *ConnectionHandlerError) Error() string {
 }
 
 type ListenerHandlerError struct {
-	Err     error
-	Key     ListenerKey
-	Handler string
-	Net     string
-	Addr    string
+	Err        error
+	Key        ListenerKey
+	HandlerPtr string
+	Net        string
+	Addr       string
 }
 
 func (err *ListenerHandlerError) Unwrap() error   { return err.Err }
@@ -299,14 +299,14 @@ func (err *ListenerHandlerError) Error() string {
 	}
 
 	fields := log.Fields{
-		"handler":     "???",
+		"handler_ptr": "???",
 		"network":     "???",
 		"local_addr":  "???",
 		"remote_addr": "???",
 	}
 
-	if err.Handler != "" {
-		fields["handler"] = err.Handler
+	if err.HandlerPtr != "" {
+		fields["handler_ptr"] = err.HandlerPtr
 	}
 	if err.Net != "" {
 		fields["network"] = err.Net

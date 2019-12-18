@@ -998,7 +998,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			err := &ConnectionHandlerError{
 				ExpireError("connection expired"),
 				handler.Key(),
-				handler.String(),
+				fmt.Sprintf("%p", handler),
 				handler.Connection().Network(),
 				fmt.Sprintf("%v", handler.Connection().LocalAddr()),
 				fmt.Sprintf("%v", handler.Connection().RemoteAddr()),
@@ -1098,7 +1098,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			err = &ConnectionHandlerError{
 				err,
 				handler.Key(),
-				handler.String(),
+				fmt.Sprintf("%p", handler),
 				handler.Connection().Network(),
 				fmt.Sprintf("%v", handler.Connection().LocalAddr()),
 				raddr,

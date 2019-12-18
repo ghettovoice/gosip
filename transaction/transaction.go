@@ -38,7 +38,7 @@ type TxError interface {
 type TxTerminatedError struct {
 	Err   error
 	TxKey TxKey
-	Tx    string
+	TxPtr string
 }
 
 func (err *TxTerminatedError) Unwrap() error    { return err.Err }
@@ -53,14 +53,14 @@ func (err *TxTerminatedError) Error() string {
 
 	fields := log.Fields{
 		"transaction_key": "???",
-		"transaction":     "???",
+		"transaction_ptr": "???",
 	}
 
 	if err.TxKey != "" {
 		fields["transaction_key"] = err.TxKey
 	}
-	if err.Tx != "" {
-		fields["transaction"] = err.Tx
+	if err.TxPtr != "" {
+		fields["transaction_ptr"] = err.TxPtr
 	}
 
 	return fmt.Sprintf("transaction.TxTerminatedError<%s>: %s", fields, err.Err)
@@ -69,7 +69,7 @@ func (err *TxTerminatedError) Error() string {
 type TxTimeoutError struct {
 	Err   error
 	TxKey TxKey
-	Tx    string
+	TxPtr string
 }
 
 func (err *TxTimeoutError) Unwrap() error    { return err.Err }
@@ -84,14 +84,14 @@ func (err *TxTimeoutError) Error() string {
 
 	fields := log.Fields{
 		"transaction_key": "???",
-		"transaction":     "???",
+		"transaction_ptr": "???",
 	}
 
 	if err.TxKey != "" {
 		fields["transaction_key"] = err.TxKey
 	}
-	if err.Tx != "" {
-		fields["transaction"] = err.Tx
+	if err.TxPtr != "" {
+		fields["transaction_ptr"] = err.TxPtr
 	}
 
 	return fmt.Sprintf("transaction.TxTimeoutError<%s>: %s", fields, err.Err)
@@ -100,7 +100,7 @@ func (err *TxTimeoutError) Error() string {
 type TxTransportError struct {
 	Err   error
 	TxKey TxKey
-	Tx    string
+	TxPtr string
 }
 
 func (err *TxTransportError) Unwrap() error    { return err.Err }
@@ -115,14 +115,14 @@ func (err *TxTransportError) Error() string {
 
 	fields := log.Fields{
 		"transaction_key": "???",
-		"transaction":     "???",
+		"transaction_ptr": "???",
 	}
 
 	if err.TxKey != "" {
 		fields["transaction_key"] = err.TxKey
 	}
-	if err.Tx != "" {
-		fields["transaction"] = err.Tx
+	if err.TxPtr != "" {
+		fields["transaction_ptr"] = err.TxPtr
 	}
 
 	return fmt.Sprintf("transaction.TxTransportError<%s>: %s", fields, err.Err)

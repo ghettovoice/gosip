@@ -100,7 +100,7 @@ func (conn *connection) Read(buf []byte) (int, error) {
 			conn.Network(),
 			fmt.Sprintf("%v", conn.RemoteAddr()),
 			fmt.Sprintf("%v", conn.LocalAddr()),
-			conn.String(),
+			fmt.Sprintf("%p", conn),
 		}
 	}
 
@@ -118,7 +118,7 @@ func (conn *connection) ReadFrom(buf []byte) (num int, raddr net.Addr, err error
 			conn.Network(),
 			fmt.Sprintf("%v", raddr),
 			fmt.Sprintf("%v", conn.LocalAddr()),
-			conn.String(),
+			fmt.Sprintf("%p", conn),
 		}
 	}
 
@@ -143,7 +143,7 @@ func (conn *connection) Write(buf []byte) (int, error) {
 			conn.Network(),
 			fmt.Sprintf("%v", conn.LocalAddr()),
 			fmt.Sprintf("%v", conn.RemoteAddr()),
-			conn.String(),
+			fmt.Sprintf("%p", conn),
 		}
 	}
 
@@ -161,7 +161,7 @@ func (conn *connection) WriteTo(buf []byte, raddr net.Addr) (num int, err error)
 			conn.Network(),
 			fmt.Sprintf("%v", conn.LocalAddr()),
 			fmt.Sprintf("%v", raddr),
-			conn.String(),
+			fmt.Sprintf("%p", conn),
 		}
 	}
 
@@ -189,7 +189,7 @@ func (conn *connection) Close() error {
 			conn.Network(),
 			"",
 			"",
-			conn.String(),
+			fmt.Sprintf("%p", conn),
 		}
 	}
 
