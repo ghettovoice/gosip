@@ -11,9 +11,7 @@ import (
 )
 
 var (
-	bufferSize   uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
-	readTimeout         = time.Minute
-	writeTimeout        = time.Minute
+	bufferSize uint16 = 65535 - 20 - 8 // IPv4 max size - IPv4 Header size - UDP Header size
 )
 
 // Wrapper around net.Conn.
@@ -93,10 +91,6 @@ func (conn *connection) Read(buf []byte) (int, error) {
 		err error
 	)
 
-	if err := conn.baseConn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-		conn.Log().Warnf("set connection read deadline failed: %s", err)
-	}
-
 	num, err = conn.baseConn.Read(buf)
 
 	if err != nil {
@@ -116,10 +110,6 @@ func (conn *connection) Read(buf []byte) (int, error) {
 }
 
 func (conn *connection) ReadFrom(buf []byte) (num int, raddr net.Addr, err error) {
-	if err := conn.baseConn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-		conn.Log().Warnf("set connection read deadline failed: %s", err)
-	}
-
 	num, raddr, err = conn.baseConn.(net.PacketConn).ReadFrom(buf)
 	if err != nil {
 		return num, raddr, &ConnectionError{
@@ -145,10 +135,6 @@ func (conn *connection) Write(buf []byte) (int, error) {
 		err error
 	)
 
-	if err := conn.baseConn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		conn.Log().Warnf("set connection write deadline: %s", err)
-	}
-
 	num, err = conn.baseConn.Write(buf)
 	if err != nil {
 		return num, &ConnectionError{
@@ -167,10 +153,6 @@ func (conn *connection) Write(buf []byte) (int, error) {
 }
 
 func (conn *connection) WriteTo(buf []byte, raddr net.Addr) (num int, err error) {
-	if err := conn.baseConn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		conn.Log().Warnf("set connection write deadline: %s", err)
-	}
-
 	num, err = conn.baseConn.(net.PacketConn).WriteTo(buf, raddr)
 	if err != nil {
 		return num, &ConnectionError{
