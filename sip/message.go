@@ -379,12 +379,16 @@ func (msg *message) StartLine() string {
 
 func (msg *message) Fields() log.Fields {
 	baseFields := log.Fields{
+		"sip_via_header":     "???",
 		"sip_cseq_header":    "???",
 		"sip_call_id_header": "???",
 		"sip_from_header":    "???",
 		"sip_to_header":      "???",
 	}
 
+	if via, ok := msg.ViaHop(); ok {
+		baseFields["sip_via_header"] = fmt.Sprintf("%s", via)
+	}
 	if cseq, ok := msg.CSeq(); ok {
 		baseFields["sip_cseq_header"] = fmt.Sprintf("%s", cseq)
 	}
