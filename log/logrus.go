@@ -15,7 +15,7 @@ func NewLogrusLogger(logrus logrus.Ext1FieldLogger, prefix string, fields Fields
 	return &LogrusLogger{
 		log:    logrus,
 		prefix: prefix,
-		fields: make(Fields).WithFields(fields),
+		fields: fields,
 	}
 }
 
