@@ -272,7 +272,8 @@ func (tx *serverTx) initInviteFSM() {
 			server_input_user_2xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_confirmed, fsm.NO_ACTION},
 			server_input_timer_i:       {server_state_terminated, tx.act_delete},
-			// server_input_timer_g:       {server_state_confirmed, fsm.NO_ACTION},
+			server_input_timer_g:       {server_state_confirmed, fsm.NO_ACTION},
+			server_input_timer_h:       {server_state_confirmed, fsm.NO_ACTION},
 		},
 	}
 
@@ -428,18 +429,23 @@ func (tx *serverTx) delete() {
 	tx.mu.Lock()
 	if tx.timer_i != nil {
 		tx.timer_i.Stop()
+		tx.timer_i = nil
 	}
 	if tx.timer_g != nil {
 		tx.timer_g.Stop()
+		tx.timer_g = nil
 	}
 	if tx.timer_h != nil {
 		tx.timer_h.Stop()
+		tx.timer_h = nil
 	}
 	if tx.timer_j != nil {
 		tx.timer_j.Stop()
+		tx.timer_j = nil
 	}
 	if tx.timer_1xx != nil {
 		tx.timer_1xx.Stop()
+		tx.timer_1xx = nil
 	}
 	tx.mu.Unlock()
 
@@ -640,6 +646,16 @@ func (tx *serverTx) act_confirm() fsm.Input {
 	defer func() { recover() }()
 
 	tx.mu.Lock()
+
+	if tx.timer_g != nil {
+		tx.timer_g.Stop()
+		tx.timer_g = nil
+	}
+
+	if tx.timer_h != nil {
+		tx.timer_h.Stop()
+		tx.timer_h = nil
+	}
 
 	tx.Log().Debugf("timer_i set to %v", Timer_I)
 

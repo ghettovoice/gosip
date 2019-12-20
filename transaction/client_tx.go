@@ -476,12 +476,15 @@ func (tx *clientTx) delete() {
 	tx.mu.Lock()
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
+		tx.timer_a = nil
 	}
 	if tx.timer_b != nil {
 		tx.timer_b.Stop()
+		tx.timer_b = nil
 	}
 	if tx.timer_d != nil {
 		tx.timer_d.Stop()
+		tx.timer_d = nil
 	}
 	tx.mu.Unlock()
 
@@ -542,6 +545,7 @@ func (tx *clientTx) act_passup() fsm.Input {
 
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
+		tx.timer_a = nil
 	}
 
 	tx.mu.Unlock()
@@ -559,9 +563,11 @@ func (tx *clientTx) act_invite_final() fsm.Input {
 
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
+		tx.timer_a = nil
 	}
 	if tx.timer_d != nil {
 		tx.timer_d.Stop()
+		tx.timer_d = nil
 	}
 
 	tx.Log().Debugf("timer_d set to %v", tx.timer_d_time)
@@ -588,9 +594,11 @@ func (tx *clientTx) act_non_invite_final() fsm.Input {
 
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
+		tx.timer_a = nil
 	}
 	if tx.timer_d != nil {
 		tx.timer_d.Stop()
+		tx.timer_d = nil
 	}
 
 	tx.Log().Debugf("timer_d set to %v", tx.timer_d_time)
@@ -625,6 +633,7 @@ func (tx *clientTx) act_trans_err() fsm.Input {
 
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
+		tx.timer_a = nil
 	}
 
 	tx.mu.Unlock()
@@ -641,6 +650,7 @@ func (tx *clientTx) act_timeout() fsm.Input {
 
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
+		tx.timer_a = nil
 	}
 
 	tx.mu.Unlock()
@@ -656,7 +666,7 @@ func (tx *clientTx) act_passup_delete() fsm.Input {
 	tx.mu.Lock()
 
 	if tx.timer_a != nil {
-		tx.timer_a.Stop()
+		tx.timer_a = nil
 	}
 
 	tx.mu.Unlock()
