@@ -136,7 +136,9 @@ func (tx *clientTx) Receive(msg sip.Message) error {
 	}
 
 	tx.mu.Lock()
-	tx.lastResp = res
+	tx.lastResp = res.WithFields(log.Fields{
+		"request_id": tx.origin.MessageID(),
+	}).(sip.Response)
 	tx.mu.Unlock()
 
 	var input fsm.Input
