@@ -74,6 +74,8 @@ func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Se
 }
 
 func (tx *serverTx) Init() error {
+	tx.Log().Infof("received SIP request:\n%s", tx.origin)
+
 	tx.initFSM()
 
 	tx.mu.Lock()
@@ -121,6 +123,8 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 			Msg: req.String(),
 		}
 	}
+
+	tx.Log().Infof("received SIP request:\n%s", msg)
 
 	tx.mu.Lock()
 	if tx.timer_1xx != nil {

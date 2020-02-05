@@ -68,6 +68,8 @@ func NewClientTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Cl
 func (tx *clientTx) Init() error {
 	tx.initFSM()
 
+	tx.Log().Infof("sending SIP request:\n%s", tx.origin)
+
 	if err := tx.tpl.Send(tx.Origin()); err != nil {
 		tx.mu.Lock()
 		tx.lastErr = err
@@ -135,10 +137,14 @@ func (tx *clientTx) Receive(msg sip.Message) error {
 		}
 	}
 
-	tx.mu.Lock()
-	tx.lastResp = res.WithFields(log.Fields{
+	res = res.WithFields(log.Fields{
 		"request_id": tx.origin.MessageID(),
 	}).(sip.Response)
+
+	tx.Log().Infof("received SIP response:\n%s", res)
+
+	tx.mu.Lock()
+	tx.lastResp = res
 	tx.mu.Unlock()
 
 	var input fsm.Input
