@@ -38,7 +38,7 @@ func NewRequest(
 	fields log.Fields,
 ) Request {
 	req := new(request)
-	if req.messID == "" {
+	if messID == "" {
 		req.messID = MessageID(uuid.Must(uuid.NewV4()).String())
 	} else {
 		req.messID = messID
