@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	uuid "github.com/satori/go.uuid"
+
 	"github.com/ghettovoice/gosip/log"
 )
 
@@ -35,6 +37,7 @@ func NewRequest(
 	fields log.Fields,
 ) Request {
 	req := new(request)
+	req.messID = MessageID(uuid.NewV4().String())
 	req.startLine = req.StartLine
 	req.SetSipVersion(sipVersion)
 	req.headers = newHeaders(hdrs)

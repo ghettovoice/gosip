@@ -51,7 +51,11 @@ func (tx *commonTx) String() string {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("%s<%s>", tx.Log().Prefix(), tx.Log().Fields())
+	fields := tx.Log().Fields().WithFields(log.Fields{
+		"key": tx.key,
+	})
+
+	return fmt.Sprintf("%s<%s>", tx.Log().Prefix(), fields)
 }
 
 func (tx *commonTx) Log() log.Logger {

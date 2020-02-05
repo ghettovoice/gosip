@@ -32,8 +32,7 @@ func NewTcpProtocol(
 	tcp.log = logger.
 		WithPrefix("transport.Protocol").
 		WithFields(log.Fields{
-			"protocol_ptr":     fmt.Sprintf("%p", tcp),
-			"protocol_network": tcp.network,
+			"protocol_ptr": fmt.Sprintf("%p", tcp),
 		})
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
 	tcp.listeners = NewListenerPool(tcp.conns, errs, cancel, tcp.Log())

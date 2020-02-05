@@ -29,8 +29,7 @@ func NewUdpProtocol(
 	udp.log = logger.
 		WithPrefix("transport.Protocol").
 		WithFields(log.Fields{
-			"protocol_ptr":     fmt.Sprintf("%p", udp),
-			"protocol_network": udp.Network(),
+			"protocol_ptr": fmt.Sprintf("%p", udp),
 		})
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
 	udp.connections = NewConnectionPool(output, errs, cancel, msgMapper, udp.Log())

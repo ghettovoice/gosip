@@ -53,7 +53,11 @@ func (pr *protocol) String() string {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("transport.Protocol<%s>", pr.Log().Fields())
+	fields := pr.Log().Fields().WithFields(log.Fields{
+		"network": pr.network,
+	})
+
+	return fmt.Sprintf("transport.Protocol<%s>", fields)
 }
 
 func (pr *protocol) Network() string {

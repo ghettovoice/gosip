@@ -148,7 +148,7 @@ func (pool *listenerPool) Put(key ListenerKey, listener net.Listener) error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%+v", req),
+		"listener_pool_request": fmt.Sprintf("%#v", req),
 	})
 	logger.Trace("sending put listener request")
 
@@ -195,7 +195,7 @@ func (pool *listenerPool) Get(key ListenerKey) (net.Listener, error) {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%+v", req),
+		"listener_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("sending get listener request")
@@ -239,7 +239,7 @@ func (pool *listenerPool) Drop(key ListenerKey) error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%+v", req),
+		"listener_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("sending drop listener request")
@@ -283,7 +283,7 @@ func (pool *listenerPool) DropAll() error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%+v", req),
+		"listener_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("sending drop all listeners request")
@@ -323,7 +323,7 @@ func (pool *listenerPool) All() []net.Listener {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%+v", req),
+		"listener_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("sending get all listeners request")
@@ -406,10 +406,7 @@ func (pool *listenerPool) serveHandlers() {
 				continue
 			}
 
-			logger = logger.WithFields(log.Fields{
-				"connection": conn.String(),
-			})
-
+			logger = logger.WithFields(conn.Log().Fields())
 			logger.Trace("passing up connection")
 
 			select {
@@ -429,9 +426,7 @@ func (pool *listenerPool) serveHandlers() {
 			var lerr *ListenerHandlerError
 			if errors.As(err, &lerr) {
 				if handler, gerr := pool.get(lerr.Key); gerr == nil {
-					logger = logger.WithFields(log.Fields{
-						"listener_handler": handler.String(),
-					})
+					logger = logger.WithFields(handler.Log().Fields())
 
 					if lerr.Network() {
 						// listener broken or closed, should be dropped
@@ -486,9 +481,7 @@ func (pool *listenerPool) put(key ListenerKey, listener net.Listener) error {
 	// wrap to handler
 	handler := NewListenerHandler(key, listener, pool.hconns, pool.herrs, pool.cancel, pool.Log())
 
-	pool.Log().WithFields(log.Fields{
-		"listener_handler": handler.String(),
-	}).Trace("put listener to the pool")
+	pool.Log().WithFields(handler.Log().Fields()).Trace("put listener to the pool")
 
 	pool.mu.Lock()
 
@@ -516,9 +509,7 @@ func (pool *listenerPool) drop(key ListenerKey, cancel bool) error {
 		handler.Cancel()
 	}
 
-	pool.Log().WithFields(log.Fields{
-		"listener_handler": handler.String(),
-	}).Trace("drop listener from the pool")
+	pool.Log().WithFields(handler.Log().Fields()).Trace("drop listener from the pool")
 
 	pool.mu.Lock()
 
@@ -555,7 +546,7 @@ func (pool *listenerPool) handlePut(req *listenerRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%+v", req),
+		"listener_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	res := &listenerResponse{nil, []error{}}
@@ -576,7 +567,7 @@ func (pool *listenerPool) handleGet(req *listenerRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%+v", req),
+		"listener_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	res := &listenerResponse{[]net.Listener{}, []error{}}
@@ -603,7 +594,7 @@ func (pool *listenerPool) handleDrop(req *listenerRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%+v", req),
+		"listener_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	res := &listenerResponse{nil, []error{}}
@@ -659,8 +650,8 @@ func NewListenerHandler(
 		WithPrefix("transport.ListenerHandler").
 		WithFields(log.Fields{
 			"listener_handler_ptr": fmt.Sprintf("%p", handler),
-			"listener_key":         key,
 			"listener_ptr":         fmt.Sprintf("%p", listener),
+			"listener_key":         key,
 		})
 
 	return handler
@@ -782,10 +773,7 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 			}
 			if conn != nil {
 
-				logger := handler.Log().WithFields(log.Fields{
-					"connection": conn.String(),
-				})
-
+				logger := handler.Log().WithFields(conn.Log().Fields())
 				logger.Trace("passing up connection...")
 
 				select {

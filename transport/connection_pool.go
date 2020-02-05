@@ -172,7 +172,7 @@ func (pool *connectionPool) Put(key ConnectionKey, connection Connection, ttl ti
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%+v", req),
+		"connection_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("sending put connection request")
@@ -221,7 +221,7 @@ func (pool *connectionPool) Get(key ConnectionKey) (Connection, error) {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%+v", req),
+		"connection_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("sending get connection request")
@@ -266,7 +266,7 @@ func (pool *connectionPool) Drop(key ConnectionKey) error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%+v", req),
+		"connection_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("sending drop connection request")
@@ -311,7 +311,7 @@ func (pool *connectionPool) DropAll() error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%+v", req),
+		"connection_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("sending drop all connections request")
@@ -352,7 +352,7 @@ func (pool *connectionPool) All() []Connection {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%+v", req),
+		"connection_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("sending get all connections request")
@@ -436,10 +436,7 @@ func (pool *connectionPool) serveHandlers() {
 				continue
 			}
 
-			logger = logger.WithFields(log.Fields{
-				"sip_message": msg.Short(),
-			})
-
+			logger = logger.WithFields(msg.Fields())
 			logger.Trace("passing up SIP message")
 
 			select {
@@ -565,9 +562,8 @@ func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Dur
 		pool.Log(),
 	)
 
-	pool.Log().WithFields(log.Fields{
-		"connection_handler": handler.String(),
-	}).Tracef("put connection to the pool with TTL = %s", ttl)
+	pool.Log().WithFields(handler.Log().Fields()).
+		Tracef("put connection to the pool with TTL = %s", ttl)
 
 	pool.mu.Lock()
 
@@ -594,9 +590,8 @@ func (pool *connectionPool) drop(key ConnectionKey, cancel bool) error {
 		handler.Cancel()
 	}
 
-	pool.Log().WithFields(log.Fields{
-		"connection_handler": handler.String(),
-	}).Trace("drop connection from the pool")
+	pool.Log().WithFields(handler.Log().Fields()).
+		Trace("drop connection from the pool")
 
 	pool.mu.Lock()
 
@@ -643,7 +638,7 @@ func (pool *connectionPool) handlePut(req *connectionRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%+v", req),
+		"connection_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	res := &connectionResponse{nil, []error{}}
@@ -664,7 +659,7 @@ func (pool *connectionPool) handleGet(req *connectionRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%+v", req),
+		"connection_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	res := &connectionResponse{[]Connection{}, []error{}}
@@ -687,7 +682,7 @@ func (pool *connectionPool) handleDrop(req *connectionRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%+v", req),
+		"connection_pool_request": fmt.Sprintf("%#v", req),
 	})
 
 	logger.Trace("handle drop connections request")
@@ -756,9 +751,9 @@ func NewConnectionHandler(
 		WithPrefix("transport.ConnectionHandler").
 		WithFields(log.Fields{
 			"connection_handler_ptr": fmt.Sprintf("%p", handler),
+			"connection_ptr":         fmt.Sprintf("%p", conn),
 			"connection_key":         key,
-		}).
-		WithFields(conn.Log().Fields())
+		})
 
 	// handler.Update(ttl)
 	if ttl > 0 {
@@ -929,7 +924,7 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 
 			// skip empty udp packets
 			if len(bytes.Trim(data, "\x00")) == 0 {
-				handler.Log().Tracef("skip empty data: %v", data)
+				handler.Log().Tracef("skip empty data: %#v", data)
 
 				continue
 			}

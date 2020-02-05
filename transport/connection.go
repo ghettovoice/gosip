@@ -55,9 +55,7 @@ func NewConnection(baseConn net.Conn, logger log.Logger) Connection {
 	conn.log = logger.
 		WithPrefix("transport.Connection").
 		WithFields(log.Fields{
-			"connection_ptr":        fmt.Sprintf("%p", conn),
-			"connection_network":    strings.ToUpper(conn.LocalAddr().Network()),
-			"connection_local_addr": fmt.Sprintf("%v", conn.LocalAddr()),
+			"connection_ptr": fmt.Sprintf("%p", conn),
 		})
 
 	return conn
@@ -68,13 +66,17 @@ func (conn *connection) String() string {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("transport.Connection<%s>", conn.Log().Fields())
+	fields := conn.Log().Fields().WithFields(log.Fields{
+		"network":     conn.Network(),
+		"local_addr":  conn.LocalAddr(),
+		"remote_addr": conn.RemoteAddr(),
+	})
+
+	return fmt.Sprintf("transport.Connection<%s>", fields)
 }
 
 func (conn *connection) Log() log.Logger {
-	return conn.log.WithFields(log.Fields{
-		"connection_remote_addr": fmt.Sprintf("%v", conn.RemoteAddr()),
-	})
+	return conn.log
 }
 
 func (conn *connection) Streamed() bool {
@@ -104,7 +106,7 @@ func (conn *connection) Read(buf []byte) (int, error) {
 		}
 	}
 
-	conn.Log().Tracef("read %d bytes:\n%s", num, buf[:num])
+	conn.Log().Tracef("read %d bytes %s -> %s:\n%s", num, conn.RemoteAddr(), conn.LocalAddr(), buf[:num])
 
 	return num, err
 }
@@ -122,9 +124,7 @@ func (conn *connection) ReadFrom(buf []byte) (num int, raddr net.Addr, err error
 		}
 	}
 
-	conn.Log().WithFields(log.Fields{
-		"connection_remote_addr": fmt.Sprintf("%v", raddr),
-	}).Tracef("read %d bytes:\n%s", num, buf[:num])
+	conn.Log().Tracef("read %d bytes %s -> %s:\n%s", num, conn.LocalAddr(), raddr, buf[:num])
 
 	return num, raddr, err
 }
@@ -147,7 +147,7 @@ func (conn *connection) Write(buf []byte) (int, error) {
 		}
 	}
 
-	conn.Log().Tracef("write %d bytes:\n%s", num, buf[:num])
+	conn.Log().Tracef("write %d bytes %s -> %s:\n%s", num, conn.LocalAddr(), conn.RemoteAddr(), buf[:num])
 
 	return num, err
 }
@@ -165,9 +165,7 @@ func (conn *connection) WriteTo(buf []byte, raddr net.Addr) (num int, err error)
 		}
 	}
 
-	conn.Log().WithFields(log.Fields{
-		"connection_remote_addr": fmt.Sprintf("%v", raddr),
-	}).Tracef("write %d bytes:\n%s", num, buf[:num])
+	conn.Log().Tracef("write %d bytes %s -> %s:\n%s", num, conn.LocalAddr(), raddr, buf[:num])
 
 	return num, err
 }

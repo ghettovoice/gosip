@@ -55,12 +55,15 @@ func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Se
 	tx.done = make(chan bool)
 	tx.log = logger.
 		WithPrefix("transaction.ServerTx").
-		WithFields(log.Fields{
-			"transaction_key": tx.key,
-			"transaction_ptr": fmt.Sprintf("%p", tx),
-		}).
-		WithFields(origin.Fields())
-	tx.origin = origin.WithFields(tx.Log().Fields()).(sip.Request)
+		WithFields(
+			origin.Fields().WithFields(log.Fields{
+				"transaction_ptr": fmt.Sprintf("%p", tx),
+			}),
+		)
+	tx.origin = origin.WithFields(log.Fields{
+		"transaction_ptr": fmt.Sprintf("%p", tx),
+		"transaction_key": tx.key,
+	}).(sip.Request)
 
 	if viaHop, ok := origin.ViaHop(); ok {
 		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)

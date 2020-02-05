@@ -2,7 +2,6 @@ package sip
 
 import (
 	"bytes"
-	"fmt"
 	"strings"
 
 	"github.com/ghettovoice/gosip/log"
@@ -42,8 +41,12 @@ const (
 	INFO      RequestMethod = "INFO"
 )
 
+type MessageID string
+
 // Message introduces common SIP message RFC 3261 - 7.
 type Message interface {
+	MessageID() MessageID
+
 	Clone() Message
 	// Start line returns message start line.
 	StartLine() string
@@ -364,6 +367,7 @@ func (hs *headers) Contact() (*ContactHeader, bool) {
 type message struct {
 	// message headers
 	*headers
+	messID     MessageID
 	sipVersion string
 	body       string
 	startLine  func() string
@@ -373,36 +377,18 @@ type message struct {
 	fields log.Fields
 }
 
+func (msg *message) MessageID() MessageID {
+	return msg.messID
+}
+
 func (msg *message) StartLine() string {
 	return msg.startLine()
 }
 
 func (msg *message) Fields() log.Fields {
-	baseFields := log.Fields{
-		"sip_via_header":     "???",
-		"sip_cseq_header":    "???",
-		"sip_call_id_header": "???",
-		"sip_from_header":    "???",
-		"sip_to_header":      "???",
-	}
-
-	if via, ok := msg.ViaHop(); ok {
-		baseFields["sip_via_header"] = fmt.Sprintf("%s", via)
-	}
-	if cseq, ok := msg.CSeq(); ok {
-		baseFields["sip_cseq_header"] = fmt.Sprintf("%s", cseq)
-	}
-	if callId, ok := msg.CallID(); ok {
-		baseFields["sip_call_id_header"] = fmt.Sprintf("%s", callId)
-	}
-	if from, ok := msg.From(); ok {
-		baseFields["sip_from_header"] = fmt.Sprintf("%s", from)
-	}
-	if to, ok := msg.To(); ok {
-		baseFields["sip_to_header"] = fmt.Sprintf("%s", to)
-	}
-
-	return msg.fields.WithFields(baseFields)
+	return msg.fields.WithFields(log.Fields{
+		"message_id": msg.messID,
+	})
 }
 
 func (msg *message) String() string {
