@@ -29,6 +29,7 @@ type request struct {
 }
 
 func NewRequest(
+	messID MessageID,
 	method RequestMethod,
 	recipient Uri,
 	sipVersion string,
@@ -37,7 +38,11 @@ func NewRequest(
 	fields log.Fields,
 ) Request {
 	req := new(request)
-	req.messID = MessageID(uuid.Must(uuid.NewV4()).String())
+	if req.messID == "" {
+		req.messID = MessageID(uuid.Must(uuid.NewV4()).String())
+	} else {
+		req.messID = messID
+	}
 	req.startLine = req.StartLine
 	req.SetSipVersion(sipVersion)
 	req.headers = newHeaders(hdrs)
@@ -95,6 +100,7 @@ func (req *request) StartLine() string {
 
 func (req *request) Clone() Message {
 	return NewRequest(
+		"",
 		req.Method(),
 		req.Recipient().Clone(),
 		req.SipVersion(),
@@ -106,6 +112,7 @@ func (req *request) Clone() Message {
 
 func (req *request) WithFields(fields log.Fields) Message {
 	return NewRequest(
+		req.MessageID(),
 		req.Method(),
 		req.Recipient().Clone(),
 		req.SipVersion(),
@@ -196,12 +203,16 @@ func (req *request) Destination() string {
 func NewAckRequest(inviteRequest Request, inviteResponse Response) Request {
 	contact, _ := inviteResponse.Contact()
 	ackRequest := NewRequest(
+		"",
 		ACK,
 		contact.Address,
 		inviteResponse.SipVersion(),
 		[]Header{},
 		"",
-		inviteRequest.Fields(),
+		inviteRequest.Fields().WithFields(log.Fields{
+			"invite_request_id":  inviteRequest.MessageID(),
+			"invite_response_id": inviteResponse.MessageID(),
+		}),
 	)
 
 	CopyHeaders("Via", inviteRequest, ackRequest)
@@ -235,12 +246,15 @@ func NewAckRequest(inviteRequest Request, inviteResponse Response) Request {
 
 func NewCancelRequest(requestForCancel Request) Request {
 	cancelReq := NewRequest(
+		"",
 		CANCEL,
 		requestForCancel.Recipient(),
 		requestForCancel.SipVersion(),
 		[]Header{},
 		"",
-		requestForCancel.Fields(),
+		requestForCancel.Fields().WithFields(log.Fields{
+			"cancelling_request_id": requestForCancel.MessageID(),
+		}),
 	)
 
 	viaHop, _ := requestForCancel.ViaHop()
@@ -254,4 +268,8 @@ func NewCancelRequest(requestForCancel Request) Request {
 	cseq.MethodName = CANCEL
 
 	return cancelReq
+}
+
+func CopyRequest(req Request) Request {
+	return CopyMessage(req).(Request)
 }

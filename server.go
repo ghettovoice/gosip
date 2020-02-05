@@ -207,7 +207,7 @@ func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
 }
 
 func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, authorizer sip.Authorizer) (sip.Response, error) {
-	tx, err := srv.Request(request.Clone().(sip.Request))
+	tx, err := srv.Request(sip.CopyRequest(request))
 	if err != nil {
 		return nil, err
 	}

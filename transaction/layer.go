@@ -167,12 +167,6 @@ func (txl *layer) Respond(res sip.Response) (sip.ServerTransaction, error) {
 		return nil, err
 	}
 
-	logger := txl.Log().
-		WithFields(res.Fields()).
-		WithFields(tx.Log().Fields())
-
-	logger.Debug("server transaction found")
-
 	err = tx.Respond(res)
 	if err != nil {
 		return nil, err

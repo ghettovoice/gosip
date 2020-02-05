@@ -34,6 +34,7 @@ type response struct {
 }
 
 func NewResponse(
+	messID MessageID,
 	sipVersion string,
 	statusCode StatusCode,
 	reason string,
@@ -42,7 +43,11 @@ func NewResponse(
 	fields log.Fields,
 ) Response {
 	res := new(response)
-	res.messID = MessageID(uuid.Must(uuid.NewV4()).String())
+	if messID == "" {
+		res.messID = MessageID(uuid.Must(uuid.NewV4()).String())
+	} else {
+		res.messID = messID
+	}
 	res.startLine = res.StartLine
 	res.SetSipVersion(sipVersion)
 	res.headers = newHeaders(hdrs)
@@ -100,6 +105,7 @@ func (res *response) StartLine() string {
 
 func (res *response) Clone() Message {
 	return NewResponse(
+		"",
 		res.SipVersion(),
 		res.StatusCode(),
 		res.Reason(),
@@ -111,6 +117,7 @@ func (res *response) Clone() Message {
 
 func (res *response) WithFields(fields log.Fields) Message {
 	return NewResponse(
+		res.MessageID(),
 		res.SipVersion(),
 		res.StatusCode(),
 		res.Reason(),
@@ -166,6 +173,7 @@ func NewResponseFromRequest(
 	body string,
 ) Response {
 	res := NewResponse(
+		"",
 		req.SipVersion(),
 		statusCode,
 		reason,
@@ -230,4 +238,8 @@ func (res *response) Destination() string {
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)
+}
+
+func CopyResponse(res Response) Response {
+	return CopyMessage(res).(Response)
 }

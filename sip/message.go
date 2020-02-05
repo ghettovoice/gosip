@@ -46,6 +46,7 @@ type MessageID string
 // Message introduces common SIP message RFC 3261 - 7.
 type Message interface {
 	MessageID() MessageID
+	SetMessageID(messID MessageID)
 
 	Clone() Message
 	// Start line returns message start line.
@@ -381,6 +382,10 @@ func (msg *message) MessageID() MessageID {
 	return msg.messID
 }
 
+func (msg *message) SetMessageID(messID MessageID) {
+	msg.messID = messID
+}
+
 func (msg *message) StartLine() string {
 	return msg.startLine()
 }
@@ -467,3 +472,9 @@ func PrependCopyHeaders(name string, from, to Message) {
 }
 
 type MessageMapper func(msg Message) Message
+
+func CopyMessage(msg Message) Message {
+	newMsg := msg.Clone()
+	newMsg.SetMessageID(msg.MessageID())
+	return newMsg
+}
