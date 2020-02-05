@@ -141,7 +141,9 @@ func (tx *clientTx) Receive(msg sip.Message) error {
 		"request_id": tx.origin.MessageID(),
 	}).(sip.Response)
 
-	tx.Log().Infof("received SIP response:\n%s", res)
+	tx.Log().WithFields(log.Fields{
+		"response_id": res.MessageID(),
+	}).Infof("received SIP response:\n%s", res)
 
 	tx.mu.Lock()
 	tx.lastResp = res
