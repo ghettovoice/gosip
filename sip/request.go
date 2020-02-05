@@ -271,5 +271,18 @@ func NewCancelRequest(cancelID MessageID, requestForCancel Request) Request {
 }
 
 func CopyRequest(req Request) Request {
-	return CopyMessage(req).(Request)
+	hdrs := make([]Header, 0)
+	for _, header := range req.Headers() {
+		hdrs = append(hdrs, header.Clone())
+	}
+
+	return NewRequest(
+		req.MessageID(),
+		req.Method(),
+		req.Recipient().Clone(),
+		req.SipVersion(),
+		hdrs,
+		req.Body(),
+		req.Fields(),
+	)
 }

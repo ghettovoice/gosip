@@ -242,5 +242,18 @@ func (res *response) Destination() string {
 }
 
 func CopyResponse(res Response) Response {
-	return CopyMessage(res).(Response)
+	hdrs := make([]Header, 0)
+	for _, header := range res.Headers() {
+		hdrs = append(hdrs, header.Clone())
+	}
+
+	return NewResponse(
+		res.MessageID(),
+		res.SipVersion(),
+		res.StatusCode(),
+		res.Reason(),
+		hdrs,
+		res.Body(),
+		res.Fields(),
+	)
 }
