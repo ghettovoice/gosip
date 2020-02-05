@@ -58,6 +58,7 @@ func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Se
 		WithFields(
 			origin.Fields().WithFields(log.Fields{
 				"transaction_ptr": fmt.Sprintf("%p", tx),
+				"transaction_key": tx.key,
 			}),
 		)
 	tx.origin = origin.WithFields(log.Fields{
