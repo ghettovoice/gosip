@@ -176,10 +176,7 @@ func (srv *Server) serve() {
 func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
-	logger := srv.Log().WithFields(map[string]interface{}{
-		"sip_request": req.Short(),
-	})
-
+	logger := srv.Log().WithFields(req.Fields())
 	logger.Info("routing incoming SIP request...")
 
 	srv.hmu.RLock()

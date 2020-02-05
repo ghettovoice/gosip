@@ -1016,9 +1016,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				msg = handler.msgMapper(msg)
 			}
 
-			logger := handler.Log().WithFields(log.Fields{
-				"sip_message": msg.Short(),
-			})
+			logger := handler.Log().WithFields(msg.Fields())
 
 			// add Remote Address
 			raddr := getRemoteAddr()
