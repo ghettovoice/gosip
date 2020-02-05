@@ -42,7 +42,7 @@ func NewResponse(
 	fields log.Fields,
 ) Response {
 	res := new(response)
-	res.messID = MessageID(uuid.NewV4().String())
+	res.messID = MessageID(uuid.Must(uuid.NewV4()).String())
 	res.startLine = res.StartLine
 	res.SetSipVersion(sipVersion)
 	res.headers = newHeaders(hdrs)
