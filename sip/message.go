@@ -386,9 +386,7 @@ func (msg *message) StartLine() string {
 }
 
 func (msg *message) Fields() log.Fields {
-	return msg.fields.WithFields(log.Fields{
-		"message_id": msg.messID,
-	})
+	return msg.fields
 }
 
 func (msg *message) String() string {

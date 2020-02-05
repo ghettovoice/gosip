@@ -43,7 +43,9 @@ func NewRequest(
 	req.headers = newHeaders(hdrs)
 	req.SetMethod(method)
 	req.SetRecipient(recipient)
-	req.fields = fields
+	req.fields = fields.WithFields(log.Fields{
+		"request_id": req.messID,
+	})
 
 	if strings.TrimSpace(body) != "" {
 		req.SetBody(body, true)

@@ -48,7 +48,9 @@ func NewResponse(
 	res.headers = newHeaders(hdrs)
 	res.SetStatusCode(statusCode)
 	res.SetReason(reason)
-	res.fields = fields
+	res.fields = fields.WithFields(log.Fields{
+		"response_id": res.messID,
+	})
 
 	if strings.TrimSpace(body) != "" {
 		res.SetBody(body, true)
