@@ -97,7 +97,7 @@ func (pb *parserBuffer) NextChunk(n int) (response string, err error) {
 
 	response = string(data)
 
-	pb.Log().Tracef("return chunk '%s'", response)
+	pb.Log().Tracef("return chunk:\n%s", response)
 
 	return
 }
