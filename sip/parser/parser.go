@@ -284,14 +284,14 @@ func (p *parser) parse(requireContentLength bool) {
 		if isRequest(startLine) {
 			method, recipient, sipVersion, err := ParseRequestLine(startLine)
 			if err == nil {
-				msg = sip.NewRequest(method, recipient, sipVersion, []sip.Header{}, "", nil)
+				msg = sip.NewRequest("", method, recipient, sipVersion, []sip.Header{}, "", nil)
 			} else {
 				termErr = err
 			}
 		} else if isResponse(startLine) {
 			sipVersion, statusCode, reason, err := ParseStatusLine(startLine)
 			if err == nil {
-				msg = sip.NewResponse(sipVersion, statusCode, reason, []sip.Header{}, "", nil)
+				msg = sip.NewResponse("", sipVersion, statusCode, reason, []sip.Header{}, "", nil)
 			} else {
 				termErr = err
 			}

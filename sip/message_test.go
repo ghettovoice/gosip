@@ -40,6 +40,7 @@ func TestMessage_String(t *testing.T) {
 		{
 			"Basic request test",
 			NewRequest(
+				"",
 				"INVITE",
 				&SipUri{
 					FUser:      String{"bob"},

@@ -319,7 +319,7 @@ func (rb *RequestBuilder) Build() (Request, error) {
 
 	sipVersion := rb.protocol + "/" + rb.protocolVersion
 	// basic request
-	req := NewRequest(rb.method, rb.recipient, sipVersion, hdrs, rb.body, nil)
+	req := NewRequest("", rb.method, rb.recipient, sipVersion, hdrs, rb.body, nil)
 
 	return req, nil
 }

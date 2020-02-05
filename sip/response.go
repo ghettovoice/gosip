@@ -167,13 +167,14 @@ func (res *response) IsCancel() bool {
 
 // RFC 3261 - 8.2.6
 func NewResponseFromRequest(
+	resID MessageID,
 	req Request,
 	statusCode StatusCode,
 	reason string,
 	body string,
 ) Response {
 	res := NewResponse(
-		"",
+		resID,
 		req.SipVersion(),
 		statusCode,
 		reason,

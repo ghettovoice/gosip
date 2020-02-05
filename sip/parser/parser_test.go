@@ -1101,6 +1101,7 @@ func TestUnstreamedParse1(t *testing.T) {
 			"INVITE sip:bob@biloxi.com SIP/2.0\r\n" +
 				"\r\n",
 			sip.NewRequest(
+				"",
 				sip.INVITE,
 				&sip.SipUri{
 					false,
@@ -1135,6 +1136,7 @@ func TestUnstreamedParse2(t *testing.T) {
 			"\r\n" +
 			body,
 			sip.NewRequest(
+				"",
 				sip.INVITE,
 				&sip.SipUri{
 					FIsEncrypted: false,
@@ -1168,6 +1170,7 @@ func TestUnstreamedParse3(t *testing.T) {
 			"\r\n" +
 			body,
 			sip.NewResponse(
+				"",
 				"SIP/2.0",
 				200,
 				"OK",
@@ -1198,6 +1201,7 @@ func TestUnstreamedParse4(t *testing.T) {
 			"\r\n" +
 			body,
 			sip.NewResponse(
+				"",
 				"SIP/2.0",
 				200,
 				"OK",
@@ -1234,6 +1238,7 @@ func TestUnstreamedParse5(t *testing.T) {
 			"\r\n" +
 			body,
 			sip.NewResponse(
+				"",
 				"SIP/2.0",
 				200,
 				"OK",
@@ -1256,6 +1261,7 @@ func TestUnstreamedParse6(t *testing.T) {
 	test := ParserTest{false, []parserTestStep{
 		{"SIP/2.0 403 Forbidden\r\n\r\n",
 			sip.NewResponse(
+				"",
 				"SIP/2.0",
 				403,
 				"Forbidden",
@@ -1276,6 +1282,7 @@ func TestUnstreamedParse7(t *testing.T) {
 		{"ACK sip:foo@bar.com SIP/2.0\r\n" +
 			"\r\n",
 			sip.NewRequest(
+				"",
 				sip.ACK,
 				&sip.SipUri{
 					FIsEncrypted: false,
@@ -1304,6 +1311,7 @@ func TestUnstreamedParse8(t *testing.T) {
 		{"ACK sip:foo@bar.com SIP/2.0\r\n" +
 			"\r\n",
 			sip.NewRequest(
+				"",
 				sip.ACK,
 				&sip.SipUri{
 					FIsEncrypted: false,
@@ -1327,6 +1335,7 @@ func TestUnstreamedParse8(t *testing.T) {
 			"\r\n" +
 			"Everything is awesome.",
 			sip.NewResponse(
+				"",
 				"SIP/2.0",
 				200,
 				"OK",
@@ -1352,6 +1361,7 @@ func TestStreamedParse1(t *testing.T) {
 		{"INVITE sip:bob@biloxi.com SIP/2.0\r\n" +
 			"Content-Length: 0\r\n\r\n",
 			sip.NewRequest(
+				"",
 				sip.INVITE,
 				&sip.SipUri{
 					FIsEncrypted: false,
@@ -1382,6 +1392,7 @@ func TestStreamedParse2(t *testing.T) {
 		{"INVITE sip:bob@biloxi.com SIP/2.0\r\n", nil, nil, nil},
 		{"Content-Length: 0\r\n\r\n",
 			sip.NewRequest(
+				"",
 				sip.INVITE,
 				&sip.SipUri{
 					FIsEncrypted: false,
@@ -1414,6 +1425,7 @@ func TestStreamedParse3(t *testing.T) {
 		{"Content-Length: 23\r\n\r\n" +
 			"Hello!\r\nThis is a test.",
 			sip.NewRequest(
+				"",
 				sip.INVITE,
 				&sip.SipUri{
 					FIsEncrypted: false,
@@ -1436,6 +1448,7 @@ func TestStreamedParse3(t *testing.T) {
 			"Contact: sip:alice@biloxi.com\r\n\r\n" +
 			"This is an ack! : \n ! \r\n contact:",
 			sip.NewRequest(
+				"",
 				sip.ACK,
 				&sip.SipUri{
 					FUser:      sip.String{"bob"},

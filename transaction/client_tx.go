@@ -172,6 +172,7 @@ func (tx clientTx) ack() {
 	tx.mu.RUnlock()
 
 	ack := sip.NewRequest(
+		"",
 		sip.ACK,
 		tx.Origin().Recipient(),
 		tx.Origin().SipVersion(),

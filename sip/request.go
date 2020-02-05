@@ -200,10 +200,10 @@ func (req *request) Destination() string {
 
 // NewAckForInvite creates ACK request for 2xx INVITE
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
-func NewAckRequest(inviteRequest Request, inviteResponse Response) Request {
+func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response) Request {
 	contact, _ := inviteResponse.Contact()
 	ackRequest := NewRequest(
-		"",
+		ackID,
 		ACK,
 		contact.Address,
 		inviteResponse.SipVersion(),
@@ -244,9 +244,9 @@ func NewAckRequest(inviteRequest Request, inviteResponse Response) Request {
 	return ackRequest
 }
 
-func NewCancelRequest(requestForCancel Request) Request {
+func NewCancelRequest(cancelID MessageID, requestForCancel Request) Request {
 	cancelReq := NewRequest(
-		"",
+		cancelID,
 		CANCEL,
 		requestForCancel.Recipient(),
 		requestForCancel.SipVersion(),
