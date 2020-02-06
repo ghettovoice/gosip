@@ -555,7 +555,6 @@ func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Dur
 
 	// wrap to handler
 	handler := NewConnectionHandler(
-		key,
 		conn,
 		ttl,
 		pool.hmess,
@@ -706,7 +705,6 @@ func (pool *connectionPool) handleDrop(req *connectionRequest) {
 
 // connectionHandler actually serves associated connection
 type connectionHandler struct {
-	key        ConnectionKey
 	connection Connection
 	msgMapper  sip.MessageMapper
 
@@ -726,7 +724,6 @@ type connectionHandler struct {
 }
 
 func NewConnectionHandler(
-	key ConnectionKey,
 	conn Connection,
 	ttl time.Duration,
 	output chan<- sip.Message,
@@ -736,7 +733,6 @@ func NewConnectionHandler(
 	logger log.Logger,
 ) ConnectionHandler {
 	handler := &connectionHandler{
-		key:        key,
 		connection: conn,
 		msgMapper:  msgMapper,
 
@@ -755,7 +751,8 @@ func NewConnectionHandler(
 		WithFields(log.Fields{
 			"connection_handler_ptr": fmt.Sprintf("%p", handler),
 			"connection_ptr":         fmt.Sprintf("%p", conn),
-			"connection_key":         key,
+			"connection_key":         conn.Key(),
+			"connection_network":     conn.Network(),
 		})
 
 	// handler.Update(ttl)
@@ -766,6 +763,12 @@ func NewConnectionHandler(
 		handler.expiry = time.Time{}
 		handler.timer = timing.NewTimer(0)
 		handler.timer.Stop()
+	}
+
+	if handler.msgMapper == nil {
+		handler.msgMapper = func(msg sip.Message) sip.Message {
+			return msg
+		}
 	}
 
 	return handler
@@ -784,7 +787,7 @@ func (handler *connectionHandler) Log() log.Logger {
 }
 
 func (handler *connectionHandler) Key() ConnectionKey {
-	return handler.key
+	return handler.connection.Key()
 }
 
 func (handler *connectionHandler) Connection() Connection {
@@ -1015,9 +1018,10 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				return
 			}
 
-			if handler.msgMapper != nil {
-				msg = handler.msgMapper(msg)
-			}
+			msg = handler.msgMapper(msg).WithFields(log.Fields{
+				"connection_network": handler.Connection().Network(),
+				"connection_key":     handler.Connection().Key(),
+			})
 
 			logger := handler.Log().WithFields(msg.Fields())
 

@@ -60,7 +60,7 @@ var _ = Describe("ConnectionHandler", func() {
 			c1, c2 := net.Pipe()
 			client = &testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}
 			server = &testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}
-			conn = transport.NewConnection(server, "dummy", logger)
+			conn = transport.NewConnection(server, key, logger)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -71,7 +71,7 @@ var _ = Describe("ConnectionHandler", func() {
 			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel, nil, logger)
+			handler = transport.NewConnectionHandler(conn, ttl, output, errs, cancel, nil, logger)
 		})
 
 		HasCorrectKeyAndConn := func() {
@@ -138,7 +138,7 @@ var _ = Describe("ConnectionHandler", func() {
 			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(key, conn, ttl, output, errs, cancel, nil, logger)
+			handler = transport.NewConnectionHandler(conn, ttl, output, errs, cancel, nil, logger)
 			go handler.Serve(util.Noop)
 		})
 
