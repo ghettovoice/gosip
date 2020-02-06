@@ -89,11 +89,11 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 		}
 	}
 
-	tcp.Log().Infof("begin listening on %s", laddr)
+	tcp.Log().Infof("begin listening on %s %s", tcp.Network(), laddr)
 
 	// index listeners by local address
 	// should live infinitely
-	key := ListenerKey(fmt.Sprintf("0.0.0.0:%d", laddr.Port))
+	key := ListenerKey(fmt.Sprintf("tcp:0.0.0.0:%d", laddr.Port))
 	err = tcp.listeners.Put(key, listener)
 
 	return err // should be nil here
@@ -106,7 +106,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	if target.Host == "" {
 		return &ProtocolError{
 			fmt.Errorf("empty remote target host"),
-			fmt.Sprintf("send SIP message to %s", target.Addr()),
+			fmt.Sprintf("send SIP message to %s %s", tcp.Network(), target.Addr()),
 			fmt.Sprintf("%p", tcp),
 		}
 	}
@@ -127,7 +127,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 		WithFields(conn.Log().Fields()).
 		WithFields(msg.Fields())
 
-	logger.Infof("writing SIP message to %s", raddr)
+	logger.Infof("writing SIP message to %s %s", tcp.Network(), raddr)
 
 	// send message
 	_, err = conn.Write([]byte(msg.String()))
@@ -143,7 +143,7 @@ func (tcp *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 	if err != nil {
 		return nil, &ProtocolError{
 			err,
-			fmt.Sprintf("resolve target address %s", addr),
+			fmt.Sprintf("resolve target address %s %s", tcp.Network(), addr),
 			fmt.Sprintf("%p", tcp),
 		}
 	}
@@ -154,9 +154,10 @@ func (tcp *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
 	network := strings.ToLower(tcp.Network())
 
-	conn, err := tcp.connections.Get(ConnectionKey(raddr.String()))
+	key := ConnectionKey("tcp:" + raddr.String())
+	conn, err := tcp.connections.Get(key)
 	if err != nil {
-		tcp.Log().Debugf("connection for remote address %s not found, create a new one", raddr)
+		tcp.Log().Debugf("connection for remote address %s %s not found, create a new one", tcp.Network(), raddr)
 
 		tcpConn, err := net.DialTCP(network, nil, raddr)
 		if err != nil {
@@ -167,7 +168,7 @@ func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 			}
 		}
 
-		conn = NewConnection(tcpConn, ConnectionKey(raddr.String()), tcp.Log())
+		conn = NewConnection(tcpConn, key, tcp.Log())
 
 		err = tcp.connections.Put(conn, sockTTL)
 	}

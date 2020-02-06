@@ -58,9 +58,8 @@ func NewConnection(baseConn net.Conn, key ConnectionKey, logger log.Logger) Conn
 	conn.log = logger.
 		WithPrefix("transport.Connection").
 		WithFields(log.Fields{
-			"connection_ptr":     fmt.Sprintf("%p", conn),
-			"connection_key":     conn.Key(),
-			"connection_network": conn.Network(),
+			"connection_ptr": fmt.Sprintf("%p", conn),
+			"connection_key": conn.Key(),
 		})
 
 	return conn

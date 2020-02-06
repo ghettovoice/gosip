@@ -60,11 +60,11 @@ func (udp *udpProtocol) Listen(target *Target) error {
 		}
 	}
 
-	udp.Log().Infof("begin listening on %s", laddr)
+	udp.Log().Infof("begin listening on %s %s", udp.Network(), laddr)
 
 	// register new connection
 	// index by local address, TTL=0 - unlimited expiry time
-	key := ConnectionKey(fmt.Sprintf("0.0.0.0:%d", laddr.Port))
+	key := ConnectionKey(fmt.Sprintf("udp:0.0.0.0:%d", laddr.Port))
 	conn := NewConnection(udpConn, key, udp.Log())
 	err = udp.connections.Put(conn, 0)
 
@@ -78,7 +78,7 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	if target.Host == "" {
 		return &ProtocolError{
 			fmt.Errorf("empty remote target host"),
-			fmt.Sprintf("send SIP message to %s", target.Addr()),
+			fmt.Sprintf("send SIP message to %s %s", udp.Network(), target.Addr()),
 			fmt.Sprintf("%p", udp),
 		}
 	}
@@ -92,13 +92,13 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	// send through already opened by connection
 	// to always use same local port
 	_, port, err := net.SplitHostPort(msg.Source())
-	conn, err := udp.connections.Get(ConnectionKey("0.0.0.0:" + port))
+	conn, err := udp.connections.Get(ConnectionKey("udp:0.0.0.0:" + port))
 	if err != nil {
 		// todo change this bloody patch
 		if len(udp.connections.All()) == 0 {
 			return &ProtocolError{
 				fmt.Errorf("connection not found: %w", err),
-				fmt.Sprintf("send SIP message to %s", raddr),
+				fmt.Sprintf("send SIP message to %s %s", udp.Network(), raddr),
 				fmt.Sprintf("%p", udp),
 			}
 		}
@@ -110,7 +110,7 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 		WithFields(conn.Log().Fields()).
 		WithFields(msg.Fields())
 
-	logger.Infof("writing SIP message to %s", raddr)
+	logger.Infof("writing SIP message to %s %s", udp.Network(), raddr)
 
 	_, err = conn.WriteTo([]byte(msg.String()), raddr)
 
@@ -125,7 +125,7 @@ func (udp *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
 	if err != nil {
 		return nil, &ProtocolError{
 			err,
-			fmt.Sprintf("resolve target address %s", addr),
+			fmt.Sprintf("resolve target address %s %s", udp.Network(), addr),
 			fmt.Sprintf("%p", udp),
 		}
 	}

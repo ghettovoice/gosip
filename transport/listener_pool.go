@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -746,7 +747,8 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 			return
 		}
 
-		conn := NewConnection(baseConn, ConnectionKey(baseConn.RemoteAddr().String()), handler.Log())
+		key := ConnectionKey(strings.ToLower(baseConn.RemoteAddr().Network()) + ":" + baseConn.RemoteAddr().String())
+		conn := NewConnection(baseConn, key, handler.Log())
 
 		select {
 		case <-handler.canceled:
