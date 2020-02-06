@@ -19,6 +19,7 @@ type Connection interface {
 	net.Conn
 	log.Loggable
 
+	Key() ConnectionKey
 	Network() string
 	Streamed() bool
 	String() string
@@ -29,6 +30,7 @@ type Connection interface {
 // Connection implementation.
 type connection struct {
 	baseConn net.Conn
+	key      ConnectionKey
 	laddr    net.Addr
 	raddr    net.Addr
 	streamed bool
@@ -37,7 +39,7 @@ type connection struct {
 	log log.Logger
 }
 
-func NewConnection(baseConn net.Conn, logger log.Logger) Connection {
+func NewConnection(baseConn net.Conn, key ConnectionKey, logger log.Logger) Connection {
 	var stream bool
 	switch baseConn.(type) {
 	case net.PacketConn:
@@ -48,6 +50,7 @@ func NewConnection(baseConn net.Conn, logger log.Logger) Connection {
 
 	conn := &connection{
 		baseConn: baseConn,
+		key:      key,
 		laddr:    baseConn.LocalAddr(),
 		raddr:    baseConn.RemoteAddr(),
 		streamed: stream,
@@ -56,6 +59,7 @@ func NewConnection(baseConn net.Conn, logger log.Logger) Connection {
 		WithPrefix("transport.Connection").
 		WithFields(log.Fields{
 			"connection_ptr": fmt.Sprintf("%p", conn),
+			"connection_key": key,
 		})
 
 	return conn
@@ -67,6 +71,7 @@ func (conn *connection) String() string {
 	}
 
 	fields := conn.Log().Fields().WithFields(log.Fields{
+		"key":         conn.Key(),
 		"network":     conn.Network(),
 		"local_addr":  conn.LocalAddr(),
 		"remote_addr": conn.RemoteAddr(),
@@ -77,6 +82,10 @@ func (conn *connection) String() string {
 
 func (conn *connection) Log() log.Logger {
 	return conn.log
+}
+
+func (conn *connection) Key() ConnectionKey {
+	return conn.key
 }
 
 func (conn *connection) Streamed() bool {

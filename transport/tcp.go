@@ -59,10 +59,9 @@ func (tcp *tcpProtocol) pipePools() {
 		case <-tcp.listeners.Done():
 			return
 		case conn := <-tcp.conns:
-			logger := tcp.Log().
-				WithFields(conn.Log().Fields())
+			logger := tcp.Log().WithFields(conn.Log().Fields())
 
-			if err := tcp.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, sockTTL); err != nil {
+			if err := tcp.connections.Put(conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
 				logger.Errorf("put new TCP connection failed: %s", err)
 
@@ -168,9 +167,9 @@ func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 			}
 		}
 
-		conn = NewConnection(tcpConn, tcp.Log())
+		conn = NewConnection(tcpConn, ConnectionKey(raddr.String()), tcp.Log())
 
-		err = tcp.connections.Put(ConnectionKey(conn.RemoteAddr().String()), conn, sockTTL)
+		err = tcp.connections.Put(conn, sockTTL)
 	}
 
 	return conn, err

@@ -60,7 +60,7 @@ var _ = Describe("ConnectionHandler", func() {
 			c1, c2 := net.Pipe()
 			client = &testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}
 			server = &testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}
-			conn = transport.NewConnection(server, logger)
+			conn = transport.NewConnection(server, "dummy", logger)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -126,7 +126,7 @@ var _ = Describe("ConnectionHandler", func() {
 			c1, c2 := net.Pipe()
 			client = &testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}
 			server = &testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}
-			conn = transport.NewConnection(server, logger)
+			conn = transport.NewConnection(server, "dummy", logger)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -261,7 +261,7 @@ var _ = Describe("ConnectionPool", func() {
 	addr3 := &testutils.MockAddr{Net: "tcp", Addr: localAddr3}
 	key1 := transport.ConnectionKey(addr1.String())
 	key2 := transport.ConnectionKey(addr2.String())
-	key3 := transport.ConnectionKey(addr3.String())
+	// key3 := transport.ConnectionKey(addr3.String())
 	msg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
 		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
@@ -329,7 +329,7 @@ var _ = Describe("ConnectionPool", func() {
 		})
 
 		It("should decline Put", func() {
-			err = pool.Put(key1, transport.NewConnection(server, logger), 0)
+			err = pool.Put(transport.NewConnection(server, key1, logger), 0)
 			Expect(err.Error()).To(ContainSubstring(expected))
 			Expect(pool.Length()).To(Equal(0))
 		})
@@ -362,8 +362,8 @@ var _ = Describe("ConnectionPool", func() {
 
 		createConn := func(addr net.Addr) (transport.Connection, transport.Connection) {
 			c1, c2 := net.Pipe()
-			client := transport.NewConnection(&testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}, logger)
-			server := transport.NewConnection(&testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}, logger)
+			client := transport.NewConnection(&testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}, "", logger)
+			server := transport.NewConnection(&testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}, transport.ConnectionKey(addr.String()), logger)
 			return client, server
 		}
 
@@ -385,7 +385,9 @@ var _ = Describe("ConnectionPool", func() {
 
 		Context("put connection with empty key = ''", func() {
 			BeforeEach(func() {
-				err = pool.Put("", server1, 0)
+				_, c2 := net.Pipe()
+				server := transport.NewConnection(&testutils.MockConn{Conn: c2, LAddr: addr1, RAddr: c2.RemoteAddr()}, "", logger)
+				err = pool.Put(server, 0)
 			})
 			It("should return Invalid Key error", func() {
 				Expect(err.Error()).To(ContainSubstring("empty connection key"))
@@ -418,7 +420,7 @@ var _ = Describe("ConnectionPool", func() {
 
 		Context("put connection server1 with key1", func() {
 			BeforeEach(func() {
-				err = pool.Put(key1, server1, 0)
+				err = pool.Put(server1, 0)
 			})
 
 			It("should run without error", func() {
@@ -442,12 +444,12 @@ var _ = Describe("ConnectionPool", func() {
 
 		Context("has connection server1 with key1", func() {
 			BeforeEach(func() {
-				Expect(pool.Put(key1, server1, 0)).ToNot(HaveOccurred())
+				Expect(pool.Put(server1, 0)).ToNot(HaveOccurred())
 			})
 
-			Context("put another connection server3 with the same key1", func() {
+			Context("put server1 with key1 once more", func() {
 				BeforeEach(func() {
-					err = pool.Put(key1, server3, 0)
+					err = pool.Put(server1, 0)
 				})
 				It("should return Duplicate error", func() {
 					Expect(err.Error()).To(ContainSubstring(fmt.Sprintf("key %s already exists in the pool", key1)))
@@ -464,7 +466,7 @@ var _ = Describe("ConnectionPool", func() {
 
 			Context("put another connection server2 with key2", func() {
 				BeforeEach(func() {
-					err = pool.Put(key2, server2, 0)
+					err = pool.Put(server2, 0)
 				})
 
 				It("should run without error", func() {
@@ -551,7 +553,7 @@ var _ = Describe("ConnectionPool", func() {
 
 			BeforeEach(func() {
 				ttl = time.Millisecond
-				Expect(pool.Put(key1, server1, ttl)).ToNot(HaveOccurred())
+				Expect(pool.Put(server1, ttl)).ToNot(HaveOccurred())
 				time.Sleep(time.Millisecond)
 			})
 
@@ -570,9 +572,9 @@ var _ = Describe("ConnectionPool", func() {
 			BeforeEach(func() {
 				ttl2 = 30 * time.Millisecond
 				ttl3 = 100 * time.Millisecond
-				Expect(pool.Put(key1, server1, 0)).ToNot(HaveOccurred())
-				Expect(pool.Put(key2, server2, ttl2)).ToNot(HaveOccurred())
-				Expect(pool.Put(key3, server3, ttl3)).ToNot(HaveOccurred())
+				Expect(pool.Put(server1, 0)).ToNot(HaveOccurred())
+				Expect(pool.Put(server2, ttl2)).ToNot(HaveOccurred())
+				Expect(pool.Put(server3, ttl3)).ToNot(HaveOccurred())
 			})
 
 			Context("when new data arrives from clients", func() {

@@ -22,7 +22,7 @@ var _ = Describe("Connection", func() {
 					cUdpConn.Close()
 					sUdpConn.Close()
 				}()
-				conn := transport.NewConnection(sUdpConn, logger)
+				conn := transport.NewConnection(sUdpConn, "dummy", logger)
 
 				Expect(conn.Network()).To(Equal("UDP"))
 				Expect(conn.Streamed()).To(BeFalse(), "UDP should be non-streamed")
@@ -41,7 +41,7 @@ var _ = Describe("Connection", func() {
 					cTcpConn.Close()
 					sTcpConn.Close()
 				}()
-				conn := transport.NewConnection(sTcpConn, logger)
+				conn := transport.NewConnection(sTcpConn, "dummy", logger)
 
 				Expect(conn.Network()).To(Equal("TCP"))
 				Expect(conn.Streamed()).To(BeTrue())
@@ -66,8 +66,8 @@ var _ = Describe("Connection", func() {
 					sUdpConn.Close()
 				}()
 
-				sConn := transport.NewConnection(sUdpConn, logger)
-				cConn := transport.NewConnection(cUdpConn, logger)
+				sConn := transport.NewConnection(sUdpConn, "dummy", logger)
+				cConn := transport.NewConnection(cUdpConn, "dummy", logger)
 
 				wg := new(sync.WaitGroup)
 				wg.Add(1)

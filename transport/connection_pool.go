@@ -27,7 +27,7 @@ type ConnectionPool interface {
 
 	Done() <-chan struct{}
 	String() string
-	Put(key ConnectionKey, connection Connection, ttl time.Duration) error
+	Put(connection Connection, ttl time.Duration) error
 	Get(key ConnectionKey) (Connection, error)
 	All() []Connection
 	Drop(key ConnectionKey) error
@@ -145,7 +145,7 @@ func (pool *connectionPool) Done() <-chan struct{} {
 
 // Put adds new connection to pool or updates TTL of existing connection
 // TTL - 0 - unlimited; 1 - ... - time to live in pool
-func (pool *connectionPool) Put(key ConnectionKey, connection Connection, ttl time.Duration) error {
+func (pool *connectionPool) Put(connection Connection, ttl time.Duration) error {
 	select {
 	case <-pool.cancel:
 		return &PoolError{
@@ -155,6 +155,9 @@ func (pool *connectionPool) Put(key ConnectionKey, connection Connection, ttl ti
 		}
 	default:
 	}
+
+	key := connection.Key()
+
 	if key == "" {
 		return &PoolError{
 			fmt.Errorf("empty connection key"),

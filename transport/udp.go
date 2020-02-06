@@ -63,10 +63,10 @@ func (udp *udpProtocol) Listen(target *Target) error {
 	udp.Log().Infof("begin listening on %s", laddr)
 
 	// register new connection
-	conn := NewConnection(udpConn, udp.Log())
 	// index by local address, TTL=0 - unlimited expiry time
 	key := ConnectionKey(fmt.Sprintf("0.0.0.0:%d", laddr.Port))
-	err = udp.connections.Put(key, conn, 0)
+	conn := NewConnection(udpConn, key, udp.Log())
+	err = udp.connections.Put(conn, 0)
 
 	return err // should be nil here
 }
