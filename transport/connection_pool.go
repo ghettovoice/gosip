@@ -175,7 +175,9 @@ func (pool *connectionPool) Put(connection Connection, ttl time.Duration) error 
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%#v", req),
+		"connection_key": key,
+		"connection_ptr": fmt.Sprintf("%p", connection),
+		"connection_ttl": ttl,
 	})
 
 	logger.Trace("sending put connection request")
@@ -224,7 +226,7 @@ func (pool *connectionPool) Get(key ConnectionKey) (Connection, error) {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%#v", req),
+		"connection_key": key,
 	})
 
 	logger.Trace("sending get connection request")
@@ -269,7 +271,7 @@ func (pool *connectionPool) Drop(key ConnectionKey) error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%#v", req),
+		"connection_key": key,
 	})
 
 	logger.Trace("sending drop connection request")
@@ -306,15 +308,16 @@ func (pool *connectionPool) DropAll() error {
 	}
 
 	response := make(chan *connectionResponse, 1)
+	keys := pool.allKeys()
 	req := &connectionRequest{
-		pool.allKeys(),
+		keys,
 		nil,
 		nil,
 		response,
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%#v", req),
+		"connection_keys": fmt.Sprintf("%v", keys),
 	})
 
 	logger.Trace("sending drop all connections request")
@@ -347,15 +350,16 @@ func (pool *connectionPool) All() []Connection {
 	}
 
 	response := make(chan *connectionResponse, 1)
+	keys := pool.allKeys()
 	req := &connectionRequest{
-		pool.allKeys(),
+		keys,
 		nil,
 		nil,
 		response,
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%#v", req),
+		"connection_keys": fmt.Sprintf("%v", keys),
 	})
 
 	logger.Trace("sending get all connections request")
@@ -640,7 +644,8 @@ func (pool *connectionPool) handlePut(req *connectionRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%#v", req),
+		"connection_keys": fmt.Sprintf("%v", req.keys),
+		"connection_ttls": fmt.Sprintf("%v", req.ttls),
 	})
 
 	res := &connectionResponse{nil, []error{}}
@@ -661,7 +666,7 @@ func (pool *connectionPool) handleGet(req *connectionRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%#v", req),
+		"connection_keys": fmt.Sprintf("%v", req.keys),
 	})
 
 	res := &connectionResponse{[]Connection{}, []error{}}
@@ -684,7 +689,7 @@ func (pool *connectionPool) handleDrop(req *connectionRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"connection_pool_request": fmt.Sprintf("%#v", req),
+		"connection_keys": fmt.Sprintf("%v", req.keys),
 	})
 
 	logger.Trace("handle drop connections request")

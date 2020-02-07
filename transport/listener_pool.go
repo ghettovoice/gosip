@@ -149,7 +149,8 @@ func (pool *listenerPool) Put(key ListenerKey, listener net.Listener) error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_key": key,
+		"listener_ptr": fmt.Sprintf("%p", listener),
 	})
 	logger.Trace("sending put listener request")
 
@@ -196,7 +197,7 @@ func (pool *listenerPool) Get(key ListenerKey) (net.Listener, error) {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_key": key,
 	})
 
 	logger.Trace("sending get listener request")
@@ -240,7 +241,7 @@ func (pool *listenerPool) Drop(key ListenerKey) error {
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_key": key,
 	})
 
 	logger.Trace("sending drop listener request")
@@ -277,14 +278,15 @@ func (pool *listenerPool) DropAll() error {
 	}
 
 	response := make(chan *listenerResponse, 1)
+	keys := pool.allKeys()
 	req := &listenerRequest{
-		pool.allKeys(),
+		keys,
 		nil,
 		response,
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_key": fmt.Sprintf("%v", keys),
 	})
 
 	logger.Trace("sending drop all listeners request")
@@ -317,14 +319,15 @@ func (pool *listenerPool) All() []net.Listener {
 	}
 
 	response := make(chan *listenerResponse, 1)
+	keys := pool.allKeys()
 	req := &listenerRequest{
-		pool.allKeys(),
+		keys,
 		nil,
 		response,
 	}
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_keys": fmt.Sprintf("%v", keys),
 	})
 
 	logger.Trace("sending get all listeners request")
@@ -547,7 +550,7 @@ func (pool *listenerPool) handlePut(req *listenerRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_keys": fmt.Sprintf("%v", req.keys),
 	})
 
 	res := &listenerResponse{nil, []error{}}
@@ -568,7 +571,7 @@ func (pool *listenerPool) handleGet(req *listenerRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_keys": fmt.Sprintf("%v", req.keys),
 	})
 
 	res := &listenerResponse{[]net.Listener{}, []error{}}
@@ -595,7 +598,7 @@ func (pool *listenerPool) handleDrop(req *listenerRequest) {
 	defer close(req.response)
 
 	logger := pool.Log().WithFields(log.Fields{
-		"listener_pool_request": fmt.Sprintf("%#v", req),
+		"listener_keys": fmt.Sprintf("%v", req.keys),
 	})
 
 	res := &listenerResponse{nil, []error{}}
