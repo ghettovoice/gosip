@@ -212,23 +212,24 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 		return nil, err
 	}
 
-	errTerminated := &sip.RequestError{
-		Request: request.Short(),
-		Code:    487,
-		Reason:  "Request Terminated",
-	}
-
 	responses := make(chan sip.Response)
 	errs := make(chan error)
 	go func() {
 		var lastResponse sip.Response
+
+		previousResponses := make([]sip.Response, 0)
+		previousResponsesStatuses := make(map[sip.StatusCode]bool)
+
 		for {
 			select {
 			case <-ctx.Done():
 				if lastResponse != nil && lastResponse.IsProvisional() {
 					srv.cancelRequest(request, lastResponse)
 				}
-				errs <- errTerminated
+				if lastResponse != nil {
+					lastResponse.SetPrevious(previousResponses)
+				}
+				errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
 				// pull out later possible transaction responses and errors
 				go func() {
 					for {
@@ -243,22 +244,38 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 				return
 			case err, ok := <-tx.Errors():
 				if !ok {
-					errs <- errTerminated
+					if lastResponse != nil {
+						lastResponse.SetPrevious(previousResponses)
+					}
+					errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
 					return
 				}
 				errs <- err
 				return
 			case response, ok := <-tx.Responses():
 				if !ok {
-					errs <- errTerminated
+					if lastResponse != nil {
+						lastResponse.SetPrevious(previousResponses)
+					}
+					errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
 					return
 				}
+
+				response = sip.CopyResponse(response)
 				lastResponse = response
+
 				if response.IsProvisional() {
+					if _, ok := previousResponsesStatuses[response.StatusCode()]; !ok {
+						previousResponses = append(previousResponses, response)
+					}
+
 					continue
 				}
+
 				// success
 				if response.IsSuccess() {
+					response.SetPrevious(previousResponses)
+
 					if request.IsInvite() {
 						srv.ackInviteRequest(request, response)
 						srv.rememberInviteRequest(request)
@@ -270,28 +287,33 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 					}
 
 					responses <- response
+
 					return
 				}
+
 				// unauth request
 				if (response.StatusCode() == 401 || response.StatusCode() == 407) && authorizer != nil {
 					if err := authorizer.AuthorizeRequest(request, response); err != nil {
 						errs <- err
+
 						return
 					}
+
 					if response, err := srv.RequestWithContext(ctx, request, nil); err == nil {
 						responses <- response
 					} else {
 						errs <- err
 					}
+
 					return
 				}
+
 				// failed request
-				err := &sip.RequestError{
-					Request: request.Short(),
-					Code:    uint(response.StatusCode()),
-					Reason:  response.Reason(),
+				if lastResponse != nil {
+					lastResponse.SetPrevious(previousResponses)
 				}
-				errs <- err
+				errs <- sip.NewRequestError(uint(response.StatusCode()), response.Reason(), request, lastResponse)
+
 				return
 			}
 		}
