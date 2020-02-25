@@ -3,9 +3,24 @@ package sip
 import "fmt"
 
 type RequestError struct {
-	Request string
-	Code    uint
-	Reason  string
+	Request  Request
+	Response Response
+	Code     uint
+	Reason   string
+}
+
+func NewRequestError(code uint, reason string, request Request, response Response) *RequestError {
+	err := &RequestError{
+		Code:   code,
+		Reason: reason,
+	}
+	if request != nil {
+		err.Request = CopyRequest(request)
+	}
+	if response != nil {
+		err.Response = CopyResponse(response)
+	}
+	return err
 }
 
 func (err *RequestError) Error() string {

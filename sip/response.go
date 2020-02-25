@@ -18,6 +18,9 @@ type Response interface {
 	SetStatusCode(code StatusCode)
 	Reason() string
 	SetReason(reason string)
+	// Previous returns previous provisional responses
+	Previous() []Response
+	SetPrevious(responses []Response)
 	/* Common helpers */
 	IsProvisional() bool
 	IsSuccess() bool
@@ -29,8 +32,9 @@ type Response interface {
 
 type response struct {
 	message
-	status StatusCode
-	reason string
+	status   StatusCode
+	reason   string
+	previous []Response
 }
 
 func NewResponse(
@@ -84,6 +88,14 @@ func (res *response) Reason() string {
 }
 func (res *response) SetReason(reason string) {
 	res.reason = reason
+}
+
+func (res *response) Previous() []Response {
+	return res.previous
+}
+
+func (res *response) SetPrevious(responses []Response) {
+	res.previous = responses
 }
 
 // StartLine returns Response Status Line - RFC 2361 7.2.
@@ -247,7 +259,7 @@ func CopyResponse(res Response) Response {
 		hdrs = append(hdrs, header.Clone())
 	}
 
-	return NewResponse(
+	newRes := NewResponse(
 		res.MessageID(),
 		res.SipVersion(),
 		res.StatusCode(),
@@ -256,4 +268,7 @@ func CopyResponse(res Response) Response {
 		res.Body(),
 		res.Fields(),
 	)
+	newRes.SetPrevious(res.Previous())
+
+	return newRes
 }
