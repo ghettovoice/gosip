@@ -133,11 +133,15 @@ var _ = Describe("ClientTx", func() {
 				Expect(err).ToNot(HaveOccurred())
 				mu.Unlock()
 			})
-			AfterEach(func() {
+			AfterEach(func(done Done) {
+				defer close(done)
+
 				wg.Wait()
 			})
 
-			It("should receive responses in INVITE tx", func() {
+			It("should receive responses in INVITE tx", func(done Done) {
+				defer close(done)
+
 				var msg sip.Response
 				msg = <-tx.Responses()
 				Expect(msg).ToNot(BeNil())
@@ -180,11 +184,15 @@ var _ = Describe("ClientTx", func() {
 				Expect(err).ToNot(HaveOccurred())
 				mu.Unlock()
 			})
-			AfterEach(func() {
+			AfterEach(func(done Done) {
+				defer close(done)
+
 				wg.Wait()
 			})
 
-			It("should receive responses in INVITE tx and send ACK", func() {
+			It("should receive responses in INVITE tx and send ACK", func(done Done) {
+				defer close(done)
+
 				var msg sip.Response
 				msg = <-tx.Responses()
 				Expect(msg).ToNot(BeNil())
