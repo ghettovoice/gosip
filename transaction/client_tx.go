@@ -75,9 +75,11 @@ func (tx *clientTx) Init() error {
 		tx.lastErr = err
 		tx.mu.Unlock()
 
+		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_transport_err); err != nil {
 			tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
 		}
+		tx.fsmMu.RUnlock()
 
 		return err
 	}
@@ -99,9 +101,11 @@ func (tx *clientTx) Init() error {
 		tx.timer_a = timing.AfterFunc(tx.timer_a_time, func() {
 			tx.Log().Debug("timer_a fired")
 
+			tx.fsmMu.RLock()
 			if err := tx.fsm.Spin(client_input_timer_a); err != nil {
 				tx.Log().Errorf("spin FSM to client_input_timer_a failed: %s", err)
 			}
+			tx.fsmMu.RUnlock()
 		})
 		// Timer D is set to 32 seconds for unreliable transports
 		tx.timer_d_time = Timer_D
@@ -115,9 +119,11 @@ func (tx *clientTx) Init() error {
 	tx.timer_b = timing.AfterFunc(Timer_B, func() {
 		tx.Log().Debug("timer_b fired")
 
+		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_timer_b); err != nil {
 			tx.Log().Errorf("spin FSM to client_input_timer_b failed: %s", err)
 		}
+		tx.fsmMu.RUnlock()
 	})
 	tx.mu.Unlock()
 
@@ -159,6 +165,9 @@ func (tx *clientTx) Receive(msg sip.Message) error {
 		input = client_input_300_plus
 	}
 
+	tx.fsmMu.RLock()
+	defer tx.fsmMu.RUnlock()
+
 	return tx.fsm.Spin(input)
 }
 
@@ -176,7 +185,7 @@ func (tx *clientTx) Terminate() {
 	tx.delete()
 }
 
-func (tx clientTx) ack() {
+func (tx *clientTx) ack() {
 	tx.mu.RLock()
 	lastResp := tx.lastResp
 	tx.mu.RUnlock()
@@ -232,9 +241,11 @@ func (tx clientTx) ack() {
 		tx.lastErr = err
 		tx.mu.Unlock()
 
+		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_transport_err); err != nil {
 			tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
 		}
+		tx.fsmMu.RUnlock()
 	}
 }
 
@@ -337,7 +348,9 @@ func (tx *clientTx) initInviteFSM() {
 		return
 	}
 
+	tx.fsmMu.Lock()
 	tx.fsm = fsm_
+	tx.fsmMu.Unlock()
 }
 
 func (tx *clientTx) initNonInviteFSM() {
@@ -410,7 +423,9 @@ func (tx *clientTx) initNonInviteFSM() {
 		return
 	}
 
+	tx.fsmMu.Lock()
 	tx.fsm = fsm_
+	tx.fsmMu.Unlock()
 }
 
 func (tx *clientTx) resend() {
@@ -423,9 +438,11 @@ func (tx *clientTx) resend() {
 	tx.mu.Unlock()
 
 	if err != nil {
+		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_transport_err); err != nil {
 			tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
 		}
+		tx.fsmMu.RUnlock()
 	}
 }
 
@@ -590,9 +607,11 @@ func (tx *clientTx) act_invite_final() fsm.Input {
 	tx.timer_d = timing.AfterFunc(tx.timer_d_time, func() {
 		tx.Log().Debug("timer_d fired")
 
+		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_timer_d); err != nil {
 			tx.Log().Errorf("spin FSM to client_input_timer_d failed: %s", err)
 		}
+		tx.fsmMu.RUnlock()
 	})
 
 	tx.mu.Unlock()
@@ -621,9 +640,11 @@ func (tx *clientTx) act_non_invite_final() fsm.Input {
 	tx.timer_d = timing.AfterFunc(tx.timer_d_time, func() {
 		tx.Log().Debug("timer_d fired")
 
+		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_timer_d); err != nil {
 			tx.Log().Errorf("spin FSM to client_input_timer_d failed: %s", err)
 		}
+		tx.fsmMu.RUnlock()
 	})
 
 	tx.mu.Unlock()

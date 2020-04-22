@@ -140,15 +140,13 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 	logger := txl.Log().
 		WithFields(req.Fields()).
 		WithFields(tx.Log().Fields())
-
 	logger.Debug("client transaction created")
 
-	txl.transactions.put(tx.Key(), tx)
-
-	err = tx.Init()
-	if err != nil {
+	if err := tx.Init(); err != nil {
 		return nil, err
 	}
+
+	txl.transactions.put(tx.Key(), tx)
 
 	select {
 	case <-txl.canceled:
@@ -242,8 +240,7 @@ func (txl *layer) handleMessage(msg sip.Message) {
 	}
 
 	logger := txl.Log().WithFields(msg.Fields())
-
-	logger.Debug("handling SIP message")
+	logger.Debugf("handling SIP message:\n%s", msg.String())
 
 	switch msg := msg.(type) {
 	case sip.Request:
@@ -297,16 +294,16 @@ func (txl *layer) handleRequest(req sip.Request) {
 	}
 
 	logger = logger.WithFields(tx.Log().Fields())
-
 	logger.Debug("new server transaction created")
-	// put tx to store, to match retransmitting requests later
-	txl.transactions.put(tx.Key(), tx)
 
 	if err := tx.Init(); err != nil {
 		logger.Error(err)
 
 		return
 	}
+
+	// put tx to store, to match retransmitting requests later
+	txl.transactions.put(tx.Key(), tx)
 
 	select {
 	case <-txl.canceled:
@@ -336,7 +333,8 @@ func (txl *layer) handleResponse(res sip.Response) {
 
 	tx, err := txl.getClientTx(res)
 	if err != nil {
-		logger.Trace("passing up non-matched SIP response")
+		logger.Tracef("passing up non-matched SIP response: %s", err)
+
 		// RFC 3261 - 17.1.1.2.
 		// Not matched responses should be passed directly to the UA
 		select {
@@ -344,6 +342,7 @@ func (txl *layer) handleResponse(res sip.Response) {
 		case txl.responses <- res:
 			logger.Trace("non-matched SIP response passed up")
 		}
+
 		return
 	}
 
@@ -364,7 +363,7 @@ func (txl *layer) getClientTx(msg sip.Message) (ClientTx, error) {
 
 	key, err := MakeClientTxKey(msg)
 	if err != nil {
-		return nil, fmt.Errorf("%s failed to match message '%s' to client transaction: %s", txl, msg.Short(), err)
+		return nil, fmt.Errorf("%s failed to match message '%s' to client transaction: %w", txl, msg.Short(), err)
 	}
 
 	tx, ok := txl.transactions.get(key)
@@ -402,7 +401,7 @@ func (txl *layer) getServerTx(msg sip.Message) (ServerTx, error) {
 
 	key, err := MakeServerTxKey(msg)
 	if err != nil {
-		return nil, fmt.Errorf("%s failed to match message '%s' to server transaction: %s", txl, msg.Short(), err)
+		return nil, fmt.Errorf("%s failed to match message '%s' to server transaction: %w", txl, msg.Short(), err)
 	}
 
 	tx, ok := txl.transactions.get(key)
