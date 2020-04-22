@@ -3,7 +3,6 @@ package transaction
 import (
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -41,6 +40,7 @@ type layer struct {
 	canceled chan struct{}
 
 	txWg       sync.WaitGroup
+	serveTxCh  chan Tx
 	cancelOnce sync.Once
 
 	log log.Logger
@@ -55,9 +55,10 @@ func NewLayer(tpl transport.Layer, logger log.Logger) Layer {
 		acks:      make(chan sip.Request),
 		responses: make(chan sip.Response),
 
-		errs:     make(chan error),
-		done:     make(chan struct{}),
-		canceled: make(chan struct{}),
+		errs:      make(chan error),
+		done:      make(chan struct{}),
+		canceled:  make(chan struct{}),
+		serveTxCh: make(chan Tx),
 	}
 	txl.log = logger.
 		WithPrefix("transaction.Layer").
@@ -149,8 +150,11 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 		return nil, err
 	}
 
-	txl.txWg.Add(1)
-	go txl.serveTransaction(tx)
+	select {
+	case <-txl.canceled:
+		return tx, fmt.Errorf("transaction layer is canceled")
+	case txl.serveTxCh <- tx:
+	}
 
 	return tx, nil
 }
@@ -177,12 +181,6 @@ func (txl *layer) Respond(res sip.Response) (sip.ServerTransaction, error) {
 
 func (txl *layer) listenMessages() {
 	defer func() {
-		txl.txWg.Add(1)
-		go func() {
-			time.Sleep(time.Millisecond)
-			txl.txWg.Done()
-		}()
-
 		txl.txWg.Wait()
 
 		close(txl.requests)
@@ -198,6 +196,9 @@ func (txl *layer) listenMessages() {
 		select {
 		case <-txl.canceled:
 			return
+		case tx := <-txl.serveTxCh:
+			txl.txWg.Add(1)
+			go txl.serveTransaction(tx)
 		case msg, ok := <-txl.tpl.Messages():
 			if !ok {
 				return
@@ -310,17 +311,15 @@ func (txl *layer) handleRequest(req sip.Request) {
 	select {
 	case <-txl.canceled:
 		return
-	default:
+	case txl.serveTxCh <- tx:
 	}
-
-	txl.txWg.Add(1)
-	go txl.serveTransaction(tx)
 
 	// pass up request
 	logger.Trace("passing up SIP request...")
 
 	select {
 	case <-txl.canceled:
+		return
 	case txl.requests <- tx:
 		logger.Trace("SIP request passed up")
 	}
