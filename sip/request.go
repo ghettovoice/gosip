@@ -64,7 +64,16 @@ func (req *request) Short() string {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("sip.Request<%s>", req.Fields())
+	fields := log.Fields{
+		"method":    req.Method(),
+		"recipient": req.Recipient(),
+	}
+	if cseq, ok := req.CSeq(); ok {
+		fields["sequence"] = cseq.SeqNo
+	}
+	fields = req.Fields().WithFields(fields)
+
+	return fmt.Sprintf("sip.Request<%s>", fields)
 }
 
 func (req *request) Method() RequestMethod {

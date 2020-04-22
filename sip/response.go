@@ -73,7 +73,17 @@ func (res *response) Short() string {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("sip.Response<%s>", res.Fields())
+	fields := log.Fields{
+		"status": res.StatusCode(),
+		"reason": res.Reason(),
+	}
+	if cseq, ok := res.CSeq(); ok {
+		fields["method"] = cseq.MethodName
+		fields["sequence"] = cseq.SeqNo
+	}
+	fields = res.Fields().WithFields(fields)
+
+	return fmt.Sprintf("sip.Response<%s>", fields)
 }
 
 func (res *response) StatusCode() StatusCode {
