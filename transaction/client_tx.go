@@ -525,9 +525,10 @@ func (tx *clientTx) delete() {
 	tx.closeOnce.Do(func() {
 		tx.mu.Lock()
 
+		close(tx.done)
+
 		close(tx.responses)
 		close(tx.errs)
-		close(tx.done)
 
 		tx.mu.Unlock()
 	})

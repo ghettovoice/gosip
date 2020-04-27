@@ -473,10 +473,11 @@ func (tx *serverTx) delete() {
 	tx.closeOnce.Do(func() {
 		tx.mu.Lock()
 
+		close(tx.done)
+
 		close(tx.acks)
 		close(tx.cancels)
 		close(tx.errs)
-		close(tx.done)
 
 		tx.mu.Unlock()
 	})
