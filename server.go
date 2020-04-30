@@ -20,6 +20,37 @@ import (
 // tx argument can be nil for 2xx ACK request
 type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
 
+type Server interface {
+	log.Loggable
+
+	Shutdown()
+	Listen(network, addr string) error
+	Send(msg sip.Message) error
+	Request(req sip.Request) (sip.ClientTransaction, error)
+	RequestWithContext(
+		ctx context.Context,
+		request sip.Request,
+		authorizer sip.Authorizer,
+	) (sip.Response, error)
+	OnRequest(method sip.RequestMethod, handler RequestHandler) error
+	Respond(res sip.Response) (sip.ServerTransaction, error)
+	RespondOnRequest(
+		request sip.Request,
+		status sip.StatusCode,
+		reason, body string,
+		headers []sip.Header,
+	) (sip.ServerTransaction, error)
+}
+
+type TransportLayerFactory func(
+	ip net.IP,
+	dnsResolver *net.Resolver,
+	msgMapper sip.MessageMapper,
+	logger log.Logger,
+) transport.Layer
+
+type TransactionLayerFactory func(tpl transport.Layer, logger log.Logger) transaction.Layer
+
 // ServerConfig describes available options
 type ServerConfig struct {
 	// Public IP address or domain name, if empty auto resolved IP will be used.
@@ -31,7 +62,7 @@ type ServerConfig struct {
 }
 
 // Server is a SIP server
-type Server struct {
+type server struct {
 	tp              transport.Layer
 	tx              transaction.Layer
 	host            string
@@ -48,9 +79,17 @@ type Server struct {
 }
 
 // NewServer creates new instance of SIP server.
-func NewServer(config *ServerConfig, logger log.Logger) *Server {
-	if config == nil {
-		config = &ServerConfig{}
+func NewServer(
+	config ServerConfig,
+	tpFactory TransportLayerFactory,
+	txFactory TransactionLayerFactory,
+	logger log.Logger,
+) Server {
+	if tpFactory == nil {
+		tpFactory = transport.NewLayer
+	}
+	if txFactory == nil {
+		txFactory = transaction.NewLayer
 	}
 
 	logger = logger.WithPrefix("gosip.Server")
@@ -91,7 +130,7 @@ func NewServer(config *ServerConfig, logger log.Logger) *Server {
 		extensions = config.Extensions
 	}
 
-	srv := &Server{
+	srv := &server{
 		host:            host,
 		ip:              ip,
 		hwg:             new(sync.WaitGroup),
@@ -104,24 +143,24 @@ func NewServer(config *ServerConfig, logger log.Logger) *Server {
 	srv.log = logger.WithFields(log.Fields{
 		"sip_server_ptr": fmt.Sprintf("%p", srv),
 	})
-	srv.tp = transport.NewLayer(ip, dnsResolver, config.MsgMapper, srv.Log())
-	srv.tx = transaction.NewLayer(srv.tp, srv.Log().WithFields(srv.tp.Log().Fields()))
+	srv.tp = tpFactory(ip, dnsResolver, config.MsgMapper, srv.Log())
+	srv.tx = txFactory(srv.tp, srv.Log().WithFields(srv.tp.Log().Fields()))
 
 	go srv.serve()
 
 	return srv
 }
 
-func (srv *Server) Log() log.Logger {
+func (srv *server) Log() log.Logger {
 	return srv.log
 }
 
 // ListenAndServe starts serving listeners on the provided address
-func (srv *Server) Listen(network string, listenAddr string) error {
+func (srv *server) Listen(network string, listenAddr string) error {
 	return srv.tp.Listen(network, listenAddr)
 }
 
-func (srv *Server) serve() {
+func (srv *server) serve() {
 	defer srv.Shutdown()
 
 	for {
@@ -173,7 +212,7 @@ func (srv *Server) serve() {
 	}
 }
 
-func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
+func (srv *server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
 	logger := srv.Log().WithFields(req.Fields())
@@ -198,7 +237,7 @@ func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 }
 
 // Send SIP message
-func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
+func (srv *server) Request(req sip.Request) (sip.ClientTransaction, error) {
 	if srv.shuttingDown() {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}
@@ -206,7 +245,11 @@ func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
 	return srv.tx.Request(srv.prepareRequest(req))
 }
 
-func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, authorizer sip.Authorizer) (sip.Response, error) {
+func (srv *server) RequestWithContext(
+	ctx context.Context,
+	request sip.Request,
+	authorizer sip.Authorizer,
+) (sip.Response, error) {
 	tx, err := srv.Request(sip.CopyRequest(request))
 	if err != nil {
 		return nil, err
@@ -327,7 +370,7 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 	}
 }
 
-func (srv *Server) rememberInviteRequest(request sip.Request) {
+func (srv *server) rememberInviteRequest(request sip.Request) {
 	if key, err := transaction.MakeClientTxKey(request); err == nil {
 		srv.invitesLock.Lock()
 		srv.invites[key] = request
@@ -345,7 +388,7 @@ func (srv *Server) rememberInviteRequest(request sip.Request) {
 	}
 }
 
-func (srv *Server) ackInviteRequest(request sip.Request, response sip.Response) {
+func (srv *server) ackInviteRequest(request sip.Request, response sip.Response) {
 	ackRequest := sip.NewAckRequest("", request, response)
 	if err := srv.Send(ackRequest); err != nil {
 		srv.Log().WithFields(map[string]interface{}{
@@ -356,7 +399,7 @@ func (srv *Server) ackInviteRequest(request sip.Request, response sip.Response) 
 	}
 }
 
-func (srv *Server) cancelRequest(request sip.Request, response sip.Response) {
+func (srv *server) cancelRequest(request sip.Request, response sip.Response) {
 	cancelRequest := sip.NewCancelRequest("", request)
 	if err := srv.Send(cancelRequest); err != nil {
 		srv.Log().WithFields(map[string]interface{}{
@@ -367,7 +410,7 @@ func (srv *Server) cancelRequest(request sip.Request, response sip.Response) {
 	}
 }
 
-func (srv *Server) prepareRequest(req sip.Request) sip.Request {
+func (srv *server) prepareRequest(req sip.Request) sip.Request {
 	if viaHop, ok := req.ViaHop(); ok {
 		if viaHop.Params == nil {
 			viaHop.Params = sip.NewParams()
@@ -393,7 +436,7 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	return req
 }
 
-func (srv *Server) Respond(res sip.Response) (sip.ServerTransaction, error) {
+func (srv *server) Respond(res sip.Response) (sip.ServerTransaction, error) {
 	if srv.shuttingDown() {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}
@@ -401,7 +444,7 @@ func (srv *Server) Respond(res sip.Response) (sip.ServerTransaction, error) {
 	return srv.tx.Respond(srv.prepareResponse(res))
 }
 
-func (srv *Server) RespondOnRequest(
+func (srv *server) RespondOnRequest(
 	request sip.Request,
 	status sip.StatusCode,
 	reason, body string,
@@ -420,7 +463,7 @@ func (srv *Server) RespondOnRequest(
 	return tx, nil
 }
 
-func (srv *Server) Send(msg sip.Message) error {
+func (srv *server) Send(msg sip.Message) error {
 	if srv.shuttingDown() {
 		return fmt.Errorf("can not send through stopped server")
 	}
@@ -435,18 +478,18 @@ func (srv *Server) Send(msg sip.Message) error {
 	return srv.tp.Send(msg)
 }
 
-func (srv *Server) prepareResponse(res sip.Response) sip.Response {
+func (srv *server) prepareResponse(res sip.Response) sip.Response {
 	srv.appendAutoHeaders(res)
 
 	return res
 }
 
-func (srv *Server) shuttingDown() bool {
+func (srv *server) shuttingDown() bool {
 	return atomic.LoadInt32(&srv.inShutdown) != 0
 }
 
 // Shutdown gracefully shutdowns SIP server
-func (srv *Server) Shutdown() {
+func (srv *server) Shutdown() {
 	if srv.shuttingDown() {
 		return
 	}
@@ -464,7 +507,7 @@ func (srv *Server) Shutdown() {
 }
 
 // OnRequest registers new request callback
-func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) error {
+func (srv *server) OnRequest(method sip.RequestMethod, handler RequestHandler) error {
 	srv.hmu.Lock()
 	srv.requestHandlers[method] = handler
 	srv.hmu.Unlock()
@@ -472,7 +515,7 @@ func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) e
 	return nil
 }
 
-func (srv *Server) appendAutoHeaders(msg sip.Message) {
+func (srv *server) appendAutoHeaders(msg sip.Message) {
 	autoAppendMethods := map[sip.RequestMethod]bool{
 		sip.INVITE:   true,
 		sip.REGISTER: true,
@@ -517,7 +560,7 @@ func (srv *Server) appendAutoHeaders(msg sip.Message) {
 	}
 }
 
-func (srv *Server) getAllowedMethods() []sip.RequestMethod {
+func (srv *server) getAllowedMethods() []sip.RequestMethod {
 	methods := []sip.RequestMethod{
 		sip.INVITE,
 		sip.ACK,
