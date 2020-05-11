@@ -170,8 +170,10 @@ func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 
 		conn = NewConnection(tcpConn, key, tcp.Log())
 
-		err = tcp.connections.Put(conn, sockTTL)
+		if err := tcp.connections.Put(conn, sockTTL); err != nil {
+			return conn, err
+		}
 	}
 
-	return conn, err
+	return conn, nil
 }
