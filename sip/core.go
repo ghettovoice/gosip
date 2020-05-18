@@ -26,27 +26,45 @@ type Address struct {
 }
 
 func NewAddressFromFromHeader(from *FromHeader) *Address {
-	return &Address{
+	addr := &Address{
 		DisplayName: from.DisplayName,
-		Uri:         from.Address.Clone(),
-		Params:      from.Params.Clone(),
 	}
+	if from.Address != nil {
+		addr.Uri = from.Address.Clone()
+	}
+	if from.Params != nil {
+		addr.Params = from.Params.Clone()
+	}
+
+	return addr
 }
 
 func NewAddressFromToHeader(to *ToHeader) *Address {
-	return &Address{
+	addr := &Address{
 		DisplayName: to.DisplayName,
-		Uri:         to.Address.Clone(),
-		Params:      to.Params.Clone(),
 	}
+	if to.Address != nil {
+		addr.Uri = to.Address.Clone()
+	}
+	if to.Params != nil {
+		addr.Params = to.Params.Clone()
+	}
+
+	return addr
 }
 
 func NewAddressFromContactHeader(cnt *ContactHeader) *Address {
-	return &Address{
+	addr := &Address{
 		DisplayName: cnt.DisplayName,
-		Uri:         cnt.Address.Clone(),
-		Params:      cnt.Params.Clone(),
 	}
+	if cnt.Address != nil {
+		addr.Uri = cnt.Address.Clone()
+	}
+	if cnt.Params != nil {
+		addr.Params = cnt.Params.Clone()
+	}
+
+	return addr
 }
 
 func (addr *Address) String() string {
@@ -95,37 +113,87 @@ func (addr *Address) Clone() *Address {
 }
 
 func (addr *Address) Equals(other interface{}) bool {
-	if v, ok := other.(*Address); ok {
-		return addr.DisplayName.Equals(v.DisplayName) &&
-			addr.Uri.Equals(v.Uri) &&
-			addr.Params.Equals(v.Params)
+	otherPtr, ok := other.(*Address)
+	if !ok {
+		return false
 	}
 
-	return false
+	if addr == otherPtr {
+		return true
+	}
+	if addr == nil && otherPtr != nil || addr != nil && otherPtr == nil {
+		return false
+	}
+
+	res := true
+
+	if addr.DisplayName != otherPtr.DisplayName {
+		if addr.DisplayName == nil {
+			res = res && otherPtr.DisplayName == nil
+		} else {
+			res = res && addr.DisplayName.Equals(otherPtr.DisplayName)
+		}
+	}
+
+	if addr.Uri != otherPtr.Uri {
+		if addr.Uri == nil {
+			res = res && otherPtr.Uri == nil
+		} else {
+			res = res && addr.Uri.Equals(otherPtr.Uri)
+		}
+	}
+
+	if addr.Params != otherPtr.Params {
+		if addr.Params == nil {
+			res = res && otherPtr.Params == nil
+		} else {
+			res = res && addr.Params.Equals(otherPtr.Params)
+		}
+	}
+
+	return res
 }
 
 func (addr *Address) AsToHeader() *ToHeader {
-	return &ToHeader{
+	to := &ToHeader{
 		DisplayName: addr.DisplayName,
-		Address:     addr.Uri.Clone(),
-		Params:      addr.Params.Clone(),
 	}
+	if addr.Uri != nil {
+		to.Address = addr.Uri.Clone()
+	}
+	if addr.Params != nil {
+		to.Params = addr.Params.Clone()
+	}
+
+	return to
 }
 
 func (addr *Address) AsFromHeader() *FromHeader {
-	return &FromHeader{
+	from := &FromHeader{
 		DisplayName: addr.DisplayName,
-		Address:     addr.Uri.Clone(),
-		Params:      addr.Params.Clone(),
 	}
+	if addr.Uri != nil {
+		from.Address = addr.Uri.Clone()
+	}
+	if addr.Params != nil {
+		from.Params = addr.Params.Clone()
+	}
+
+	return from
 }
 
 func (addr *Address) AsContactHeader() *ContactHeader {
-	return &ContactHeader{
+	cnt := &ContactHeader{
 		DisplayName: addr.DisplayName,
-		Address:     addr.Uri.Clone(),
-		Params:      addr.Params.Clone(),
 	}
+	if addr.Uri != nil {
+		cnt.Address = addr.Uri.Clone()
+	}
+	if addr.Params != nil {
+		cnt.Params = addr.Params.Clone()
+	}
+
+	return cnt
 }
 
 // Port number
