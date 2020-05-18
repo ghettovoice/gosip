@@ -21,11 +21,11 @@ import (
 type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
 
 type Server interface {
-	log.Loggable
-
 	Shutdown()
+
 	Listen(network, addr string) error
 	Send(msg sip.Message) error
+
 	Request(req sip.Request) (sip.ClientTransaction, error)
 	RequestWithContext(
 		ctx context.Context,
@@ -33,6 +33,7 @@ type Server interface {
 		authorizer sip.Authorizer,
 	) (sip.Response, error)
 	OnRequest(method sip.RequestMethod, handler RequestHandler) error
+
 	Respond(res sip.Response) (sip.ServerTransaction, error)
 	RespondOnRequest(
 		request sip.Request,
@@ -144,7 +145,7 @@ func NewServer(
 		"sip_server_ptr": fmt.Sprintf("%p", srv),
 	})
 	srv.tp = tpFactory(ip, dnsResolver, config.MsgMapper, srv.Log())
-	srv.tx = txFactory(srv.tp, srv.Log().WithFields(srv.tp.Log().Fields()))
+	srv.tx = txFactory(srv.tp, log.AddFieldsFrom(srv.Log(), srv.tp))
 
 	go srv.serve()
 

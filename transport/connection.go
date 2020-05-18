@@ -17,7 +17,6 @@ var (
 // Wrapper around net.Conn.
 type Connection interface {
 	net.Conn
-	log.Loggable
 
 	Key() ConnectionKey
 	Network() string

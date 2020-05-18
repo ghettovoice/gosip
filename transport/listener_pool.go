@@ -410,7 +410,7 @@ func (pool *listenerPool) serveHandlers() {
 				continue
 			}
 
-			logger = logger.WithFields(conn.Log().Fields())
+			logger = log.AddFieldsFrom(logger, conn)
 			logger.Trace("passing up connection")
 
 			select {
@@ -778,7 +778,7 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 			}
 			if conn != nil {
 
-				logger := handler.Log().WithFields(conn.Log().Fields())
+				logger := log.AddFieldsFrom(handler.Log(), conn)
 				logger.Trace("passing up connection...")
 
 				select {

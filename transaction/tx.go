@@ -19,8 +19,6 @@ func (key TxKey) String() string {
 
 // Tx is an common SIP transaction
 type Tx interface {
-	log.Loggable
-
 	Init() error
 	Key() TxKey
 	Origin() sip.Request

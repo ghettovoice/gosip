@@ -29,8 +29,6 @@ const maxCseq = 2147483647
 // A Parser converts the raw bytes of SIP messages into core.Message objects.
 // It allows
 type Parser interface {
-	log.Loggable
-
 	// Implements io.Writer. Queues the given bytes to be parsed.
 	// If the parser has terminated due to a previous fatal error, it will return n=0 and an appropriate error.
 	// Otherwise, it will return n=len(p) and err=nil.

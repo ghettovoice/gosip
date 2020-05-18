@@ -11,8 +11,6 @@ import (
 
 // Layer serves client and server transactions.
 type Layer interface {
-	log.Loggable
-
 	Cancel()
 	Done() <-chan struct{}
 	String() string
@@ -137,9 +135,7 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 		return nil, err
 	}
 
-	logger := txl.Log().
-		WithFields(req.Fields()).
-		WithFields(tx.Log().Fields())
+	logger := log.AddFieldsFrom(txl.Log(), req, tx)
 	logger.Debug("client transaction created")
 
 	if err := tx.Init(); err != nil {
@@ -208,7 +204,7 @@ func (txl *layer) listenMessages() {
 }
 
 func (txl *layer) serveTransaction(tx Tx) {
-	logger := txl.Log().WithFields(tx.Log().Fields())
+	logger := log.AddFieldsFrom(txl.Log(), tx)
 
 	defer func() {
 		txl.transactions.drop(tx.Key())
@@ -260,12 +256,12 @@ func (txl *layer) handleRequest(req sip.Request) {
 	default:
 	}
 
-	logger := txl.Log().WithFields(req.Fields())
+	logger := log.AddFieldsFrom(txl.Log(), req)
 
 	// try to match to existent tx: request retransmission, or ACKs on non-2xx, or CANCEL
 	tx, err := txl.getServerTx(req)
 	if err == nil {
-		logger = logger.WithFields(tx.Log().Fields())
+		logger = log.AddFieldsFrom(logger, tx)
 
 		if err := tx.Receive(req); err != nil {
 			logger.Error(err)
@@ -293,7 +289,7 @@ func (txl *layer) handleRequest(req sip.Request) {
 		return
 	}
 
-	logger = logger.WithFields(tx.Log().Fields())
+	logger = log.AddFieldsFrom(logger, tx)
 	logger.Debug("new server transaction created")
 
 	if err := tx.Init(); err != nil {
@@ -346,7 +342,7 @@ func (txl *layer) handleResponse(res sip.Response) {
 		return
 	}
 
-	logger = logger.WithFields(tx.Log().Fields())
+	logger = log.AddFieldsFrom(logger, tx)
 
 	if err := tx.Receive(res); err != nil {
 		logger.Error(err)
@@ -376,7 +372,7 @@ func (txl *layer) getClientTx(msg sip.Message) (ClientTx, error) {
 		)
 	}
 
-	logger = logger.WithFields(tx.Log().Fields())
+	logger = log.AddFieldsFrom(logger, tx)
 
 	switch tx := tx.(type) {
 	case ClientTx:
@@ -414,7 +410,7 @@ func (txl *layer) getServerTx(msg sip.Message) (ServerTx, error) {
 		)
 	}
 
-	logger = logger.WithFields(tx.Log().Fields())
+	logger = log.AddFieldsFrom(logger)
 
 	switch tx := tx.(type) {
 	case ServerTx:
