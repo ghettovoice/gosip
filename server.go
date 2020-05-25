@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ghettovoice/gosip/log"
@@ -13,6 +12,8 @@ import (
 	"github.com/ghettovoice/gosip/transaction"
 	"github.com/ghettovoice/gosip/transport"
 	"github.com/ghettovoice/gosip/util"
+
+	"github.com/tevino/abool"
 )
 
 // RequestHandler is a callback that will be called on the incoming request
@@ -64,11 +65,11 @@ type ServerConfig struct {
 
 // Server is a SIP server
 type server struct {
+	running         abool.AtomicBool
 	tp              transport.Layer
 	tx              transaction.Layer
 	host            string
 	ip              net.IP
-	inShutdown      int32
 	hwg             *sync.WaitGroup
 	hmu             *sync.RWMutex
 	requestHandlers map[sip.RequestMethod]RequestHandler
@@ -147,6 +148,7 @@ func NewServer(
 	srv.tp = tpFactory(ip, dnsResolver, config.MsgMapper, srv.Log())
 	srv.tx = txFactory(srv.tp, log.AddFieldsFrom(srv.Log(), srv.tp))
 
+	srv.running.Set()
 	go srv.serve()
 
 	return srv
@@ -239,7 +241,7 @@ func (srv *server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 
 // Send SIP message
 func (srv *server) Request(req sip.Request) (sip.ClientTransaction, error) {
-	if srv.shuttingDown() {
+	if !srv.running.IsSet() {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}
 
@@ -438,7 +440,7 @@ func (srv *server) prepareRequest(req sip.Request) sip.Request {
 }
 
 func (srv *server) Respond(res sip.Response) (sip.ServerTransaction, error) {
-	if srv.shuttingDown() {
+	if !srv.running.IsSet() {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}
 
@@ -465,7 +467,7 @@ func (srv *server) RespondOnRequest(
 }
 
 func (srv *server) Send(msg sip.Message) error {
-	if srv.shuttingDown() {
+	if !srv.running.IsSet() {
 		return fmt.Errorf("can not send through stopped server")
 	}
 
@@ -485,18 +487,12 @@ func (srv *server) prepareResponse(res sip.Response) sip.Response {
 	return res
 }
 
-func (srv *server) shuttingDown() bool {
-	return atomic.LoadInt32(&srv.inShutdown) != 0
-}
-
 // Shutdown gracefully shutdowns SIP server
 func (srv *server) Shutdown() {
-	if srv.shuttingDown() {
+	if !srv.running.IsSet() {
 		return
 	}
-
-	atomic.AddInt32(&srv.inShutdown, 1)
-	defer atomic.AddInt32(&srv.inShutdown, -1)
+	srv.running.UnSet()
 	// stop transaction layer
 	srv.tx.Cancel()
 	<-srv.tx.Done()
