@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -97,11 +98,12 @@ func (conn *MockConn) RemoteAddr() net.Addr {
 }
 
 type MockTransportLayer struct {
-	InMsgs  chan sip.Message
-	InErrs  chan error
-	OutMsgs chan sip.Message
-	done    chan struct{}
-	logger  log.Logger
+	InMsgs     chan sip.Message
+	InErrs     chan error
+	OutMsgs    chan sip.Message
+	cancelOnce sync.Once
+	done       chan struct{}
+	logger     log.Logger
 }
 
 func NewMockTransportLayer() *MockTransportLayer {
@@ -152,10 +154,12 @@ func (tpl *MockTransportLayer) Log() log.Logger {
 }
 
 func (tpl *MockTransportLayer) Cancel() {
-	close(tpl.InMsgs)
-	close(tpl.InErrs)
-	close(tpl.OutMsgs)
-	close(tpl.done)
+	tpl.cancelOnce.Do(func() {
+		close(tpl.InMsgs)
+		close(tpl.InErrs)
+		close(tpl.OutMsgs)
+		close(tpl.done)
+	})
 }
 
 func (tpl *MockTransportLayer) Done() <-chan struct{} {
