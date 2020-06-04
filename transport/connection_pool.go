@@ -1021,6 +1021,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 
 			msg = handler.msgMapper(msg).WithFields(log.Fields{
 				"connection_key": handler.Connection().Key(),
+				"received_at":    time.Now(),
 			})
 
 			logger := handler.Log().WithFields(msg.Fields())
