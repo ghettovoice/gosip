@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ghettovoice/gosip/log"
+	uuid "github.com/satori/go.uuid"
 )
 
 // A representation of a SIP method.
@@ -42,6 +43,10 @@ const (
 )
 
 type MessageID string
+
+func NextMessageID() MessageID {
+	return MessageID(uuid.Must(uuid.NewV4()).String())
+}
 
 // Message introduces common SIP message RFC 3261 - 7.
 type Message interface {

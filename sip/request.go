@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	uuid "github.com/satori/go.uuid"
-
 	"github.com/ghettovoice/gosip/log"
 )
 
@@ -39,7 +37,7 @@ func NewRequest(
 ) Request {
 	req := new(request)
 	if messID == "" {
-		req.messID = MessageID(uuid.Must(uuid.NewV4()).String())
+		req.messID = NextMessageID()
 	} else {
 		req.messID = messID
 	}
@@ -209,19 +207,24 @@ func (req *request) Destination() string {
 
 // NewAckForInvite creates ACK request for 2xx INVITE
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
-func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response) Request {
-	contact, _ := inviteResponse.Contact()
+func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response, fields log.Fields) Request {
+	recipient := inviteRequest.Recipient()
+	if contact, ok := inviteResponse.Contact(); ok {
+		recipient = contact.Address
+	}
 	ackRequest := NewRequest(
 		ackID,
 		ACK,
-		contact.Address,
+		recipient,
 		inviteResponse.SipVersion(),
 		[]Header{},
 		"",
-		inviteRequest.Fields().WithFields(log.Fields{
-			"invite_request_id":  inviteRequest.MessageID(),
-			"invite_response_id": inviteResponse.MessageID(),
-		}),
+		inviteRequest.Fields().
+			WithFields(fields).
+			WithFields(log.Fields{
+				"invite_request_id":  inviteRequest.MessageID(),
+				"invite_response_id": inviteResponse.MessageID(),
+			}),
 	)
 
 	CopyHeaders("Via", inviteRequest, ackRequest)
@@ -253,7 +256,7 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 	return ackRequest
 }
 
-func NewCancelRequest(cancelID MessageID, requestForCancel Request) Request {
+func NewCancelRequest(cancelID MessageID, requestForCancel Request, fields log.Fields) Request {
 	cancelReq := NewRequest(
 		cancelID,
 		CANCEL,
@@ -261,9 +264,11 @@ func NewCancelRequest(cancelID MessageID, requestForCancel Request) Request {
 		requestForCancel.SipVersion(),
 		[]Header{},
 		"",
-		requestForCancel.Fields().WithFields(log.Fields{
-			"cancelling_request_id": requestForCancel.MessageID(),
-		}),
+		requestForCancel.Fields().
+			WithFields(fields).
+			WithFields(log.Fields{
+				"cancelling_request_id": requestForCancel.MessageID(),
+			}),
 	)
 
 	viaHop, _ := requestForCancel.ViaHop()

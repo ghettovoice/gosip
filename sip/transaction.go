@@ -17,4 +17,5 @@ type ServerTransaction interface {
 type ClientTransaction interface {
 	Transaction
 	Responses() <-chan Response
+	Cancel() error
 }

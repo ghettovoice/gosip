@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	uuid "github.com/satori/go.uuid"
-
 	"github.com/ghettovoice/gosip/log"
 )
 
@@ -48,7 +46,7 @@ func NewResponse(
 ) Response {
 	res := new(response)
 	if messID == "" {
-		res.messID = MessageID(uuid.Must(uuid.NewV4()).String())
+		res.messID = NextMessageID()
 	} else {
 		res.messID = messID
 	}
@@ -60,6 +58,7 @@ func NewResponse(
 	res.fields = fields.WithFields(log.Fields{
 		"response_id": res.messID,
 	})
+	res.previous = make([]Response, 0)
 
 	if strings.TrimSpace(body) != "" {
 		res.SetBody(body, true)

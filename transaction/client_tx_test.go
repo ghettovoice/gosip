@@ -38,7 +38,7 @@ var _ = Describe("ClientTx", func() {
 
 	Context("sends INVITE request", func() {
 		var err error
-		var invite, trying, ok, notOk, ack sip.Message
+		var invite, trying, ok, notOk, ack, canceled sip.Message
 		var inviteBranch string
 		var tx sip.ClientTransaction
 
@@ -69,6 +69,13 @@ var _ = Describe("ClientTx", func() {
 			})
 			notOk = testutils.Response([]string{
 				"SIP/2.0 400 Bad Request",
+				"CSeq: 1 INVITE",
+				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
+				"",
+				"",
+			})
+			canceled = testutils.Response([]string{
+				"SIP/2.0 487 Request Terminated",
 				"CSeq: 1 INVITE",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
 				"",
@@ -201,6 +208,59 @@ var _ = Describe("ClientTx", func() {
 				msg = <-tx.Responses()
 				Expect(msg).ToNot(BeNil())
 				Expect(msg.String()).To(Equal(notOk.String()))
+			})
+		})
+
+		Context("cancel INVITE", func() {
+			wg := new(sync.WaitGroup)
+			BeforeEach(func() {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+
+					var msg sip.Message
+					msg = <-tpl.OutMsgs
+					Expect(msg).ToNot(BeNil())
+					Expect(msg.String()).To(Equal(invite.String()))
+
+					time.Sleep(200 * time.Millisecond)
+					tpl.InMsgs <- trying
+
+					msg = <-tpl.OutMsgs
+					Expect(msg).ToNot(BeNil())
+					req, ok := msg.(sip.Request)
+					Expect(ok).To(BeTrue())
+					Expect(string(req.Method())).To(Equal("CANCEL"))
+
+					time.Sleep(10 * time.Millisecond)
+					tpl.InMsgs <- canceled
+				}()
+
+				mu.Lock()
+				tx, err = txl.Request(invite.(sip.Request))
+				Expect(tx).ToNot(BeNil())
+				Expect(err).ToNot(HaveOccurred())
+				mu.Unlock()
+			})
+			AfterEach(func(done Done) {
+				defer close(done)
+
+				wg.Wait()
+			})
+
+			It("should send CANCEL request", func(done Done) {
+				defer close(done)
+
+				var msg sip.Response
+				msg = <-tx.Responses()
+				Expect(msg).ToNot(BeNil())
+				Expect(msg.String()).To(Equal(trying.String()))
+
+				Expect(tx.Cancel()).Should(Succeed())
+
+				msg = <-tx.Responses()
+				Expect(msg).ToNot(BeNil())
+				Expect(msg.String()).To(Equal(canceled.String()))
 			})
 		})
 	})
