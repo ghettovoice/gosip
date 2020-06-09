@@ -32,6 +32,7 @@ type Server interface {
 		ctx context.Context,
 		request sip.Request,
 		authorizer sip.Authorizer,
+		options ...interface{},
 	) (sip.Response, error)
 	OnRequest(method sip.RequestMethod, handler RequestHandler) error
 
@@ -256,10 +257,19 @@ func (srv *server) RequestWithContext(
 	ctx context.Context,
 	request sip.Request,
 	authorizer sip.Authorizer,
+	options ...interface{},
 ) (sip.Response, error) {
 	tx, err := srv.Request(sip.CopyRequest(request))
 	if err != nil {
 		return nil, err
+	}
+
+	var responseHandler func(res sip.Response) // provisional response handler
+	for _, opt := range options {
+		switch o := opt.(type) {
+		case func(res sip.Response):
+			responseHandler = o
+		}
 	}
 
 	responses := make(chan sip.Response)
@@ -332,6 +342,10 @@ func (srv *server) RequestWithContext(
 					if _, ok := previousResponsesStatuses[getKey(response)]; !ok {
 						previousMessages = append(previousMessages, response)
 						previousResponsesStatuses[getKey(response)] = true
+
+						if responseHandler != nil {
+							responseHandler(response)
+						}
 					}
 
 					continue
@@ -364,7 +378,7 @@ func (srv *server) RequestWithContext(
 						return
 					}
 
-					if response, err := srv.RequestWithContext(ctx, request, nil); err == nil {
+					if response, err := srv.RequestWithContext(ctx, request, nil, options...); err == nil {
 						responses <- response
 					} else {
 						errs <- err
