@@ -17,7 +17,6 @@ var (
 // Wrapper around net.Conn.
 type Connection interface {
 	net.Conn
-	log.Loggable
 
 	Key() ConnectionKey
 	Network() string
@@ -115,7 +114,7 @@ func (conn *connection) Read(buf []byte) (int, error) {
 		}
 	}
 
-	conn.Log().Tracef("read %d bytes %s -> %s:\n%s", num, conn.RemoteAddr(), conn.LocalAddr(), buf[:num])
+	conn.Log().Tracef("read %d bytes %s <- %s:\n%s", num, conn.LocalAddr(), conn.RemoteAddr(), buf[:num])
 
 	return num, err
 }
@@ -133,7 +132,7 @@ func (conn *connection) ReadFrom(buf []byte) (num int, raddr net.Addr, err error
 		}
 	}
 
-	conn.Log().Tracef("read %d bytes %s -> %s:\n%s", num, conn.LocalAddr(), raddr, buf[:num])
+	conn.Log().Tracef("read %d bytes %s <- %s:\n%s", num, conn.LocalAddr(), raddr, buf[:num])
 
 	return num, raddr, err
 }

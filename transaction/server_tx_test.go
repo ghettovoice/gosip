@@ -101,7 +101,9 @@ var _ = Describe("ServerTx", func() {
 			close(done)
 		}, 3)
 
-		It("should open server tx and pass up TxMessage", func() {
+		It("should open server tx and pass up TxMessage", func(done Done) {
+			defer close(done)
+
 			_, err = transaction.MakeServerTxKey(invite)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -114,14 +116,18 @@ var _ = Describe("ServerTx", func() {
 		Context("when INVITE server tx created", func() {
 			var tx sip.ServerTransaction
 			mu := &sync.RWMutex{}
-			BeforeEach(func() {
+			BeforeEach(func(done Done) {
+				defer close(done)
+
 				mu.Lock()
 				tx = <-txl.Requests()
 				Expect(tx).ToNot(BeNil())
 				mu.Unlock()
 			})
 
-			It("should send 100 Trying after Timer_1xx fired", func() {
+			It("should send 100 Trying after Timer_1xx fired", func(done Done) {
+				defer close(done)
+
 				time.Sleep(transaction.Timer_1xx + time.Millisecond)
 				By(fmt.Sprintf("UAC waits %s", trying.Short()))
 				msg := <-tpl.OutMsgs
@@ -132,6 +138,7 @@ var _ = Describe("ServerTx", func() {
 			It("should send in transaction", func(done Done) {
 				go func() {
 					defer close(done)
+
 					By(fmt.Sprintf("UAC waits %s", ok.Short()))
 					msg := <-tpl.OutMsgs
 					Expect(msg).ToNot(BeNil())
@@ -166,11 +173,14 @@ var _ = Describe("ServerTx", func() {
 					}()
 				})
 				AfterEach(func(done Done) {
+					defer close(done)
+
 					wg2.Wait()
-					close(done)
-				}, 3)
+				})
 
 				It("should receive ACK in separate transaction", func(done Done) {
+					defer close(done)
+
 					_, err = transaction.MakeServerTxKey(ack)
 					Expect(err).ToNot(HaveOccurred())
 
@@ -178,15 +188,15 @@ var _ = Describe("ServerTx", func() {
 					ackReq := <-txl.Acks()
 					Expect(ackReq).ToNot(BeNil())
 					Expect(ackReq.String()).To(Equal(ack.String()))
-
-					close(done)
 				})
 			})
 
 			Context("after 3xx was sent", func() {
 				var tx sip.ServerTransaction
 				wg := new(sync.WaitGroup)
-				BeforeEach(func() {
+				BeforeEach(func(done Done) {
+					defer close(done)
+
 					wg.Add(2)
 					go func() {
 						defer wg.Done()
@@ -220,13 +230,13 @@ var _ = Describe("ServerTx", func() {
 				})
 
 				It("should get ACK inside INVITE tx", func(done Done) {
+					defer close(done)
+
 					mu.RLock()
 					ack := <-tx.Acks()
 					mu.RUnlock()
 					Expect(ack).ToNot(BeNil())
 					Expect(ack.Method()).To(Equal(sip.ACK))
-
-					close(done)
 				})
 			})
 		})

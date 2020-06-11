@@ -208,7 +208,7 @@ func MakeClientTxKey(msg sip.Message) (TxKey, error) {
 		return "", fmt.Errorf("'CSeq' header not found in message '%s'", msg.Short())
 	}
 	method := cseq.MethodName
-	if method == sip.ACK {
+	if method == sip.ACK || method == sip.CANCEL {
 		method = sip.INVITE
 	}
 

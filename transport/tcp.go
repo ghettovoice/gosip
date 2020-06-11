@@ -59,7 +59,7 @@ func (tcp *tcpProtocol) pipePools() {
 		case <-tcp.listeners.Done():
 			return
 		case conn := <-tcp.conns:
-			logger := tcp.Log().WithFields(conn.Log().Fields())
+			logger := log.AddFieldsFrom(tcp.Log(), conn)
 
 			if err := tcp.connections.Put(conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
@@ -123,10 +123,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 		return err
 	}
 
-	logger := tcp.Log().
-		WithFields(conn.Log().Fields()).
-		WithFields(msg.Fields())
-
+	logger := log.AddFieldsFrom(tcp.Log(), conn, msg)
 	logger.Infof("writing SIP message to %s %s", tcp.Network(), raddr)
 
 	// send message
@@ -170,8 +167,10 @@ func (tcp *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 
 		conn = NewConnection(tcpConn, key, tcp.Log())
 
-		err = tcp.connections.Put(conn, sockTTL)
+		if err := tcp.connections.Put(conn, sockTTL); err != nil {
+			return conn, err
+		}
 	}
 
-	return conn, err
+	return conn, nil
 }

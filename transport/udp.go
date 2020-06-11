@@ -106,10 +106,7 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 		conn = udp.connections.All()[0]
 	}
 
-	logger := udp.Log().
-		WithFields(conn.Log().Fields()).
-		WithFields(msg.Fields())
-
+	logger := log.AddFieldsFrom(udp.Log(), conn, msg)
 	logger.Infof("writing SIP message to %s %s", udp.Network(), raddr)
 
 	_, err = conn.WriteTo([]byte(msg.String()), raddr)

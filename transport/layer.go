@@ -13,8 +13,6 @@ import (
 
 // TransportLayer layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Layer interface {
-	log.Loggable
-
 	Cancel()
 	Done() <-chan struct{}
 	Messages() <-chan sip.Message
@@ -274,10 +272,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 				}
 			}
 
-			logger := tpl.Log().
-				WithFields(protocol.Log().Fields()).
-				WithFields(msg.Fields())
-
+			logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
 			logger.Infof("sending SIP request:\n%s", msg)
 
 			err = protocol.Send(target, msg)
@@ -302,10 +297,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 			return err
 		}
 
-		logger := tpl.Log().
-			WithFields(protocol.Log().Fields()).
-			WithFields(msg.Fields())
-
+		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
 		logger.Infof("send SIP response:\n%s", msg)
 
 		return protocol.Send(target, msg)

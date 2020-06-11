@@ -126,6 +126,11 @@ func (params *headerParams) Has(key string) bool {
 
 // Copy a list of params.
 func (params *headerParams) Clone() Params {
+	if params == nil {
+		var dup *headerParams
+		return dup
+	}
+
 	dup := NewParams()
 	for _, key := range params.Keys() {
 		if val, ok := params.Get(key); ok {
@@ -139,6 +144,10 @@ func (params *headerParams) Clone() Params {
 // Render params to a string.
 // Note that this does not escape special characters, this should already have been done before calling this method.
 func (params *headerParams) ToString(sep uint8) string {
+	if params == nil {
+		return ""
+	}
+
 	var buffer bytes.Buffer
 	first := true
 
@@ -169,6 +178,10 @@ func (params *headerParams) ToString(sep uint8) string {
 
 // String returns params joined with '&' char.
 func (params *headerParams) String() string {
+	if params == nil {
+		return ""
+	}
+
 	return params.ToString('&')
 }
 
@@ -182,6 +195,13 @@ func (params *headerParams) Length() int {
 func (params *headerParams) Equals(other interface{}) bool {
 	q, ok := other.(*headerParams)
 	if !ok {
+		return false
+	}
+
+	if params == q {
+		return true
+	}
+	if params == nil && q != nil || params != nil && q == nil {
 		return false
 	}
 
@@ -319,6 +339,13 @@ func (uri *SipUri) Equals(val interface{}) bool {
 		return false
 	}
 
+	if uri == otherPtr {
+		return true
+	}
+	if uri == nil && otherPtr != nil || uri != nil && otherPtr == nil {
+		return false
+	}
+
 	other := *otherPtr
 	result := uri.FIsEncrypted == other.FIsEncrypted &&
 		uri.FUser == other.FUser &&
@@ -330,15 +357,23 @@ func (uri *SipUri) Equals(val interface{}) bool {
 		return false
 	}
 
-	if !uri.FUriParams.Equals(other.FUriParams) {
-		return false
+	if uri.FUriParams != otherPtr.FUriParams {
+		if uri.FUriParams == nil {
+			result = result && otherPtr.FUriParams != nil
+		} else {
+			result = result && uri.FUriParams.Equals(otherPtr.FUriParams)
+		}
 	}
 
-	if !uri.FHeaders.Equals(other.FHeaders) {
-		return false
+	if uri.FHeaders != otherPtr.FHeaders {
+		if uri.FHeaders == nil {
+			result = result && otherPtr.FHeaders != nil
+		} else {
+			result = result && uri.FHeaders.Equals(otherPtr.FHeaders)
+		}
 	}
 
-	return true
+	return result
 }
 
 // Generates the string representation of a SipUri struct.
@@ -387,7 +422,12 @@ func (uri *SipUri) String() string {
 
 // Clone the Sip URI.
 func (uri *SipUri) Clone() Uri {
-	newUri := &SipUri{
+	var newUri *SipUri
+	if uri == nil {
+		return newUri
+	}
+
+	newUri = &SipUri{
 		FIsEncrypted: uri.FIsEncrypted,
 		FUser:        uri.FUser,
 		FPassword:    uri.FPassword,
@@ -478,6 +518,11 @@ func (header *GenericHeader) Name() string {
 
 // Copy the header.
 func (header *GenericHeader) Clone() Header {
+	if header == nil {
+		var newHeader *GenericHeader
+		return newHeader
+	}
+
 	return &GenericHeader{
 		HeaderName: header.HeaderName,
 		Contents:   header.Contents,
@@ -486,6 +531,13 @@ func (header *GenericHeader) Clone() Header {
 
 func (header *GenericHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*GenericHeader); ok {
+		if header == h {
+			return true
+		}
+		if header == nil && h != nil || header != nil && h == nil {
+			return false
+		}
+
 		return header.HeaderName == h.HeaderName &&
 			header.Contents == h.Contents
 	}
@@ -524,7 +576,12 @@ func (to *ToHeader) Name() string { return "To" }
 
 // Copy the header.
 func (to *ToHeader) Clone() Header {
-	newTo := &ToHeader{
+	var newTo *ToHeader
+	if to == nil {
+		return newTo
+	}
+
+	newTo = &ToHeader{
 		DisplayName: to.DisplayName,
 	}
 	if to.Address != nil {
@@ -538,9 +595,40 @@ func (to *ToHeader) Clone() Header {
 
 func (to *ToHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*ToHeader); ok {
-		return to.DisplayName.Equals(h.DisplayName) &&
-			to.Address.Equals(h.Address) &&
-			to.Params.Equals(h.Params)
+		if to == h {
+			return true
+		}
+		if to == nil && h != nil || to != nil && h == nil {
+			return false
+		}
+
+		res := true
+
+		if to.DisplayName != h.DisplayName {
+			if to.DisplayName == nil {
+				res = res && h.DisplayName == nil
+			} else {
+				res = res && to.DisplayName.Equals(h.DisplayName)
+			}
+		}
+
+		if to.Address != h.Address {
+			if to.Address == nil {
+				res = res && h.Address == nil
+			} else {
+				res = res && to.Address.Equals(h.Address)
+			}
+		}
+
+		if to.Params != h.Params {
+			if to.Params == nil {
+				res = res && h.Params == nil
+			} else {
+				res = res && to.Params.Equals(h.Params)
+			}
+		}
+
+		return res
 	}
 
 	return false
@@ -565,6 +653,7 @@ func (from *FromHeader) String() string {
 	}
 
 	buffer.WriteString(fmt.Sprintf("<%s>", from.Address))
+
 	if from.Params.Length() > 0 {
 		buffer.WriteString(";")
 		buffer.WriteString(from.Params.ToString(';'))
@@ -577,18 +666,60 @@ func (from *FromHeader) Name() string { return "From" }
 
 // Copy the header.
 func (from *FromHeader) Clone() Header {
-	return &FromHeader{
-		DisplayName: from.DisplayName,
-		Address:     from.Address.Clone(),
-		Params:      from.Params.Clone(),
+	var newFrom *FromHeader
+	if from == nil {
+		return newFrom
 	}
+
+	newFrom = &FromHeader{
+		DisplayName: from.DisplayName,
+	}
+	if from.Address != nil {
+		newFrom.Address = from.Address.Clone()
+	}
+	if from.Params != nil {
+		newFrom.Params = from.Params.Clone()
+	}
+
+	return newFrom
 }
 
 func (from *FromHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*FromHeader); ok {
-		return from.DisplayName.Equals(h.DisplayName) &&
-			from.Address.Equals(h.Address) &&
-			from.Params.Equals(h.Params)
+		if from == h {
+			return true
+		}
+		if from == nil && h != nil || from != nil && h == nil {
+			return false
+		}
+
+		res := true
+
+		if from.DisplayName != h.DisplayName {
+			if from.DisplayName == nil {
+				res = res && h.DisplayName == nil
+			} else {
+				res = res && from.DisplayName.Equals(h.DisplayName)
+			}
+		}
+
+		if from.Address != h.Address {
+			if from.Address == nil {
+				res = res && h.Address == nil
+			} else {
+				res = res && from.Address.Equals(h.Address)
+			}
+		}
+
+		if from.Params != h.Params {
+			if from.Params == nil {
+				res = res && h.Params == nil
+			} else {
+				res = res && from.Params.Equals(h.Params)
+			}
+		}
+
+		return res
 	}
 
 	return false
@@ -630,18 +761,60 @@ func (contact *ContactHeader) Name() string { return "Contact" }
 
 // Copy the header.
 func (contact *ContactHeader) Clone() Header {
-	return &ContactHeader{
-		DisplayName: contact.DisplayName,
-		Address:     contact.Address.Clone(),
-		Params:      contact.Params.Clone(),
+	var newCnt *ContactHeader
+	if contact == nil {
+		return newCnt
 	}
+
+	newCnt = &ContactHeader{
+		DisplayName: contact.DisplayName,
+	}
+	if contact.Address != nil {
+		newCnt.Address = contact.Address.Clone()
+	}
+	if contact.Params != nil {
+		newCnt.Params = contact.Params.Clone()
+	}
+
+	return newCnt
 }
 
 func (contact *ContactHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*ContactHeader); ok {
-		return contact.DisplayName.Equals(h.DisplayName) &&
-			contact.Address.Equals(h.Address) &&
-			contact.Params.Equals(h.Params)
+		if contact == h {
+			return true
+		}
+		if contact == nil && h != nil || contact != nil && h == nil {
+			return false
+		}
+
+		res := true
+
+		if contact.DisplayName != h.DisplayName {
+			if contact.DisplayName == nil {
+				res = res && h.DisplayName == nil
+			} else {
+				res = res && contact.DisplayName.Equals(h.DisplayName)
+			}
+		}
+
+		if contact.Address != h.Address {
+			if contact.Address == nil {
+				res = res && h.Address == nil
+			} else {
+				res = res && contact.Address.Equals(h.Address)
+			}
+		}
+
+		if contact.Params != h.Params {
+			if contact.Params == nil {
+				res = res && h.Params == nil
+			} else {
+				res = res && contact.Params.Equals(h.Params)
+			}
+		}
+
+		return res
 	}
 
 	return false
@@ -662,9 +835,20 @@ func (callId *CallID) Clone() Header {
 
 func (callId *CallID) Equals(other interface{}) bool {
 	if h, ok := other.(CallID); ok {
+		if callId == nil {
+			return false
+		}
+
 		return *callId == h
 	}
 	if h, ok := other.(*CallID); ok {
+		if callId == h {
+			return true
+		}
+		if callId == nil && h != nil || callId != nil && h == nil {
+			return false
+		}
+
 		return *callId == *h
 	}
 
@@ -683,6 +867,11 @@ func (cseq *CSeq) String() string {
 func (cseq *CSeq) Name() string { return "CSeq" }
 
 func (cseq *CSeq) Clone() Header {
+	if cseq == nil {
+		var newCSeq *CSeq
+		return newCSeq
+	}
+
 	return &CSeq{
 		SeqNo:      cseq.SeqNo,
 		MethodName: cseq.MethodName,
@@ -691,6 +880,13 @@ func (cseq *CSeq) Clone() Header {
 
 func (cseq *CSeq) Equals(other interface{}) bool {
 	if h, ok := other.(*CSeq); ok {
+		if cseq == h {
+			return true
+		}
+		if cseq == nil && h != nil || cseq != nil && h == nil {
+			return false
+		}
+
 		return cseq.SeqNo == h.SeqNo &&
 			cseq.MethodName == h.MethodName
 	}
@@ -710,9 +906,20 @@ func (maxForwards *MaxForwards) Clone() Header { return maxForwards }
 
 func (maxForwards *MaxForwards) Equals(other interface{}) bool {
 	if h, ok := other.(MaxForwards); ok {
+		if maxForwards == nil {
+			return false
+		}
+
 		return *maxForwards == h
 	}
 	if h, ok := other.(*MaxForwards); ok {
+		if maxForwards == h {
+			return true
+		}
+		if maxForwards == nil && h != nil || maxForwards != nil && h == nil {
+			return false
+		}
+
 		return *maxForwards == *h
 	}
 
@@ -731,9 +938,20 @@ func (expires *Expires) Clone() Header { return expires }
 
 func (expires *Expires) Equals(other interface{}) bool {
 	if h, ok := other.(Expires); ok {
+		if expires == nil {
+			return false
+		}
+
 		return *expires == h
 	}
 	if h, ok := other.(*Expires); ok {
+		if expires == h {
+			return true
+		}
+		if expires == nil && h != nil || expires != nil && h == nil {
+			return false
+		}
+
 		return *expires == *h
 	}
 
@@ -752,9 +970,20 @@ func (contentLength *ContentLength) Clone() Header { return contentLength }
 
 func (contentLength *ContentLength) Equals(other interface{}) bool {
 	if h, ok := other.(ContentLength); ok {
+		if contentLength == nil {
+			return false
+		}
+
 		return *contentLength == h
 	}
 	if h, ok := other.(*ContentLength); ok {
+		if contentLength == h {
+			return true
+		}
+		if contentLength == nil && h != nil || contentLength != nil && h == nil {
+			return false
+		}
+
 		return *contentLength == *h
 	}
 
@@ -779,6 +1008,11 @@ func (via ViaHeader) String() string {
 func (via ViaHeader) Name() string { return "Via" }
 
 func (via ViaHeader) Clone() Header {
+	if via == nil {
+		var newVie ViaHeader
+		return newVie
+	}
+
 	dup := make([]*ViaHop, 0, len(via))
 	for _, hop := range via {
 		dup = append(dup, hop.Clone())
@@ -853,24 +1087,51 @@ func (hop *ViaHop) String() string {
 
 // Return an exact copy of this ViaHop.
 func (hop *ViaHop) Clone() *ViaHop {
-	return &ViaHop{
+	var newHop *ViaHop
+	if hop == nil {
+		return newHop
+	}
+
+	newHop = &ViaHop{
 		ProtocolName:    hop.ProtocolName,
 		ProtocolVersion: hop.ProtocolVersion,
 		Transport:       hop.Transport,
 		Host:            hop.Host,
-		Port:            hop.Port.Clone(),
-		Params:          hop.Params.Clone(),
 	}
+	if hop.Port != nil {
+		newHop.Port = hop.Port.Clone()
+	}
+	if hop.Params != nil {
+		newHop.Params = hop.Params.Clone()
+	}
+
+	return newHop
 }
 
 func (hop *ViaHop) Equals(other interface{}) bool {
 	if h, ok := other.(*ViaHop); ok {
-		return hop.ProtocolName == h.ProtocolName &&
+		if hop == h {
+			return true
+		}
+		if hop == nil && h != nil || hop != nil && h == nil {
+			return false
+		}
+
+		res := hop.ProtocolName == h.ProtocolName &&
 			hop.ProtocolVersion == h.ProtocolVersion &&
 			hop.Transport == h.Transport &&
 			hop.Host == h.Host &&
-			util.Uint16PtrEq((*uint16)(hop.Port), (*uint16)(h.Port)) &&
-			hop.Params.Equals(h.Params)
+			util.Uint16PtrEq((*uint16)(hop.Port), (*uint16)(h.Port))
+
+		if hop.Params != h.Params {
+			if hop.Params == nil {
+				res = res && h.Params == nil
+			} else {
+				res = res && hop.Params.Equals(h.Params)
+			}
+		}
+
+		return res
 	}
 
 	return false
@@ -888,6 +1149,11 @@ func (require *RequireHeader) String() string {
 func (require *RequireHeader) Name() string { return "Require" }
 
 func (require *RequireHeader) Clone() Header {
+	if require == nil {
+		var newRequire *RequireHeader
+		return newRequire
+	}
+
 	dup := make([]string, len(require.Options))
 	copy(dup, require.Options)
 	return &RequireHeader{dup}
@@ -895,6 +1161,13 @@ func (require *RequireHeader) Clone() Header {
 
 func (require *RequireHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*RequireHeader); ok {
+		if require == h {
+			return true
+		}
+		if require == nil && h != nil || require != nil && h == nil {
+			return false
+		}
+
 		if len(require.Options) != len(h.Options) {
 			return false
 		}
@@ -923,6 +1196,11 @@ func (support *SupportedHeader) String() string {
 func (support *SupportedHeader) Name() string { return "Supported" }
 
 func (support *SupportedHeader) Clone() Header {
+	if support == nil {
+		var newSupport *SupportedHeader
+		return newSupport
+	}
+
 	dup := make([]string, len(support.Options))
 	copy(dup, support.Options)
 	return &SupportedHeader{dup}
@@ -930,6 +1208,13 @@ func (support *SupportedHeader) Clone() Header {
 
 func (support *SupportedHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*SupportedHeader); ok {
+		if support == h {
+			return true
+		}
+		if support == nil && h != nil || support != nil && h == nil {
+			return false
+		}
+
 		if len(support.Options) != len(h.Options) {
 			return false
 		}
@@ -958,6 +1243,11 @@ func (proxyRequire *ProxyRequireHeader) String() string {
 func (proxyRequire *ProxyRequireHeader) Name() string { return "Proxy-Require" }
 
 func (proxyRequire *ProxyRequireHeader) Clone() Header {
+	if proxyRequire == nil {
+		var newProxy *ProxyRequireHeader
+		return newProxy
+	}
+
 	dup := make([]string, len(proxyRequire.Options))
 	copy(dup, proxyRequire.Options)
 	return &ProxyRequireHeader{dup}
@@ -965,6 +1255,13 @@ func (proxyRequire *ProxyRequireHeader) Clone() Header {
 
 func (proxyRequire *ProxyRequireHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*ProxyRequireHeader); ok {
+		if proxyRequire == h {
+			return true
+		}
+		if proxyRequire == nil && h != nil || proxyRequire != nil && h == nil {
+			return false
+		}
+
 		if len(proxyRequire.Options) != len(h.Options) {
 			return false
 		}
@@ -995,6 +1292,11 @@ func (unsupported *UnsupportedHeader) String() string {
 func (unsupported *UnsupportedHeader) Name() string { return "Unsupported" }
 
 func (unsupported *UnsupportedHeader) Clone() Header {
+	if unsupported == nil {
+		var newUnsup *UnsupportedHeader
+		return newUnsup
+	}
+
 	dup := make([]string, len(unsupported.Options))
 	copy(dup, unsupported.Options)
 	return &UnsupportedHeader{dup}
@@ -1002,6 +1304,13 @@ func (unsupported *UnsupportedHeader) Clone() Header {
 
 func (unsupported *UnsupportedHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*UnsupportedHeader); ok {
+		if unsupported == h {
+			return true
+		}
+		if unsupported == nil && h != nil || unsupported != nil && h == nil {
+			return false
+		}
+
 		if len(unsupported.Options) != len(h.Options) {
 			return false
 		}
@@ -1030,9 +1339,20 @@ func (ua *UserAgentHeader) Clone() Header { return ua }
 
 func (ua *UserAgentHeader) Equals(other interface{}) bool {
 	if h, ok := other.(UserAgentHeader); ok {
+		if ua == nil {
+			return false
+		}
+
 		return *ua == h
 	}
 	if h, ok := other.(*UserAgentHeader); ok {
+		if ua == h {
+			return true
+		}
+		if ua == nil && h != nil || ua != nil && h == nil {
+			return false
+		}
+
 		return *ua == *h
 	}
 
@@ -1053,6 +1373,11 @@ func (allow AllowHeader) String() string {
 func (allow AllowHeader) Name() string { return "Allow" }
 
 func (allow AllowHeader) Clone() Header {
+	if allow == nil {
+		var newAllow AllowHeader
+		return newAllow
+	}
+
 	newAllow := make(AllowHeader, len(allow))
 	copy(newAllow, allow)
 
@@ -1087,9 +1412,20 @@ func (ct *ContentType) Clone() Header { return ct }
 
 func (ct *ContentType) Equals(other interface{}) bool {
 	if h, ok := other.(ContentType); ok {
+		if ct == nil {
+			return false
+		}
+
 		return *ct == h
 	}
 	if h, ok := other.(*ContentType); ok {
+		if ct == h {
+			return true
+		}
+		if ct == nil && h != nil || ct != nil && h == nil {
+			return false
+		}
+
 		return *ct == *h
 	}
 
@@ -1106,9 +1442,20 @@ func (ct *Accept) Clone() Header { return ct }
 
 func (ct *Accept) Equals(other interface{}) bool {
 	if h, ok := other.(Accept); ok {
+		if ct == nil {
+			return false
+		}
+
 		return *ct == h
 	}
 	if h, ok := other.(*Accept); ok {
+		if ct == h {
+			return true
+		}
+		if ct == nil && h != nil || ct != nil && h == nil {
+			return false
+		}
+
 		return *ct == *h
 	}
 
@@ -1132,7 +1479,12 @@ func (route *RouteHeader) String() string {
 }
 
 func (route *RouteHeader) Clone() Header {
-	newRoute := &RouteHeader{
+	var newRoute *RouteHeader
+	if route == nil {
+		return newRoute
+	}
+
+	newRoute = &RouteHeader{
 		Addresses: make([]Uri, len(route.Addresses)),
 	}
 
@@ -1145,6 +1497,13 @@ func (route *RouteHeader) Clone() Header {
 
 func (route *RouteHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*RouteHeader); ok {
+		if route == h {
+			return true
+		}
+		if route == nil && h != nil || route != nil && h == nil {
+			return false
+		}
+
 		for i, uri := range route.Addresses {
 			if !uri.Equals(h.Addresses[i]) {
 				return false
@@ -1174,7 +1533,12 @@ func (route *RecordRouteHeader) String() string {
 }
 
 func (route *RecordRouteHeader) Clone() Header {
-	newRoute := &RecordRouteHeader{
+	var newRoute *RecordRouteHeader
+	if route == nil {
+		return newRoute
+	}
+
+	newRoute = &RecordRouteHeader{
 		Addresses: make([]Uri, len(route.Addresses)),
 	}
 
@@ -1187,6 +1551,13 @@ func (route *RecordRouteHeader) Clone() Header {
 
 func (route *RecordRouteHeader) Equals(other interface{}) bool {
 	if h, ok := other.(*RecordRouteHeader); ok {
+		if route == h {
+			return true
+		}
+		if route == nil && h != nil || route != nil && h == nil {
+			return false
+		}
+
 		for i, uri := range route.Addresses {
 			if !uri.Equals(h.Addresses[i]) {
 				return false

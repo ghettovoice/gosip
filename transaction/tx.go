@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/discoviking/fsm"
 
@@ -18,8 +19,6 @@ func (key TxKey) String() string {
 
 // Tx is an common SIP transaction
 type Tx interface {
-	log.Loggable
-
 	Init() error
 	Key() TxKey
 	Origin() sip.Request
@@ -35,6 +34,7 @@ type Tx interface {
 type commonTx struct {
 	key      TxKey
 	fsm      *fsm.FSM
+	fsmMu    sync.RWMutex
 	origin   sip.Request
 	tpl      transport.Layer
 	lastResp sip.Response

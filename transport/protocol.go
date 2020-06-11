@@ -16,8 +16,6 @@ const (
 
 // Protocol implements network specific features.
 type Protocol interface {
-	log.Loggable
-
 	Done() <-chan struct{}
 	Network() string
 	Reliable() bool

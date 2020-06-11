@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ghettovoice/gosip/log"
@@ -13,12 +12,47 @@ import (
 	"github.com/ghettovoice/gosip/transaction"
 	"github.com/ghettovoice/gosip/transport"
 	"github.com/ghettovoice/gosip/util"
+
+	"github.com/tevino/abool"
 )
 
 // RequestHandler is a callback that will be called on the incoming request
 // of the certain method
 // tx argument can be nil for 2xx ACK request
 type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
+
+type Server interface {
+	Shutdown()
+
+	Listen(network, addr string) error
+	Send(msg sip.Message) error
+
+	Request(req sip.Request) (sip.ClientTransaction, error)
+	RequestWithContext(
+		ctx context.Context,
+		request sip.Request,
+		authorizer sip.Authorizer,
+		options ...interface{},
+	) (sip.Response, error)
+	OnRequest(method sip.RequestMethod, handler RequestHandler) error
+
+	Respond(res sip.Response) (sip.ServerTransaction, error)
+	RespondOnRequest(
+		request sip.Request,
+		status sip.StatusCode,
+		reason, body string,
+		headers []sip.Header,
+	) (sip.ServerTransaction, error)
+}
+
+type TransportLayerFactory func(
+	ip net.IP,
+	dnsResolver *net.Resolver,
+	msgMapper sip.MessageMapper,
+	logger log.Logger,
+) transport.Layer
+
+type TransactionLayerFactory func(tpl transport.Layer, logger log.Logger) transaction.Layer
 
 // ServerConfig describes available options
 type ServerConfig struct {
@@ -31,12 +65,12 @@ type ServerConfig struct {
 }
 
 // Server is a SIP server
-type Server struct {
+type server struct {
+	running         abool.AtomicBool
 	tp              transport.Layer
 	tx              transaction.Layer
 	host            string
 	ip              net.IP
-	inShutdown      int32
 	hwg             *sync.WaitGroup
 	hmu             *sync.RWMutex
 	requestHandlers map[sip.RequestMethod]RequestHandler
@@ -48,9 +82,17 @@ type Server struct {
 }
 
 // NewServer creates new instance of SIP server.
-func NewServer(config *ServerConfig, logger log.Logger) *Server {
-	if config == nil {
-		config = &ServerConfig{}
+func NewServer(
+	config ServerConfig,
+	tpFactory TransportLayerFactory,
+	txFactory TransactionLayerFactory,
+	logger log.Logger,
+) Server {
+	if tpFactory == nil {
+		tpFactory = transport.NewLayer
+	}
+	if txFactory == nil {
+		txFactory = transaction.NewLayer
 	}
 
 	logger = logger.WithPrefix("gosip.Server")
@@ -91,7 +133,7 @@ func NewServer(config *ServerConfig, logger log.Logger) *Server {
 		extensions = config.Extensions
 	}
 
-	srv := &Server{
+	srv := &server{
 		host:            host,
 		ip:              ip,
 		hwg:             new(sync.WaitGroup),
@@ -104,24 +146,25 @@ func NewServer(config *ServerConfig, logger log.Logger) *Server {
 	srv.log = logger.WithFields(log.Fields{
 		"sip_server_ptr": fmt.Sprintf("%p", srv),
 	})
-	srv.tp = transport.NewLayer(ip, dnsResolver, config.MsgMapper, srv.Log())
-	srv.tx = transaction.NewLayer(srv.tp, srv.Log().WithFields(srv.tp.Log().Fields()))
+	srv.tp = tpFactory(ip, dnsResolver, config.MsgMapper, srv.Log())
+	srv.tx = txFactory(srv.tp, log.AddFieldsFrom(srv.Log(), srv.tp))
 
+	srv.running.Set()
 	go srv.serve()
 
 	return srv
 }
 
-func (srv *Server) Log() log.Logger {
+func (srv *server) Log() log.Logger {
 	return srv.log
 }
 
 // ListenAndServe starts serving listeners on the provided address
-func (srv *Server) Listen(network string, listenAddr string) error {
+func (srv *server) Listen(network string, listenAddr string) error {
 	return srv.tp.Listen(network, listenAddr)
 }
 
-func (srv *Server) serve() {
+func (srv *server) serve() {
 	defer srv.Shutdown()
 
 	for {
@@ -150,6 +193,10 @@ func (srv *Server) serve() {
 			logger.Warn("received not matched response")
 
 			if key, err := transaction.MakeClientTxKey(response); err == nil {
+				// if this is non-matched response on our INVITE request
+				// then it can be only retransmission of 200 OK response
+				// when our client transaction already removed
+				// so we just ack every retransmission
 				srv.invitesLock.RLock()
 				inviteRequest, ok := srv.invites[key]
 				srv.invitesLock.RUnlock()
@@ -173,7 +220,7 @@ func (srv *Server) serve() {
 	}
 }
 
-func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
+func (srv *server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
 	logger := srv.Log().WithFields(req.Fields())
@@ -198,18 +245,31 @@ func (srv *Server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 }
 
 // Send SIP message
-func (srv *Server) Request(req sip.Request) (sip.ClientTransaction, error) {
-	if srv.shuttingDown() {
+func (srv *server) Request(req sip.Request) (sip.ClientTransaction, error) {
+	if !srv.running.IsSet() {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}
 
 	return srv.tx.Request(srv.prepareRequest(req))
 }
 
-func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, authorizer sip.Authorizer) (sip.Response, error) {
+func (srv *server) RequestWithContext(
+	ctx context.Context,
+	request sip.Request,
+	authorizer sip.Authorizer,
+	options ...interface{},
+) (sip.Response, error) {
 	tx, err := srv.Request(sip.CopyRequest(request))
 	if err != nil {
 		return nil, err
+	}
+
+	var responseHandler func(res sip.Response) // provisional response handler
+	for _, opt := range options {
+		switch o := opt.(type) {
+		case func(res sip.Response):
+			responseHandler = o
+		}
 	}
 
 	responses := make(chan sip.Response)
@@ -217,17 +277,31 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 	go func() {
 		var lastResponse sip.Response
 
-		previousResponses := make([]sip.Response, 0)
-		previousResponsesStatuses := make(map[sip.StatusCode]bool)
+		previousMessages := make([]sip.Response, 0)
+		previousResponsesStatuses := make(map[string]bool)
+		getKey := func(res sip.Response) string {
+			return fmt.Sprintf("%d %s", res.StatusCode(), res.Reason())
+		}
 
 		for {
 			select {
 			case <-ctx.Done():
 				if lastResponse != nil && lastResponse.IsProvisional() {
-					srv.cancelRequest(request, lastResponse)
+					_ = tx.Cancel()
+					// wait for final 487 response
+					for res := range tx.Responses() {
+						lastResponse = sip.CopyResponse(res)
+						if !lastResponse.IsProvisional() {
+							break
+						}
+						if _, ok := previousResponsesStatuses[getKey(lastResponse)]; !ok {
+							previousMessages = append(previousMessages, lastResponse)
+							previousResponsesStatuses[getKey(lastResponse)] = true
+						}
+					}
 				}
 				if lastResponse != nil {
-					lastResponse.SetPrevious(previousResponses)
+					lastResponse.SetPrevious(previousMessages)
 				}
 				errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
 				// pull out later possible transaction responses and errors
@@ -245,7 +319,7 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 			case err, ok := <-tx.Errors():
 				if !ok {
 					if lastResponse != nil {
-						lastResponse.SetPrevious(previousResponses)
+						lastResponse.SetPrevious(previousMessages)
 					}
 					errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
 					return
@@ -255,7 +329,7 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 			case response, ok := <-tx.Responses():
 				if !ok {
 					if lastResponse != nil {
-						lastResponse.SetPrevious(previousResponses)
+						lastResponse.SetPrevious(previousMessages)
 					}
 					errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
 					return
@@ -265,8 +339,13 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 				lastResponse = response
 
 				if response.IsProvisional() {
-					if _, ok := previousResponsesStatuses[response.StatusCode()]; !ok {
-						previousResponses = append(previousResponses, response)
+					if _, ok := previousResponsesStatuses[getKey(response)]; !ok {
+						previousMessages = append(previousMessages, response)
+						previousResponsesStatuses[getKey(response)] = true
+
+						if responseHandler != nil {
+							responseHandler(response)
+						}
 					}
 
 					continue
@@ -274,7 +353,7 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 
 				// success
 				if response.IsSuccess() {
-					response.SetPrevious(previousResponses)
+					response.SetPrevious(previousMessages)
 
 					if request.IsInvite() {
 						srv.ackInviteRequest(request, response)
@@ -299,7 +378,7 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 						return
 					}
 
-					if response, err := srv.RequestWithContext(ctx, request, nil); err == nil {
+					if response, err := srv.RequestWithContext(ctx, request, nil, options...); err == nil {
 						responses <- response
 					} else {
 						errs <- err
@@ -310,7 +389,7 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 
 				// failed request
 				if lastResponse != nil {
-					lastResponse.SetPrevious(previousResponses)
+					lastResponse.SetPrevious(previousMessages)
 				}
 				errs <- sip.NewRequestError(uint(response.StatusCode()), response.Reason(), request, lastResponse)
 
@@ -327,12 +406,13 @@ func (srv *Server) RequestWithContext(ctx context.Context, request sip.Request, 
 	}
 }
 
-func (srv *Server) rememberInviteRequest(request sip.Request) {
+func (srv *server) rememberInviteRequest(request sip.Request) {
 	if key, err := transaction.MakeClientTxKey(request); err == nil {
 		srv.invitesLock.Lock()
 		srv.invites[key] = request
 		srv.invitesLock.Unlock()
 
+		// max retransmission time for invite request is T1*64 = 32s
 		time.AfterFunc(time.Minute, func() {
 			srv.invitesLock.Lock()
 			delete(srv.invites, key)
@@ -345,8 +425,10 @@ func (srv *Server) rememberInviteRequest(request sip.Request) {
 	}
 }
 
-func (srv *Server) ackInviteRequest(request sip.Request, response sip.Response) {
-	ackRequest := sip.NewAckRequest("", request, response)
+func (srv *server) ackInviteRequest(request sip.Request, response sip.Response) {
+	ackRequest := sip.NewAckRequest("", request, response, log.Fields{
+		"sent_at": time.Now(),
+	})
 	if err := srv.Send(ackRequest); err != nil {
 		srv.Log().WithFields(map[string]interface{}{
 			"invite_request":  request.Short(),
@@ -356,18 +438,7 @@ func (srv *Server) ackInviteRequest(request sip.Request, response sip.Response) 
 	}
 }
 
-func (srv *Server) cancelRequest(request sip.Request, response sip.Response) {
-	cancelRequest := sip.NewCancelRequest("", request)
-	if err := srv.Send(cancelRequest); err != nil {
-		srv.Log().WithFields(map[string]interface{}{
-			"invite_request":  request.Short(),
-			"invite_response": response.Short(),
-			"cancel_request":  cancelRequest.Short(),
-		}).Errorf("send CANCEL request failed: %s", err)
-	}
-}
-
-func (srv *Server) prepareRequest(req sip.Request) sip.Request {
+func (srv *server) prepareRequest(req sip.Request) sip.Request {
 	if viaHop, ok := req.ViaHop(); ok {
 		if viaHop.Params == nil {
 			viaHop.Params = sip.NewParams()
@@ -393,15 +464,15 @@ func (srv *Server) prepareRequest(req sip.Request) sip.Request {
 	return req
 }
 
-func (srv *Server) Respond(res sip.Response) (sip.ServerTransaction, error) {
-	if srv.shuttingDown() {
+func (srv *server) Respond(res sip.Response) (sip.ServerTransaction, error) {
+	if !srv.running.IsSet() {
 		return nil, fmt.Errorf("can not send through stopped server")
 	}
 
 	return srv.tx.Respond(srv.prepareResponse(res))
 }
 
-func (srv *Server) RespondOnRequest(
+func (srv *server) RespondOnRequest(
 	request sip.Request,
 	status sip.StatusCode,
 	reason, body string,
@@ -420,8 +491,8 @@ func (srv *Server) RespondOnRequest(
 	return tx, nil
 }
 
-func (srv *Server) Send(msg sip.Message) error {
-	if srv.shuttingDown() {
+func (srv *server) Send(msg sip.Message) error {
+	if !srv.running.IsSet() {
 		return fmt.Errorf("can not send through stopped server")
 	}
 
@@ -435,24 +506,18 @@ func (srv *Server) Send(msg sip.Message) error {
 	return srv.tp.Send(msg)
 }
 
-func (srv *Server) prepareResponse(res sip.Response) sip.Response {
+func (srv *server) prepareResponse(res sip.Response) sip.Response {
 	srv.appendAutoHeaders(res)
 
 	return res
 }
 
-func (srv *Server) shuttingDown() bool {
-	return atomic.LoadInt32(&srv.inShutdown) != 0
-}
-
 // Shutdown gracefully shutdowns SIP server
-func (srv *Server) Shutdown() {
-	if srv.shuttingDown() {
+func (srv *server) Shutdown() {
+	if !srv.running.IsSet() {
 		return
 	}
-
-	atomic.AddInt32(&srv.inShutdown, 1)
-	defer atomic.AddInt32(&srv.inShutdown, -1)
+	srv.running.UnSet()
 	// stop transaction layer
 	srv.tx.Cancel()
 	<-srv.tx.Done()
@@ -464,7 +529,7 @@ func (srv *Server) Shutdown() {
 }
 
 // OnRequest registers new request callback
-func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) error {
+func (srv *server) OnRequest(method sip.RequestMethod, handler RequestHandler) error {
 	srv.hmu.Lock()
 	srv.requestHandlers[method] = handler
 	srv.hmu.Unlock()
@@ -472,7 +537,7 @@ func (srv *Server) OnRequest(method sip.RequestMethod, handler RequestHandler) e
 	return nil
 }
 
-func (srv *Server) appendAutoHeaders(msg sip.Message) {
+func (srv *server) appendAutoHeaders(msg sip.Message) {
 	autoAppendMethods := map[sip.RequestMethod]bool{
 		sip.INVITE:   true,
 		sip.REGISTER: true,
@@ -517,7 +582,7 @@ func (srv *Server) appendAutoHeaders(msg sip.Message) {
 	}
 }
 
-func (srv *Server) getAllowedMethods() []sip.RequestMethod {
+func (srv *server) getAllowedMethods() []sip.RequestMethod {
 	methods := []sip.RequestMethod{
 		sip.INVITE,
 		sip.ACK,

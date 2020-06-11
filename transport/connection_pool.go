@@ -23,8 +23,6 @@ func (key ConnectionKey) String() string {
 
 // ConnectionPool used for active connection management.
 type ConnectionPool interface {
-	log.Loggable
-
 	Done() <-chan struct{}
 	String() string
 	Put(connection Connection, ttl time.Duration) error
@@ -38,8 +36,6 @@ type ConnectionPool interface {
 // ConnectionHandler serves associated connection, i.e. parses
 // incoming data, manages expiry time & etc.
 type ConnectionHandler interface {
-	log.Loggable
-
 	Cancel()
 	Done() <-chan struct{}
 	String() string
@@ -568,8 +564,8 @@ func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Dur
 		pool.Log(),
 	)
 
-	pool.Log().WithFields(handler.Log().Fields()).
-		Tracef("put connection to the pool with TTL = %s", ttl)
+	logger := log.AddFieldsFrom(pool.Log(), handler)
+	logger.Tracef("put connection to the pool with TTL = %s", ttl)
 
 	pool.mu.Lock()
 
@@ -596,8 +592,8 @@ func (pool *connectionPool) drop(key ConnectionKey, cancel bool) error {
 		handler.Cancel()
 	}
 
-	pool.Log().WithFields(handler.Log().Fields()).
-		Trace("drop connection from the pool")
+	logger := log.AddFieldsFrom(pool.Log(), handler)
+	logger.Trace("drop connection from the pool")
 
 	pool.mu.Lock()
 
@@ -1025,6 +1021,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 
 			msg = handler.msgMapper(msg).WithFields(log.Fields{
 				"connection_key": handler.Connection().Key(),
+				"received_at":    time.Now(),
 			})
 
 			logger := handler.Log().WithFields(msg.Fields())

@@ -154,6 +154,9 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 		}
 	}
 
+	tx.fsmMu.RLock()
+	defer tx.fsmMu.RUnlock()
+
 	return tx.fsm.Spin(input)
 }
 
@@ -181,6 +184,9 @@ func (tx *serverTx) Respond(res sip.Response) error {
 	default:
 		input = server_input_user_300_plus
 	}
+
+	tx.fsmMu.RLock()
+	defer tx.fsmMu.RUnlock()
 
 	return tx.fsm.Spin(input)
 }
@@ -313,7 +319,9 @@ func (tx *serverTx) initInviteFSM() {
 		return
 	}
 
+	tx.fsmMu.Lock()
 	tx.fsm = fsm_
+	tx.fsmMu.Unlock()
 }
 
 func (tx *serverTx) initNonInviteFSM() {
@@ -386,7 +394,9 @@ func (tx *serverTx) initNonInviteFSM() {
 		return
 	}
 
+	tx.fsmMu.Lock()
 	tx.fsm = fsm_
+	tx.fsmMu.Unlock()
 }
 
 func (tx *serverTx) transportErr() {
@@ -463,10 +473,11 @@ func (tx *serverTx) delete() {
 	tx.closeOnce.Do(func() {
 		tx.mu.Lock()
 
+		close(tx.done)
+
 		close(tx.acks)
 		close(tx.cancels)
 		close(tx.errs)
-		close(tx.done)
 
 		tx.mu.Unlock()
 	})
@@ -527,9 +538,11 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 			tx.timer_g = timing.AfterFunc(tx.timer_g_time, func() {
 				tx.Log().Debug("timer_g fired")
 
+				tx.fsmMu.RLock()
 				if err := tx.fsm.Spin(server_input_timer_g); err != nil {
 					tx.Log().Errorf("spin FSM to server_input_timer_g failed: %s", err)
 				}
+				tx.fsmMu.RUnlock()
 			})
 		} else {
 			tx.timer_g_time *= 2
@@ -551,9 +564,11 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 		tx.timer_h = timing.AfterFunc(Timer_H, func() {
 			tx.Log().Debug("timer_h fired")
 
+			tx.fsmMu.RLock()
 			if err := tx.fsm.Spin(server_input_timer_h); err != nil {
 				tx.Log().Errorf("spin FSM to server_input_timer_h failed: %s", err)
 			}
+			tx.fsmMu.RUnlock()
 		})
 	}
 	tx.mu.Unlock()
@@ -590,9 +605,11 @@ func (tx *serverTx) act_final() fsm.Input {
 	tx.timer_j = timing.AfterFunc(Timer_J, func() {
 		tx.Log().Debug("timer_j fired")
 
+		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(server_input_timer_j); err != nil {
 			tx.Log().Errorf("spin FSM to server_input_timer_j failed: %s", err)
 		}
+		tx.fsmMu.RUnlock()
 	})
 
 	tx.mu.Unlock()
@@ -671,9 +688,11 @@ func (tx *serverTx) act_confirm() fsm.Input {
 	tx.timer_i = timing.AfterFunc(Timer_I, func() {
 		tx.Log().Debug("timer_i fired")
 
+		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(server_input_timer_i); err != nil {
 			tx.Log().Errorf("spin FSM to server_input_timer_i failed: %s", err)
 		}
+		tx.fsmMu.RUnlock()
 	})
 
 	tx.mu.Unlock()

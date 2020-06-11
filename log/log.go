@@ -67,3 +67,17 @@ func (fields Fields) WithFields(newFields Fields) Fields {
 
 	return allFields
 }
+
+func AddFieldsFrom(logger Logger, values ...interface{}) Logger {
+	for _, value := range values {
+		switch v := value.(type) {
+		case Logger:
+			logger = logger.WithFields(v.Fields())
+		case Loggable:
+			logger = logger.WithFields(v.Log().Fields())
+		case interface{ Fields() Fields }:
+			logger = logger.WithFields(v.Fields())
+		}
+	}
+	return logger
+}
