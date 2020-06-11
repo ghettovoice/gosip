@@ -27,9 +27,6 @@ var _ = Describe("GoSIP Server", func() {
 	logger := testutils.NewLogrusLogger()
 
 	BeforeEach(func() {
-		srv = gosip.NewServer(srvConf, nil, nil, logger)
-		Expect(srv.Listen("udp", "0.0.0.0:5060")).To(Succeed())
-
 		client1 = testutils.CreateClient("udp", localTarget.Addr(), clientAddr)
 
 		inviteBranch = sip.GenerateBranch()
@@ -44,6 +41,11 @@ var _ = Describe("GoSIP Server", func() {
 			"",
 		})
 	}, 3)
+
+	JustBeforeEach(func() {
+		srv = gosip.NewServer(srvConf, nil, nil, logger)
+		Expect(srv.Listen("udp", "0.0.0.0:5060")).To(Succeed())
+	})
 
 	AfterEach(func() {
 		if client1 != nil {
