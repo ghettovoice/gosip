@@ -564,11 +564,13 @@ func (srv *server) appendAutoHeaders(msg sip.Message) {
 					allow = append(allow, method)
 				}
 
-				msg.AppendHeader(allow)
+				if len(allow) > 0 {
+					msg.AppendHeader(allow)
+				}
 			}
 
 			hdrs = msg.GetHeaders("Supported")
-			if len(hdrs) == 0 {
+			if len(hdrs) == 0 && len(srv.extensions) > 0 {
 				msg.AppendHeader(&sip.SupportedHeader{
 					Options: srv.extensions,
 				})
