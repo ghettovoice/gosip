@@ -237,8 +237,8 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 	} else {
 		for _, h := range inviteResponse.GetHeaders("Record-Route") {
 			uris := make([]Uri, 0)
-			for _, u := range h.(*RecordRouteHeader).Addresses {
-				uris = append(uris, u.Clone())
+			for i := len(h.(*RecordRouteHeader).Addresses) - 1; i >= 0; i-- {
+				uris = append(uris, h.(*RecordRouteHeader).Addresses[i].Clone())
 			}
 			ackRequest.AppendHeader(&RouteHeader{
 				Addresses: uris,

@@ -242,8 +242,8 @@ func (tx *clientTx) ack() {
 	} else {
 		for _, h := range lastResp.GetHeaders("Record-Route") {
 			uris := make([]sip.Uri, 0)
-			for _, u := range h.(*sip.RecordRouteHeader).Addresses {
-				uris = append(uris, u.Clone())
+			for i := len(h.(*sip.RecordRouteHeader).Addresses) - 1; i >= 0; i-- {
+				uris = append(uris, h.(*sip.RecordRouteHeader).Addresses[i].Clone())
 			}
 			ack.AppendHeader(&sip.RouteHeader{
 				Addresses: uris,
