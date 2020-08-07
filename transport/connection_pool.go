@@ -763,7 +763,9 @@ func NewConnectionHandler(
 	} else {
 		handler.expiry = time.Time{}
 		handler.timer = timing.NewTimer(0)
-		handler.timer.Stop()
+		if !handler.timer.Stop() {
+			<-handler.timer.C()
+		}
 	}
 
 	if handler.msgMapper == nil {

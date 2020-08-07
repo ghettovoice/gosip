@@ -48,9 +48,10 @@ func (t *realTimer) Stop() bool {
 	if !t.Timer.Stop() {
 		select {
 		case <-t.Timer.C:
+			return true
 		default:
+			return false
 		}
-		return false
 	}
 	return true
 }
@@ -89,9 +90,10 @@ func (t *mockTimer) Stop() bool {
 	if !removeMockTimer(t) {
 		select {
 		case <-t.Chan:
+			return true
 		default:
+			return false
 		}
-		return false
 	}
 	return true
 }
