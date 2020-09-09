@@ -24,7 +24,7 @@ type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
 type Server interface {
 	Shutdown()
 
-	Listen(network, addr string) error
+	Listen(network, addr string, options *transport.Options) error
 	Send(msg sip.Message) error
 
 	Request(req sip.Request) (sip.ClientTransaction, error)
@@ -160,8 +160,8 @@ func (srv *server) Log() log.Logger {
 }
 
 // ListenAndServe starts serving listeners on the provided address
-func (srv *server) Listen(network string, listenAddr string) error {
-	return srv.tp.Listen(network, listenAddr)
+func (srv *server) Listen(network string, listenAddr string, options *transport.Options) error {
+	return srv.tp.Listen(network, listenAddr, options)
 }
 
 func (srv *server) serve() {

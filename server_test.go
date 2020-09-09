@@ -44,8 +44,8 @@ var _ = Describe("GoSIP Server", func() {
 
 	JustBeforeEach(func() {
 		srv = gosip.NewServer(srvConf, nil, nil, logger)
-		Expect(srv.Listen("udp", "0.0.0.0:5060")).To(Succeed())
-		Expect(srv.Listen("tls", "0.0.0.0:5061")).To(Succeed())
+		Expect(srv.Listen("udp", "0.0.0.0:5060", nil)).To(Succeed())
+		Expect(srv.Listen("tls", "0.0.0.0:5061", &transport.Options{CertFile: "certs/cert.pem", KeyFile: "certs/key.pem"})).To(Succeed())
 	})
 
 	AfterEach(func() {

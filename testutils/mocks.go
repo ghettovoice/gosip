@@ -9,6 +9,7 @@ import (
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/transport"
 )
 
 type MockListener struct {
@@ -129,7 +130,7 @@ func (tpl *MockTransportLayer) Errors() <-chan error {
 	return tpl.InErrs
 }
 
-func (tpl *MockTransportLayer) Listen(network string, addr string) error {
+func (tpl *MockTransportLayer) Listen(network string, addr string, options *transport.Options) error {
 	return nil
 }
 

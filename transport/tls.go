@@ -89,7 +89,11 @@ func (tls *tlsProtocol) Listen(target *Target) error {
 		return err
 	}
 
-	cert, err := ntls.LoadX509KeyPair("certs/cert.pem", "certs/key.pem")
+	if target.Options == nil {
+		return fmt.Errorf("Require valid Options parameters to start TLS")
+	}
+
+	cert, err := ntls.LoadX509KeyPair(target.Options.CertFile, target.Options.KeyFile)
 	if err != nil {
 		tls.Log().Fatal(err)
 	}
