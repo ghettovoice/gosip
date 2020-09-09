@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -749,8 +750,14 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 			}
 			return
 		}
-
-		key := ConnectionKey(strings.ToLower(baseConn.RemoteAddr().Network()) + ":" + baseConn.RemoteAddr().String())
+		network := "udp"
+		switch baseConn.(type) {
+		case *tls.Conn:
+			network = "tls"
+		default:
+			network = strings.ToLower(baseConn.RemoteAddr().Network())
+		}
+		key := ConnectionKey(network + ":" + baseConn.RemoteAddr().String())
 		conn := NewConnection(baseConn, key, handler.Log())
 
 		select {

@@ -38,6 +38,8 @@ var protocolFactory ProtocolFactory = func(
 		return NewUdpProtocol(output, errs, cancel, msgMapper, logger), nil
 	case "tcp":
 		return NewTcpProtocol(output, errs, cancel, msgMapper, logger), nil
+	case "tls":
+		return NewTlsProtocol(output, errs, cancel, msgMapper, logger), nil
 	default:
 		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 	}
