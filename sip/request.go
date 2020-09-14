@@ -273,6 +273,8 @@ func NewCancelRequest(cancelID MessageID, requestForCancel Request, fields log.F
 
 	viaHop, _ := requestForCancel.ViaHop()
 	cancelReq.AppendHeader(ViaHeader{viaHop.Clone()})
+	maxForwardsHeader := MaxForwards(70)
+	cancelReq.AppendHeader(&maxForwardsHeader)
 	CopyHeaders("Route", requestForCancel, cancelReq)
 	CopyHeaders("From", requestForCancel, cancelReq)
 	CopyHeaders("To", requestForCancel, cancelReq)

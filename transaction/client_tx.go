@@ -266,6 +266,9 @@ func (tx *clientTx) ack() {
 	cseq.MethodName = sip.ACK
 	ack.AppendHeader(cseq)
 
+	maxForwardsHeader := sip.MaxForwards(70)
+	ack.AppendHeader(&maxForwardsHeader)
+
 	// Send the ACK.
 	err := tx.tpl.Send(ack)
 	if err != nil {
