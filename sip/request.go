@@ -227,6 +227,9 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 			}),
 	)
 
+	maxForwardsHeader := MaxForwards(70)
+	ackRequest.AppendHeader(&maxForwardsHeader)
+
 	CopyHeaders("Via", inviteRequest, ackRequest)
 	viaHop, _ := ackRequest.ViaHop()
 	// update branch, 2xx ACK is separate Tx
