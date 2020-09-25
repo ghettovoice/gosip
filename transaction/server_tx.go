@@ -266,7 +266,7 @@ func (tx *serverTx) initInviteFSM() {
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_completed, tx.act_respond},
 			server_input_ack:           {server_state_confirmed, tx.act_confirm},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_completed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
