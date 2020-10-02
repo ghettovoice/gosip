@@ -272,8 +272,20 @@ func (srv *server) RequestWithContext(
 		}
 	}
 
-	responses := make(chan sip.Response)
-	errs := make(chan error)
+	responses := make(chan sip.Response, 1)
+	errs := make(chan error, 1)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			if err := tx.Cancel(); err != nil {
+				srv.Log().Error("cancel transaction failed", log.Fields{
+					"transaction_key": tx.Key(),
+				})
+			}
+		}
+	}()
 	go func() {
 		var lastResponse sip.Response
 
@@ -283,38 +295,12 @@ func (srv *server) RequestWithContext(
 			return fmt.Sprintf("%d %s", res.StatusCode(), res.Reason())
 		}
 
+		defer close(done)
+
 		for {
 			select {
-			case <-ctx.Done():
-				if lastResponse != nil && lastResponse.IsProvisional() {
-					_ = tx.Cancel()
-					// wait for final 487 response
-					for res := range tx.Responses() {
-						lastResponse = sip.CopyResponse(res)
-						if !lastResponse.IsProvisional() {
-							break
-						}
-						if _, ok := previousResponsesStatuses[getKey(lastResponse)]; !ok {
-							previousMessages = append(previousMessages, lastResponse)
-							previousResponsesStatuses[getKey(lastResponse)] = true
-						}
-					}
-				}
-				if lastResponse != nil {
-					lastResponse.SetPrevious(previousMessages)
-				}
+			case <-tx.Done():
 				errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
-				// pull out later possible transaction responses and errors
-				go func() {
-					for {
-						select {
-						case <-tx.Done():
-							return
-						case <-tx.Errors():
-						case <-tx.Responses():
-						}
-					}
-				}()
 				return
 			case err, ok := <-tx.Errors():
 				if !ok {

@@ -11,11 +11,7 @@ import (
 	"github.com/ghettovoice/gosip/transport"
 )
 
-type TxKey string
-
-func (key TxKey) String() string {
-	return string(key)
-}
+type TxKey = sip.TransactionKey
 
 // Tx is an common SIP transaction
 type Tx interface {

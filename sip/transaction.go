@@ -1,7 +1,14 @@
 package sip
 
+type TransactionKey string
+
+func (key TransactionKey) String() string {
+	return string(key)
+}
+
 type Transaction interface {
 	Origin() Request
+	Key() TransactionKey
 	String() string
 	Errors() <-chan error
 	Done() <-chan bool
