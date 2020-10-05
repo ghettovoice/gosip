@@ -69,8 +69,6 @@ func NewClientTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Cl
 func (tx *clientTx) Init() error {
 	tx.initFSM()
 
-	tx.Log().Infof("sending SIP request:\n%s", tx.origin)
-
 	if err := tx.tpl.Send(tx.Origin()); err != nil {
 		tx.mu.Lock()
 		tx.lastErr = err
@@ -95,12 +93,12 @@ func (tx *clientTx) Init() error {
 		// If a reliable transport is being used, the client transaction SHOULD NOT
 		// start timer A (Timer A controls request retransmissions).
 		// Timer A - retransmission
-		tx.Log().Debugf("timer_a set to %v", Timer_A)
+		tx.Log().Tracef("timer_a set to %v", Timer_A)
 
 		tx.mu.Lock()
 		tx.timer_a_time = Timer_A
 		tx.timer_a = timing.AfterFunc(tx.timer_a_time, func() {
-			tx.Log().Debug("timer_a fired")
+			tx.Log().Trace("timer_a fired")
 
 			tx.fsmMu.RLock()
 			if err := tx.fsm.Spin(client_input_timer_a); err != nil {
@@ -114,11 +112,11 @@ func (tx *clientTx) Init() error {
 	}
 
 	// Timer B - timeout
-	tx.Log().Debugf("timer_b set to %v", Timer_B)
+	tx.Log().Tracef("timer_b set to %v", Timer_B)
 
 	tx.mu.Lock()
 	tx.timer_b = timing.AfterFunc(Timer_B, func() {
-		tx.Log().Debug("timer_b fired")
+		tx.Log().Trace("timer_b fired")
 
 		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_timer_b); err != nil {
@@ -147,10 +145,6 @@ func (tx *clientTx) Receive(msg sip.Message) error {
 	res = res.WithFields(log.Fields{
 		"request_id": tx.origin.MessageID(),
 	}).(sip.Response)
-
-	tx.Log().WithFields(log.Fields{
-		"response_id": res.MessageID(),
-	}).Infof("received SIP response:\n%s", res)
 
 	var input fsm.Input
 	if res.IsCancel() {
@@ -577,6 +571,8 @@ func (tx *clientTx) delete() {
 		close(tx.errs)
 
 		tx.mu.Unlock()
+
+		tx.Log().Debug("transaction done")
 	})
 }
 
@@ -657,10 +653,10 @@ func (tx *clientTx) act_invite_final() fsm.Input {
 		tx.timer_d = nil
 	}
 
-	tx.Log().Debugf("timer_d set to %v", tx.timer_d_time)
+	tx.Log().Tracef("timer_d set to %v", tx.timer_d_time)
 
 	tx.timer_d = timing.AfterFunc(tx.timer_d_time, func() {
-		tx.Log().Debug("timer_d fired")
+		tx.Log().Trace("timer_d fired")
 
 		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_timer_d); err != nil {
@@ -690,10 +686,10 @@ func (tx *clientTx) act_non_invite_final() fsm.Input {
 		tx.timer_d = nil
 	}
 
-	tx.Log().Debugf("timer_d set to %v", tx.timer_d_time)
+	tx.Log().Tracef("timer_d set to %v", tx.timer_d_time)
 
 	tx.timer_d = timing.AfterFunc(tx.timer_d_time, func() {
-		tx.Log().Debug("timer_d fired")
+		tx.Log().Trace("timer_d fired")
 
 		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_timer_d); err != nil {

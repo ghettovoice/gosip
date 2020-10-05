@@ -74,8 +74,6 @@ func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Se
 }
 
 func (tx *serverTx) Init() error {
-	tx.Log().Infof("received SIP request:\n%s", tx.origin)
-
 	tx.initFSM()
 
 	tx.mu.Lock()
@@ -91,11 +89,11 @@ func (tx *serverTx) Init() error {
 
 	// RFC 3261 - 17.2.1
 	if tx.Origin().IsInvite() {
-		tx.Log().Debugf("set timer_1xx to %v", Timer_1xx)
+		tx.Log().Tracef("set timer_1xx to %v", Timer_1xx)
 
 		tx.mu.Lock()
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
-			tx.Log().Debug("timer_1xx fired")
+			tx.Log().Trace("timer_1xx fired")
 
 			if err := tx.Respond(
 				sip.NewResponseFromRequest(
@@ -123,8 +121,6 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 			Msg: req.String(),
 		}
 	}
-
-	tx.Log().Infof("received SIP request:\n%s", msg)
 
 	tx.mu.Lock()
 	if tx.timer_1xx != nil {
@@ -533,10 +529,10 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 	if !tx.reliable {
 		tx.mu.Lock()
 		if tx.timer_g == nil {
-			tx.Log().Debugf("timer_g set to %v", tx.timer_g_time)
+			tx.Log().Tracef("timer_g set to %v", tx.timer_g_time)
 
 			tx.timer_g = timing.AfterFunc(tx.timer_g_time, func() {
-				tx.Log().Debug("timer_g fired")
+				tx.Log().Trace("timer_g fired")
 
 				tx.fsmMu.RLock()
 				if err := tx.fsm.Spin(server_input_timer_g); err != nil {
@@ -550,7 +546,7 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 				tx.timer_g_time = T2
 			}
 
-			tx.Log().Debugf("timer_g reset to %v", tx.timer_g_time)
+			tx.Log().Tracef("timer_g reset to %v", tx.timer_g_time)
 
 			tx.timer_g.Reset(tx.timer_g_time)
 		}
@@ -559,10 +555,10 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 
 	tx.mu.Lock()
 	if tx.timer_h == nil {
-		tx.Log().Debugf("timer_h set to %v", Timer_H)
+		tx.Log().Tracef("timer_h set to %v", Timer_H)
 
 		tx.timer_h = timing.AfterFunc(Timer_H, func() {
-			tx.Log().Debug("timer_h fired")
+			tx.Log().Trace("timer_h fired")
 
 			tx.fsmMu.RLock()
 			if err := tx.fsm.Spin(server_input_timer_h); err != nil {
@@ -600,10 +596,10 @@ func (tx *serverTx) act_final() fsm.Input {
 
 	tx.mu.Lock()
 
-	tx.Log().Debugf("timer_j set to %v", Timer_J)
+	tx.Log().Tracef("timer_j set to %v", Timer_J)
 
 	tx.timer_j = timing.AfterFunc(Timer_J, func() {
-		tx.Log().Debug("timer_j fired")
+		tx.Log().Trace("timer_j fired")
 
 		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(server_input_timer_j); err != nil {
@@ -683,10 +679,10 @@ func (tx *serverTx) act_confirm() fsm.Input {
 		tx.timer_h = nil
 	}
 
-	tx.Log().Debugf("timer_i set to %v", Timer_I)
+	tx.Log().Tracef("timer_i set to %v", Timer_I)
 
 	tx.timer_i = timing.AfterFunc(Timer_I, func() {
-		tx.Log().Debug("timer_i fired")
+		tx.Log().Trace("timer_i fired")
 
 		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(server_input_timer_i); err != nil {

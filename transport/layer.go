@@ -298,7 +298,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		}
 
 		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
-		logger.Infof("send SIP response:\n%s", msg)
+		logger.Infof("sending SIP response:\n%s", msg)
 
 		return protocol.Send(target, msg)
 	default:
@@ -315,8 +315,8 @@ func (tpl *layer) serveProtocols() {
 		close(tpl.done)
 	}()
 
-	tpl.Log().Info("begin serve protocols")
-	defer tpl.Log().Info("stop serve protocols")
+	tpl.Log().Debug("begin serve protocols")
+	defer tpl.Log().Debug("stop serve protocols")
 
 	for {
 		select {

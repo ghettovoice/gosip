@@ -183,8 +183,8 @@ func (txl *layer) listenMessages() {
 		close(txl.done)
 	}()
 
-	txl.Log().Info("start listen messages")
-	defer txl.Log().Info("stop listen messages")
+	txl.Log().Debug("start listen messages")
+	defer txl.Log().Debug("stop listen messages")
 
 	for {
 		select {
@@ -236,27 +236,25 @@ func (txl *layer) handleMessage(msg sip.Message) {
 	}
 
 	logger := txl.Log().WithFields(msg.Fields())
-	logger.Debugf("handling SIP message:\n%s", msg.String())
+	logger.Debugf("handling SIP message")
 
 	switch msg := msg.(type) {
 	case sip.Request:
-		txl.handleRequest(msg)
+		txl.handleRequest(msg, logger)
 	case sip.Response:
-		txl.handleResponse(msg)
+		txl.handleResponse(msg, logger)
 	default:
 		logger.Error("unsupported message, skip it")
 		// todo pass up error?
 	}
 }
 
-func (txl *layer) handleRequest(req sip.Request) {
+func (txl *layer) handleRequest(req sip.Request, logger log.Logger) {
 	select {
 	case <-txl.canceled:
 		return
 	default:
 	}
-
-	logger := log.AddFieldsFrom(txl.Log(), req)
 
 	// try to match to existent tx: request retransmission, or ACKs on non-2xx, or CANCEL
 	tx, err := txl.getServerTx(req)
@@ -318,14 +316,12 @@ func (txl *layer) handleRequest(req sip.Request) {
 	}
 }
 
-func (txl *layer) handleResponse(res sip.Response) {
+func (txl *layer) handleResponse(res sip.Response, logger log.Logger) {
 	select {
 	case <-txl.canceled:
 		return
 	default:
 	}
-
-	logger := txl.Log().WithFields(res.Fields())
 
 	tx, err := txl.getClientTx(res)
 	if err != nil {
