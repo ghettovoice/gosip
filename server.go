@@ -272,7 +272,11 @@ func (srv *server) RequestWithContext(
 	responses := make(chan sip.Response, 1)
 	errs := make(chan error, 1)
 	done := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
+
 		select {
 		case <-done:
 		case <-ctx.Done():
@@ -284,6 +288,11 @@ func (srv *server) RequestWithContext(
 		}
 	}()
 	go func() {
+		defer func() {
+			close(done)
+			wg.Done()
+		}()
+
 		var lastResponse sip.Response
 
 		previousMessages := make([]sip.Response, 0)
@@ -291,8 +300,6 @@ func (srv *server) RequestWithContext(
 		getKey := func(res sip.Response) string {
 			return fmt.Sprintf("%d %s", res.StatusCode(), res.Reason())
 		}
-
-		defer close(done)
 
 		for {
 			select {
@@ -374,12 +381,15 @@ func (srv *server) RequestWithContext(
 		}
 	}()
 
+	var res sip.Response
 	select {
-	case err := <-errs:
-		return nil, err
-	case response := <-responses:
-		return response, nil
+	case err = <-errs:
+	case res = <-responses:
 	}
+
+	wg.Wait()
+
+	return res, err
 }
 
 func (srv *server) rememberInviteRequest(request sip.Request) {
