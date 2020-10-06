@@ -296,16 +296,11 @@ func (srv *server) RequestWithContext(
 
 		for {
 			select {
-			case <-tx.Done():
-				errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
-				return
 			case err, ok := <-tx.Errors():
 				if !ok {
-					if lastResponse != nil {
-						lastResponse.SetPrevious(previousMessages)
-					}
-					errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
-					return
+					// errors chan was closed
+					// we continue to pull responses until close
+					continue
 				}
 				errs <- err
 				return
@@ -371,10 +366,8 @@ func (srv *server) RequestWithContext(
 				}
 
 				// failed request
-				if lastResponse != nil {
-					lastResponse.SetPrevious(previousMessages)
-				}
-				errs <- sip.NewRequestError(uint(response.StatusCode()), response.Reason(), request, lastResponse)
+				response.SetPrevious(previousMessages)
+				errs <- sip.NewRequestError(uint(response.StatusCode()), response.Reason(), request, response)
 
 				return
 			}
