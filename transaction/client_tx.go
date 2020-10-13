@@ -175,6 +175,10 @@ func (tx *clientTx) Responses() <-chan sip.Response {
 }
 
 func (tx *clientTx) Cancel() error {
+	if !tx.Origin().IsInvite() {
+		return nil
+	}
+
 	tx.mu.RLock()
 	lastResp := tx.lastResp
 	tx.mu.RUnlock()
@@ -210,60 +214,9 @@ func (tx *clientTx) ack() {
 	lastResp := tx.lastResp
 	tx.mu.RUnlock()
 
-	recipient := tx.Origin().Recipient()
-	if contact, ok := lastResp.Contact(); ok {
-		recipient = contact.Address
-	}
-	ack := sip.NewRequest(
-		"",
-		sip.ACK,
-		recipient,
-		tx.Origin().SipVersion(),
-		[]sip.Header{},
-		"",
-		tx.Origin().Fields().WithFields(log.Fields{
-			"sent_at":            time.Now(),
-			"invite_request_id":  tx.Origin().MessageID(),
-			"invite_response_id": lastResp.MessageID(),
-		}),
-	)
-
-	// Copy headers from original request.
-	sip.CopyHeaders("Via", tx.Origin(), ack)
-
-	if len(tx.Origin().GetHeaders("Route")) > 0 {
-		sip.CopyHeaders("Route", tx.Origin(), ack)
-	} else {
-		for _, h := range lastResp.GetHeaders("Record-Route") {
-			uris := make([]sip.Uri, 0)
-			for i := len(h.(*sip.RecordRouteHeader).Addresses) - 1; i >= 0; i-- {
-				uris = append(uris, h.(*sip.RecordRouteHeader).Addresses[i].Clone())
-			}
-			ack.AppendHeader(&sip.RouteHeader{
-				Addresses: uris,
-			})
-		}
-	}
-
-	sip.CopyHeaders("From", tx.Origin(), ack)
-	sip.CopyHeaders("To", lastResp, ack)
-	sip.CopyHeaders("Call-ID", tx.Origin(), ack)
-
-	cseq, ok := tx.Origin().CSeq()
-	if !ok {
-		tx.Log().Errorf("send ACK request failed: 'CSeq' header is missed in the origin request")
-
-		return
-	}
-
-	cseq = cseq.Clone().(*sip.CSeq)
-	cseq.MethodName = sip.ACK
-	ack.AppendHeader(cseq)
-
-	maxForwardsHeader := sip.MaxForwards(70)
-	ack.AppendHeader(&maxForwardsHeader)
-
-	// Send the ACK.
+	ack := sip.NewAckRequest("", tx.Origin(), lastResp, log.Fields{
+		"sent_at": time.Now(),
+	})
 	err := tx.tpl.Send(ack)
 	if err != nil {
 		tx.Log().WithFields(log.Fields{
