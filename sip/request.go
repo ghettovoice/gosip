@@ -227,9 +227,6 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 			}),
 	)
 
-	maxForwardsHeader := MaxForwards(70)
-	ackRequest.AppendHeader(&maxForwardsHeader)
-
 	CopyHeaders("Via", inviteRequest, ackRequest)
 	if inviteResponse.IsSuccess() {
 		// update branch, 2xx ACK is separate Tx
@@ -251,6 +248,8 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 		}
 	}
 
+	maxForwardsHeader := MaxForwards(70)
+	ackRequest.AppendHeader(&maxForwardsHeader)
 	CopyHeaders("From", inviteRequest, ackRequest)
 	CopyHeaders("To", inviteResponse, ackRequest)
 	CopyHeaders("Call-ID", inviteRequest, ackRequest)
@@ -278,9 +277,9 @@ func NewCancelRequest(cancelID MessageID, requestForCancel Request, fields log.F
 
 	viaHop, _ := requestForCancel.ViaHop()
 	cancelReq.AppendHeader(ViaHeader{viaHop.Clone()})
+	CopyHeaders("Route", requestForCancel, cancelReq)
 	maxForwardsHeader := MaxForwards(70)
 	cancelReq.AppendHeader(&maxForwardsHeader)
-	CopyHeaders("Route", requestForCancel, cancelReq)
 	CopyHeaders("From", requestForCancel, cancelReq)
 	CopyHeaders("To", requestForCancel, cancelReq)
 	CopyHeaders("Call-ID", requestForCancel, cancelReq)
