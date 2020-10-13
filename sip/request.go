@@ -231,9 +231,11 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 	ackRequest.AppendHeader(&maxForwardsHeader)
 
 	CopyHeaders("Via", inviteRequest, ackRequest)
-	viaHop, _ := ackRequest.ViaHop()
-	// update branch, 2xx ACK is separate Tx
-	viaHop.Params.Add("branch", String{Str: GenerateBranch()})
+	if inviteResponse.IsSuccess() {
+		// update branch, 2xx ACK is separate Tx
+		viaHop, _ := ackRequest.ViaHop()
+		viaHop.Params.Add("branch", String{Str: GenerateBranch()})
+	}
 
 	if len(inviteRequest.GetHeaders("Route")) > 0 {
 		CopyHeaders("Route", inviteRequest, ackRequest)
