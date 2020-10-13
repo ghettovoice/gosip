@@ -62,6 +62,7 @@ type ServerConfig struct {
 	Dns        string
 	Extensions []string
 	MsgMapper  sip.MessageMapper
+	UserAgent  string
 }
 
 // Server is a SIP server
@@ -147,6 +148,9 @@ func NewServer(
 		"sip_server_ptr": fmt.Sprintf("%p", srv),
 	})
 	srv.tp = tpFactory(ip, dnsResolver, config.MsgMapper, srv.Log())
+	if tp, ok := srv.tp.(interface{ SetUserAgent(string) }); ok {
+		tp.SetUserAgent(config.UserAgent)
+	}
 	srv.tx = txFactory(srv.tp, log.AddFieldsFrom(srv.Log(), srv.tp))
 
 	srv.running.Set()
@@ -562,11 +566,6 @@ func (srv *server) appendAutoHeaders(msg sip.Message) {
 				})
 			}
 		}
-	}
-
-	if hdrs := msg.GetHeaders("User-Agent"); len(hdrs) == 0 {
-		userAgent := sip.UserAgentHeader("GoSIP")
-		msg.AppendHeader(&userAgent)
 	}
 }
 
