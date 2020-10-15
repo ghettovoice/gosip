@@ -273,6 +273,8 @@ func (srv *server) RequestWithContext(
 		}
 	}
 
+	txResponses := tx.Responses()
+	txErrs := tx.Errors()
 	responses := make(chan sip.Response, 1)
 	errs := make(chan error, 1)
 	done := make(chan struct{})
@@ -307,15 +309,16 @@ func (srv *server) RequestWithContext(
 
 		for {
 			select {
-			case err, ok := <-tx.Errors():
+			case err, ok := <-txErrs:
 				if !ok {
+					txErrs = nil
 					// errors chan was closed
 					// we continue to pull responses until close
 					continue
 				}
 				errs <- err
 				return
-			case response, ok := <-tx.Responses():
+			case response, ok := <-txResponses:
 				if !ok {
 					if lastResponse != nil {
 						lastResponse.SetPrevious(previousMessages)
