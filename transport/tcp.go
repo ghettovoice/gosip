@@ -124,7 +124,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	}
 
 	logger := log.AddFieldsFrom(tcp.Log(), conn, msg)
-	logger.Debugf("writing SIP message to %s %s", tcp.Network(), raddr)
+	logger.Tracef("writing SIP message to %s %s", tcp.Network(), raddr)
 
 	// send message
 	_, err = conn.Write([]byte(msg.String()))
