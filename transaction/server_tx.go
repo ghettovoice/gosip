@@ -283,7 +283,7 @@ func (tx *serverTx) initInviteFSM() {
 		Index: server_state_confirmed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_confirmed, fsm.NO_ACTION},
-			server_input_ack:           {server_state_terminated, fsm.NO_ACTION},
+			server_input_ack:           {server_state_confirmed, fsm.NO_ACTION},
 			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_confirmed, fsm.NO_ACTION},
@@ -335,10 +335,11 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_trying,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_trying, fsm.NO_ACTION},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_trying, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_completed, tx.act_final},
 			server_input_user_300_plus: {server_state_completed, tx.act_final},
+			server_input_transport_err: {server_state_terminated, tx.act_trans_err},
 		},
 	}
 
@@ -347,7 +348,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_proceeding,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_proceeding, tx.act_respond},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_proceeding, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_completed, tx.act_final},
 			server_input_user_300_plus: {server_state_completed, tx.act_final},
@@ -360,7 +361,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_completed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_completed, tx.act_respond},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_completed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
@@ -374,7 +375,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_terminated,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_terminated, fsm.NO_ACTION},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_terminated, fsm.NO_ACTION},
