@@ -93,6 +93,12 @@ func (tx *serverTx) Init() error {
 
 		tx.mu.Lock()
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
+			select {
+			case <-tx.done:
+				return
+			default:
+			}
+
 			tx.Log().Trace("timer_1xx fired")
 
 			if err := tx.Respond(
@@ -441,6 +447,21 @@ func (tx *serverTx) delete() {
 	// todo bloody patch
 	defer func() { recover() }()
 
+	tx.closeOnce.Do(func() {
+		tx.mu.Lock()
+
+		close(tx.done)
+		close(tx.acks)
+		close(tx.cancels)
+		close(tx.errs)
+
+		tx.mu.Unlock()
+
+		tx.Log().Debug("transaction done")
+	})
+
+	time.Sleep(time.Microsecond)
+
 	tx.mu.Lock()
 	if tx.timer_i != nil {
 		tx.timer_i.Stop()
@@ -463,20 +484,6 @@ func (tx *serverTx) delete() {
 		tx.timer_1xx = nil
 	}
 	tx.mu.Unlock()
-
-	time.Sleep(time.Microsecond)
-
-	tx.closeOnce.Do(func() {
-		tx.mu.Lock()
-
-		close(tx.done)
-
-		close(tx.acks)
-		close(tx.cancels)
-		close(tx.errs)
-
-		tx.mu.Unlock()
-	})
 }
 
 // Define actions.
@@ -532,6 +539,12 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 			tx.Log().Tracef("timer_g set to %v", tx.timer_g_time)
 
 			tx.timer_g = timing.AfterFunc(tx.timer_g_time, func() {
+				select {
+				case <-tx.done:
+					return
+				default:
+				}
+
 				tx.Log().Trace("timer_g fired")
 
 				tx.fsmMu.RLock()
@@ -558,6 +571,12 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 		tx.Log().Tracef("timer_h set to %v", Timer_H)
 
 		tx.timer_h = timing.AfterFunc(Timer_H, func() {
+			select {
+			case <-tx.done:
+				return
+			default:
+			}
+
 			tx.Log().Trace("timer_h fired")
 
 			tx.fsmMu.RLock()
@@ -599,6 +618,12 @@ func (tx *serverTx) act_final() fsm.Input {
 	tx.Log().Tracef("timer_j set to %v", Timer_J)
 
 	tx.timer_j = timing.AfterFunc(Timer_J, func() {
+		select {
+		case <-tx.done:
+			return
+		default:
+		}
+
 		tx.Log().Trace("timer_j fired")
 
 		tx.fsmMu.RLock()
@@ -682,6 +707,12 @@ func (tx *serverTx) act_confirm() fsm.Input {
 	tx.Log().Tracef("timer_i set to %v", Timer_I)
 
 	tx.timer_i = timing.AfterFunc(Timer_I, func() {
+		select {
+		case <-tx.done:
+			return
+		default:
+		}
+
 		tx.Log().Trace("timer_i fired")
 
 		tx.fsmMu.RLock()

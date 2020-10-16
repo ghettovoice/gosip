@@ -98,6 +98,12 @@ func (tx *clientTx) Init() error {
 		tx.mu.Lock()
 		tx.timer_a_time = Timer_A
 		tx.timer_a = timing.AfterFunc(tx.timer_a_time, func() {
+			select {
+			case <-tx.done:
+				return
+			default:
+			}
+
 			tx.Log().Trace("timer_a fired")
 
 			tx.fsmMu.RLock()
@@ -116,6 +122,12 @@ func (tx *clientTx) Init() error {
 
 	tx.mu.Lock()
 	tx.timer_b = timing.AfterFunc(Timer_B, func() {
+		select {
+		case <-tx.done:
+			return
+		default:
+		}
+
 		tx.Log().Trace("timer_b fired")
 
 		tx.fsmMu.RLock()
@@ -175,8 +187,25 @@ func (tx *clientTx) Responses() <-chan sip.Response {
 }
 
 func (tx *clientTx) Cancel() error {
+	tx.fsmMu.RLock()
+	defer tx.fsmMu.RUnlock()
+
+	return tx.fsm.Spin(client_input_cancel)
+}
+
+func (tx *clientTx) Terminate() {
+	select {
+	case <-tx.done:
+		return
+	default:
+	}
+
+	tx.delete()
+}
+
+func (tx *clientTx) cancel() {
 	if !tx.Origin().IsInvite() {
-		return nil
+		return
 	}
 
 	tx.mu.RLock()
@@ -193,20 +222,16 @@ func (tx *clientTx) Cancel() error {
 			"cancel_request":  cancelRequest.Short(),
 		}).Errorf("send CANCEL request failed: %s", err)
 
-		return fmt.Errorf("send CANCEL request: %w", err)
+		tx.mu.Lock()
+		tx.lastErr = err
+		tx.mu.Unlock()
+
+		tx.fsmMu.RLock()
+		if err := tx.fsm.Spin(client_input_transport_err); err != nil {
+			tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
+		}
+		tx.fsmMu.RUnlock()
 	}
-
-	return nil
-}
-
-func (tx *clientTx) Terminate() {
-	select {
-	case <-tx.done:
-		return
-	default:
-	}
-
-	tx.delete()
 }
 
 func (tx *clientTx) ack() {
@@ -255,6 +280,7 @@ const (
 	client_input_timer_d
 	client_input_transport_err
 	client_input_delete
+	client_input_cancel
 	client_input_canceled
 )
 
@@ -275,9 +301,10 @@ func (tx *clientTx) initInviteFSM() {
 	client_state_def_calling := fsm.State{
 		Index: client_state_calling,
 		Outcomes: map[fsm.Input]fsm.Outcome{
-			client_input_1xx:           {client_state_proceeding, tx.act_passup},
+			client_input_1xx:           {client_state_proceeding, tx.act_invite_proceeding},
 			client_input_2xx:           {client_state_terminated, tx.act_passup_delete},
 			client_input_300_plus:      {client_state_completed, tx.act_invite_final},
+			client_input_cancel:        {client_state_calling, tx.act_cancel},
 			client_input_canceled:      {client_state_calling, tx.act_invite_canceled},
 			client_input_timer_a:       {client_state_calling, tx.act_invite_resend},
 			client_input_timer_b:       {client_state_terminated, tx.act_timeout},
@@ -292,9 +319,10 @@ func (tx *clientTx) initInviteFSM() {
 			client_input_1xx:      {client_state_proceeding, tx.act_passup},
 			client_input_2xx:      {client_state_terminated, tx.act_passup_delete},
 			client_input_300_plus: {client_state_completed, tx.act_invite_final},
+			client_input_cancel:   {client_state_proceeding, tx.act_cancel_timeout},
 			client_input_canceled: {client_state_proceeding, tx.act_invite_canceled},
 			client_input_timer_a:  {client_state_proceeding, fsm.NO_ACTION},
-			client_input_timer_b:  {client_state_proceeding, fsm.NO_ACTION},
+			client_input_timer_b:  {client_state_proceeding, tx.act_timeout},
 		},
 	}
 
@@ -305,6 +333,7 @@ func (tx *clientTx) initInviteFSM() {
 			client_input_1xx:           {client_state_completed, fsm.NO_ACTION},
 			client_input_2xx:           {client_state_completed, fsm.NO_ACTION},
 			client_input_300_plus:      {client_state_completed, tx.act_ack},
+			client_input_cancel:        {client_state_completed, fsm.NO_ACTION},
 			client_input_canceled:      {client_state_completed, fsm.NO_ACTION},
 			client_input_transport_err: {client_state_terminated, tx.act_trans_err},
 			client_input_timer_a:       {client_state_completed, fsm.NO_ACTION},
@@ -320,7 +349,8 @@ func (tx *clientTx) initInviteFSM() {
 			client_input_1xx:      {client_state_terminated, fsm.NO_ACTION},
 			client_input_2xx:      {client_state_terminated, fsm.NO_ACTION},
 			client_input_300_plus: {client_state_terminated, fsm.NO_ACTION},
-			client_input_canceled: {client_state_completed, fsm.NO_ACTION},
+			client_input_cancel:   {client_state_terminated, fsm.NO_ACTION},
+			client_input_canceled: {client_state_terminated, fsm.NO_ACTION},
 			client_input_timer_a:  {client_state_terminated, fsm.NO_ACTION},
 			client_input_timer_b:  {client_state_terminated, fsm.NO_ACTION},
 			client_input_timer_d:  {client_state_terminated, fsm.NO_ACTION},
@@ -360,6 +390,7 @@ func (tx *clientTx) initNonInviteFSM() {
 			client_input_timer_a:       {client_state_calling, tx.act_non_invite_resend},
 			client_input_timer_b:       {client_state_terminated, tx.act_timeout},
 			client_input_transport_err: {client_state_terminated, tx.act_trans_err},
+			client_input_cancel:        {client_state_calling, fsm.NO_ACTION},
 		},
 	}
 
@@ -373,6 +404,7 @@ func (tx *clientTx) initNonInviteFSM() {
 			client_input_timer_a:       {client_state_proceeding, tx.act_non_invite_resend},
 			client_input_timer_b:       {client_state_terminated, tx.act_timeout},
 			client_input_transport_err: {client_state_terminated, tx.act_trans_err},
+			client_input_cancel:        {client_state_proceeding, fsm.NO_ACTION},
 		},
 	}
 
@@ -386,6 +418,7 @@ func (tx *clientTx) initNonInviteFSM() {
 			client_input_timer_a:  {client_state_completed, fsm.NO_ACTION},
 			client_input_timer_b:  {client_state_completed, fsm.NO_ACTION},
 			client_input_timer_d:  {client_state_terminated, tx.act_delete},
+			client_input_cancel:   {client_state_completed, fsm.NO_ACTION},
 		},
 	}
 
@@ -400,6 +433,7 @@ func (tx *clientTx) initNonInviteFSM() {
 			client_input_timer_b:  {client_state_terminated, fsm.NO_ACTION},
 			client_input_timer_d:  {client_state_terminated, fsm.NO_ACTION},
 			client_input_delete:   {client_state_terminated, tx.act_delete},
+			client_input_cancel:   {client_state_terminated, fsm.NO_ACTION},
 		},
 	}
 
@@ -422,6 +456,12 @@ func (tx *clientTx) initNonInviteFSM() {
 }
 
 func (tx *clientTx) resend() {
+	select {
+	case <-tx.done:
+		return
+	default:
+	}
+
 	tx.Log().Debug("resend origin request")
 
 	err := tx.tpl.Send(tx.Origin())
@@ -498,6 +538,20 @@ func (tx *clientTx) delete() {
 	// todo bloody patch
 	defer func() { recover() }()
 
+	tx.closeOnce.Do(func() {
+		tx.mu.Lock()
+
+		close(tx.done)
+		close(tx.responses)
+		close(tx.errs)
+
+		tx.mu.Unlock()
+
+		tx.Log().Debug("transaction done")
+	})
+
+	time.Sleep(time.Microsecond)
+
 	tx.mu.Lock()
 	if tx.timer_a != nil {
 		tx.timer_a.Stop()
@@ -512,21 +566,6 @@ func (tx *clientTx) delete() {
 		tx.timer_d = nil
 	}
 	tx.mu.Unlock()
-
-	time.Sleep(time.Microsecond)
-
-	tx.closeOnce.Do(func() {
-		tx.mu.Lock()
-
-		close(tx.done)
-
-		close(tx.responses)
-		close(tx.errs)
-
-		tx.mu.Unlock()
-
-		tx.Log().Debug("transaction done")
-	})
 }
 
 // Define actions
@@ -589,6 +628,27 @@ func (tx *clientTx) act_passup() fsm.Input {
 	return fsm.NO_INPUT
 }
 
+func (tx *clientTx) act_invite_proceeding() fsm.Input {
+	tx.Log().Debug("act_invite_proceeding")
+
+	tx.passUp()
+
+	tx.mu.Lock()
+
+	if tx.timer_a != nil {
+		tx.timer_a.Stop()
+		tx.timer_a = nil
+	}
+	if tx.timer_b != nil {
+		tx.timer_b.Stop()
+		tx.timer_b = nil
+	}
+
+	tx.mu.Unlock()
+
+	return fsm.NO_INPUT
+}
+
 func (tx *clientTx) act_invite_final() fsm.Input {
 	tx.Log().Debug("act_invite_final")
 
@@ -609,6 +669,12 @@ func (tx *clientTx) act_invite_final() fsm.Input {
 	tx.Log().Tracef("timer_d set to %v", tx.timer_d_time)
 
 	tx.timer_d = timing.AfterFunc(tx.timer_d_time, func() {
+		select {
+		case <-tx.done:
+			return
+		default:
+		}
+
 		tx.Log().Trace("timer_d fired")
 
 		tx.fsmMu.RLock()
@@ -642,6 +708,12 @@ func (tx *clientTx) act_non_invite_final() fsm.Input {
 	tx.Log().Tracef("timer_d set to %v", tx.timer_d_time)
 
 	tx.timer_d = timing.AfterFunc(tx.timer_d_time, func() {
+		select {
+		case <-tx.done:
+			return
+		default:
+		}
+
 		tx.Log().Trace("timer_d fired")
 
 		tx.fsmMu.RLock()
@@ -651,6 +723,45 @@ func (tx *clientTx) act_non_invite_final() fsm.Input {
 		tx.fsmMu.RUnlock()
 	})
 
+	tx.mu.Unlock()
+
+	return fsm.NO_INPUT
+}
+
+func (tx *clientTx) act_cancel() fsm.Input {
+	tx.Log().Debug("act_cancel")
+
+	tx.cancel()
+
+	return fsm.NO_INPUT
+}
+
+func (tx *clientTx) act_cancel_timeout() fsm.Input {
+	tx.Log().Debug("act_cancel")
+
+	tx.cancel()
+
+	tx.Log().Tracef("timer_b set to %v", Timer_B)
+
+	tx.mu.Lock()
+	if tx.timer_b != nil {
+		tx.timer_b.Stop()
+	}
+	tx.timer_b = timing.AfterFunc(Timer_B, func() {
+		select {
+		case <-tx.done:
+			return
+		default:
+		}
+
+		tx.Log().Trace("timer_b fired")
+
+		tx.fsmMu.RLock()
+		if err := tx.fsm.Spin(client_input_timer_b); err != nil {
+			tx.Log().Errorf("spin FSM to client_input_timer_b failed: %s", err)
+		}
+		tx.fsmMu.RUnlock()
+	})
 	tx.mu.Unlock()
 
 	return fsm.NO_INPUT
@@ -706,6 +817,7 @@ func (tx *clientTx) act_passup_delete() fsm.Input {
 	tx.mu.Lock()
 
 	if tx.timer_a != nil {
+		tx.timer_a.Stop()
 		tx.timer_a = nil
 	}
 
