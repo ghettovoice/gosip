@@ -41,7 +41,7 @@ var _ = Describe("TransportLayer", func() {
 	Context("just initialized", func() {
 	})
 
-	Context(fmt.Sprintf("listens UDP and TCP %s", localAddr1), func() {
+	Context(fmt.Sprintf("listen to %s", localAddr1), func() {
 		BeforeEach(func() {
 			Expect(tpl.Listen("udp", localAddr1))
 			Expect(tpl.Listen("tcp", localAddr1))
@@ -82,8 +82,12 @@ var _ = Describe("TransportLayer", func() {
 			})
 
 			It("should process request (add 'received' param) and emit on Message chan", func(done Done) {
-				testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), clientAddr,
-					"far-far-away.com:5060")
+				testutils.AssertMessageArrived(
+					tpl.Messages(),
+					fmt.Sprintf(expectedMsg, clientHost),
+					clientAddr,
+					"far-far-away.com:5060",
+				)
 				close(done)
 			}, 3)
 
@@ -105,6 +109,8 @@ var _ = Describe("TransportLayer", func() {
 						"OK",
 						"",
 					)
+					ua := sip.UserAgentHeader("GoSIP")
+					response.AppendHeader(&ua)
 				})
 
 				It("should send response to client without error", func(done Done) {
@@ -136,14 +142,14 @@ var _ = Describe("TransportLayer", func() {
 		Context("when remote TCP client sends INVITE request", func() {
 			network := "tcp"
 			msg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
-				"Via: SIP/2.0/TCP pc33.far-far-away.com:" + fmt.Sprintf("%v", clientPort) + ";branch=z9hG4bK776asdhds\r\n" +
+				"Via: SIP/2.0/TCP pc33.far-far-away.com:" + fmt.Sprintf("%v", clientPort) + ";branch=z9hG4bK776asdhds;rport\r\n" +
 				"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
 				"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 				"Content-Length: 12\r\n" +
 				"\r\n" +
 				"Hello world!"
 			expectedMsg := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
-				"Via: SIP/2.0/TCP pc33.far-far-away.com:" + fmt.Sprintf("%v", clientPort) + ";branch=z9hG4bK776asdhds;received=%s\r\n" +
+				"Via: SIP/2.0/TCP pc33.far-far-away.com:" + fmt.Sprintf("%v", clientPort) + ";branch=z9hG4bK776asdhds;rport=%d;received=%s\r\n" +
 				"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
 				"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 				"Content-Length: 12\r\n" +
@@ -164,8 +170,12 @@ var _ = Describe("TransportLayer", func() {
 			})
 
 			It("should process request (add 'received' param) and emit on Message chan", func(done Done) {
-				testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost), client.LocalAddr().String(),
-					"far-far-away.com:5060")
+				testutils.AssertMessageArrived(
+					tpl.Messages(),
+					fmt.Sprintf(expectedMsg, client.LocalAddr().(*net.TCPAddr).Port, clientHost),
+					client.LocalAddr().String(),
+					"far-far-away.com:5060",
+				)
 				close(done)
 			}, 3)
 
@@ -176,7 +186,7 @@ var _ = Describe("TransportLayer", func() {
 				BeforeEach(func() {
 					incomingRequest = testutils.AssertMessageArrived(
 						tpl.Messages(),
-						fmt.Sprintf(expectedMsg, clientHost),
+						fmt.Sprintf(expectedMsg, client.LocalAddr().(*net.TCPAddr).Port, clientHost),
 						client.LocalAddr().String(),
 						"far-far-away.com:5060",
 					).(sip.Request)
@@ -187,6 +197,8 @@ var _ = Describe("TransportLayer", func() {
 						"OK",
 						"",
 					)
+					ua := sip.UserAgentHeader("GoSIP")
+					response.AppendHeader(&ua)
 				})
 
 				It("should send response to client without error", func(done Done) {
