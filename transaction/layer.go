@@ -195,7 +195,7 @@ func (txl *layer) listenMessages() {
 			go txl.serveTransaction(tx)
 		case msg, ok := <-txl.tpl.Messages():
 			if !ok {
-				return
+				continue
 			}
 
 			go txl.handleMessage(msg)
