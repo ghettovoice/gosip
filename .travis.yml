@@ -6,5 +6,6 @@ install:
     - make install
 script:
     - make test
+after_success:
     - make cover-merge
     - goveralls -coverprofile=./gosip.full.coverprofile -service=travis-ci
