@@ -88,8 +88,8 @@ var _ = Describe("TransportLayer", func() {
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest sip.Message
-				var response sip.Message
+				var incomingRequest sip.Request
+				var response sip.Response
 
 				BeforeEach(func() {
 					incomingRequest = testutils.AssertMessageArrived(
@@ -97,7 +97,7 @@ var _ = Describe("TransportLayer", func() {
 						fmt.Sprintf(expectedMsg, clientHost),
 						clientAddr,
 						"far-far-away.com:5060",
-					)
+					).(sip.Request)
 					response = sip.NewResponseFromRequest(
 						"",
 						incomingRequest.(sip.Request),
@@ -125,7 +125,7 @@ var _ = Describe("TransportLayer", func() {
 					}()
 					time.Sleep(time.Second)
 					By(fmt.Sprintf("tpl sends response to %s", response.Destination()))
-					Expect(tpl.Send(response)).ToNot(HaveOccurred())
+					Expect(tpl.Send(sip.CopyResponse(response))).ToNot(HaveOccurred())
 
 					twg.Wait()
 					close(done)
@@ -170,12 +170,16 @@ var _ = Describe("TransportLayer", func() {
 			}, 3)
 
 			Context("after request received", func() {
-				var incomingRequest sip.Message
-				var response sip.Message
+				var incomingRequest sip.Request
+				var response sip.Response
 
 				BeforeEach(func() {
-					incomingRequest = testutils.AssertMessageArrived(tpl.Messages(), fmt.Sprintf(expectedMsg, clientHost),
-						client.LocalAddr().String(), "far-far-away.com:5060")
+					incomingRequest = testutils.AssertMessageArrived(
+						tpl.Messages(),
+						fmt.Sprintf(expectedMsg, clientHost),
+						client.LocalAddr().String(),
+						"far-far-away.com:5060",
+					).(sip.Request)
 					response = sip.NewResponseFromRequest(
 						"",
 						incomingRequest.(sip.Request),
@@ -204,7 +208,7 @@ var _ = Describe("TransportLayer", func() {
 					}()
 					time.Sleep(time.Second)
 					By(fmt.Sprintf("tpl sends response to %s", response.Destination()))
-					Expect(tpl.Send(response)).ToNot(HaveOccurred())
+					Expect(tpl.Send(sip.CopyResponse(response))).ToNot(HaveOccurred())
 
 					twg.Wait()
 					close(done)
