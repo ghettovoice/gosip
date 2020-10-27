@@ -322,7 +322,7 @@ func (tx *clientTx) initInviteFSM() {
 			client_input_cancel:   {client_state_proceeding, tx.act_cancel_timeout},
 			client_input_canceled: {client_state_proceeding, tx.act_invite_canceled},
 			client_input_timer_a:  {client_state_proceeding, fsm.NO_ACTION},
-			client_input_timer_b:  {client_state_proceeding, tx.act_timeout},
+			client_input_timer_b:  {client_state_terminated, tx.act_timeout},
 		},
 	}
 
