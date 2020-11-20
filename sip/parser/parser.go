@@ -61,7 +61,8 @@ func defaultHeaderParsers() map[string]HeaderParser {
 		"f":              parseAddressHeader,
 		"contact":        parseAddressHeader,
 		"m":              parseAddressHeader,
-		"Call-ID":        parseCallId,
+		"call-id":        parseCallId,
+		"i":              parseCallId,
 		"cseq":           parseCSeq,
 		"via":            parseViaHeader,
 		"v":              parseViaHeader,
@@ -72,12 +73,15 @@ func defaultHeaderParsers() map[string]HeaderParser {
 		"user-agent":     parseUserAgent,
 		"allow":          parseAllow,
 		"content-type":   parseContentType,
-		"accept":         parseAccept,
 		"c":              parseContentType,
+		"accept":         parseAccept,
 		"require":        parseRequire,
 		"supported":      parseSupported,
+		"k":              parseSupported,
 		"route":          parseRouteHeader,
 		"record-route":   parseRecordRouteHeader,
+		//"content-encoding","e"
+		//"subject":          "s",
 	}
 }
 
