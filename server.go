@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -76,8 +75,6 @@ type server struct {
 	hmu             *sync.RWMutex
 	requestHandlers map[sip.RequestMethod]RequestHandler
 	extensions      []string
-	invites         map[transaction.TxKey]sip.Request
-	invitesLock     *sync.RWMutex
 
 	log log.Logger
 }
@@ -141,8 +138,6 @@ func NewServer(
 		hmu:             new(sync.RWMutex),
 		requestHandlers: make(map[sip.RequestMethod]RequestHandler),
 		extensions:      extensions,
-		invites:         make(map[transaction.TxKey]sip.Request),
-		invitesLock:     new(sync.RWMutex),
 	}
 	srv.log = logger.WithFields(log.Fields{
 		"sip_server_ptr": fmt.Sprintf("%p", srv),
@@ -193,18 +188,7 @@ func (srv *server) serve() {
 			logger := srv.Log().WithFields(response.Fields())
 			logger.Warn("received not matched response")
 
-			if key, err := transaction.MakeClientTxKey(response); err == nil {
-				// if this is non-matched response on our INVITE request
-				// then it can be only retransmission of 200 OK response
-				// when our client transaction already removed
-				// so we just ack every retransmission
-				srv.invitesLock.RLock()
-				inviteRequest, ok := srv.invites[key]
-				srv.invitesLock.RUnlock()
-				if ok {
-					go srv.ackInviteRequest(inviteRequest, response)
-				}
-			}
+			// FIXME do something with this?
 		case err, ok := <-srv.tx.Errors():
 			if !ok {
 				return
@@ -346,17 +330,6 @@ func (srv *server) RequestWithContext(
 				// success
 				if response.IsSuccess() {
 					response.SetPrevious(previousMessages)
-
-					if request.IsInvite() {
-						srv.ackInviteRequest(request, response)
-						srv.rememberInviteRequest(request)
-						go func() {
-							for response := range tx.Responses() {
-								srv.ackInviteRequest(request, response)
-							}
-						}()
-					}
-
 					responses <- response
 
 					return
@@ -397,38 +370,6 @@ func (srv *server) RequestWithContext(
 	wg.Wait()
 
 	return res, err
-}
-
-func (srv *server) rememberInviteRequest(request sip.Request) {
-	if key, err := transaction.MakeClientTxKey(request); err == nil {
-		srv.invitesLock.Lock()
-		srv.invites[key] = request
-		srv.invitesLock.Unlock()
-
-		// max retransmission time for invite request is T1*64 = 32s
-		time.AfterFunc(time.Minute, func() {
-			srv.invitesLock.Lock()
-			delete(srv.invites, key)
-			srv.invitesLock.Unlock()
-		})
-	} else {
-		srv.Log().WithFields(map[string]interface{}{
-			"sip_request": request.Short(),
-		}).Errorf("remember of the request failed: %s", err)
-	}
-}
-
-func (srv *server) ackInviteRequest(request sip.Request, response sip.Response) {
-	ackRequest := sip.NewAckRequest("", request, response, log.Fields{
-		"sent_at": time.Now(),
-	})
-	if err := srv.Send(ackRequest); err != nil {
-		srv.Log().WithFields(map[string]interface{}{
-			"invite_request":  request.Short(),
-			"invite_response": response.Short(),
-			"ack_request":     ackRequest.Short(),
-		}).Errorf("send ACK request failed: %s", err)
-	}
 }
 
 func (srv *server) prepareRequest(req sip.Request) sip.Request {
