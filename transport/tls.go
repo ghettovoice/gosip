@@ -110,6 +110,7 @@ func (tls *tlsProtocol) Listen(target *Target) error {
 	}
 	//index listeners by local address
 	key := ListenerKey(fmt.Sprintf("tls:0.0.0.0:%d", laddr.Port))
+
 	tls.listeners.Put(key, listener)
 
 	return err //should be nil here

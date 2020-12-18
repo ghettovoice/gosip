@@ -48,6 +48,8 @@ var protocolFactory ProtocolFactory = func(
 		return NewTcpProtocol(output, errs, cancel, msgMapper, logger), nil
 	case "tls":
 		return NewTlsProtocol(output, errs, cancel, msgMapper, logger), nil
+	case "wss":
+		return NewWssProtocol(output, errs, cancel, msgMapper, logger), nil
 	default:
 		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 	}
@@ -276,6 +278,11 @@ func (tpl *layer) Send(msg sip.Message) error {
 							target.Host = addr.IP.String()
 							target.Port = &port
 						}
+					case "TLS":
+						fallthrough
+					case "WS":
+						fallthrough
+					case "WSS":
 					case "TCP":
 						if addr, err := net.ResolveTCPAddr("tcp", addrStr); err == nil {
 							port := sip.Port(addr.Port)

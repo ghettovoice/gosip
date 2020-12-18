@@ -217,9 +217,6 @@ func (tx *clientTx) ack() {
 	tx.mu.RUnlock()
 
 	recipient := tx.Origin().Recipient()
-	if contact, ok := lastResp.Contact(); ok {
-		recipient = contact.Address
-	}
 	ack := sip.NewRequest(
 		"",
 		sip.ACK,

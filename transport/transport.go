@@ -23,6 +23,8 @@ const (
 	DefaultUdpPort sip.Port = 5060
 	DefaultTcpPort sip.Port = 5060
 	DefaultTlsPort sip.Port = 5061
+	DefaultWsPort  sip.Port = 5080
+	DefaultWssPort sip.Port = 5081
 )
 
 // Target endpoint
@@ -90,6 +92,10 @@ func DefaultPort(protocol string) sip.Port {
 		return DefaultTcpPort
 	case "udp":
 		return DefaultUdpPort
+	case "ws":
+		return DefaultWsPort
+	case "wss":
+		return DefaultWssPort
 	default:
 		return DefaultTcpPort
 	}
