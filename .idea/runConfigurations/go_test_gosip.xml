@@ -1,0 +1,13 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="go test gosip" type="GoTestRunConfiguration" factoryName="Go Test">
+    <module name="gosip" />
+    <working_directory value="$PROJECT_DIR$" />
+    <go_parameters value="-i -race" />
+    <framework value="gotest" />
+    <kind value="DIRECTORY" />
+    <package value="github.com/ghettovoice/gosip" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>

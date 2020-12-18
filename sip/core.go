@@ -350,7 +350,7 @@ func GenerateBranch() string {
 	return strings.Join([]string{
 		RFC3261BranchMagicCookie,
 		util.RandString(32),
-	}, "")
+	}, ".")
 }
 
 // DefaultPort returns protocol default port by network.

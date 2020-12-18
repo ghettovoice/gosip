@@ -228,17 +228,19 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 	)
 
 	CopyHeaders("Via", inviteRequest, ackRequest)
-	viaHop, _ := ackRequest.ViaHop()
-	// update branch, 2xx ACK is separate Tx
-	viaHop.Params.Add("branch", String{Str: GenerateBranch()})
+	if inviteResponse.IsSuccess() {
+		// update branch, 2xx ACK is separate Tx
+		viaHop, _ := ackRequest.ViaHop()
+		viaHop.Params.Add("branch", String{Str: GenerateBranch()})
+	}
 
 	if len(inviteRequest.GetHeaders("Route")) > 0 {
 		CopyHeaders("Route", inviteRequest, ackRequest)
 	} else {
 		for _, h := range inviteResponse.GetHeaders("Record-Route") {
 			uris := make([]Uri, 0)
-			for _, u := range h.(*RecordRouteHeader).Addresses {
-				uris = append(uris, u.Clone())
+			for i := len(h.(*RecordRouteHeader).Addresses) - 1; i >= 0; i-- {
+				uris = append(uris, h.(*RecordRouteHeader).Addresses[i].Clone())
 			}
 			ackRequest.AppendHeader(&RouteHeader{
 				Addresses: uris,
@@ -246,6 +248,8 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 		}
 	}
 
+	maxForwardsHeader := MaxForwards(70)
+	ackRequest.AppendHeader(&maxForwardsHeader)
 	CopyHeaders("From", inviteRequest, ackRequest)
 	CopyHeaders("To", inviteResponse, ackRequest)
 	CopyHeaders("Call-ID", inviteRequest, ackRequest)
@@ -274,6 +278,8 @@ func NewCancelRequest(cancelID MessageID, requestForCancel Request, fields log.F
 	viaHop, _ := requestForCancel.ViaHop()
 	cancelReq.AppendHeader(ViaHeader{viaHop.Clone()})
 	CopyHeaders("Route", requestForCancel, cancelReq)
+	maxForwardsHeader := MaxForwards(70)
+	cancelReq.AppendHeader(&maxForwardsHeader)
 	CopyHeaders("From", requestForCancel, cancelReq)
 	CopyHeaders("To", requestForCancel, cancelReq)
 	CopyHeaders("Call-ID", requestForCancel, cancelReq)

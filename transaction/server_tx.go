@@ -33,6 +33,7 @@ type serverTx struct {
 	timer_i_time time.Duration
 	timer_j      timing.Timer
 	timer_1xx    timing.Timer
+	timer_l      timing.Timer
 	reliable     bool
 
 	mu        sync.RWMutex
@@ -74,8 +75,6 @@ func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Se
 }
 
 func (tx *serverTx) Init() error {
-	tx.Log().Infof("received SIP request:\n%s", tx.origin)
-
 	tx.initFSM()
 
 	tx.mu.Lock()
@@ -91,11 +90,17 @@ func (tx *serverTx) Init() error {
 
 	// RFC 3261 - 17.2.1
 	if tx.Origin().IsInvite() {
-		tx.Log().Debugf("set timer_1xx to %v", Timer_1xx)
+		tx.Log().Tracef("set timer_1xx to %v", Timer_1xx)
 
 		tx.mu.Lock()
 		tx.timer_1xx = timing.AfterFunc(Timer_1xx, func() {
-			tx.Log().Debug("timer_1xx fired")
+			select {
+			case <-tx.done:
+				return
+			default:
+			}
+
+			tx.Log().Trace("timer_1xx fired")
 
 			if err := tx.Respond(
 				sip.NewResponseFromRequest(
@@ -123,8 +128,6 @@ func (tx *serverTx) Receive(msg sip.Message) error {
 			Msg: req.String(),
 		}
 	}
-
-	tx.Log().Infof("received SIP request:\n%s", msg)
 
 	tx.mu.Lock()
 	if tx.timer_1xx != nil {
@@ -215,6 +218,7 @@ const (
 	server_state_proceeding
 	server_state_completed
 	server_state_confirmed
+	server_state_accepted
 	server_state_terminated
 )
 
@@ -230,6 +234,7 @@ const (
 	server_input_timer_h
 	server_input_timer_i
 	server_input_timer_j
+	server_input_timer_l
 	server_input_transport_err
 	server_input_delete
 )
@@ -254,7 +259,7 @@ func (tx *serverTx) initInviteFSM() {
 			server_input_request:       {server_state_proceeding, tx.act_respond},
 			server_input_cancel:        {server_state_proceeding, tx.act_cancel},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
-			server_input_user_2xx:      {server_state_terminated, tx.act_respond_delete},
+			server_input_user_2xx:      {server_state_accepted, tx.act_respond_accept},
 			server_input_user_300_plus: {server_state_completed, tx.act_respond_complete},
 			server_input_transport_err: {server_state_terminated, tx.act_trans_err},
 		},
@@ -266,7 +271,7 @@ func (tx *serverTx) initInviteFSM() {
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_completed, tx.act_respond},
 			server_input_ack:           {server_state_confirmed, tx.act_confirm},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_completed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
@@ -281,7 +286,7 @@ func (tx *serverTx) initInviteFSM() {
 		Index: server_state_confirmed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_confirmed, fsm.NO_ACTION},
-			server_input_ack:           {server_state_terminated, fsm.NO_ACTION},
+			server_input_ack:           {server_state_confirmed, fsm.NO_ACTION},
 			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_confirmed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_confirmed, fsm.NO_ACTION},
@@ -289,6 +294,20 @@ func (tx *serverTx) initInviteFSM() {
 			server_input_timer_i:       {server_state_terminated, tx.act_delete},
 			server_input_timer_g:       {server_state_confirmed, fsm.NO_ACTION},
 			server_input_timer_h:       {server_state_confirmed, fsm.NO_ACTION},
+		},
+	}
+
+	server_state_def_accepted := fsm.State{
+		Index: server_state_accepted,
+		Outcomes: map[fsm.Input]fsm.Outcome{
+			server_input_request:       {server_state_accepted, fsm.NO_ACTION},
+			server_input_ack:           {server_state_accepted, tx.act_passup_ack},
+			server_input_cancel:        {server_state_accepted, fsm.NO_ACTION},
+			server_input_user_1xx:      {server_state_accepted, fsm.NO_ACTION},
+			server_input_user_2xx:      {server_state_accepted, tx.act_respond},
+			server_input_user_300_plus: {server_state_accepted, fsm.NO_ACTION},
+			server_input_transport_err: {server_state_accepted, fsm.NO_ACTION},
+			server_input_timer_l:       {server_state_terminated, tx.act_delete},
 		},
 	}
 
@@ -303,6 +322,8 @@ func (tx *serverTx) initInviteFSM() {
 			server_input_user_2xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_terminated, fsm.NO_ACTION},
 			server_input_delete:        {server_state_terminated, tx.act_delete},
+			server_input_timer_i:       {server_state_terminated, fsm.NO_ACTION},
+			server_input_timer_l:       {server_state_terminated, fsm.NO_ACTION},
 		},
 	}
 
@@ -311,6 +332,7 @@ func (tx *serverTx) initInviteFSM() {
 		server_state_def_proceeding,
 		server_state_def_completed,
 		server_state_def_confirmed,
+		server_state_def_accepted,
 		server_state_def_terminated,
 	)
 	if err != nil {
@@ -333,10 +355,11 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_trying,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_trying, fsm.NO_ACTION},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_trying, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_completed, tx.act_final},
 			server_input_user_300_plus: {server_state_completed, tx.act_final},
+			server_input_transport_err: {server_state_terminated, tx.act_trans_err},
 		},
 	}
 
@@ -345,7 +368,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_proceeding,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_proceeding, tx.act_respond},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_proceeding, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_proceeding, tx.act_respond},
 			server_input_user_2xx:      {server_state_completed, tx.act_final},
 			server_input_user_300_plus: {server_state_completed, tx.act_final},
@@ -358,7 +381,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_completed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_completed, tx.act_respond},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_completed, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_completed, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_completed, fsm.NO_ACTION},
@@ -372,7 +395,7 @@ func (tx *serverTx) initNonInviteFSM() {
 		Index: server_state_terminated,
 		Outcomes: map[fsm.Input]fsm.Outcome{
 			server_input_request:       {server_state_terminated, fsm.NO_ACTION},
-			server_input_cancel:        {server_state_confirmed, fsm.NO_ACTION},
+			server_input_cancel:        {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_1xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_terminated, fsm.NO_ACTION},
 			server_input_user_300_plus: {server_state_terminated, fsm.NO_ACTION},
@@ -445,6 +468,21 @@ func (tx *serverTx) delete() {
 	// todo bloody patch
 	defer func() { recover() }()
 
+	tx.closeOnce.Do(func() {
+		tx.mu.Lock()
+
+		close(tx.done)
+		close(tx.acks)
+		close(tx.cancels)
+		close(tx.errs)
+
+		tx.mu.Unlock()
+
+		tx.Log().Debug("transaction done")
+	})
+
+	time.Sleep(time.Microsecond)
+
 	tx.mu.Lock()
 	if tx.timer_i != nil {
 		tx.timer_i.Stop()
@@ -467,20 +505,6 @@ func (tx *serverTx) delete() {
 		tx.timer_1xx = nil
 	}
 	tx.mu.Unlock()
-
-	time.Sleep(time.Microsecond)
-
-	tx.closeOnce.Do(func() {
-		tx.mu.Lock()
-
-		close(tx.done)
-
-		close(tx.acks)
-		close(tx.cancels)
-		close(tx.errs)
-
-		tx.mu.Unlock()
-	})
 }
 
 // Define actions.
@@ -533,10 +557,16 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 	if !tx.reliable {
 		tx.mu.Lock()
 		if tx.timer_g == nil {
-			tx.Log().Debugf("timer_g set to %v", tx.timer_g_time)
+			tx.Log().Tracef("timer_g set to %v", tx.timer_g_time)
 
 			tx.timer_g = timing.AfterFunc(tx.timer_g_time, func() {
-				tx.Log().Debug("timer_g fired")
+				select {
+				case <-tx.done:
+					return
+				default:
+				}
+
+				tx.Log().Trace("timer_g fired")
 
 				tx.fsmMu.RLock()
 				if err := tx.fsm.Spin(server_input_timer_g); err != nil {
@@ -550,7 +580,7 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 				tx.timer_g_time = T2
 			}
 
-			tx.Log().Debugf("timer_g reset to %v", tx.timer_g_time)
+			tx.Log().Tracef("timer_g reset to %v", tx.timer_g_time)
 
 			tx.timer_g.Reset(tx.timer_g_time)
 		}
@@ -559,10 +589,16 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 
 	tx.mu.Lock()
 	if tx.timer_h == nil {
-		tx.Log().Debugf("timer_h set to %v", Timer_H)
+		tx.Log().Tracef("timer_h set to %v", Timer_H)
 
 		tx.timer_h = timing.AfterFunc(Timer_H, func() {
-			tx.Log().Debug("timer_h fired")
+			select {
+			case <-tx.done:
+				return
+			default:
+			}
+
+			tx.Log().Trace("timer_h fired")
 
 			tx.fsmMu.RLock()
 			if err := tx.fsm.Spin(server_input_timer_h); err != nil {
@@ -572,6 +608,67 @@ func (tx *serverTx) act_respond_complete() fsm.Input {
 		})
 	}
 	tx.mu.Unlock()
+
+	return fsm.NO_INPUT
+}
+
+func (tx *serverTx) act_respond_accept() fsm.Input {
+	tx.mu.RLock()
+	lastResp := tx.lastResp
+	tx.mu.RUnlock()
+
+	if lastResp == nil {
+		return fsm.NO_INPUT
+	}
+
+	tx.Log().Debug("act_respond_accept")
+
+	lastErr := tx.tpl.Send(lastResp)
+
+	tx.mu.Lock()
+	tx.lastErr = lastErr
+	tx.mu.Unlock()
+
+	if lastErr != nil {
+		return server_input_transport_err
+	}
+
+	tx.mu.Lock()
+	tx.Log().Tracef("timer_l set to %v", Timer_L)
+
+	tx.timer_l = timing.AfterFunc(Timer_L, func() {
+		select {
+		case <-tx.done:
+			return
+		default:
+		}
+
+		tx.Log().Trace("timer_l fired")
+
+		tx.fsmMu.RLock()
+		if err := tx.fsm.Spin(server_input_timer_l); err != nil {
+			tx.Log().Errorf("spin FSM to server_input_timer_l failed: %s", err)
+		}
+		tx.fsmMu.RUnlock()
+	})
+	tx.mu.Unlock()
+
+	return fsm.NO_INPUT
+}
+
+func (tx *serverTx) act_passup_ack() fsm.Input {
+	tx.Log().Debug("act_passup_ack")
+
+	tx.mu.RLock()
+	ack := tx.lastAck
+	tx.mu.RUnlock()
+
+	if ack != nil {
+		select {
+		case <-tx.done:
+		case tx.acks <- ack:
+		}
+	}
 
 	return fsm.NO_INPUT
 }
@@ -600,10 +697,16 @@ func (tx *serverTx) act_final() fsm.Input {
 
 	tx.mu.Lock()
 
-	tx.Log().Debugf("timer_j set to %v", Timer_J)
+	tx.Log().Tracef("timer_j set to %v", Timer_J)
 
 	tx.timer_j = timing.AfterFunc(Timer_J, func() {
-		tx.Log().Debug("timer_j fired")
+		select {
+		case <-tx.done:
+			return
+		default:
+		}
+
+		tx.Log().Trace("timer_j fired")
 
 		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(server_input_timer_j); err != nil {
@@ -683,10 +786,16 @@ func (tx *serverTx) act_confirm() fsm.Input {
 		tx.timer_h = nil
 	}
 
-	tx.Log().Debugf("timer_i set to %v", Timer_I)
+	tx.Log().Tracef("timer_i set to %v", Timer_I)
 
 	tx.timer_i = timing.AfterFunc(Timer_I, func() {
-		tx.Log().Debug("timer_i fired")
+		select {
+		case <-tx.done:
+			return
+		default:
+		}
+
+		tx.Log().Trace("timer_i fired")
 
 		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(server_input_timer_i); err != nil {

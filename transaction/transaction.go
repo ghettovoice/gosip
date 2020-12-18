@@ -25,6 +25,8 @@ const (
 	Timer_J   = 64 * T1
 	Timer_K   = T4
 	Timer_1xx = 200 * time.Millisecond
+	Timer_L   = 64 * T1
+	Timer_M   = 64 * T1
 )
 
 type TxError interface {

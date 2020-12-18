@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -62,6 +61,7 @@ type ServerConfig struct {
 	Dns        string
 	Extensions []string
 	MsgMapper  sip.MessageMapper
+	UserAgent  string
 }
 
 // Server is a SIP server
@@ -75,8 +75,6 @@ type server struct {
 	hmu             *sync.RWMutex
 	requestHandlers map[sip.RequestMethod]RequestHandler
 	extensions      []string
-	invites         map[transaction.TxKey]sip.Request
-	invitesLock     *sync.RWMutex
 
 	log log.Logger
 }
@@ -140,13 +138,14 @@ func NewServer(
 		hmu:             new(sync.RWMutex),
 		requestHandlers: make(map[sip.RequestMethod]RequestHandler),
 		extensions:      extensions,
-		invites:         make(map[transaction.TxKey]sip.Request),
-		invitesLock:     new(sync.RWMutex),
 	}
 	srv.log = logger.WithFields(log.Fields{
 		"sip_server_ptr": fmt.Sprintf("%p", srv),
 	})
 	srv.tp = tpFactory(ip, dnsResolver, config.MsgMapper, srv.Log())
+	if tp, ok := srv.tp.(interface{ SetUserAgent(string) }); ok {
+		tp.SetUserAgent(config.UserAgent)
+	}
 	srv.tx = txFactory(srv.tp, log.AddFieldsFrom(srv.Log(), srv.tp))
 
 	srv.running.Set()
@@ -186,24 +185,10 @@ func (srv *server) serve() {
 				return
 			}
 
-			logger := srv.Log().WithFields(map[string]interface{}{
-				"sip_response": response.Short(),
-			})
-
+			logger := srv.Log().WithFields(response.Fields())
 			logger.Warn("received not matched response")
 
-			if key, err := transaction.MakeClientTxKey(response); err == nil {
-				// if this is non-matched response on our INVITE request
-				// then it can be only retransmission of 200 OK response
-				// when our client transaction already removed
-				// so we just ack every retransmission
-				srv.invitesLock.RLock()
-				inviteRequest, ok := srv.invites[key]
-				srv.invitesLock.RUnlock()
-				if ok {
-					go srv.ackInviteRequest(inviteRequest, response)
-				}
-			}
+			// FIXME do something with this?
 		case err, ok := <-srv.tx.Errors():
 			if !ok {
 				return
@@ -224,14 +209,14 @@ func (srv *server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	defer srv.hwg.Done()
 
 	logger := srv.Log().WithFields(req.Fields())
-	logger.Info("routing incoming SIP request...")
+	logger.Debug("routing incoming SIP request...")
 
 	srv.hmu.RLock()
 	handler, ok := srv.requestHandlers[req.Method()]
 	srv.hmu.RUnlock()
 
 	if !ok {
-		logger.Warnf("SIP request handler not found")
+		logger.Warn("SIP request handler not found")
 
 		res := sip.NewResponseFromRequest("", req, 405, "Method Not Allowed", "")
 		if _, err := srv.Respond(res); err != nil {
@@ -272,9 +257,32 @@ func (srv *server) RequestWithContext(
 		}
 	}
 
-	responses := make(chan sip.Response)
-	errs := make(chan error)
+	txResponses := tx.Responses()
+	txErrs := tx.Errors()
+	responses := make(chan sip.Response, 1)
+	errs := make(chan error, 1)
+	done := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
+
+		select {
+		case <-done:
+		case <-ctx.Done():
+			if err := tx.Cancel(); err != nil {
+				srv.Log().Error("cancel transaction failed", log.Fields{
+					"transaction_key": tx.Key(),
+				})
+			}
+		}
+	}()
+	go func() {
+		defer func() {
+			close(done)
+			wg.Done()
+		}()
+
 		var lastResponse sip.Response
 
 		previousMessages := make([]sip.Response, 0)
@@ -285,48 +293,16 @@ func (srv *server) RequestWithContext(
 
 		for {
 			select {
-			case <-ctx.Done():
-				if lastResponse != nil && lastResponse.IsProvisional() {
-					_ = tx.Cancel()
-					// wait for final 487 response
-					for res := range tx.Responses() {
-						lastResponse = sip.CopyResponse(res)
-						if !lastResponse.IsProvisional() {
-							break
-						}
-						if _, ok := previousResponsesStatuses[getKey(lastResponse)]; !ok {
-							previousMessages = append(previousMessages, lastResponse)
-							previousResponsesStatuses[getKey(lastResponse)] = true
-						}
-					}
-				}
-				if lastResponse != nil {
-					lastResponse.SetPrevious(previousMessages)
-				}
-				errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
-				// pull out later possible transaction responses and errors
-				go func() {
-					for {
-						select {
-						case <-tx.Done():
-							return
-						case <-tx.Errors():
-						case <-tx.Responses():
-						}
-					}
-				}()
-				return
-			case err, ok := <-tx.Errors():
+			case err, ok := <-txErrs:
 				if !ok {
-					if lastResponse != nil {
-						lastResponse.SetPrevious(previousMessages)
-					}
-					errs <- sip.NewRequestError(487, "Request Terminated", request, lastResponse)
-					return
+					txErrs = nil
+					// errors chan was closed
+					// we continue to pull responses until close
+					continue
 				}
 				errs <- err
 				return
-			case response, ok := <-tx.Responses():
+			case response, ok := <-txResponses:
 				if !ok {
 					if lastResponse != nil {
 						lastResponse.SetPrevious(previousMessages)
@@ -354,17 +330,6 @@ func (srv *server) RequestWithContext(
 				// success
 				if response.IsSuccess() {
 					response.SetPrevious(previousMessages)
-
-					if request.IsInvite() {
-						srv.ackInviteRequest(request, response)
-						srv.rememberInviteRequest(request)
-						go func() {
-							for response := range tx.Responses() {
-								srv.ackInviteRequest(request, response)
-							}
-						}()
-					}
-
 					responses <- response
 
 					return
@@ -388,54 +353,23 @@ func (srv *server) RequestWithContext(
 				}
 
 				// failed request
-				if lastResponse != nil {
-					lastResponse.SetPrevious(previousMessages)
-				}
-				errs <- sip.NewRequestError(uint(response.StatusCode()), response.Reason(), request, lastResponse)
+				response.SetPrevious(previousMessages)
+				errs <- sip.NewRequestError(uint(response.StatusCode()), response.Reason(), request, response)
 
 				return
 			}
 		}
 	}()
 
+	var res sip.Response
 	select {
-	case err := <-errs:
-		return nil, err
-	case response := <-responses:
-		return response, nil
+	case err = <-errs:
+	case res = <-responses:
 	}
-}
 
-func (srv *server) rememberInviteRequest(request sip.Request) {
-	if key, err := transaction.MakeClientTxKey(request); err == nil {
-		srv.invitesLock.Lock()
-		srv.invites[key] = request
-		srv.invitesLock.Unlock()
+	wg.Wait()
 
-		// max retransmission time for invite request is T1*64 = 32s
-		time.AfterFunc(time.Minute, func() {
-			srv.invitesLock.Lock()
-			delete(srv.invites, key)
-			srv.invitesLock.Unlock()
-		})
-	} else {
-		srv.Log().WithFields(map[string]interface{}{
-			"sip_request": request.Short(),
-		}).Errorf("remember of the request failed: %s", err)
-	}
-}
-
-func (srv *server) ackInviteRequest(request sip.Request, response sip.Response) {
-	ackRequest := sip.NewAckRequest("", request, response, log.Fields{
-		"sent_at": time.Now(),
-	})
-	if err := srv.Send(ackRequest); err != nil {
-		srv.Log().WithFields(map[string]interface{}{
-			"invite_request":  request.Short(),
-			"invite_response": response.Short(),
-			"ack_request":     ackRequest.Short(),
-		}).Errorf("send ACK request failed: %s", err)
-	}
+	return res, err
 }
 
 func (srv *server) prepareRequest(req sip.Request) sip.Request {
@@ -564,21 +498,18 @@ func (srv *server) appendAutoHeaders(msg sip.Message) {
 					allow = append(allow, method)
 				}
 
-				msg.AppendHeader(allow)
+				if len(allow) > 0 {
+					msg.AppendHeader(allow)
+				}
 			}
 
 			hdrs = msg.GetHeaders("Supported")
-			if len(hdrs) == 0 {
+			if len(hdrs) == 0 && len(srv.extensions) > 0 {
 				msg.AppendHeader(&sip.SupportedHeader{
 					Options: srv.extensions,
 				})
 			}
 		}
-	}
-
-	if hdrs := msg.GetHeaders("User-Agent"); len(hdrs) == 0 {
-		userAgent := sip.UserAgentHeader("GoSIP")
-		msg.AppendHeader(&userAgent)
 	}
 }
 
