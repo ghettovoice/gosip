@@ -89,7 +89,7 @@ func (tcp *tcpProtocol) Listen(target *Target) error {
 		}
 	}
 
-	tcp.Log().Infof("begin listening on %s %s", tcp.Network(), laddr)
+	tcp.Log().Debugf("begin listening on %s %s", tcp.Network(), laddr)
 
 	// index listeners by local address
 	// should live infinitely
@@ -124,7 +124,7 @@ func (tcp *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	}
 
 	logger := log.AddFieldsFrom(tcp.Log(), conn, msg)
-	logger.Infof("writing SIP message to %s %s", tcp.Network(), raddr)
+	logger.Tracef("writing SIP message to %s %s", tcp.Network(), raddr)
 
 	// send message
 	_, err = conn.Write([]byte(msg.String()))

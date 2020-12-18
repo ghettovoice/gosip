@@ -60,7 +60,7 @@ func (udp *udpProtocol) Listen(target *Target) error {
 		}
 	}
 
-	udp.Log().Infof("begin listening on %s %s", udp.Network(), laddr)
+	udp.Log().Debugf("begin listening on %s %s", udp.Network(), laddr)
 
 	// register new connection
 	// index by local address, TTL=0 - unlimited expiry time
@@ -107,7 +107,7 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	}
 
 	logger := log.AddFieldsFrom(udp.Log(), conn, msg)
-	logger.Infof("writing SIP message to %s %s", udp.Network(), raddr)
+	logger.Tracef("writing SIP message to %s %s", udp.Network(), raddr)
 
 	_, err = conn.WriteTo([]byte(msg.String()), raddr)
 

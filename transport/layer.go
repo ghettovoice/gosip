@@ -72,6 +72,7 @@ type layer struct {
 	ip          net.IP
 	dnsResolver *net.Resolver
 	msgMapper   sip.MessageMapper
+	ua          string
 
 	msgs     chan sip.Message
 	errs     chan error
@@ -101,6 +102,7 @@ func NewLayer(
 		ip:          ip,
 		dnsResolver: dnsResolver,
 		msgMapper:   msgMapper,
+		ua:          "GoSIP",
 
 		msgs:     make(chan sip.Message),
 		errs:     make(chan error),
@@ -119,6 +121,12 @@ func NewLayer(
 	go tpl.serveProtocols()
 
 	return tpl
+}
+
+func (tpl *layer) SetUserAgent(ua string) {
+	if ua != "" {
+		tpl.ua = ua
+	}
 }
 
 func (tpl *layer) String() string {
@@ -221,6 +229,11 @@ func (tpl *layer) Send(msg sip.Message) error {
 		}
 	}
 
+	if hdrs := msg.GetHeaders("User-Agent"); len(hdrs) == 0 {
+		userAgent := sip.UserAgentHeader(tpl.ua)
+		msg.AppendHeader(&userAgent)
+	}
+
 	switch msg := msg.(type) {
 	// RFC 3261 - 18.1.1.
 	case sip.Request:
@@ -319,7 +332,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		}
 
 		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
-		logger.Infof("send SIP response:\n%s", msg)
+		logger.Infof("sending SIP response:\n%s", msg)
 
 		return protocol.Send(target, msg)
 	default:
@@ -336,8 +349,8 @@ func (tpl *layer) serveProtocols() {
 		close(tpl.done)
 	}()
 
-	tpl.Log().Info("begin serve protocols")
-	defer tpl.Log().Info("stop serve protocols")
+	tpl.Log().Debug("begin serve protocols")
+	defer tpl.Log().Debug("stop serve protocols")
 
 	for {
 		select {
