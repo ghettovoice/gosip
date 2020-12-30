@@ -754,6 +754,8 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 		switch baseConn.(type) {
 		case *tls.Conn:
 			network = "tls"
+		case *WsConn:
+			network = "wss"
 		default:
 			network = strings.ToLower(baseConn.RemoteAddr().Network())
 		}

@@ -1,115 +1,114 @@
 package transport
 
 import (
-	"context"
 	ntls "crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
-	"golang.org/x/time/rate"
-	"nhooyr.io/websocket"
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 )
 
 var (
 	subprotocol = "sip"
 )
 
+type WsConn struct {
+	conn net.Conn
+}
+
+func (wc WsConn) Read(b []byte) (n int, err error) {
+	msg, op, err := wsutil.ReadClientData(wc.conn)
+	if err != nil {
+		// handle error
+	}
+	if op == ws.OpClose {
+		return n, io.EOF
+	}
+	b = msg
+	fmt.Printf("WsConn.Read: \n%v\n", string(msg))
+	return len(msg), err
+}
+
+func (wc WsConn) Write(b []byte) (n int, err error) {
+	err = wsutil.WriteServerMessage(wc.conn, ws.OpText, b)
+	if err != nil {
+		// handle error
+		return 0, err
+	}
+	fmt.Printf("WsConn.Write: \n%v\n", string(b))
+	return len(b), nil
+}
+
+func (wc WsConn) LocalAddr() net.Addr {
+	return wc.conn.LocalAddr()
+}
+
+// RemoteAddr returns the remote network address.
+func (wc WsConn) RemoteAddr() net.Addr {
+	return wc.conn.RemoteAddr()
+}
+
+func (wc WsConn) Close() error {
+	return wc.conn.Close()
+}
+
+func (wc WsConn) SetDeadline(t time.Time) error {
+	return wc.conn.SetDeadline(t)
+}
+
+func (wc WsConn) SetReadDeadline(t time.Time) error {
+	return wc.conn.SetReadDeadline(t)
+}
+
+func (wc WsConn) SetWriteDeadline(t time.Time) error {
+	return wc.conn.SetWriteDeadline(t)
+}
+
 type wsListener struct {
 	listener net.Listener
 	log      log.Logger
-	server   *http.Server
+	u        ws.Upgrader
 }
 
-func NewTlsListener(listener net.Listener, address string, options *Options) *wsListener {
+func NewWsListener(listener net.Listener, address string) *wsListener {
 	l := &wsListener{listener: listener}
-	l.server = &http.Server{
-		Handler:      l,
-		ReadTimeout:  time.Second * 10,
-		WriteTimeout: time.Second * 10,
+	/*
+		e := wsflate.Extension{
+			// We are using default parameters here since we use
+			// wsflate.{Compress,Decompress}Frame helpers below in the code.
+			// This assumes that we use standard compress/flate package as flate
+			// implementation.
+			Parameters: wsflate.DefaultParameters,
+		}
+	*/
+
+	l.u = ws.Upgrader{
+		//Negotiate: e.Negotiate,
 	}
 
-	tcpl, err := net.Listen("tcp", address)
-	if err != nil {
-		l.log.Error(err)
-	}
-	l.log.Infof("listening on http://%v", tcpl.Addr())
-
-	errc := make(chan error, 1)
-	go func() {
-		errc <- l.server.Serve(tcpl)
-	}()
 	return l
 }
 
-func (l *wsListener) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		Subprotocols: []string{subprotocol},
-	})
-	if err != nil {
-		l.log.Errorf("%v", err)
-		return
-	}
-	defer c.Close(websocket.StatusInternalError, "the sky is falling")
-
-	if c.Subprotocol() != subprotocol {
-		c.Close(websocket.StatusPolicyViolation, "client must speak the echo subprotocol")
-		return
-	}
-
-	li := rate.NewLimiter(rate.Every(time.Millisecond*100), 10)
-	for {
-		err = echo(r.Context(), c, li)
-		if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
-			return
-		}
-		if err != nil {
-			l.log.Errorf("failed to echo with %v: %v", r.RemoteAddr, err)
-			return
-		}
-	}
-}
-
-// echo reads from the WebSocket connection and then writes
-// the received message back to it.
-// The entire function has 10s to complete.
-func echo(ctx context.Context, c *websocket.Conn, l *rate.Limiter) error {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-	defer cancel()
-
-	err := l.Wait(ctx)
-	if err != nil {
-		return err
-	}
-
-	typ, r, err := c.Reader(ctx)
-	if err != nil {
-		return err
-	}
-
-	w, err := c.Writer(ctx, typ)
-	if err != nil {
-		return err
-	}
-
-	_, err = io.Copy(w, r)
-	if err != nil {
-		return fmt.Errorf("failed to io.Copy: %w", err)
-	}
-
-	err = w.Close()
-	return err
-}
-
 func (l *wsListener) Accept() (net.Conn, error) {
-
-	return l.listener.Accept()
+	conn, err := l.listener.Accept()
+	if err != nil {
+		l.log.Infof("Error on wsListener.Accept %v", err)
+		return nil, err
+	}
+	_, err = l.u.Upgrade(conn)
+	if err != nil {
+		l.log.Infof("Error on wsListener.Accept.Upgrade %v", err)
+		return nil, err
+	}
+	wc := WsConn{conn: conn}
+	return wc, err
 }
 
 func (l *wsListener) Close() error {
@@ -117,19 +116,7 @@ func (l *wsListener) Close() error {
 }
 
 func (l *wsListener) Addr() net.Addr {
-	return &WsAddr{Addr: l.listener.Addr()}
-}
-
-type WsAddr struct {
-	Addr net.Addr
-}
-
-func (a *WsAddr) Network() string {
-	return "tls"
-}
-
-func (a *WsAddr) String() string {
-	return a.Addr.String()
+	return l.listener.Addr()
 }
 
 type wssProtocol struct {
@@ -210,28 +197,48 @@ func (wss *wssProtocol) Listen(target *Target) error {
 		return err
 	}
 
-	if target.Options == nil {
-		return fmt.Errorf("Require valid Options parameters to start TLS")
-	}
+	var listener net.Listener
+	if target.Options != nil {
 
-	cert, err := ntls.LoadX509KeyPair(target.Options.CertFile, target.Options.KeyFile)
-	if err != nil {
-		wss.Log().Fatal(err)
-	}
-	//create listener
-	listener, err := ntls.Listen("tcp", laddr.String(), &ntls.Config{
-		Certificates: []ntls.Certificate{cert},
-	})
-	if err != nil {
-		return &ProtocolError{
-			fmt.Errorf("failed to listen address %s: %s", laddr, err),
-			fmt.Sprintf("create %s listener", wss.Network()),
-			"wss",
+		cert, err := ntls.LoadX509KeyPair(target.Options.CertFile, target.Options.KeyFile)
+		if err != nil {
+			wss.Log().Fatal(err)
+		}
+		//create tls listener
+		listener, err = ntls.Listen("tcp", laddr.String(), &ntls.Config{
+			Certificates: []ntls.Certificate{cert},
+		})
+		if err != nil {
+			return &ProtocolError{
+				fmt.Errorf("failed to listen address %s: %s", laddr, err),
+				fmt.Sprintf("create %s listener", wss.Network()),
+				"wss",
+			}
+		}
+	} else {
+		//create tcp listener
+		listener, err = net.Listen("tcp", laddr.String())
+		if err != nil {
+			return &ProtocolError{
+				fmt.Errorf("failed to listen address %s: %s", laddr, err),
+				fmt.Sprintf("create %s listener", wss.Network()),
+				"ws",
+			}
 		}
 	}
+
+	wsl := NewWsListener(listener, laddr.String())
+
 	//index listeners by local address
-	key := ListenerKey(fmt.Sprintf("wss:0.0.0.0:%d", laddr.Port))
-	wss.listeners.Put(key, listener)
+	protocol := "ws"
+	if target.Options != nil {
+		protocol = "wss"
+	}
+
+	key := ListenerKey(fmt.Sprintf("%s:0.0.0.0:%d", protocol, laddr.Port))
+	wss.listeners.Put(key, wsl)
+
+	wss.Log().Infof("listening on %s://%v", protocol, laddr.String())
 
 	return err //should be nil here
 }

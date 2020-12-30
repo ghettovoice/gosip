@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/discoviking/fsm v0.0.0-20150126104936-f4a273feecca
+	github.com/gobwas/ws v1.1.0-rc.1
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b // indirect
@@ -16,7 +17,5 @@ require (
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974 // indirect
 	golang.org/x/sys v0.0.0-20201214095126-aec9a390925b // indirect
-	golang.org/x/time v0.0.0-20201208040808-7e3f01d25324
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
-	nhooyr.io/websocket v1.8.6
 )

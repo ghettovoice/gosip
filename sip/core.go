@@ -15,6 +15,8 @@ const (
 	DefaultUdpPort Port = 5060
 	DefaultTcpPort Port = 5060
 	DefaultTlsPort Port = 5061
+	DefaultWsPort  Port = 5080
+	DefaultWssPort Port = 5081
 )
 
 // TODO should be refactored, currently here the pit
@@ -362,6 +364,10 @@ func DefaultPort(protocol string) Port {
 		return DefaultTcpPort
 	case "udp":
 		return DefaultUdpPort
+	case "ws":
+		return DefaultWsPort
+	case "wss":
+		return DefaultWssPort
 	default:
 		return DefaultTcpPort
 	}
