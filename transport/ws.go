@@ -27,12 +27,12 @@ func (wc WsConn) Read(b []byte) (n int, err error) {
 	msg, op, err := wsutil.ReadClientData(wc.conn)
 	if err != nil {
 		// handle error
+		return n, err
 	}
 	if op == ws.OpClose {
 		return n, io.EOF
 	}
 	copy(b, msg)
-	//fmt.Printf("WsConn.Read: \n%v\n", string(msg))
 	return len(msg), err
 }
 
@@ -40,9 +40,8 @@ func (wc WsConn) Write(b []byte) (n int, err error) {
 	err = wsutil.WriteServerMessage(wc.conn, ws.OpText, b)
 	if err != nil {
 		// handle error
-		return 0, err
+		return n, err
 	}
-	//fmt.Printf("WsConn.Write: \n%v\n", string(b))
 	return len(b), nil
 }
 

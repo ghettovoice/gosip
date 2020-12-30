@@ -238,6 +238,9 @@ func (tpl *layer) Send(msg sip.Message) error {
 	// RFC 3261 - 18.1.1.
 	case sip.Request:
 		nets := make([]string, 0)
+
+		nets = append(nets, viaHop.Transport)
+
 		msgLen := len(msg.String())
 		// todo check for reliable/non-reliable
 		if msgLen > int(MTU)-200 {
