@@ -31,8 +31,8 @@ func (wc WsConn) Read(b []byte) (n int, err error) {
 	if op == ws.OpClose {
 		return n, io.EOF
 	}
-	b = msg
-	fmt.Printf("WsConn.Read: \n%v\n", string(msg))
+	copy(b, msg)
+	//fmt.Printf("WsConn.Read: \n%v\n", string(msg))
 	return len(msg), err
 }
 
@@ -42,7 +42,7 @@ func (wc WsConn) Write(b []byte) (n int, err error) {
 		// handle error
 		return 0, err
 	}
-	fmt.Printf("WsConn.Write: \n%v\n", string(b))
+	//fmt.Printf("WsConn.Write: \n%v\n", string(b))
 	return len(b), nil
 }
 

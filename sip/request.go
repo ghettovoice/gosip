@@ -118,7 +118,7 @@ func (req *request) Clone() Message {
 }
 
 func (req *request) WithFields(fields log.Fields) Message {
-	return NewRequest(
+	msg := NewRequest(
 		req.MessageID(),
 		req.Method(),
 		req.Recipient().Clone(),
@@ -127,6 +127,8 @@ func (req *request) WithFields(fields log.Fields) Message {
 		req.Body(),
 		req.Fields().WithFields(fields),
 	)
+	msg.SetSource(req.Source())
+	return msg
 }
 
 func (req *request) IsInvite() bool {
