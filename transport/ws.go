@@ -184,9 +184,8 @@ func (wss *wssProtocol) Listen(target *Target) error {
 	}
 
 	var listener net.Listener
-	if target.Options != nil {
-
-		cert, err := ntls.LoadX509KeyPair(target.Options.CertFile, target.Options.KeyFile)
+	if target.TLSConfig != nil {
+		cert, err := ntls.LoadX509KeyPair(target.TLSConfig.Cert, target.TLSConfig.Key)
 		if err != nil {
 			wss.Log().Fatal(err)
 		}
@@ -217,7 +216,7 @@ func (wss *wssProtocol) Listen(target *Target) error {
 
 	//index listeners by local address
 	protocol := "ws"
-	if target.Options != nil {
+	if target.TLSConfig != nil {
 		protocol = "wss"
 	}
 
@@ -305,8 +304,8 @@ func (wss *wssProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 				fmt.Sprintf("%p", wss),
 			}
 		}
-
-		conn = NewConnection(tlsConn, key, wss.Log())
+		wc := WsConn{conn: tlsConn}
+		conn = NewConnection(wc, key, wss.Log())
 		if err := wss.connections.Put(conn, sockTTL); err != nil {
 			return conn, err
 		}

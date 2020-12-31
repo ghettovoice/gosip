@@ -130,7 +130,7 @@ func (tpl *MockTransportLayer) Errors() <-chan error {
 	return tpl.InErrs
 }
 
-func (tpl *MockTransportLayer) Listen(network string, addr string, options *transport.Options) error {
+func (tpl *MockTransportLayer) Listen(network string, addr string, tlsConfig *transport.TLSConfig) error {
 	return nil
 }
 

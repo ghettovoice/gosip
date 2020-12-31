@@ -29,9 +29,9 @@ const (
 
 // Target endpoint
 type Target struct {
-	Host    string
-	Port    *sip.Port
-	Options *Options
+	Host      string
+	Port      *sip.Port
+	TLSConfig *TLSConfig
 }
 
 func (trg *Target) Addr() string {
@@ -68,7 +68,7 @@ func (trg *Target) String() string {
 func NewTarget(host string, port int) *Target {
 	cport := sip.Port(port)
 
-	return &Target{Host: host, Port: &cport, Options: nil}
+	return &Target{Host: host, Port: &cport, TLSConfig: nil}
 }
 
 func NewTargetFromAddr(addr string) (*Target, error) {

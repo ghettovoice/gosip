@@ -11,12 +11,12 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 )
 
-//Options for TLS and WSS only
-type Options struct {
+//TLSConfig for TLS and WSS only
+type TLSConfig struct {
 	TLSDomain string
-	CertFile  string
-	KeyFile   string
-	KeyPass   string
+	Cert      string
+	Key       string
+	Pass      string
 }
 
 // TransportLayer layer is responsible for the actual transmission of messages - RFC 3261 - 18.
@@ -26,7 +26,7 @@ type Layer interface {
 	Messages() <-chan sip.Message
 	Errors() <-chan error
 	// Listen starts listening on `addr` for each registered protocol.
-	Listen(network string, addr string, options *Options) error
+	Listen(network string, addr string, options *TLSConfig) error
 	// Send sends message on suitable protocol.
 	Send(msg sip.Message) error
 	String() string
@@ -174,7 +174,7 @@ func (tpl *layer) IsReliable(network string) bool {
 	return false
 }
 
-func (tpl *layer) Listen(network string, addr string, options *Options) error {
+func (tpl *layer) Listen(network string, addr string, tlsConfig *TLSConfig) error {
 	select {
 	case <-tpl.canceled:
 		return fmt.Errorf("transport layer is canceled")
@@ -207,8 +207,8 @@ func (tpl *layer) Listen(network string, addr string, options *Options) error {
 		tpl.listenPorts[network] = target.Port
 	}
 
-	if options != nil {
-		target.Options = options
+	if tlsConfig != nil {
+		target.TLSConfig = tlsConfig
 	}
 
 	return protocol.Listen(target)

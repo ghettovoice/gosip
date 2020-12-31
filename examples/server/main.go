@@ -24,7 +24,7 @@ func main() {
 
 	srvConf := gosip.ServerConfig{}
 	srv := gosip.NewServer(srvConf, nil, nil, logger)
-	srv.Listen("wss", "0.0.0.0:5081", &transport.Options{CertFile: "certs/cert.pem", KeyFile: "certs/key.pem"})
+	srv.Listen("wss", "0.0.0.0:5081", &transport.TLSConfig{Cert: "certs/cert.pem", Key: "certs/key.pem"})
 
 	<-stop
 
