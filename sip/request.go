@@ -128,6 +128,7 @@ func (req *request) WithFields(fields log.Fields) Message {
 		req.Fields().WithFields(fields),
 	)
 	msg.SetSource(req.Source())
+	msg.SetDestination(req.Destination())
 	return msg
 }
 

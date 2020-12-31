@@ -78,20 +78,7 @@ type wsListener struct {
 
 func NewWsListener(listener net.Listener, address string) *wsListener {
 	l := &wsListener{listener: listener}
-	/*
-		e := wsflate.Extension{
-			// We are using default parameters here since we use
-			// wsflate.{Compress,Decompress}Frame helpers below in the code.
-			// This assumes that we use standard compress/flate package as flate
-			// implementation.
-			Parameters: wsflate.DefaultParameters,
-		}
-	*/
-
-	l.u = ws.Upgrader{
-		//Negotiate: e.Negotiate,
-	}
-
+	l.u = ws.Upgrader{}
 	return l
 }
 
@@ -189,8 +176,8 @@ func (wss *wssProtocol) dispose() {
 
 func (wss *wssProtocol) Listen(target *Target) error {
 	target = FillTargetHostAndPort(wss.Network(), target)
-	//network := strings.ToLower(wss.Network())
-	//esolve local TCP endpoint
+
+	//resolve local TCP endpoint
 	laddr, err := wss.resolveTarget(target)
 	if err != nil {
 		return err
@@ -274,7 +261,7 @@ func (wss *wssProtocol) Send(target *Target, msg sip.Message) error {
 
 func (wss *wssProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 	addr := target.Addr()
-	network := "tcp" //strings.ToLower(wss.Network())
+	network := "tcp"
 	//resolve remote address
 	raddr, err := net.ResolveTCPAddr(network, addr)
 	if err != nil {
@@ -306,7 +293,7 @@ func (wss *wssProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, e
 				wss.Log().Panic("failed to parse root certificate")
 			}
 		*/
-		tlsConn, err := ntls.Dial(network /*laddr,*/, raddr.String(), &ntls.Config{
+		tlsConn, err := ntls.Dial(network, raddr.String(), &ntls.Config{
 			VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 				return nil
 			},
