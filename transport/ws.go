@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	ntls "crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -20,11 +21,18 @@ var (
 )
 
 type WsConn struct {
-	conn net.Conn
+	client bool
+	conn   net.Conn
 }
 
 func (wc WsConn) Read(b []byte) (n int, err error) {
-	msg, op, err := wsutil.ReadClientData(wc.conn)
+	var msg []byte
+	var op ws.OpCode
+	if wc.client {
+		msg, op, err = wsutil.ReadServerData(wc.conn)
+	} else {
+		msg, op, err = wsutil.ReadClientData(wc.conn)
+	}
 	if err != nil {
 		// handle error
 		return n, err
@@ -37,7 +45,11 @@ func (wc WsConn) Read(b []byte) (n int, err error) {
 }
 
 func (wc WsConn) Write(b []byte) (n int, err error) {
-	err = wsutil.WriteServerMessage(wc.conn, ws.OpText, b)
+	if wc.client {
+		err = wsutil.WriteClientMessage(wc.conn, ws.OpText, b)
+	} else {
+		err = wsutil.WriteServerMessage(wc.conn, ws.OpText, b)
+	}
 	if err != nil {
 		// handle error
 		return n, err
@@ -93,7 +105,7 @@ func (l *wsListener) Accept() (net.Conn, error) {
 		l.log.Infof("Error on wsListener.Accept.Upgrade %v", err)
 		return nil, err
 	}
-	wc := WsConn{conn: conn}
+	wc := WsConn{conn: conn, client: false}
 	return wc, err
 }
 
@@ -276,36 +288,28 @@ func (wss *wssProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 
 func (wss *wssProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
 	network := strings.ToLower(wss.Network())
-	/*laddr := &net.TCPAddr{
-		IP:   net.IP(DefaultHost),
-		Port: int(DefaultUdpPort),
-		Zone: "",
-	}*/
 	key := ConnectionKey("wss:" + raddr.String())
 	conn, err := wss.connections.Get(key)
+
 	if err != nil {
 		wss.Log().Debugf("connection for address %s not found; create a new one", raddr)
-		/*
-			roots := x509.NewCertPool()
-			ok := roots.AppendCertsFromPEM([]byte(rootPEM))
-			if !ok {
-				wss.Log().Panic("failed to parse root certificate")
-			}
-		*/
-		tlsConn, err := ntls.Dial(network, raddr.String(), &ntls.Config{
-			VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-				return nil
+		url := network + "://" + raddr.String()
+		dialer := ws.Dialer{
+			TLSConfig: &ntls.Config{
+				VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+					return nil
+				},
 			},
-		})
+		}
+		wsConn, _, _, err := dialer.Dial(context.TODO(), url)
 		if err != nil {
 			return nil, &ProtocolError{
 				err,
-				fmt.Sprintf("connect to %s %s address", wss.Network(), raddr),
+				fmt.Sprintf("connect to %s %s address", network, raddr),
 				fmt.Sprintf("%p", wss),
 			}
 		}
-		wc := WsConn{conn: tlsConn}
-		conn = NewConnection(wc, key, wss.Log())
+		conn = NewConnection(WsConn{conn: wsConn, client: true}, key, wss.Log())
 		if err := wss.connections.Put(conn, sockTTL); err != nil {
 			return conn, err
 		}

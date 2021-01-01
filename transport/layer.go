@@ -239,7 +239,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 	case sip.Request:
 		nets := make([]string, 0)
 
-		nets = append(nets, viaHop.Transport)
+		nets = append(nets, strings.ToUpper(viaHop.Transport))
 
 		msgLen := len(msg.String())
 		// todo check for reliable/non-reliable
