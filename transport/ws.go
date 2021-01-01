@@ -76,8 +76,8 @@ type wsListener struct {
 	u        ws.Upgrader
 }
 
-func NewWsListener(listener net.Listener, address string) *wsListener {
-	l := &wsListener{listener: listener}
+func NewWsListener(listener net.Listener, address string, log log.Logger) *wsListener {
+	l := &wsListener{listener: listener, log: log}
 	l.u = ws.Upgrader{}
 	return l
 }
@@ -212,7 +212,7 @@ func (wss *wssProtocol) Listen(target *Target) error {
 		}
 	}
 
-	wsl := NewWsListener(listener, laddr.String())
+	wsl := NewWsListener(listener, laddr.String(), wss.Log())
 
 	//index listeners by local address
 	protocol := "ws"
