@@ -264,6 +264,13 @@ func (tpl *layer) Send(msg sip.Message) error {
 				err = UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", nt))
 				continue
 			}
+
+			if protocol.Streamed() {
+				if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
+					msg.SetBody("", true)
+				}
+			}
+
 			// rewrite sent-by transport
 			viaHop.Transport = nt
 			// rewrite sent-by port
@@ -336,6 +343,12 @@ func (tpl *layer) Send(msg sip.Message) error {
 
 		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
 		logger.Infof("sending SIP response:\n%s", msg)
+
+		if protocol.Streamed() {
+			if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
+				msg.SetBody("", true)
+			}
+		}
 
 		return protocol.Send(target, msg)
 	default:
