@@ -512,6 +512,11 @@ func (pool *connectionPool) serveHandlers() {
 					logger.Error(err)
 				}
 
+				var connErr *ConnectionError
+				if errors.As(herr.Err, &connErr) {
+					pool.errs <- herr.Err
+				}
+
 				continue
 			} else if herr.Network() {
 				// connection broken or closed
@@ -920,6 +925,18 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				select {
 				case <-handler.canceled:
 				case errs <- err:
+					var connErr *ConnectionError
+					if errors.As(err, &connErr) {
+						herr := &ConnectionHandlerError{
+							err,
+							handler.Key(),
+							fmt.Sprintf("%p", handler),
+							handler.Connection().Network(),
+							fmt.Sprintf("%v", handler.Connection().LocalAddr()),
+							fmt.Sprintf("%v", handler.Connection().RemoteAddr()),
+						}
+						handler.errs <- herr
+					}
 				}
 
 				return

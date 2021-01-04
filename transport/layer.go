@@ -419,7 +419,6 @@ func (tpl *layer) handlerError(err error) {
 		// currently log and ignore
 		tpl.Log().Errorf("SIP transport error: %s", err)
 
-		return
 	}
 
 	logger := tpl.Log().WithFields(log.Fields{
