@@ -40,8 +40,12 @@ func NewTlsProtocol(
 	return p
 }
 
-func (p *tlsProtocol) listen(target *Target) (net.Listener, error) {
-	if target.TLSConfig == nil {
+func (p *tlsProtocol) listen(target *Target, options ...ListenOption) (net.Listener, error) {
+	optsHash := ListenOptions{}
+	for _, opt := range options {
+		opt.ApplyListen(&optsHash)
+	}
+	if optsHash.TLSConfig == nil {
 		return nil, fmt.Errorf("valid TLSConfig is required to start listener")
 	}
 	// resolve local TCP endpoint
@@ -50,7 +54,7 @@ func (p *tlsProtocol) listen(target *Target) (net.Listener, error) {
 		return nil, err
 	}
 
-	cert, err := tls.LoadX509KeyPair(target.TLSConfig.Cert, target.TLSConfig.Key)
+	cert, err := tls.LoadX509KeyPair(optsHash.TLSConfig.Cert, optsHash.TLSConfig.Key)
 	if err != nil {
 		p.Log().Fatal(err)
 	}

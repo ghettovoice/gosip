@@ -155,9 +155,9 @@ func (p *wsProtocol) pipePools() {
 	}
 }
 
-func (p *wsProtocol) Listen(target *Target) error {
+func (p *wsProtocol) Listen(target *Target, options ...ListenOption) error {
 	target = FillTargetHostAndPort(p.Network(), target)
-	listener, err := p.listen(target)
+	listener, err := p.listen(target, options...)
 	if err != nil {
 		return &ProtocolError{
 			err,
@@ -176,7 +176,7 @@ func (p *wsProtocol) Listen(target *Target) error {
 	return err //should be nil here
 }
 
-func (p *wsProtocol) listen(target *Target) (net.Listener, error) {
+func (p *wsProtocol) listen(target *Target, options ...ListenOption) (net.Listener, error) {
 	//resolve local TCP endpoint
 	laddr, err := p.resolveTarget(target)
 	if err != nil {

@@ -41,7 +41,7 @@ func (p *udpProtocol) Done() <-chan struct{} {
 	return p.connections.Done()
 }
 
-func (p *udpProtocol) Listen(target *Target) error {
+func (p *udpProtocol) Listen(target *Target, options ...ListenOption) error {
 	// fill empty target props with default values
 	target = FillTargetHostAndPort(p.Network(), target)
 	// resolve local UDP endpoint

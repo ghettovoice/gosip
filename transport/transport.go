@@ -29,9 +29,8 @@ const (
 
 // Target endpoint
 type Target struct {
-	Host      string
-	Port      *sip.Port
-	TLSConfig *TLSConfig
+	Host string
+	Port *sip.Port
 }
 
 func (trg *Target) Addr() string {
@@ -68,7 +67,7 @@ func (trg *Target) String() string {
 func NewTarget(host string, port int) *Target {
 	cport := sip.Port(port)
 
-	return &Target{Host: host, Port: &cport, TLSConfig: nil}
+	return &Target{Host: host, Port: &cport}
 }
 
 func NewTargetFromAddr(addr string) (*Target, error) {
@@ -358,4 +357,16 @@ func (err UnsupportedProtocolError) Timeout() bool   { return false }
 func (err UnsupportedProtocolError) Temporary() bool { return false }
 func (err UnsupportedProtocolError) Error() string {
 	return "transport.UnsupportedProtocolError: " + string(err)
+}
+
+//TLSConfig for TLS and WSS only
+type TLSConfig struct {
+	TLSDomain string
+	Cert      string
+	Key       string
+	Pass      string
+}
+
+func (c *TLSConfig) ApplyListen(opts *ListenOptions) {
+	opts.TLSConfig = c
 }
