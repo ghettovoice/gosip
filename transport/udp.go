@@ -22,69 +22,68 @@ func NewUdpProtocol(
 	msgMapper sip.MessageMapper,
 	logger log.Logger,
 ) Protocol {
-	udp := new(udpProtocol)
-	udp.network = "udp"
-	udp.reliable = false
-	udp.streamed = false
-	udp.log = logger.
+	p := new(udpProtocol)
+	p.network = "udp"
+	p.reliable = false
+	p.streamed = false
+	p.log = logger.
 		WithPrefix("transport.Protocol").
 		WithFields(log.Fields{
-			"protocol_ptr": fmt.Sprintf("%p", udp),
+			"protocol_ptr": fmt.Sprintf("%p", p),
 		})
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
-	udp.connections = NewConnectionPool(output, errs, cancel, msgMapper, udp.Log())
+	p.connections = NewConnectionPool(output, errs, cancel, msgMapper, p.Log())
 
-	return udp
+	return p
 }
 
-func (udp *udpProtocol) Done() <-chan struct{} {
-	return udp.connections.Done()
+func (p *udpProtocol) Done() <-chan struct{} {
+	return p.connections.Done()
 }
 
-func (udp *udpProtocol) Listen(target *Target) error {
+func (p *udpProtocol) Listen(target *Target) error {
 	// fill empty target props with default values
-	target = FillTargetHostAndPort(udp.Network(), target)
-	network := strings.ToLower(udp.Network())
+	target = FillTargetHostAndPort(p.Network(), target)
 	// resolve local UDP endpoint
-	laddr, err := udp.resolveTarget(target)
+	laddr, err := p.resolveTarget(target)
 	if err != nil {
 		return err
 	}
 	// create UDP connection
-	udpConn, err := net.ListenUDP(network, laddr)
+	udpConn, err := net.ListenUDP(p.network, laddr)
 	if err != nil {
 		return &ProtocolError{
 			err,
-			fmt.Sprintf("listen on %s %s address", udp.Network(), laddr),
-			fmt.Sprintf("%p", udp),
+			fmt.Sprintf("listen on %s %s address", p.Network(), laddr),
+			fmt.Sprintf("%p", p),
 		}
 	}
 
-	udp.Log().Debugf("begin listening on %s %s", udp.Network(), laddr)
+	p.Log().Debugf("begin listening on %s %s", p.Network(), laddr)
 
 	// register new connection
 	// index by local address, TTL=0 - unlimited expiry time
-	key := ConnectionKey(fmt.Sprintf("udp:0.0.0.0:%d", laddr.Port))
-	conn := NewConnection(udpConn, key, udp.Log())
-	err = udp.connections.Put(conn, 0)
+	key := ConnectionKey(fmt.Sprintf("%s:0.0.0.0:%d", p.network, laddr.Port))
+	conn := NewConnection(udpConn, key, p.Log())
+	err = p.connections.Put(conn, 0)
 
 	return err // should be nil here
 }
 
-func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
-	target = FillTargetHostAndPort(udp.Network(), target)
+func (p *udpProtocol) Send(target *Target, msg sip.Message) error {
+	target = FillTargetHostAndPort(p.Network(), target)
 
 	// validate remote address
 	if target.Host == "" {
 		return &ProtocolError{
 			fmt.Errorf("empty remote target host"),
-			fmt.Sprintf("send SIP message to %s %s", udp.Network(), target.Addr()),
-			fmt.Sprintf("%p", udp),
+			fmt.Sprintf("send SIP message to %s %s", p.Network(), target.Addr()),
+			fmt.Sprintf("%p", p),
 		}
 	}
 
 	// resolve remote address
-	raddr, err := udp.resolveTarget(target)
+	raddr, err := p.resolveTarget(target)
 	if err != nil {
 		return err
 	}
@@ -92,38 +91,38 @@ func (udp *udpProtocol) Send(target *Target, msg sip.Message) error {
 	// send through already opened by connection
 	// to always use same local port
 	_, port, err := net.SplitHostPort(msg.Source())
-	conn, err := udp.connections.Get(ConnectionKey("udp:0.0.0.0:" + port))
+	conn, err := p.connections.Get(ConnectionKey(p.network + ":0.0.0.0:" + port))
 	if err != nil {
 		// todo change this bloody patch
-		if len(udp.connections.All()) == 0 {
+		if len(p.connections.All()) == 0 {
 			return &ProtocolError{
 				fmt.Errorf("connection not found: %w", err),
-				fmt.Sprintf("send SIP message to %s %s", udp.Network(), raddr),
-				fmt.Sprintf("%p", udp),
+				fmt.Sprintf("send SIP message to %s %s", p.Network(), raddr),
+				fmt.Sprintf("%p", p),
 			}
 		}
 
-		conn = udp.connections.All()[0]
+		conn = p.connections.All()[0]
 	}
 
-	logger := log.AddFieldsFrom(udp.Log(), conn, msg)
-	logger.Tracef("writing SIP message to %s %s", udp.Network(), raddr)
+	logger := log.AddFieldsFrom(p.Log(), conn, msg)
+	logger.Tracef("writing SIP message to %s %s", p.Network(), raddr)
 
 	_, err = conn.WriteTo([]byte(msg.String()), raddr)
 
 	return err // should be nil
 }
 
-func (udp *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
+func (p *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
 	addr := target.Addr()
-	network := strings.ToLower(udp.Network())
+	network := strings.ToLower(p.Network())
 	// resolve remote address
 	raddr, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {
 		return nil, &ProtocolError{
 			err,
-			fmt.Sprintf("resolve target address %s %s", udp.Network(), addr),
-			fmt.Sprintf("%p", udp),
+			fmt.Sprintf("resolve target address %s %s", p.Network(), addr),
+			fmt.Sprintf("%p", p),
 		}
 	}
 

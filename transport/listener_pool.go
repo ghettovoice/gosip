@@ -751,11 +751,15 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 			return
 		}
 		network := "udp"
-		switch baseConn.(type) {
+		switch bc := baseConn.(type) {
 		case *tls.Conn:
 			network = "tls"
-		case WsConn:
-			network = "wss"
+		case *wsConn:
+			if _, ok := bc.Conn.(*tls.Conn); ok {
+				network = "wss"
+			} else {
+				network = "ws"
+			}
 		default:
 			network = strings.ToLower(baseConn.RemoteAddr().Network())
 		}

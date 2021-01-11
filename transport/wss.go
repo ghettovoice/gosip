@@ -5,24 +5,25 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 )
 
-type tlsProtocol struct {
-	tcpProtocol
+type wssProtocol struct {
+	wsProtocol
 }
 
-func NewTlsProtocol(
+func NewWssProtocol(
 	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
 	msgMapper sip.MessageMapper,
 	logger log.Logger,
 ) Protocol {
-	p := new(tlsProtocol)
-	p.network = "tls"
+	p := new(wsProtocol)
+	p.network = "wss"
 	p.reliable = true
 	p.streamed = true
 	p.conns = make(chan Connection)
@@ -34,17 +35,24 @@ func NewTlsProtocol(
 	//TODO: add separate errs chan to listen errors from pool for reconnection?
 	p.listeners = NewListenerPool(p.conns, errs, cancel, p.Log())
 	p.connections = NewConnectionPool(output, errs, cancel, msgMapper, p.Log())
+	p.dialer.Protocols = []string{wsSubProtocol}
+	p.dialer.Timeout = time.Minute
+	p.dialer.TLSConfig = &tls.Config{
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			return nil
+		},
+	}
 	//pipe listener and connection pools
 	go p.pipePools()
 
 	return p
 }
 
-func (p *tlsProtocol) listen(target *Target) (net.Listener, error) {
+func (p *wssProtocol) listen(target *Target) (net.Listener, error) {
 	if target.TLSConfig == nil {
 		return nil, fmt.Errorf("valid TLSConfig is required to start listener")
 	}
-	// resolve local TCP endpoint
+	//resolve local TCP endpoint
 	laddr, err := p.resolveTarget(target)
 	if err != nil {
 		return nil, err
@@ -57,13 +65,5 @@ func (p *tlsProtocol) listen(target *Target) (net.Listener, error) {
 
 	return tls.Listen("tcp", laddr.String(), &tls.Config{
 		Certificates: []tls.Certificate{cert},
-	})
-}
-
-func (p *tlsProtocol) dial(addr net.Addr) (net.Conn, error) {
-	return tls.Dial(p.network, addr.String(), &tls.Config{
-		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-			return nil
-		},
 	})
 }

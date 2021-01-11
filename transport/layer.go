@@ -48,6 +48,8 @@ var protocolFactory ProtocolFactory = func(
 		return NewTcpProtocol(output, errs, cancel, msgMapper, logger), nil
 	case "tls":
 		return NewTlsProtocol(output, errs, cancel, msgMapper, logger), nil
+	case "ws":
+		return NewWsProtocol(output, errs, cancel, msgMapper, logger), nil
 	case "wss":
 		return NewWssProtocol(output, errs, cancel, msgMapper, logger), nil
 	default:
@@ -267,7 +269,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 
 			if protocol.Streamed() {
 				if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
-					msg.SetBody("", true)
+					msg.SetBody(msg.Body(), true)
 				}
 			}
 
@@ -346,7 +348,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 
 		if protocol.Streamed() {
 			if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
-				msg.SetBody("", true)
+				msg.SetBody(msg.Body(), true)
 			}
 		}
 

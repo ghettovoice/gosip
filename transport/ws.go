@@ -2,36 +2,34 @@ package transport
 
 import (
 	"context"
-	ntls "crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"time"
+
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
 )
 
 var (
-	subprotocol = "sip"
+	wsSubProtocol = "sip"
 )
 
-type WsConn struct {
+type wsConn struct {
+	net.Conn
 	client bool
-	conn   net.Conn
 }
 
-func (wc WsConn) Read(b []byte) (n int, err error) {
+func (wc *wsConn) Read(b []byte) (n int, err error) {
 	var msg []byte
 	var op ws.OpCode
 	if wc.client {
-		msg, op, err = wsutil.ReadServerData(wc.conn)
+		msg, op, err = wsutil.ReadServerData(wc.Conn)
 	} else {
-		msg, op, err = wsutil.ReadClientData(wc.conn)
+		msg, op, err = wsutil.ReadClientData(wc.Conn)
 	}
 	if err != nil {
 		// handle error
@@ -44,11 +42,11 @@ func (wc WsConn) Read(b []byte) (n int, err error) {
 	return len(msg), err
 }
 
-func (wc WsConn) Write(b []byte) (n int, err error) {
+func (wc *wsConn) Write(b []byte) (n int, err error) {
 	if wc.client {
-		err = wsutil.WriteClientMessage(wc.conn, ws.OpText, b)
+		err = wsutil.WriteClientMessage(wc.Conn, ws.OpText, b)
 	} else {
-		err = wsutil.WriteServerMessage(wc.conn, ws.OpText, b)
+		err = wsutil.WriteServerMessage(wc.Conn, ws.OpText, b)
 	}
 	if err != nil {
 		// handle error
@@ -57,260 +55,214 @@ func (wc WsConn) Write(b []byte) (n int, err error) {
 	return len(b), nil
 }
 
-func (wc WsConn) LocalAddr() net.Addr {
-	return wc.conn.LocalAddr()
-}
-
-// RemoteAddr returns the remote network address.
-func (wc WsConn) RemoteAddr() net.Addr {
-	return wc.conn.RemoteAddr()
-}
-
-func (wc WsConn) Close() error {
-	return wc.conn.Close()
-}
-
-func (wc WsConn) SetDeadline(t time.Time) error {
-	return wc.conn.SetDeadline(t)
-}
-
-func (wc WsConn) SetReadDeadline(t time.Time) error {
-	return wc.conn.SetReadDeadline(t)
-}
-
-func (wc WsConn) SetWriteDeadline(t time.Time) error {
-	return wc.conn.SetWriteDeadline(t)
-}
-
 type wsListener struct {
-	listener net.Listener
-	log      log.Logger
-	u        ws.Upgrader
+	net.Listener
+	log log.Logger
+	u   ws.Upgrader
 }
 
-func NewWsListener(listener net.Listener, address string, log log.Logger) *wsListener {
-	l := &wsListener{listener: listener, log: log}
-	l.u = ws.Upgrader{}
+func NewWsListener(listener net.Listener, log log.Logger) *wsListener {
+	l := &wsListener{
+		Listener: listener,
+		log:      log,
+	}
+	l.u.Protocol = func(val []byte) bool {
+		return string(val) == wsSubProtocol
+	}
 	return l
 }
 
 func (l *wsListener) Accept() (net.Conn, error) {
-	conn, err := l.listener.Accept()
+	conn, err := l.Listener.Accept()
 	if err != nil {
-		l.log.Infof("Error on wsListener.Accept %v", err)
-		return nil, err
+		return nil, fmt.Errorf("accept new connection: %w", err)
 	}
-	_, err = l.u.Upgrade(conn)
-	if err != nil {
-		l.log.Infof("Error on wsListener.Accept.Upgrade %v", err)
-		return nil, err
+	if _, err = l.u.Upgrade(conn); err == nil {
+		conn = &wsConn{
+			Conn:   conn,
+			client: false,
+		}
+	} else {
+		l.log.Warnf("fallback to simple TCP connection due to WS upgrade error: %s", err)
+		err = nil
 	}
-	wc := WsConn{conn: conn, client: false}
-	return wc, err
+	return conn, err
 }
 
-func (l *wsListener) Close() error {
-	return l.listener.Close()
-}
-
-func (l *wsListener) Addr() net.Addr {
-	return l.listener.Addr()
-}
-
-type wssProtocol struct {
+type wsProtocol struct {
 	protocol
 	listeners   ListenerPool
 	connections ConnectionPool
 	conns       chan Connection
+	dialer      ws.Dialer
 }
 
-func NewWssProtocol(output chan<- sip.Message, errs chan<- error, cancel <-chan struct{}, msgMapper sip.MessageMapper, logger log.Logger) Protocol {
-	wss := new(wssProtocol)
-	wss.network = "wss"
-	wss.reliable = true
-	wss.streamed = true
-	wss.conns = make(chan Connection)
-
-	wss.log = logger.
+func NewWsProtocol(
+	output chan<- sip.Message,
+	errs chan<- error,
+	cancel <-chan struct{},
+	msgMapper sip.MessageMapper,
+	logger log.Logger,
+) Protocol {
+	p := new(wsProtocol)
+	p.network = "ws"
+	p.reliable = true
+	p.streamed = true
+	p.conns = make(chan Connection)
+	p.log = logger.
 		WithPrefix("transport.Protocol").
 		WithFields(log.Fields{
-			"protocol_ptr": fmt.Sprintf("%p", wss),
+			"protocol_ptr": fmt.Sprintf("%p", p),
 		})
-
 	//TODO: add separate errs chan to listen errors from pool for reconnection?
-	wss.listeners = NewListenerPool(wss.conns, errs, cancel, wss.Log())
-	wss.connections = NewConnectionPool(output, errs, cancel, msgMapper, wss.Log())
-
+	p.listeners = NewListenerPool(p.conns, errs, cancel, p.Log())
+	p.connections = NewConnectionPool(output, errs, cancel, msgMapper, p.Log())
+	p.dialer.Protocols = []string{wsSubProtocol}
+	p.dialer.Timeout = time.Minute
 	//pipe listener and connection pools
-	go wss.pipePools()
+	go p.pipePools()
 
-	return wss
+	return p
 }
 
-func (wss *wssProtocol) String() string {
-	return fmt.Sprintf("Wss%s", wss.protocol.String())
-}
-
-func (wss *wssProtocol) Done() <-chan struct{} {
-	return wss.connections.Done()
+func (p *wsProtocol) Done() <-chan struct{} {
+	return p.connections.Done()
 }
 
 //piping new connections to connection pool for serving
-func (wss *wssProtocol) pipePools() {
-	defer func() {
-		wss.Log().Debugf("stop %s managing", wss)
-		wss.dispose()
-	}()
-	wss.Log().Debugf("start %s managing", wss)
+func (p *wsProtocol) pipePools() {
+	defer close(p.conns)
+
+	p.Log().Debug("start pipe pools")
+	defer p.Log().Debug("stop pipe pools")
 
 	for {
 		select {
-		case <-wss.listeners.Done():
+		case <-p.listeners.Done():
 			return
-		case conn, ok := <-wss.conns:
-			if !ok {
-				return
-			}
-			logger := log.AddFieldsFrom(wss.Log(), conn)
-			if err := wss.connections.Put(conn, sockTTL); err != nil {
+		case conn := <-p.conns:
+			logger := log.AddFieldsFrom(p.Log(), conn)
+
+			if err := p.connections.Put(conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
-				logger.Errorf("put new TLS connection failed: %s", err)
+				logger.Errorf("put new %s connection failed: %s", p.Network(), err)
+
+				conn.Close()
+
 				continue
 			}
 		}
 	}
 }
 
-func (wss *wssProtocol) dispose() {
-	wss.Log().Debugf("dispose %s", wss)
-	close(wss.conns)
-}
-
-func (wss *wssProtocol) Listen(target *Target) error {
-	target = FillTargetHostAndPort(wss.Network(), target)
-
-	//resolve local TCP endpoint
-	laddr, err := wss.resolveTarget(target)
+func (p *wsProtocol) Listen(target *Target) error {
+	target = FillTargetHostAndPort(p.Network(), target)
+	listener, err := p.listen(target)
 	if err != nil {
-		return err
-	}
-
-	var listener net.Listener
-	if target.TLSConfig != nil {
-		cert, err := ntls.LoadX509KeyPair(target.TLSConfig.Cert, target.TLSConfig.Key)
-		if err != nil {
-			wss.Log().Fatal(err)
-		}
-		//create tls listener
-		listener, err = ntls.Listen("tcp", laddr.String(), &ntls.Config{
-			Certificates: []ntls.Certificate{cert},
-		})
-		if err != nil {
-			return &ProtocolError{
-				fmt.Errorf("failed to listen address %s: %s", laddr, err),
-				fmt.Sprintf("create %s listener", wss.Network()),
-				"wss",
-			}
-		}
-	} else {
-		//create tcp listener
-		listener, err = net.Listen("tcp", laddr.String())
-		if err != nil {
-			return &ProtocolError{
-				fmt.Errorf("failed to listen address %s: %s", laddr, err),
-				fmt.Sprintf("create %s listener", wss.Network()),
-				"ws",
-			}
+		return &ProtocolError{
+			err,
+			fmt.Sprintf("listen on %s %s address", p.Network(), target.Addr()),
+			fmt.Sprintf("%p", p),
 		}
 	}
 
-	wsl := NewWsListener(listener, laddr.String(), wss.Log())
+	p.Log().Debugf("begin listening on %s %s", p.Network(), target.Addr())
 
 	//index listeners by local address
-	protocol := "ws"
-	if target.TLSConfig != nil {
-		protocol = "wss"
-	}
-
-	key := ListenerKey(fmt.Sprintf("%s:0.0.0.0:%d", protocol, laddr.Port))
-	wss.listeners.Put(key, wsl)
-
-	wss.Log().Infof("listening on %s://%v", protocol, laddr.String())
+	// should live infinitely
+	key := ListenerKey(fmt.Sprintf("%s:0.0.0.0:%d", p.network, target.Port))
+	err = p.listeners.Put(key, NewWsListener(listener, p.Log()))
 
 	return err //should be nil here
 }
 
-func (wss *wssProtocol) Send(target *Target, msg sip.Message) error {
-	target = FillTargetHostAndPort(wss.Network(), target)
+func (p *wsProtocol) listen(target *Target) (net.Listener, error) {
+	//resolve local TCP endpoint
+	laddr, err := p.resolveTarget(target)
+	if err != nil {
+		return nil, err
+	}
+	//create tcp listener
+	return net.ListenTCP("tcp", laddr)
+}
 
-	wss.Log().Infof("sending message '%s' to %s", msg.Short(), target.Addr())
-	wss.Log().Debugf("sending message '%s' to %s:\r\n%s", msg.Short(), target.Addr(), msg)
+func (p *wsProtocol) Send(target *Target, msg sip.Message) error {
+	target = FillTargetHostAndPort(p.Network(), target)
 
 	//validate remote address
-	if target.Host == "" || target.Host == DefaultHost {
+	if target.Host == "" {
 		return &ProtocolError{
-			fmt.Errorf("invalid remote host resolved %s", target.Host),
-			"resolve destination address",
-			fmt.Sprintf("%p", wss),
+			fmt.Errorf("empty remote target host"),
+			fmt.Sprintf("send SIP message to %s %s", p.Network(), target.Addr()),
+			fmt.Sprintf("%p", p),
 		}
 	}
 	//resolve remote address
-	raddr, err := wss.resolveTarget(target)
+	raddr, err := p.resolveTarget(target)
 	if err != nil {
 		return err
 	}
+
 	//find or create connection
-	conn, err := wss.getOrCreateConnection(raddr)
+	conn, err := p.getOrCreateConnection(raddr)
 	if err != nil {
 		return err
 	}
+
+	logger := log.AddFieldsFrom(p.Log(), conn, msg)
+	logger.Tracef("writing SIP message to %s %s", p.Network(), raddr)
+
 	//send message
 	_, err = conn.Write([]byte(msg.String()))
 
 	return err
 }
 
-func (wss *wssProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
+func (p *wsProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 	addr := target.Addr()
-	network := "tcp"
 	//resolve remote address
-	raddr, err := net.ResolveTCPAddr(network, addr)
+	raddr, err := net.ResolveTCPAddr(p.network, addr)
 	if err != nil {
 		return nil, &ProtocolError{
 			err,
-			fmt.Sprintf("resolve target address %s %s", wss.Network(), addr),
-			fmt.Sprintf("%p", wss),
+			fmt.Sprintf("resolve target address %s %s", p.Network(), addr),
+			fmt.Sprintf("%p", p),
 		}
 	}
 
 	return raddr, nil
 }
 
-func (wss *wssProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
-	network := strings.ToLower(wss.Network())
-	key := ConnectionKey("wss:" + raddr.String())
-	conn, err := wss.connections.Get(key)
-
+func (p *wsProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
+	key := ConnectionKey(p.network + ":" + raddr.String())
+	conn, err := p.connections.Get(key)
 	if err != nil {
-		wss.Log().Debugf("connection for address %s not found; create a new one", raddr)
-		url := network + "://" + raddr.String()
-		dialer := ws.Dialer{
-			TLSConfig: &ntls.Config{
-				VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-					return nil
-				},
-			},
-		}
-		wsConn, _, _, err := dialer.Dial(context.TODO(), url)
-		if err != nil {
-			return nil, &ProtocolError{
-				err,
-				fmt.Sprintf("connect to %s %s address", network, raddr),
-				fmt.Sprintf("%p", wss),
+		p.Log().Debugf("connection for address %s %s not found; create a new one", p.Network(), raddr)
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		url := fmt.Sprintf("%s://%s", p.network, raddr)
+		baseConn, _, _, err := p.dialer.Dial(ctx, url)
+		if err == nil {
+			baseConn = &wsConn{
+				Conn:   baseConn,
+				client: true,
 			}
+		} else {
+			if baseConn == nil {
+				return nil, &ProtocolError{
+					err,
+					fmt.Sprintf("connect to %s %s address", p.Network(), raddr),
+					fmt.Sprintf("%p", p),
+				}
+			}
+
+			p.Log().Warnf("fallback to TCP connection due to WS upgrade error: %s", err)
 		}
-		conn = NewConnection(WsConn{conn: wsConn, client: true}, key, wss.Log())
-		if err := wss.connections.Put(conn, sockTTL); err != nil {
+
+		conn = NewConnection(baseConn, key, p.Log())
+
+		if err := p.connections.Put(conn, sockTTL); err != nil {
 			return conn, err
 		}
 	}
