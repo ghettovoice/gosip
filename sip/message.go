@@ -250,11 +250,14 @@ func (hs *headers) RemoveHeader(name string) {
 
 // CloneHeaders returns all cloned headers in slice.
 func (hs *headers) CloneHeaders() []Header {
+	return cloneHeaders(hs)
+}
+
+func cloneHeaders(msg interface{ Headers() []Header }) []Header {
 	hdrs := make([]Header, 0)
-	for _, header := range hs.Headers() {
+	for _, header := range msg.Headers() {
 		hdrs = append(hdrs, header.Clone())
 	}
-
 	return hdrs
 }
 
@@ -378,8 +381,7 @@ type message struct {
 	startLine  func() string
 	src        string
 	dest       string
-
-	fields log.Fields
+	fields     log.Fields
 }
 
 func (msg *message) MessageID() MessageID {

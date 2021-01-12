@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/ghettovoice/gosip/log"
 )
@@ -55,14 +54,11 @@ func NewResponse(
 	res.headers = newHeaders(hdrs)
 	res.SetStatusCode(statusCode)
 	res.SetReason(reason)
+	res.SetBody(body, false)
 	res.fields = fields.WithFields(log.Fields{
 		"response_id": res.messID,
 	})
 	res.previous = make([]Response, 0)
-
-	if strings.TrimSpace(body) != "" {
-		res.SetBody(body, true)
-	}
 
 	return res
 }
@@ -125,27 +121,11 @@ func (res *response) StartLine() string {
 }
 
 func (res *response) Clone() Message {
-	return NewResponse(
-		"",
-		res.SipVersion(),
-		res.StatusCode(),
-		res.Reason(),
-		res.headers.CloneHeaders(),
-		res.Body(),
-		res.Fields(),
-	)
+	return cloneResponse(res, "", nil)
 }
 
 func (res *response) WithFields(fields log.Fields) Message {
-	return NewResponse(
-		res.MessageID(),
-		res.SipVersion(),
-		res.StatusCode(),
-		res.Reason(),
-		res.headers.CloneHeaders(),
-		res.Body(),
-		res.Fields().WithFields(fields),
-	)
+	return cloneResponse(res, res.MessageID(), fields)
 }
 
 func (res *response) IsProvisional() bool {
@@ -200,7 +180,7 @@ func NewResponseFromRequest(
 		statusCode,
 		reason,
 		[]Header{},
-		"",
+		body,
 		req.Fields(),
 	)
 
@@ -217,10 +197,6 @@ func NewResponseFromRequest(
 
 	res.SetSource(req.Destination())
 	res.SetDestination(req.Source())
-
-	if len(body) > 0 {
-		res.SetBody(body, true)
-	}
 
 	return res
 }
@@ -259,25 +235,33 @@ func (res *response) Destination() string {
 		port = DefaultPort(res.Transport())
 	}
 
-	return fmt.Sprintf("%v:%v", host, port)
+	res.dest = fmt.Sprintf("%v:%v", host, port)
+
+	return res.dest
 }
 
-func CopyResponse(res Response) Response {
-	hdrs := make([]Header, 0)
-	for _, header := range res.Headers() {
-		hdrs = append(hdrs, header.Clone())
+func cloneResponse(res Response, id MessageID, fields log.Fields) Response {
+	newFields := res.Fields()
+	if fields != nil {
+		newFields = newFields.WithFields(fields)
 	}
 
 	newRes := NewResponse(
-		res.MessageID(),
+		id,
 		res.SipVersion(),
 		res.StatusCode(),
 		res.Reason(),
-		hdrs,
+		cloneHeaders(res),
 		res.Body(),
-		res.Fields(),
+		newFields,
 	)
 	newRes.SetPrevious(res.Previous())
+	newRes.SetSource(res.Source())
+	newRes.SetDestination(res.Destination())
 
 	return newRes
+}
+
+func CopyResponse(res Response) Response {
+	return cloneResponse(res, res.MessageID(), nil)
 }

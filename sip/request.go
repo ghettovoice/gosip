@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/ghettovoice/gosip/log"
 )
@@ -46,13 +45,10 @@ func NewRequest(
 	req.headers = newHeaders(hdrs)
 	req.SetMethod(method)
 	req.SetRecipient(recipient)
+	req.SetBody(body, false)
 	req.fields = fields.WithFields(log.Fields{
 		"request_id": req.messID,
 	})
-
-	if strings.TrimSpace(body) != "" {
-		req.SetBody(body, true)
-	}
 
 	return req
 }
@@ -106,30 +102,11 @@ func (req *request) StartLine() string {
 }
 
 func (req *request) Clone() Message {
-	return NewRequest(
-		"",
-		req.Method(),
-		req.Recipient().Clone(),
-		req.SipVersion(),
-		req.headers.CloneHeaders(),
-		req.Body(),
-		req.Fields(),
-	)
+	return cloneRequest(req, "", nil)
 }
 
 func (req *request) WithFields(fields log.Fields) Message {
-	msg := NewRequest(
-		req.MessageID(),
-		req.Method(),
-		req.Recipient().Clone(),
-		req.SipVersion(),
-		req.headers.CloneHeaders(),
-		req.Body(),
-		req.Fields().WithFields(fields),
-	)
-	msg.SetSource(req.Source())
-	msg.SetDestination(req.Destination())
-	return msg
+	return cloneRequest(req, req.MessageID(), fields)
 }
 
 func (req *request) IsInvite() bool {
@@ -174,7 +151,9 @@ func (req *request) Source() string {
 		port = DefaultPort(req.Transport())
 	}
 
-	return fmt.Sprintf("%v:%v", host, port)
+	req.src = fmt.Sprintf("%v:%v", host, port)
+
+	return req.src
 }
 
 func (req *request) Destination() string {
@@ -205,7 +184,9 @@ func (req *request) Destination() string {
 		port = *uri.FPort
 	}
 
-	return fmt.Sprintf("%v:%v", host, port)
+	req.dest = fmt.Sprintf("%v:%v", host, port)
+
+	return req.dest
 }
 
 // NewAckForInvite creates ACK request for 2xx INVITE
@@ -293,19 +274,27 @@ func NewCancelRequest(cancelID MessageID, requestForCancel Request, fields log.F
 	return cancelReq
 }
 
-func CopyRequest(req Request) Request {
-	hdrs := make([]Header, 0)
-	for _, header := range req.Headers() {
-		hdrs = append(hdrs, header.Clone())
+func cloneRequest(req Request, id MessageID, fields log.Fields) Request {
+	newFields := req.Fields()
+	if fields != nil {
+		newFields = newFields.WithFields(fields)
 	}
 
-	return NewRequest(
-		req.MessageID(),
+	newReq := NewRequest(
+		id,
 		req.Method(),
 		req.Recipient().Clone(),
 		req.SipVersion(),
-		hdrs,
+		cloneHeaders(req),
 		req.Body(),
-		req.Fields(),
+		newFields,
 	)
+	newReq.SetSource(req.Source())
+	newReq.SetDestination(req.Destination())
+
+	return newReq
+}
+
+func CopyRequest(req Request) Request {
+	return cloneRequest(req, req.MessageID(), nil)
 }
