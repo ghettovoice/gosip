@@ -47,7 +47,11 @@ func (p *udpProtocol) Listen(target *Target, options ...ListenOption) error {
 	// resolve local UDP endpoint
 	laddr, err := p.resolveTarget(target)
 	if err != nil {
-		return err
+		return &ProtocolError{
+			err,
+			fmt.Sprintf("resolve target address %s %s", p.Network(), target.Addr()),
+			fmt.Sprintf("%p", p),
+		}
 	}
 	// create UDP connection
 	udpConn, err := net.ListenUDP(p.network, laddr)
@@ -66,6 +70,13 @@ func (p *udpProtocol) Listen(target *Target, options ...ListenOption) error {
 	key := ConnectionKey(fmt.Sprintf("%s:0.0.0.0:%d", p.network, laddr.Port))
 	conn := NewConnection(udpConn, key, p.Log())
 	err = p.connections.Put(conn, 0)
+	if err != nil {
+		err = &ProtocolError{
+			Err:      err,
+			Op:       fmt.Sprintf("put %s connection to the pool", conn.Key()),
+			ProtoPtr: fmt.Sprintf("%p", p),
+		}
+	}
 
 	return err // should be nil here
 }
@@ -85,10 +96,14 @@ func (p *udpProtocol) Send(target *Target, msg sip.Message) error {
 	// resolve remote address
 	raddr, err := p.resolveTarget(target)
 	if err != nil {
-		return err
+		return &ProtocolError{
+			err,
+			fmt.Sprintf("resolve target address %s %s", p.Network(), target.Addr()),
+			fmt.Sprintf("%p", p),
+		}
 	}
 
-	// send through already opened by connection
+	// send through already opened connection
 	// to always use same local port
 	_, port, err := net.SplitHostPort(msg.Source())
 	conn, err := p.connections.Get(ConnectionKey(p.network + ":0.0.0.0:" + port))
@@ -109,6 +124,13 @@ func (p *udpProtocol) Send(target *Target, msg sip.Message) error {
 	logger.Tracef("writing SIP message to %s %s", p.Network(), raddr)
 
 	_, err = conn.WriteTo([]byte(msg.String()), raddr)
+	if err != nil {
+		err = &ProtocolError{
+			Err:      err,
+			Op:       fmt.Sprintf("write SIP message to the %s connection", conn.Key()),
+			ProtoPtr: fmt.Sprintf("%p", p),
+		}
+	}
 
 	return err // should be nil
 }
@@ -119,11 +141,7 @@ func (p *udpProtocol) resolveTarget(target *Target) (*net.UDPAddr, error) {
 	// resolve remote address
 	raddr, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {
-		return nil, &ProtocolError{
-			err,
-			fmt.Sprintf("resolve target address %s %s", p.Network(), addr),
-			fmt.Sprintf("%p", p),
-		}
+		return nil, fmt.Errorf("resolve UDP address %s: %w", addr, err)
 	}
 
 	return raddr, nil

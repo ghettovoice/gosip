@@ -145,7 +145,7 @@ func (p *wsProtocol) pipePools() {
 
 			if err := p.connections.Put(conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
-				logger.Errorf("put new %s connection failed: %s", p.Network(), err)
+				logger.Errorf("put %s connection to the pool failed: %s", conn.Key(), err)
 
 				conn.Close()
 
@@ -172,6 +172,13 @@ func (p *wsProtocol) Listen(target *Target, options ...ListenOption) error {
 	// should live infinitely
 	key := ListenerKey(fmt.Sprintf("%s:0.0.0.0:%d", p.network, target.Port))
 	err = p.listeners.Put(key, NewWsListener(listener, p.Log()))
+	if err != nil {
+		err = &ProtocolError{
+			Err:      err,
+			Op:       fmt.Sprintf("put %s listener to the pool", key),
+			ProtoPtr: fmt.Sprintf("%p", p),
+		}
+	}
 
 	return err //should be nil here
 }
@@ -180,10 +187,14 @@ func (p *wsProtocol) listen(target *Target, options ...ListenOption) (net.Listen
 	//resolve local TCP endpoint
 	laddr, err := p.resolveTarget(target)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve target address %s %s: %w", p.Network(), target.Addr(), err)
 	}
 	//create tcp listener
-	return net.ListenTCP("tcp", laddr)
+	l, err := net.ListenTCP("tcp", laddr)
+	if err != nil {
+		err = fmt.Errorf("init TCP listener on %s: %w", laddr, err)
+	}
+	return l, err
 }
 
 func (p *wsProtocol) Send(target *Target, msg sip.Message) error {
@@ -200,13 +211,21 @@ func (p *wsProtocol) Send(target *Target, msg sip.Message) error {
 	//resolve remote address
 	raddr, err := p.resolveTarget(target)
 	if err != nil {
-		return err
+		return &ProtocolError{
+			err,
+			fmt.Sprintf("resolve target address %s %s", p.Network(), target.Addr()),
+			fmt.Sprintf("%p", p),
+		}
 	}
 
 	//find or create connection
 	conn, err := p.getOrCreateConnection(raddr)
 	if err != nil {
-		return err
+		return &ProtocolError{
+			Err:      err,
+			Op:       fmt.Sprintf("get or create %s connection", p.Network()),
+			ProtoPtr: fmt.Sprintf("%p", p),
+		}
 	}
 
 	logger := log.AddFieldsFrom(p.Log(), conn, msg)
@@ -214,6 +233,13 @@ func (p *wsProtocol) Send(target *Target, msg sip.Message) error {
 
 	//send message
 	_, err = conn.Write([]byte(msg.String()))
+	if err != nil {
+		err = &ProtocolError{
+			Err:      err,
+			Op:       fmt.Sprintf("write SIP message to the %s connection", conn.Key()),
+			ProtoPtr: fmt.Sprintf("%p", p),
+		}
+	}
 
 	return err
 }
@@ -221,13 +247,9 @@ func (p *wsProtocol) Send(target *Target, msg sip.Message) error {
 func (p *wsProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
 	addr := target.Addr()
 	//resolve remote address
-	raddr, err := net.ResolveTCPAddr(p.network, addr)
+	raddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
-		return nil, &ProtocolError{
-			err,
-			fmt.Sprintf("resolve target address %s %s", p.Network(), addr),
-			fmt.Sprintf("%p", p),
-		}
+		return nil, fmt.Errorf("resolve TCP address %s: %w", addr, err)
 	}
 
 	return raddr, nil
@@ -250,11 +272,7 @@ func (p *wsProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, erro
 			}
 		} else {
 			if baseConn == nil {
-				return nil, &ProtocolError{
-					err,
-					fmt.Sprintf("connect to %s %s address", p.Network(), raddr),
-					fmt.Sprintf("%p", p),
-				}
+				return nil, fmt.Errorf("dial to %s %s: %w", p.Network(), raddr, err)
 			}
 
 			p.Log().Warnf("fallback to TCP connection due to WS upgrade error: %s", err)
@@ -263,7 +281,7 @@ func (p *wsProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, erro
 		conn = NewConnection(baseConn, key, p.Log())
 
 		if err := p.connections.Put(conn, sockTTL); err != nil {
-			return conn, err
+			return conn, fmt.Errorf("put %s connection to the pool: %w", conn.Key(), err)
 		}
 	}
 

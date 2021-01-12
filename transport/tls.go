@@ -46,22 +46,26 @@ func (p *tlsProtocol) listen(target *Target, options ...ListenOption) (net.Liste
 		opt.ApplyListen(&optsHash)
 	}
 	if optsHash.TLSConfig == nil {
-		return nil, fmt.Errorf("valid TLSConfig is required to start listener")
+		return nil, fmt.Errorf("valid TLSConfig is required to start %s listener", p.Network())
 	}
 	// resolve local TCP endpoint
 	laddr, err := p.resolveTarget(target)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve target address %s %s: %w", p.Network(), target.Addr(), err)
 	}
 
 	cert, err := tls.LoadX509KeyPair(optsHash.TLSConfig.Cert, optsHash.TLSConfig.Key)
 	if err != nil {
-		p.Log().Fatal(err)
+		p.Log().Fatalf("load TLS certificate failed: %s", err)
 	}
 
-	return tls.Listen("tcp", laddr.String(), &tls.Config{
+	l, err := tls.Listen("tcp", laddr.String(), &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	})
+	if err != nil {
+		err = fmt.Errorf("init TCP listener on %s: %w", laddr, err)
+	}
+	return l, err
 }
 
 func (p *tlsProtocol) dial(addr net.Addr) (net.Conn, error) {

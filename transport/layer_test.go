@@ -197,6 +197,8 @@ var _ = Describe("TransportLayer", func() {
 						"OK",
 						"",
 					)
+					cl := sip.ContentLength(0)
+					response.AppendHeader(&cl)
 					ua := sip.UserAgentHeader("GoSIP")
 					response.AppendHeader(&ua)
 				})

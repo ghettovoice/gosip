@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -296,6 +297,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 					case "WS":
 						fallthrough
 					case "WSS":
+						fallthrough
 					case "TCP":
 						if addr, err := net.ResolveTCPAddr("tcp", addrStr); err == nil {
 							port := sip.Port(addr.Port)
@@ -389,8 +391,7 @@ func (tpl *layer) dispose() {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tpl *layer) handleMessage(msg sip.Message) {
-	logger := tpl.Log().
-		WithFields(msg.Fields())
+	logger := tpl.Log().WithFields(msg.Fields())
 
 	logger.Infof("received SIP message:\n%s", msg)
 	logger.Trace("passing up SIP message...")
@@ -405,10 +406,10 @@ func (tpl *layer) handleMessage(msg sip.Message) {
 
 func (tpl *layer) handlerError(err error) {
 	// TODO: implement re-connection strategy for listeners
-	if err, ok := err.(Error); ok {
-		// currently log and ignore
-		tpl.Log().Errorf("SIP transport error: %s", err)
-
+	var terr Error
+	if errors.As(err, &terr) {
+		// currently log
+		tpl.Log().Warnf("SIP transport error: %s", err)
 	}
 
 	logger := tpl.Log().WithFields(log.Fields{

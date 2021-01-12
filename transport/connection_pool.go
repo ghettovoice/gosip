@@ -925,18 +925,6 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				select {
 				case <-handler.canceled:
 				case errs <- err:
-					var connErr *ConnectionError
-					if errors.As(err, &connErr) {
-						herr := &ConnectionHandlerError{
-							err,
-							handler.Key(),
-							fmt.Sprintf("%p", handler),
-							handler.Connection().Network(),
-							fmt.Sprintf("%v", handler.Connection().LocalAddr()),
-							fmt.Sprintf("%v", handler.Connection().RemoteAddr()),
-						}
-						handler.errs <- herr
-					}
 				}
 
 				return
@@ -1068,8 +1056,16 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 					viaHop.Params.Add("rport", sip.String{Str: rport})
 				}
 
-				if handler.Connection().Streamed() {
+				if streamed {
 					msg.SetSource(raddr)
+				} else {
+					var addr string
+					if viaHop.Params.Has("rport") {
+						addr = raddr
+					} else {
+						addr = fmt.Sprintf("%s:%s", rhost, viaHop.Port)
+					}
+					msg.SetSource(addr)
 				}
 			case sip.Response:
 				// Set Remote Address as response source
