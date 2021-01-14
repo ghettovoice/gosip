@@ -14,6 +14,9 @@ type tcpProtocol struct {
 	listeners   ListenerPool
 	connections ConnectionPool
 	conns       chan Connection
+	listen      func(addr *net.TCPAddr, options ...ListenOption) (net.Listener, error)
+	dial        func(addr *net.TCPAddr) (net.Conn, error)
+	resolveAddr func(addr string) (*net.TCPAddr, error)
 }
 
 func NewTcpProtocol(
@@ -36,10 +39,25 @@ func NewTcpProtocol(
 	// TODO: add separate errs chan to listen errors from pool for reconnection?
 	p.listeners = NewListenerPool(p.conns, errs, cancel, p.Log())
 	p.connections = NewConnectionPool(output, errs, cancel, msgMapper, p.Log())
+	p.listen = p.defaultListen
+	p.dial = p.defaultDial
+	p.resolveAddr = p.defaultResolveAddr
 	// pipe listener and connection pools
 	go p.pipePools()
 
 	return p
+}
+
+func (p *tcpProtocol) defaultListen(addr *net.TCPAddr, options ...ListenOption) (net.Listener, error) {
+	return net.ListenTCP(p.network, addr)
+}
+
+func (p *tcpProtocol) defaultDial(addr *net.TCPAddr) (net.Conn, error) {
+	return net.DialTCP(p.network, nil, addr)
+}
+
+func (p *tcpProtocol) defaultResolveAddr(addr string) (*net.TCPAddr, error) {
+	return net.ResolveTCPAddr(p.network, addr)
 }
 
 func (p *tcpProtocol) Done() <-chan struct{} {
@@ -74,7 +92,16 @@ func (p *tcpProtocol) pipePools() {
 
 func (p *tcpProtocol) Listen(target *Target, options ...ListenOption) error {
 	target = FillTargetHostAndPort(p.Network(), target)
-	listener, err := p.listen(target, options...)
+	laddr, err := p.resolveAddr(target.Addr())
+	if err != nil {
+		return &ProtocolError{
+			err,
+			fmt.Sprintf("resolve target address %s %s", p.Network(), target.Addr()),
+			fmt.Sprintf("%p", p),
+		}
+	}
+
+	listener, err := p.listen(laddr, options...)
 	if err != nil {
 		return &ProtocolError{
 			err,
@@ -99,20 +126,6 @@ func (p *tcpProtocol) Listen(target *Target, options ...ListenOption) error {
 	return err // should be nil here
 }
 
-func (p *tcpProtocol) listen(target *Target, options ...ListenOption) (net.Listener, error) {
-	// resolve local TCP endpoint
-	laddr, err := p.resolveTarget(target)
-	if err != nil {
-		return nil, fmt.Errorf("resolve target address %s %s: %w", p.Network(), target.Addr(), err)
-	}
-	// create listener
-	l, err := net.ListenTCP(p.network, laddr)
-	if err != nil {
-		err = fmt.Errorf("init TCP listener on %s: %w", laddr, err)
-	}
-	return l, err
-}
-
 func (p *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	target = FillTargetHostAndPort(p.Network(), target)
 
@@ -126,7 +139,7 @@ func (p *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	}
 
 	// resolve remote address
-	raddr, err := p.resolveTarget(target)
+	raddr, err := p.resolveAddr(target.Addr())
 	if err != nil {
 		return &ProtocolError{
 			err,
@@ -161,17 +174,6 @@ func (p *tcpProtocol) Send(target *Target, msg sip.Message) error {
 	return err
 }
 
-func (p *tcpProtocol) resolveTarget(target *Target) (*net.TCPAddr, error) {
-	addr := target.Addr()
-	// resolve remote address
-	raddr, err := net.ResolveTCPAddr(p.network, addr)
-	if err != nil {
-		return nil, fmt.Errorf("resolve TCP address %s: %w", addr, err)
-	}
-
-	return raddr, nil
-}
-
 func (p *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, error) {
 	key := ConnectionKey(p.network + ":" + raddr.String())
 	conn, err := p.connections.Get(key)
@@ -191,8 +193,4 @@ func (p *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, err
 	}
 
 	return conn, nil
-}
-
-func (p *tcpProtocol) dial(addr net.Addr) (net.Conn, error) {
-	return net.DialTCP(p.network, nil, addr.(*net.TCPAddr))
 }

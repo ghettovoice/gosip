@@ -15,16 +15,16 @@ import (
 )
 
 const (
-	MTU uint = 1500
+	MTU = sip.MTU
 
-	DefaultHost     = "0.0.0.0"
-	DefaultProtocol = "UDP"
+	DefaultHost     = sip.DefaultHost
+	DefaultProtocol = sip.DefaultProtocol
 
-	DefaultUdpPort sip.Port = 5060
-	DefaultTcpPort sip.Port = 5060
-	DefaultTlsPort sip.Port = 5061
-	DefaultWsPort  sip.Port = 5080
-	DefaultWssPort sip.Port = 5081
+	DefaultUdpPort = sip.DefaultUdpPort
+	DefaultTcpPort = sip.DefaultTcpPort
+	DefaultTlsPort = sip.DefaultTlsPort
+	DefaultWsPort  = sip.DefaultWsPort
+	DefaultWssPort = sip.DefaultWssPort
 )
 
 // Target endpoint
