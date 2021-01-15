@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/ghettovoice/gosip/log"
 )
@@ -121,6 +122,38 @@ func (req *request) IsCancel() bool {
 	return req.Method() == CANCEL
 }
 
+func (req *request) Transport() string {
+	var uri Uri
+	tp := req.message.Transport()
+
+	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
+		routeHeader := hdrs[0].(*RouteHeader)
+		if len(routeHeader.Addresses) > 0 {
+			uri = routeHeader.Addresses[0].(*SipUri)
+			if val, ok := uri.UriParams().Get("transport"); ok && !val.Equals("") {
+				tp = strings.ToUpper(val.String())
+			}
+		}
+	} else if val, ok := req.Recipient().UriParams().Get("transport"); ok && !val.Equals("") {
+		uri = req.Recipient()
+		tp = strings.ToUpper(val.String())
+	}
+
+	if uri != nil && uri.IsEncrypted() {
+		if tp == "TCP" {
+			tp = "TLS"
+		} else if tp == "WS" {
+			tp = "WSS"
+		}
+	}
+
+	if tp == "UDP" && len(req.String()) > int(MTU)-200 {
+		tp = "TCP"
+	}
+
+	return tp
+}
+
 func (req *request) Source() string {
 	if req.src != "" {
 		return req.src
@@ -151,9 +184,7 @@ func (req *request) Source() string {
 		port = DefaultPort(req.Transport())
 	}
 
-	req.src = fmt.Sprintf("%v:%v", host, port)
-
-	return req.src
+	return fmt.Sprintf("%v:%v", host, port)
 }
 
 func (req *request) Destination() string {
@@ -178,15 +209,13 @@ func (req *request) Destination() string {
 
 	host := uri.FHost
 	var port Port
-	if uri.FPort == nil {
-		port = DefaultPort(req.Transport())
-	} else {
+	if uri.FPort != nil {
 		port = *uri.FPort
+	} else {
+		port = DefaultPort(req.Transport())
 	}
 
-	req.dest = fmt.Sprintf("%v:%v", host, port)
-
-	return req.dest
+	return fmt.Sprintf("%v:%v", host, port)
 }
 
 // NewAckForInvite creates ACK request for 2xx INVITE

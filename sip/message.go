@@ -447,12 +447,15 @@ func (msg *message) Transport() string {
 func (msg *message) Source() string {
 	return msg.src
 }
+
 func (msg *message) SetSource(src string) {
 	msg.src = src
 }
+
 func (msg *message) Destination() string {
 	return msg.dest
 }
+
 func (msg *message) SetDestination(dest string) {
 	msg.dest = dest
 }

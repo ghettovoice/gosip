@@ -82,31 +82,13 @@ func NewTargetFromAddr(addr string) (*Target, error) {
 	return NewTarget(host, iport), nil
 }
 
-// DefaultPort returns protocol default port by network.
-func DefaultPort(protocol string) sip.Port {
-	switch strings.ToLower(protocol) {
-	case "tls":
-		return DefaultTlsPort
-	case "tcp":
-		return DefaultTcpPort
-	case "udp":
-		return DefaultUdpPort
-	case "ws":
-		return DefaultWsPort
-	case "wss":
-		return DefaultWssPort
-	default:
-		return DefaultTcpPort
-	}
-}
-
 // Fills endpoint target with default values.
 func FillTargetHostAndPort(network string, target *Target) *Target {
 	if strings.TrimSpace(target.Host) == "" {
 		target.Host = DefaultHost
 	}
 	if target.Port == nil {
-		p := DefaultPort(network)
+		p := sip.DefaultPort(network)
 		target.Port = &p
 	}
 

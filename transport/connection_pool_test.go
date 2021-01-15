@@ -60,7 +60,7 @@ var _ = Describe("ConnectionHandler", func() {
 			c1, c2 := net.Pipe()
 			client = &testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}
 			server = &testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}
-			conn = transport.NewConnection(server, key, logger)
+			conn = transport.NewConnection(server, key, "tcp", logger)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -126,7 +126,7 @@ var _ = Describe("ConnectionHandler", func() {
 			c1, c2 := net.Pipe()
 			client = &testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}
 			server = &testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}
-			conn = transport.NewConnection(server, "dummy", logger)
+			conn = transport.NewConnection(server, "dummy", "tcp", logger)
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
@@ -329,7 +329,7 @@ var _ = Describe("ConnectionPool", func() {
 		})
 
 		It("should decline Put", func() {
-			err = pool.Put(transport.NewConnection(server, key1, logger), 0)
+			err = pool.Put(transport.NewConnection(server, key1, "tcp", logger), 0)
 			Expect(err.Error()).To(ContainSubstring(expected))
 			Expect(pool.Length()).To(Equal(0))
 		})
@@ -362,8 +362,8 @@ var _ = Describe("ConnectionPool", func() {
 
 		createConn := func(addr net.Addr) (transport.Connection, transport.Connection) {
 			c1, c2 := net.Pipe()
-			client := transport.NewConnection(&testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}, "", logger)
-			server := transport.NewConnection(&testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}, transport.ConnectionKey(addr.String()), logger)
+			client := transport.NewConnection(&testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}, "", "tcp", logger)
+			server := transport.NewConnection(&testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}, transport.ConnectionKey(addr.String()), "tcp", logger)
 			return client, server
 		}
 
@@ -386,7 +386,7 @@ var _ = Describe("ConnectionPool", func() {
 		Context("put connection with empty key = ''", func() {
 			BeforeEach(func() {
 				_, c2 := net.Pipe()
-				server := transport.NewConnection(&testutils.MockConn{Conn: c2, LAddr: addr1, RAddr: c2.RemoteAddr()}, "", logger)
+				server := transport.NewConnection(&testutils.MockConn{Conn: c2, LAddr: addr1, RAddr: c2.RemoteAddr()}, "", "tcp", logger)
 				err = pool.Put(server, 0)
 			})
 			It("should return Invalid Key error", func() {

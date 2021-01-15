@@ -148,7 +148,7 @@ var _ = Describe("TlsProtocol", func() {
 				}()
 				go func() {
 					defer wg.Done()
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(200 * time.Millisecond)
 					testutils.WriteToConn(client2, []byte(msg2))
 					time.Sleep(200 * time.Millisecond)
 					testutils.WriteToConn(client2, []byte(bullshit))
@@ -159,7 +159,7 @@ var _ = Describe("TlsProtocol", func() {
 					defer wg.Done()
 					time.Sleep(50 * time.Millisecond)
 					testutils.WriteToConn(client3, []byte(broken))
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(300 * time.Millisecond)
 					testutils.WriteToConn(client3, []byte(msg3))
 				}()
 			})

@@ -166,41 +166,6 @@ func (res *response) IsCancel() bool {
 	return false
 }
 
-// RFC 3261 - 8.2.6
-func NewResponseFromRequest(
-	resID MessageID,
-	req Request,
-	statusCode StatusCode,
-	reason string,
-	body string,
-) Response {
-	res := NewResponse(
-		resID,
-		req.SipVersion(),
-		statusCode,
-		reason,
-		[]Header{},
-		body,
-		req.Fields(),
-	)
-
-	CopyHeaders("Record-Route", req, res)
-	CopyHeaders("Via", req, res)
-	CopyHeaders("From", req, res)
-	CopyHeaders("To", req, res)
-	CopyHeaders("Call-ID", req, res)
-	CopyHeaders("CSeq", req, res)
-
-	if statusCode == 100 {
-		CopyHeaders("Timestamp", req, res)
-	}
-
-	res.SetSource(req.Destination())
-	res.SetDestination(req.Source())
-
-	return res
-}
-
 func (res *response) Source() string {
 	return res.src
 }
@@ -235,9 +200,42 @@ func (res *response) Destination() string {
 		port = DefaultPort(res.Transport())
 	}
 
-	res.dest = fmt.Sprintf("%v:%v", host, port)
+	return fmt.Sprintf("%v:%v", host, port)
+}
 
-	return res.dest
+// RFC 3261 - 8.2.6
+func NewResponseFromRequest(
+	resID MessageID,
+	req Request,
+	statusCode StatusCode,
+	reason string,
+	body string,
+) Response {
+	res := NewResponse(
+		resID,
+		req.SipVersion(),
+		statusCode,
+		reason,
+		[]Header{},
+		body,
+		req.Fields(),
+	)
+
+	CopyHeaders("Record-Route", req, res)
+	CopyHeaders("Via", req, res)
+	CopyHeaders("From", req, res)
+	CopyHeaders("To", req, res)
+	CopyHeaders("Call-ID", req, res)
+	CopyHeaders("CSeq", req, res)
+
+	if statusCode == 100 {
+		CopyHeaders("Timestamp", req, res)
+	}
+
+	res.SetSource(req.Destination())
+	res.SetDestination(req.Source())
+
+	return res
 }
 
 func cloneResponse(res Response, id MessageID, fields log.Fields) Response {

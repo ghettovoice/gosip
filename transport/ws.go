@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/gobwas/ws"
@@ -57,13 +58,15 @@ func (wc *wsConn) Write(b []byte) (n int, err error) {
 
 type wsListener struct {
 	net.Listener
-	log log.Logger
-	u   ws.Upgrader
+	network string
+	u       ws.Upgrader
+	log     log.Logger
 }
 
-func NewWsListener(listener net.Listener, log log.Logger) *wsListener {
+func NewWsListener(listener net.Listener, network string, log log.Logger) *wsListener {
 	l := &wsListener{
 		Listener: listener,
+		network:  network,
 		log:      log,
 	}
 	l.u.Protocol = func(val []byte) bool {
@@ -87,6 +90,10 @@ func (l *wsListener) Accept() (net.Conn, error) {
 		err = nil
 	}
 	return conn, err
+}
+
+func (l *wsListener) Network() string {
+	return strings.ToUpper(l.network)
 }
 
 type wsProtocol struct {
@@ -192,7 +199,7 @@ func (p *wsProtocol) Listen(target *Target, options ...ListenOption) error {
 	//index listeners by local address
 	// should live infinitely
 	key := ListenerKey(fmt.Sprintf("%s:0.0.0.0:%d", p.network, target.Port))
-	err = p.listeners.Put(key, NewWsListener(listener, p.Log()))
+	err = p.listeners.Put(key, NewWsListener(listener, p.network, p.Log()))
 	if err != nil {
 		err = &ProtocolError{
 			Err:      err,
@@ -274,7 +281,7 @@ func (p *wsProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, erro
 			p.Log().Warnf("fallback to TCP connection due to WS upgrade error: %s", err)
 		}
 
-		conn = NewConnection(baseConn, key, p.Log())
+		conn = NewConnection(baseConn, key, p.network, p.Log())
 
 		if err := p.connections.Put(conn, sockTTL); err != nil {
 			return conn, fmt.Errorf("put %s connection to the pool: %w", conn.Key(), err)

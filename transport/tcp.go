@@ -3,10 +3,20 @@ package transport
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 )
+
+type tcpListener struct {
+	net.Listener
+	network string
+}
+
+func (l *tcpListener) Network() string {
+	return strings.ToUpper(l.network)
+}
 
 // TCP protocol implementation
 type tcpProtocol struct {
@@ -115,7 +125,10 @@ func (p *tcpProtocol) Listen(target *Target, options ...ListenOption) error {
 	// index listeners by local address
 	// should live infinitely
 	key := ListenerKey(fmt.Sprintf("%s:0.0.0.0:%d", p.network, target.Port))
-	err = p.listeners.Put(key, listener)
+	err = p.listeners.Put(key, &tcpListener{
+		Listener: listener,
+		network:  p.network,
+	})
 	if err != nil {
 		err = &ProtocolError{
 			Err:      err,
@@ -185,7 +198,7 @@ func (p *tcpProtocol) getOrCreateConnection(raddr *net.TCPAddr) (Connection, err
 			return nil, fmt.Errorf("dial to %s %s: %w", p.Network(), raddr, err)
 		}
 
-		conn = NewConnection(tcpConn, key, p.Log())
+		conn = NewConnection(tcpConn, key, p.network, p.Log())
 
 		if err := p.connections.Put(conn, sockTTL); err != nil {
 			return conn, fmt.Errorf("put %s connection to the pool: %w", conn.Key(), err)
