@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ghettovoice/gosip/util"
 )
@@ -76,6 +77,7 @@ type Params interface {
 
 // Params implementation.
 type headerParams struct {
+	mu         sync.RWMutex
 	params     map[string]MaybeString
 	paramOrder []string
 }
@@ -90,22 +92,29 @@ func NewParams() Params {
 
 // Returns the entire parameter map.
 func (params *headerParams) Items() map[string]MaybeString {
+	params.mu.RLock()
+	defer params.mu.RUnlock()
 	return params.params
 }
 
 // Returns a slice of keys, in order.
 func (params *headerParams) Keys() []string {
+	params.mu.RLock()
+	defer params.mu.RUnlock()
 	return params.paramOrder
 }
 
 // Returns the requested parameter value.
 func (params *headerParams) Get(key string) (MaybeString, bool) {
+	params.mu.RLock()
 	v, ok := params.params[key]
+	params.mu.RUnlock()
 	return v, ok
 }
 
 // Put a new parameter.
 func (params *headerParams) Add(key string, val MaybeString) Params {
+	params.mu.Lock()
 	// Add param to order list if new.
 	if _, ok := params.params[key]; !ok {
 		params.paramOrder = append(params.paramOrder, key)
@@ -113,14 +122,15 @@ func (params *headerParams) Add(key string, val MaybeString) Params {
 
 	// Set param value.
 	params.params[key] = val
-
+	params.mu.Unlock()
 	// Return the params so calls can be chained.
 	return params
 }
 
 func (params *headerParams) Has(key string) bool {
+	params.mu.RLock()
 	_, ok := params.params[key]
-
+	params.mu.RUnlock()
 	return ok
 }
 
@@ -187,6 +197,8 @@ func (params *headerParams) String() string {
 
 // Returns number of params.
 func (params *headerParams) Length() int {
+	params.mu.RLock()
+	defer params.mu.RUnlock()
 	return len(params.params)
 }
 

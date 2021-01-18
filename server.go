@@ -30,8 +30,7 @@ type Server interface {
 	RequestWithContext(
 		ctx context.Context,
 		request sip.Request,
-		authorizer sip.Authorizer,
-		options ...interface{},
+		options ...RequestWithContextOption,
 	) (sip.Response, error)
 	OnRequest(method sip.RequestMethod, handler RequestHandler) error
 
@@ -241,20 +240,16 @@ func (srv *server) Request(req sip.Request) (sip.ClientTransaction, error) {
 func (srv *server) RequestWithContext(
 	ctx context.Context,
 	request sip.Request,
-	authorizer sip.Authorizer,
-	options ...interface{},
+	options ...RequestWithContextOption,
 ) (sip.Response, error) {
-	tx, err := srv.Request(sip.CopyRequest(request))
+	tx, err := srv.Request(request)
 	if err != nil {
 		return nil, err
 	}
 
-	var responseHandler func(res sip.Response) // provisional response handler
+	optionsHash := &RequestWithContextOptions{}
 	for _, opt := range options {
-		switch o := opt.(type) {
-		case func(res sip.Response):
-			responseHandler = o
-		}
+		opt.ApplyRequestWithContext(optionsHash)
 	}
 
 	txResponses := tx.Responses()
@@ -314,14 +309,14 @@ func (srv *server) RequestWithContext(
 				response = sip.CopyResponse(response)
 				lastResponse = response
 
+				if optionsHash.ResponseHandler != nil {
+					optionsHash.ResponseHandler(response, request)
+				}
+
 				if response.IsProvisional() {
 					if _, ok := previousResponsesStatuses[getKey(response)]; !ok {
 						previousMessages = append(previousMessages, response)
 						previousResponsesStatuses[getKey(response)] = true
-
-						if responseHandler != nil {
-							responseHandler(response)
-						}
 					}
 
 					continue
@@ -332,18 +327,26 @@ func (srv *server) RequestWithContext(
 					response.SetPrevious(previousMessages)
 					responses <- response
 
+					go func() {
+						for response := range tx.Responses() {
+							if optionsHash.ResponseHandler != nil {
+								optionsHash.ResponseHandler(response, request)
+							}
+						}
+					}()
+
 					return
 				}
 
 				// unauth request
-				if (response.StatusCode() == 401 || response.StatusCode() == 407) && authorizer != nil {
-					if err := authorizer.AuthorizeRequest(request, response); err != nil {
+				if optionsHash.Authorizer != nil && (response.StatusCode() == 401 || response.StatusCode() == 407) {
+					if err := optionsHash.Authorizer.AuthorizeRequest(request, response); err != nil {
 						errs <- err
 
 						return
 					}
 
-					if response, err := srv.RequestWithContext(ctx, request, nil, options...); err == nil {
+					if response, err := srv.RequestWithContext(ctx, request, options...); err == nil {
 						responses <- response
 					} else {
 						errs <- err
