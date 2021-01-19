@@ -20,6 +20,7 @@ const abnfWs = " \t"
 type Header interface {
 	// Name returns header name.
 	Name() string
+	Value() string
 	// Clone returns copy of header struct.
 	Clone() Header
 	String() string
@@ -528,6 +529,10 @@ func (header *GenericHeader) Name() string {
 	return header.HeaderName
 }
 
+func (header *GenericHeader) Value() string {
+	return header.Contents
+}
+
 // Copy the header.
 func (header *GenericHeader) Clone() Header {
 	if header == nil {
@@ -567,9 +572,13 @@ type ToHeader struct {
 }
 
 func (to *ToHeader) String() string {
-	var buffer bytes.Buffer
-	buffer.WriteString("To: ")
+	return fmt.Sprintf("%s: %s", to.Name(), to.Value())
+}
 
+func (to *ToHeader) Name() string { return "To" }
+
+func (to *ToHeader) Value() string {
+	var buffer bytes.Buffer
 	if displayName, ok := to.DisplayName.(String); ok && displayName.String() != "" {
 		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
 	}
@@ -583,8 +592,6 @@ func (to *ToHeader) String() string {
 
 	return buffer.String()
 }
-
-func (to *ToHeader) Name() string { return "To" }
 
 // Copy the header.
 func (to *ToHeader) Clone() Header {
@@ -657,9 +664,13 @@ type FromHeader struct {
 }
 
 func (from *FromHeader) String() string {
-	var buffer bytes.Buffer
-	buffer.WriteString("From: ")
+	return fmt.Sprintf("%s: %s", from.Name(), from.Value())
+}
 
+func (from *FromHeader) Name() string { return "From" }
+
+func (from *FromHeader) Value() string {
+	var buffer bytes.Buffer
 	if displayName, ok := from.DisplayName.(String); ok && displayName.String() != "" {
 		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
 	}
@@ -673,8 +684,6 @@ func (from *FromHeader) String() string {
 
 	return buffer.String()
 }
-
-func (from *FromHeader) Name() string { return "From" }
 
 // Copy the header.
 func (from *FromHeader) Clone() Header {
@@ -746,8 +755,13 @@ type ContactHeader struct {
 }
 
 func (contact *ContactHeader) String() string {
+	return fmt.Sprintf("%s: %s", contact.Name(), contact.Value())
+}
+
+func (contact *ContactHeader) Name() string { return "Contact" }
+
+func (contact *ContactHeader) Value() string {
 	var buffer bytes.Buffer
-	buffer.WriteString("Contact: ")
 
 	if displayName, ok := contact.DisplayName.(String); ok && displayName.String() != "" {
 		buffer.WriteString(fmt.Sprintf("\"%s\" ", displayName))
@@ -768,8 +782,6 @@ func (contact *ContactHeader) String() string {
 
 	return buffer.String()
 }
-
-func (contact *ContactHeader) Name() string { return "Contact" }
 
 // Copy the header.
 func (contact *ContactHeader) Clone() Header {
@@ -836,10 +848,12 @@ func (contact *ContactHeader) Equals(other interface{}) bool {
 type CallID string
 
 func (callId CallID) String() string {
-	return "Call-ID: " + string(callId)
+	return fmt.Sprintf("%s: %s", callId.Name(), callId.Value())
 }
 
 func (callId *CallID) Name() string { return "Call-ID" }
+
+func (callId CallID) Value() string { return string(callId) }
 
 func (callId *CallID) Clone() Header {
 	return callId
@@ -873,10 +887,14 @@ type CSeq struct {
 }
 
 func (cseq *CSeq) String() string {
-	return fmt.Sprintf("CSeq: %d %s", cseq.SeqNo, cseq.MethodName)
+	return fmt.Sprintf("%s: %s", cseq.Name(), cseq.Value())
 }
 
 func (cseq *CSeq) Name() string { return "CSeq" }
+
+func (cseq *CSeq) Value() string {
+	return fmt.Sprintf("%d %s", cseq.SeqNo, cseq.MethodName)
+}
 
 func (cseq *CSeq) Clone() Header {
 	if cseq == nil {
@@ -909,10 +927,12 @@ func (cseq *CSeq) Equals(other interface{}) bool {
 type MaxForwards uint32
 
 func (maxForwards MaxForwards) String() string {
-	return fmt.Sprintf("Max-Forwards: %d", int(maxForwards))
+	return fmt.Sprintf("%s: %s", maxForwards.Name(), maxForwards.Value())
 }
 
 func (maxForwards *MaxForwards) Name() string { return "Max-Forwards" }
+
+func (maxForwards MaxForwards) Value() string { return fmt.Sprintf("%d", maxForwards) }
 
 func (maxForwards *MaxForwards) Clone() Header { return maxForwards }
 
@@ -940,11 +960,13 @@ func (maxForwards *MaxForwards) Equals(other interface{}) bool {
 
 type Expires uint32
 
-func (expires Expires) String() string {
-	return fmt.Sprintf("Expires: %d", int(expires))
+func (expires *Expires) String() string {
+	return fmt.Sprintf("%s: %s", expires.Name(), expires.Value())
 }
 
 func (expires *Expires) Name() string { return "Expires" }
+
+func (expires Expires) Value() string { return fmt.Sprintf("%d", expires) }
 
 func (expires *Expires) Clone() Header { return expires }
 
@@ -973,10 +995,12 @@ func (expires *Expires) Equals(other interface{}) bool {
 type ContentLength uint32
 
 func (contentLength ContentLength) String() string {
-	return fmt.Sprintf("Content-Length: %d", int(contentLength))
+	return fmt.Sprintf("%s: %s", contentLength.Name(), contentLength.Value())
 }
 
 func (contentLength *ContentLength) Name() string { return "Content-Length" }
+
+func (contentLength ContentLength) Value() string { return fmt.Sprintf("%d", contentLength) }
 
 func (contentLength *ContentLength) Clone() Header { return contentLength }
 
@@ -1005,8 +1029,13 @@ func (contentLength *ContentLength) Equals(other interface{}) bool {
 type ViaHeader []*ViaHop
 
 func (via ViaHeader) String() string {
+	return fmt.Sprintf("%s: %s", via.Name(), via.Value())
+}
+
+func (via ViaHeader) Name() string { return "Via" }
+
+func (via ViaHeader) Value() string {
 	var buffer bytes.Buffer
-	buffer.WriteString("Via: ")
 	for idx, hop := range via {
 		buffer.WriteString(hop.String())
 		if idx != len(via)-1 {
@@ -1016,8 +1045,6 @@ func (via ViaHeader) String() string {
 
 	return buffer.String()
 }
-
-func (via ViaHeader) Name() string { return "Via" }
 
 func (via ViaHeader) Clone() Header {
 	if via == nil {
@@ -1154,11 +1181,14 @@ type RequireHeader struct {
 }
 
 func (require *RequireHeader) String() string {
-	return fmt.Sprintf("Require: %s",
-		strings.Join(require.Options, ", "))
+	return fmt.Sprintf("%s: %s", require.Name(), require.Value())
 }
 
 func (require *RequireHeader) Name() string { return "Require" }
+
+func (require *RequireHeader) Value() string {
+	return strings.Join(require.Options, ", ")
+}
 
 func (require *RequireHeader) Clone() Header {
 	if require == nil {
@@ -1201,11 +1231,14 @@ type SupportedHeader struct {
 }
 
 func (support *SupportedHeader) String() string {
-	return fmt.Sprintf("Supported: %s",
-		strings.Join(support.Options, ", "))
+	return fmt.Sprintf("%s: %s", support.Name(), support.Value())
 }
 
 func (support *SupportedHeader) Name() string { return "Supported" }
+
+func (support *SupportedHeader) Value() string {
+	return strings.Join(support.Options, ", ")
+}
 
 func (support *SupportedHeader) Clone() Header {
 	if support == nil {
@@ -1248,11 +1281,14 @@ type ProxyRequireHeader struct {
 }
 
 func (proxyRequire *ProxyRequireHeader) String() string {
-	return fmt.Sprintf("Proxy-Require: %s",
-		strings.Join(proxyRequire.Options, ", "))
+	return fmt.Sprintf("%s: %s", proxyRequire.Name(), proxyRequire.Value())
 }
 
 func (proxyRequire *ProxyRequireHeader) Name() string { return "Proxy-Require" }
+
+func (proxyRequire *ProxyRequireHeader) Value() string {
+	return strings.Join(proxyRequire.Options, ", ")
+}
 
 func (proxyRequire *ProxyRequireHeader) Clone() Header {
 	if proxyRequire == nil {
@@ -1297,11 +1333,14 @@ type UnsupportedHeader struct {
 }
 
 func (unsupported *UnsupportedHeader) String() string {
-	return fmt.Sprintf("Unsupported: %s",
-		strings.Join(unsupported.Options, ", "))
+	return fmt.Sprintf("%s: %s", unsupported.Name(), unsupported.Value())
 }
 
 func (unsupported *UnsupportedHeader) Name() string { return "Unsupported" }
+
+func (unsupported *UnsupportedHeader) Value() string {
+	return strings.Join(unsupported.Options, ", ")
+}
 
 func (unsupported *UnsupportedHeader) Clone() Header {
 	if unsupported == nil {
@@ -1341,11 +1380,13 @@ func (unsupported *UnsupportedHeader) Equals(other interface{}) bool {
 
 type UserAgentHeader string
 
-func (ua UserAgentHeader) String() string {
-	return "User-Agent: " + string(ua)
+func (ua *UserAgentHeader) String() string {
+	return fmt.Sprintf("%s: %s", ua.Name(), ua.Value())
 }
 
 func (ua *UserAgentHeader) Name() string { return "User-Agent" }
+
+func (ua UserAgentHeader) Value() string { return string(ua) }
 
 func (ua *UserAgentHeader) Clone() Header { return ua }
 
@@ -1374,15 +1415,18 @@ func (ua *UserAgentHeader) Equals(other interface{}) bool {
 type AllowHeader []RequestMethod
 
 func (allow AllowHeader) String() string {
+	return fmt.Sprintf("%s: %s", allow.Name(), allow.Value())
+}
+
+func (allow AllowHeader) Name() string { return "Allow" }
+
+func (allow AllowHeader) Value() string {
 	parts := make([]string, 0)
 	for _, method := range allow {
 		parts = append(parts, string(method))
 	}
-
-	return fmt.Sprintf("Allow: %s", strings.Join(parts, ", "))
+	return strings.Join(parts, ", ")
 }
-
-func (allow AllowHeader) Name() string { return "Allow" }
 
 func (allow AllowHeader) Clone() Header {
 	if allow == nil {
@@ -1416,9 +1460,11 @@ func (allow AllowHeader) Equals(other interface{}) bool {
 
 type ContentType string
 
-func (ct ContentType) String() string { return "Content-Type: " + string(ct) }
+func (ct *ContentType) String() string { return fmt.Sprintf("%s: %s", ct.Name(), ct.Value()) }
 
 func (ct *ContentType) Name() string { return "Content-Type" }
+
+func (ct ContentType) Value() string { return string(ct) }
 
 func (ct *ContentType) Clone() Header { return ct }
 
@@ -1446,9 +1492,11 @@ func (ct *ContentType) Equals(other interface{}) bool {
 
 type Accept string
 
-func (ct Accept) String() string { return "Accept: " + string(ct) }
+func (ct *Accept) String() string { return fmt.Sprintf("%s: %s", ct.Name(), ct.Value()) }
 
 func (ct *Accept) Name() string { return "Accept" }
+
+func (ct Accept) Value() string { return string(ct) }
 
 func (ct *Accept) Clone() Header { return ct }
 
@@ -1480,14 +1528,16 @@ type RouteHeader struct {
 
 func (route *RouteHeader) Name() string { return "Route" }
 
-func (route *RouteHeader) String() string {
+func (route *RouteHeader) Value() string {
 	var addrs []string
-
 	for _, uri := range route.Addresses {
 		addrs = append(addrs, "<"+uri.String()+">")
 	}
+	return strings.Join(addrs, ", ")
+}
 
-	return fmt.Sprintf("Route: %s", strings.Join(addrs, ", "))
+func (route *RouteHeader) String() string {
+	return fmt.Sprintf("%s: %s", route.Name(), route.Value())
 }
 
 func (route *RouteHeader) Clone() Header {
@@ -1534,14 +1584,16 @@ type RecordRouteHeader struct {
 
 func (route *RecordRouteHeader) Name() string { return "Record-Route" }
 
-func (route *RecordRouteHeader) String() string {
+func (route *RecordRouteHeader) Value() string {
 	var addrs []string
-
 	for _, uri := range route.Addresses {
 		addrs = append(addrs, "<"+uri.String()+">")
 	}
+	return strings.Join(addrs, ", ")
+}
 
-	return fmt.Sprintf("Record-Route: %s", strings.Join(addrs, ", "))
+func (route *RecordRouteHeader) String() string {
+	return fmt.Sprintf("%s: %s", route.Name(), route.Value())
 }
 
 func (route *RecordRouteHeader) Clone() Header {
