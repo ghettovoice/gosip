@@ -1,6 +1,8 @@
 package testutils
 
 import (
+	"crypto/x509"
+	"io/ioutil"
 	"net"
 	"os"
 	"strings"
@@ -144,4 +146,14 @@ func GetProjectRootPath(projectRootDir string) string {
 		}
 		cwd = cwd[0:lastSlashIndex]
 	}
+}
+
+func NewRootCAaPool(rootCACert string) *x509.CertPool {
+	rootCAPem, err := ioutil.ReadFile(rootCACert)
+	if err != nil {
+		panic(err)
+	}
+	rootCAs := x509.NewCertPool()
+	rootCAs.AppendCertsFromPEM(rootCAPem)
+	return rootCAs
 }
