@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"net"
+	"os"
 	"strings"
 
 	. "github.com/onsi/ginkgo"
@@ -125,4 +126,22 @@ func NewLogrusLogger() *log.LogrusLogger {
 	}
 
 	return log.NewLogrusLogger(logger, "main", nil)
+}
+
+func GetProjectRootPath(projectRootDir string) string {
+	cwd, err := os.Getwd()
+	cwdOrig := cwd
+	if err != nil {
+		panic(err)
+	}
+	for {
+		if strings.HasSuffix(cwd, "/"+projectRootDir) {
+			return cwd
+		}
+		lastSlashIndex := strings.LastIndex(cwd, "/")
+		if lastSlashIndex == -1 {
+			panic(cwdOrig + " did not contain /" + projectRootDir)
+		}
+		cwd = cwd[0:lastSlashIndex]
+	}
 }

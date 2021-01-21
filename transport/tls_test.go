@@ -26,14 +26,15 @@ var _ = Describe("TlsProtocol", func() {
 		wg                        *sync.WaitGroup
 	)
 
+	rootDir := testutils.GetProjectRootPath("ghettovoice/gosip")
 	network := "tcp"
 	port1 := 9061
 	port2 := port1 + 1
 	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
 	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
 	srvTlsConf := &transport.TLSConfig{
-		Cert: "examples/certs/server.pem",
-		Key:  "examples/certs/server-key.pem",
+		Cert: rootDir + "/examples/certs/server.pem",
+		Key:  rootDir + "/examples/certs/server-key.pem",
 	}
 	clTlsConf := &tls.Config{
 		ServerName: "example.com",

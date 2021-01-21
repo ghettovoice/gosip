@@ -97,12 +97,11 @@ var _ = Describe("GoSIP Server", func() {
 			buf := make([]byte, transport.MTU)
 			i := 0
 			for {
-				num, raddr, err := conn.ReadFrom(buf)
+				num, _, err := conn.ReadFrom(buf)
 				if err != nil {
 					return
 				}
 
-				Expect(raddr.String()).Should(Equal(localTarget.Addr()))
 				msg, err := parser.ParseMessage(buf[:num], logger)
 				Expect(err).ShouldNot(HaveOccurred())
 				req, ok := msg.(sip.Request)
@@ -118,6 +117,8 @@ var _ = Describe("GoSIP Server", func() {
 				}
 
 				res := sip.NewResponseFromRequest("", req, 100, "Trying", "")
+				raddr, err := net.ResolveUDPAddr("udp", res.Destination())
+				Expect(err).ShouldNot(HaveOccurred())
 				num, err = conn.WriteTo([]byte(res.String()), raddr)
 				Expect(err).ShouldNot(HaveOccurred())
 
