@@ -50,11 +50,11 @@ func NewResponse(
 		res.messID = messID
 	}
 	res.startLine = res.StartLine
-	res.SetSipVersion(sipVersion)
+	res.sipVersion = sipVersion
 	res.headers = newHeaders(hdrs)
-	res.SetStatusCode(statusCode)
-	res.SetReason(reason)
-	res.SetBody(body, false)
+	res.status = statusCode
+	res.reason = reason
+	res.body = body
 	res.fields = fields.WithFields(log.Fields{
 		"response_id": res.messID,
 	})
@@ -82,25 +82,37 @@ func (res *response) Short() string {
 }
 
 func (res *response) StatusCode() StatusCode {
+	res.mu.RLock()
+	defer res.mu.RUnlock()
 	return res.status
 }
 func (res *response) SetStatusCode(code StatusCode) {
+	res.mu.Lock()
 	res.status = code
+	res.mu.Unlock()
 }
 
 func (res *response) Reason() string {
+	res.mu.RLock()
+	defer res.mu.RUnlock()
 	return res.reason
 }
 func (res *response) SetReason(reason string) {
+	res.mu.Lock()
 	res.reason = reason
+	res.mu.Unlock()
 }
 
 func (res *response) Previous() []Response {
+	res.mu.RLock()
+	defer res.mu.RUnlock()
 	return res.previous
 }
 
 func (res *response) SetPrevious(responses []Response) {
+	res.mu.Lock()
 	res.previous = responses
+	res.mu.Unlock()
 }
 
 // StartLine returns Response Status Line - RFC 2361 7.2.
@@ -125,7 +137,11 @@ func (res *response) Clone() Message {
 }
 
 func (res *response) WithFields(fields log.Fields) Message {
-	return cloneResponse(res, res.MessageID(), fields)
+	res.mu.Lock()
+	res.fields = res.fields.WithFields(fields)
+	res.mu.Unlock()
+
+	return res
 }
 
 func (res *response) IsProvisional() bool {

@@ -240,7 +240,7 @@ func (tx *clientTx) ack() {
 	lastResp := tx.lastResp
 	tx.mu.RUnlock()
 
-	ack := sip.NewAckRequest("", tx.Origin(), lastResp, log.Fields{
+	ack := sip.NewAckRequest("", tx.Origin(), lastResp, "", log.Fields{
 		"sent_at": time.Now(),
 	})
 	err := tx.tpl.Send(ack)

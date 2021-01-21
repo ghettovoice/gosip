@@ -3,9 +3,11 @@ package sip
 import (
 	"bytes"
 	"strings"
+	"sync"
+
+	uuid "github.com/satori/go.uuid"
 
 	"github.com/ghettovoice/gosip/log"
-	uuid "github.com/satori/go.uuid"
 )
 
 // A representation of a SIP method.
@@ -113,6 +115,7 @@ type Message interface {
 
 // headers is a struct with methods to work with SIP headers.
 type headers struct {
+	mu sync.RWMutex
 	// The logical SIP headers attached to this message.
 	headers map[string][]Header
 	// The order the headers should be displayed in.
@@ -129,8 +132,9 @@ func newHeaders(hdrs []Header) *headers {
 	return hs
 }
 
-func (hs headers) String() string {
+func (hs *headers) String() string {
 	buffer := bytes.Buffer{}
+	hs.mu.RLock()
 	// Construct each header in turn and add it to the message.
 	for typeIdx, name := range hs.headerOrder {
 		headers := hs.headers[name]
@@ -141,18 +145,21 @@ func (hs headers) String() string {
 			}
 		}
 	}
+	hs.mu.RUnlock()
 	return buffer.String()
 }
 
 // Add the given header.
 func (hs *headers) AppendHeader(header Header) {
 	name := strings.ToLower(header.Name())
+	hs.mu.Lock()
 	if _, ok := hs.headers[name]; ok {
 		hs.headers[name] = append(hs.headers[name], header)
 	} else {
 		hs.headers[name] = []Header{header}
 		hs.headerOrder = append(hs.headerOrder, name)
 	}
+	hs.mu.Unlock()
 }
 
 // AddFrontHeader adds header to the front of header list
@@ -160,6 +167,7 @@ func (hs *headers) AppendHeader(header Header) {
 // if there are some headers have h's name, add h to front of the sublist
 func (hs *headers) PrependHeader(header Header) {
 	name := strings.ToLower(header.Name())
+	hs.mu.Lock()
 	if hdrs, ok := hs.headers[name]; ok {
 		hs.headers[name] = append([]Header{header}, hdrs...)
 	} else {
@@ -168,11 +176,13 @@ func (hs *headers) PrependHeader(header Header) {
 		newOrder[0] = name
 		hs.headerOrder = append(newOrder, hs.headerOrder...)
 	}
+	hs.mu.Unlock()
 }
 
 func (hs *headers) PrependHeaderAfter(header Header, afterName string) {
 	headerName := strings.ToLower(header.Name())
 	afterName = strings.ToLower(afterName)
+	hs.mu.Lock()
 	if _, ok := hs.headers[afterName]; ok {
 		afterIdx := -1
 		headerIdx := -1
@@ -208,23 +218,38 @@ func (hs *headers) PrependHeaderAfter(header Header, afterName string) {
 			}
 			hs.headerOrder = newOrder
 		}
+		hs.mu.Unlock()
 	} else {
+		hs.mu.Unlock()
 		hs.PrependHeader(header)
 	}
+}
+
+func (hs *headers) ReplaceHeader(name string, headers []Header) {
+	name = strings.ToLower(name)
+	hs.mu.Lock()
+	if _, ok := hs.headers[name]; ok {
+		hs.headers[name] = headers
+	}
+	hs.mu.Unlock()
 }
 
 // Gets some headers.
 func (hs *headers) Headers() []Header {
 	hdrs := make([]Header, 0)
+	hs.mu.RLock()
 	for _, key := range hs.headerOrder {
 		hdrs = append(hdrs, hs.headers[key]...)
 	}
+	hs.mu.RUnlock()
 
 	return hdrs
 }
 
 func (hs *headers) GetHeaders(name string) []Header {
 	name = strings.ToLower(name)
+	hs.mu.RLock()
+	defer hs.mu.RUnlock()
 	if hs.headers == nil {
 		hs.headers = map[string][]Header{}
 		hs.headerOrder = []string{}
@@ -238,6 +263,7 @@ func (hs *headers) GetHeaders(name string) []Header {
 
 func (hs *headers) RemoveHeader(name string) {
 	name = strings.ToLower(name)
+	hs.mu.Lock()
 	delete(hs.headers, name)
 	// update order slice
 	for idx, entry := range hs.headerOrder {
@@ -246,6 +272,7 @@ func (hs *headers) RemoveHeader(name string) {
 			break
 		}
 	}
+	hs.mu.Unlock()
 }
 
 // CloneHeaders returns all cloned headers in slice.
@@ -375,6 +402,7 @@ func (hs *headers) Contact() (*ContactHeader, bool) {
 type message struct {
 	// message headers
 	*headers
+	mu         sync.RWMutex
 	messID     MessageID
 	sipVersion string
 	body       string
@@ -393,6 +421,8 @@ func (msg *message) StartLine() string {
 }
 
 func (msg *message) Fields() log.Fields {
+	msg.mu.RLock()
+	defer msg.mu.RUnlock()
 	return msg.fields
 }
 
@@ -402,7 +432,9 @@ func (msg *message) String() string {
 	// write message start line
 	buffer.WriteString(msg.StartLine() + "\r\n")
 	// Write the headers.
+	msg.mu.RLock()
 	buffer.WriteString(msg.headers.String())
+	msg.mu.RUnlock()
 	// message body
 	buffer.WriteString("\r\n" + msg.Body())
 
@@ -410,20 +442,28 @@ func (msg *message) String() string {
 }
 
 func (msg *message) SipVersion() string {
+	msg.mu.RLock()
+	defer msg.mu.RUnlock()
 	return msg.sipVersion
 }
 
 func (msg *message) SetSipVersion(version string) {
+	msg.mu.Lock()
 	msg.sipVersion = version
+	msg.mu.Unlock()
 }
 
 func (msg *message) Body() string {
+	msg.mu.RLock()
+	defer msg.mu.RUnlock()
 	return msg.body
 }
 
 // SetBody sets message body, calculates it length and add 'Content-Length' header.
 func (msg *message) SetBody(body string, setContentLength bool) {
+	msg.mu.Lock()
 	msg.body = body
+	msg.mu.Unlock()
 	if setContentLength {
 		hdrs := msg.GetHeaders("Content-Length")
 		if len(hdrs) == 0 {
@@ -431,7 +471,7 @@ func (msg *message) SetBody(body string, setContentLength bool) {
 			msg.AppendHeader(&length)
 		} else {
 			length := ContentLength(len(body))
-			hdrs[0] = &length
+			msg.ReplaceHeader("Content-Length", []Header{&length})
 		}
 	}
 }
@@ -445,19 +485,27 @@ func (msg *message) Transport() string {
 }
 
 func (msg *message) Source() string {
+	msg.mu.RLock()
+	defer msg.mu.RUnlock()
 	return msg.src
 }
 
 func (msg *message) SetSource(src string) {
+	msg.mu.Lock()
 	msg.src = src
+	msg.mu.Unlock()
 }
 
 func (msg *message) Destination() string {
+	msg.mu.RLock()
+	defer msg.mu.RUnlock()
 	return msg.dest
 }
 
 func (msg *message) SetDestination(dest string) {
+	msg.mu.Lock()
 	msg.dest = dest
+	msg.mu.Unlock()
 }
 
 // Copy all headers of one type from one message to another.

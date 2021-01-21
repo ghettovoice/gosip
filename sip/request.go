@@ -42,11 +42,11 @@ func NewRequest(
 		req.messID = messID
 	}
 	req.startLine = req.StartLine
-	req.SetSipVersion(sipVersion)
+	req.sipVersion = sipVersion
 	req.headers = newHeaders(hdrs)
-	req.SetMethod(method)
-	req.SetRecipient(recipient)
-	req.SetBody(body, false)
+	req.method = method
+	req.recipient = recipient
+	req.body = body
 	req.fields = fields.WithFields(log.Fields{
 		"request_id": req.messID,
 	})
@@ -72,17 +72,25 @@ func (req *request) Short() string {
 }
 
 func (req *request) Method() RequestMethod {
+	req.mu.RLock()
+	defer req.mu.RUnlock()
 	return req.method
 }
 func (req *request) SetMethod(method RequestMethod) {
+	req.mu.Lock()
 	req.method = method
+	req.mu.Unlock()
 }
 
 func (req *request) Recipient() Uri {
+	req.mu.RLock()
+	defer req.mu.RUnlock()
 	return req.recipient
 }
 func (req *request) SetRecipient(recipient Uri) {
+	req.mu.Lock()
 	req.recipient = recipient
+	req.mu.Unlock()
 }
 
 // StartLine returns Request Line - RFC 2361 7.1.
@@ -93,7 +101,7 @@ func (req *request) StartLine() string {
 	buffer.WriteString(
 		fmt.Sprintf(
 			"%s %s %s",
-			string(req.method),
+			string(req.Method()),
 			req.Recipient(),
 			req.SipVersion(),
 		),
@@ -107,7 +115,11 @@ func (req *request) Clone() Message {
 }
 
 func (req *request) WithFields(fields log.Fields) Message {
-	return cloneRequest(req, req.MessageID(), fields)
+	req.mu.Lock()
+	req.fields = req.fields.WithFields(fields)
+	req.mu.Unlock()
+
+	return req
 }
 
 func (req *request) IsInvite() bool {
@@ -155,9 +167,12 @@ func (req *request) Transport() string {
 }
 
 func (req *request) Source() string {
+	req.mu.RLock()
 	if req.src != "" {
+		defer req.mu.RUnlock()
 		return req.src
 	}
+	req.mu.RUnlock()
 
 	viaHop, ok := req.ViaHop()
 	if !ok {
@@ -188,9 +203,12 @@ func (req *request) Source() string {
 }
 
 func (req *request) Destination() string {
+	req.mu.RLock()
 	if req.dest != "" {
+		defer req.mu.RUnlock()
 		return req.dest
 	}
+	req.mu.RUnlock()
 
 	var uri *SipUri
 	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
@@ -220,7 +238,7 @@ func (req *request) Destination() string {
 
 // NewAckForInvite creates ACK request for 2xx INVITE
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
-func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response, fields log.Fields) Request {
+func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response, body string, fields log.Fields) Request {
 	recipient := inviteRequest.Recipient()
 	if contact, ok := inviteResponse.Contact(); ok {
 		recipient = contact.Address
@@ -229,9 +247,9 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 		ackID,
 		ACK,
 		recipient,
-		inviteResponse.SipVersion(),
+		inviteRequest.SipVersion(),
 		[]Header{},
-		"",
+		body,
 		inviteRequest.Fields().
 			WithFields(fields).
 			WithFields(log.Fields{
