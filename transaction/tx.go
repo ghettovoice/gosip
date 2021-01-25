@@ -8,7 +8,6 @@ import (
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/ghettovoice/gosip/transport"
 )
 
 type TxKey = sip.TransactionKey
@@ -21,7 +20,7 @@ type Tx interface {
 	// Receive receives message from transport layer.
 	Receive(msg sip.Message) error
 	String() string
-	Transport() transport.Layer
+	Transport() sip.Transport
 	Terminate()
 	Errors() <-chan error
 	Done() <-chan bool
@@ -32,7 +31,7 @@ type commonTx struct {
 	fsm      *fsm.FSM
 	fsmMu    sync.RWMutex
 	origin   sip.Request
-	tpl      transport.Layer
+	tpl      sip.Transport
 	lastResp sip.Response
 
 	errs    chan error
@@ -66,7 +65,7 @@ func (tx *commonTx) Key() TxKey {
 	return tx.key
 }
 
-func (tx *commonTx) Transport() transport.Layer {
+func (tx *commonTx) Transport() sip.Transport {
 	return tx.tpl
 }
 

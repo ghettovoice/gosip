@@ -10,7 +10,6 @@ import (
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/timing"
-	"github.com/ghettovoice/gosip/transport"
 )
 
 type ServerTx interface {
@@ -40,7 +39,7 @@ type serverTx struct {
 	closeOnce sync.Once
 }
 
-func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (ServerTx, error) {
+func NewServerTx(origin sip.Request, tpl sip.Transport, logger log.Logger) (ServerTx, error) {
 	key, err := MakeServerTxKey(origin)
 	if err != nil {
 		return nil, err
@@ -66,10 +65,7 @@ func NewServerTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Se
 		"transaction_ptr": fmt.Sprintf("%p", tx),
 		"transaction_key": tx.key,
 	}).(sip.Request)
-
-	if viaHop, ok := origin.ViaHop(); ok {
-		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
-	}
+	tx.reliable = tx.tpl.IsReliable(origin.Transport())
 
 	return tx, nil
 }

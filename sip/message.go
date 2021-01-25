@@ -225,7 +225,7 @@ func (hs *headers) PrependHeaderAfter(header Header, afterName string) {
 	}
 }
 
-func (hs *headers) ReplaceHeader(name string, headers []Header) {
+func (hs *headers) ReplaceHeaders(name string, headers []Header) {
 	name = strings.ToLower(name)
 	hs.mu.Lock()
 	if _, ok := hs.headers[name]; ok {
@@ -471,13 +471,13 @@ func (msg *message) SetBody(body string, setContentLength bool) {
 			msg.AppendHeader(&length)
 		} else {
 			length := ContentLength(len(body))
-			msg.ReplaceHeader("Content-Length", []Header{&length})
+			msg.ReplaceHeaders("Content-Length", []Header{&length})
 		}
 	}
 }
 
 func (msg *message) Transport() string {
-	if viaHop, ok := msg.ViaHop(); ok {
+	if viaHop, ok := msg.ViaHop(); ok && viaHop.Transport != "" {
 		return viaHop.Transport
 	} else {
 		return DefaultProtocol

@@ -4,13 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 // TransportLayer layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Layer interface {
@@ -24,6 +30,7 @@ type Layer interface {
 	Send(msg sip.Message) error
 	String() string
 	IsReliable(network string) bool
+	IsStreamed(network string) bool
 }
 
 var protocolFactory ProtocolFactory = func(
@@ -63,11 +70,10 @@ func GetProtocolFactory() ProtocolFactory {
 // TransportLayer implementation.
 type layer struct {
 	protocols   *protocolStore
-	listenPorts map[string]*sip.Port
+	listenPorts map[string][]sip.Port
 	ip          net.IP
 	dnsResolver *net.Resolver
 	msgMapper   sip.MessageMapper
-	ua          string
 
 	msgs     chan sip.Message
 	errs     chan error
@@ -93,11 +99,10 @@ func NewLayer(
 ) Layer {
 	tpl := &layer{
 		protocols:   newProtocolStore(),
-		listenPorts: make(map[string]*sip.Port),
+		listenPorts: make(map[string][]sip.Port),
 		ip:          ip,
 		dnsResolver: dnsResolver,
 		msgMapper:   msgMapper,
-		ua:          "GoSIP",
 
 		msgs:     make(chan sip.Message),
 		errs:     make(chan error),
@@ -116,12 +121,6 @@ func NewLayer(
 	go tpl.serveProtocols()
 
 	return tpl
-}
-
-func (tpl *layer) SetUserAgent(ua string) {
-	if ua != "" {
-		tpl.ua = ua
-	}
 }
 
 func (tpl *layer) String() string {
@@ -169,6 +168,13 @@ func (tpl *layer) IsReliable(network string) bool {
 	return false
 }
 
+func (tpl *layer) IsStreamed(network string) bool {
+	if protocol, ok := tpl.protocols.get(protocolKey(network)); ok && protocol.Streamed() {
+		return true
+	}
+	return false
+}
+
 func (tpl *layer) Listen(network string, addr string, options ...ListenOption) error {
 	select {
 	case <-tpl.canceled:
@@ -196,12 +202,19 @@ func (tpl *layer) Listen(network string, addr string, options ...ListenOption) e
 	if err != nil {
 		return err
 	}
-	target = FillTargetHostAndPort(network, target)
-	if _, ok := tpl.listenPorts[network]; !ok {
-		tpl.listenPorts[network] = target.Port
+	target = FillTargetHostAndPort(protocol.Network(), target)
+
+	err = protocol.Listen(target, options...)
+	if err == nil {
+		if _, ok := tpl.listenPorts[protocol.Network()]; !ok {
+			if tpl.listenPorts[protocol.Network()] == nil {
+				tpl.listenPorts[protocol.Network()] = make([]sip.Port, 0)
+			}
+			tpl.listenPorts[protocol.Network()] = append(tpl.listenPorts[protocol.Network()], *target.Port)
+		}
 	}
 
-	return protocol.Listen(target, options...)
+	return err
 }
 
 func (tpl *layer) Send(msg sip.Message) error {
@@ -219,37 +232,28 @@ func (tpl *layer) Send(msg sip.Message) error {
 		}
 	}
 
-	if hdrs := msg.GetHeaders("User-Agent"); len(hdrs) == 0 {
-		userAgent := sip.UserAgentHeader(tpl.ua)
-		msg.AppendHeader(&userAgent)
-	}
-
 	switch msg := msg.(type) {
 	// RFC 3261 - 18.1.1.
 	case sip.Request:
-		nt := msg.Transport()
-
+		network := msg.Transport()
+		// rewrite sent-by transport
+		viaHop.Transport = network
 		viaHop.Host = tpl.ip.String()
 
-		protocol, ok := tpl.protocols.get(protocolKey(nt))
+		protocol, ok := tpl.protocols.get(protocolKey(network))
 		if !ok {
-			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", nt))
+			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 		}
 
-		if protocol.Streamed() {
-			if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
-				msg.SetBody(msg.Body(), true)
-			}
-		}
-
-		// rewrite sent-by transport
-		viaHop.Transport = nt
 		// rewrite sent-by port
-		if port, ok := tpl.listenPorts[nt]; ok {
-			viaHop.Port = port
-		} else {
-			defPort := sip.DefaultPort(nt)
-			viaHop.Port = &defPort
+		if viaHop.Port == nil {
+			if ports, ok := tpl.listenPorts[network]; ok {
+				port := ports[rand.Intn(len(ports))]
+				viaHop.Port = &port
+			} else {
+				defPort := sip.DefaultPort(network)
+				viaHop.Port = &defPort
+			}
 		}
 
 		target, err := NewTargetFromAddr(msg.Destination())
@@ -260,11 +264,11 @@ func (tpl *layer) Send(msg sip.Message) error {
 		// dns srv lookup
 		if net.ParseIP(target.Host) == nil {
 			ctx := context.Background()
-			proto := strings.ToLower(nt)
+			proto := strings.ToLower(network)
 			if _, addrs, err := tpl.dnsResolver.LookupSRV(ctx, "sip", proto, target.Host); err == nil && len(addrs) > 0 {
 				addr := addrs[0]
 				addrStr := fmt.Sprintf("%s:%d", addr.Target[:len(addr.Target)-1], addr.Port)
-				switch nt {
+				switch network {
 				case "UDP":
 					if addr, err := net.ResolveUDPAddr("udp", addrStr); err == nil {
 						port := sip.Port(addr.Port)
@@ -311,12 +315,6 @@ func (tpl *layer) Send(msg sip.Message) error {
 		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
 		logger.Infof("sending SIP response:\n%s", msg)
 
-		if protocol.Streamed() {
-			if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
-				msg.SetBody(msg.Body(), true)
-			}
-		}
-
 		if err = protocol.Send(target, msg); err != nil {
 			return fmt.Errorf("send SIP message through %s protocol to %s: %w", protocol.Network(), target.Addr(), err)
 		}
@@ -359,7 +357,7 @@ func (tpl *layer) dispose() {
 		<-protocol.Done()
 	}
 
-	tpl.listenPorts = make(map[string]*sip.Port)
+	tpl.listenPorts = make(map[string][]sip.Port)
 
 	close(tpl.pmsgs)
 	close(tpl.perrs)

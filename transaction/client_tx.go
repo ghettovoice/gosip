@@ -10,7 +10,6 @@ import (
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/timing"
-	"github.com/ghettovoice/gosip/transport"
 )
 
 type ClientTx interface {
@@ -34,7 +33,8 @@ type clientTx struct {
 	closeOnce sync.Once
 }
 
-func NewClientTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (ClientTx, error) {
+func NewClientTx(origin sip.Request, tpl sip.Transport, logger log.Logger) (ClientTx, error) {
+	origin = prepareClientRequest(origin)
 	key, err := MakeClientTxKey(origin)
 	if err != nil {
 		return nil, err
@@ -59,12 +59,33 @@ func NewClientTx(origin sip.Request, tpl transport.Layer, logger log.Logger) (Cl
 		"transaction_ptr": fmt.Sprintf("%p", tx),
 		"transaction_key": tx.key,
 	}).(sip.Request)
-
-	if viaHop, ok := origin.ViaHop(); ok {
-		tx.reliable = tx.tpl.IsReliable(viaHop.Transport)
-	}
+	tx.reliable = tx.tpl.IsReliable(origin.Transport())
 
 	return tx, nil
+}
+
+func prepareClientRequest(origin sip.Request) sip.Request {
+	if viaHop, ok := origin.ViaHop(); ok {
+		if viaHop.Params == nil {
+			viaHop.Params = sip.NewParams()
+		}
+		if !viaHop.Params.Has("branch") {
+			viaHop.Params.Add("branch", sip.String{Str: sip.GenerateBranch()})
+		}
+	} else {
+		viaHop = &sip.ViaHop{
+			ProtocolName:    "SIP",
+			ProtocolVersion: "2.0",
+			Params: sip.NewParams().
+				Add("branch", sip.String{Str: sip.GenerateBranch()}),
+		}
+
+		origin.PrependHeaderAfter(sip.ViaHeader{
+			viaHop,
+		}, "Route")
+	}
+
+	return origin
 }
 
 func (tx *clientTx) Init() error {
@@ -98,6 +119,7 @@ func (tx *clientTx) Init() error {
 
 		tx.mu.Lock()
 		tx.timer_a_time = Timer_A
+
 		tx.timer_a = timing.AfterFunc(tx.timer_a_time, func() {
 			select {
 			case <-tx.done:

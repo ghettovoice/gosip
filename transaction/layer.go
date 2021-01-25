@@ -6,7 +6,6 @@ import (
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/ghettovoice/gosip/transport"
 )
 
 // Layer serves client and server transactions.
@@ -16,7 +15,7 @@ type Layer interface {
 	String() string
 	Request(req sip.Request) (sip.ClientTransaction, error)
 	Respond(res sip.Response) (sip.ServerTransaction, error)
-	Transport() transport.Layer
+	Transport() sip.Transport
 	// Requests returns channel with new incoming server transactions.
 	Requests() <-chan sip.ServerTransaction
 	// ACKs on 2xx
@@ -27,7 +26,7 @@ type Layer interface {
 }
 
 type layer struct {
-	tpl          transport.Layer
+	tpl          sip.Transport
 	requests     chan sip.ServerTransaction
 	acks         chan sip.Request
 	responses    chan sip.Response
@@ -44,7 +43,7 @@ type layer struct {
 	log log.Logger
 }
 
-func NewLayer(tpl transport.Layer, logger log.Logger) Layer {
+func NewLayer(tpl sip.Transport, logger log.Logger) Layer {
 	txl := &layer{
 		tpl:          tpl,
 		transactions: newTransactionStore(),
@@ -115,7 +114,7 @@ func (txl *layer) Errors() <-chan error {
 	return txl.errs
 }
 
-func (txl *layer) Transport() transport.Layer {
+func (txl *layer) Transport() sip.Transport {
 	return txl.tpl
 }
 

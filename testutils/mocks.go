@@ -147,6 +147,10 @@ func (tpl *MockTransportLayer) IsReliable(network string) bool {
 	return true
 }
 
+func (tpl *MockTransportLayer) IsStreamed(network string) bool {
+	return true
+}
+
 func (tpl *MockTransportLayer) String() string {
 	if tpl == nil {
 		return "<nil>"
