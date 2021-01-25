@@ -4,9 +4,9 @@ go 1.13
 
 require (
 	github.com/discoviking/fsm v0.0.0-20150126104936-f4a273feecca
+	github.com/gobwas/ws v1.1.0-rc.1
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
-	github.com/mattn/go-isatty v0.0.11 // indirect
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b // indirect
 	github.com/nxadm/tail v1.4.5 // indirect
 	github.com/onsi/ginkgo v1.14.2

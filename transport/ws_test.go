@@ -3,9 +3,12 @@ package transport_test
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"sync"
 	"time"
 
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -15,7 +18,7 @@ import (
 	"github.com/ghettovoice/gosip/transport"
 )
 
-var _ = Describe("TcpProtocol", func() {
+var _ = Describe("WsProtocol", func() {
 	var (
 		output                    chan sip.Message
 		errs                      chan error
@@ -23,43 +26,42 @@ var _ = Describe("TcpProtocol", func() {
 		protocol                  transport.Protocol
 		client1, client2, client3 net.Conn
 		wg                        *sync.WaitGroup
+		wsDial                    *ws.Dialer
 	)
 
 	network := "tcp"
-	port1 := 9060
-	port2 := port1 + 1
+	port1 := 9080
 	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
-	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
 	msg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
-		"Via: SIP/2.0/TCP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
+		"Via: SIP/2.0/WS pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
 		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
 		"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 		"Content-Length: 12\r\n" +
 		"\r\n" +
 		"Hello world!"
 	expectedMsg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
-		"Via: SIP/2.0/TCP pc33.far-far-away.com;branch=z9hG4bK776asdhds;received=%s\r\n" +
+		"Via: SIP/2.0/WS pc33.far-far-away.com;branch=z9hG4bK776asdhds;received=%s\r\n" +
 		"To: \"Bob\" <sip:bob@far-far-away.com>\r\n" +
 		"From: \"Alice\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 		"Content-Length: 12\r\n" +
 		"\r\n" +
 		"Hello world!"
 	msg2 := "BYE sip:bob@far-far-away.com SIP/2.0\r\n" +
-		"Via: SIP/2.0/TCP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
+		"Via: SIP/2.0/WS pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
 		"To: \"Alice\" <sip:bob@far-far-away.com>\r\n" +
 		"From: \"Bob\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 		"Content-Length: 4\r\n" +
 		"\r\n" +
 		"Bye!"
 	expectedMsg2 := "BYE sip:bob@far-far-away.com SIP/2.0\r\n" +
-		"Via: SIP/2.0/TCP pc33.far-far-away.com;branch=z9hG4bK776asdhds;received=%s\r\n" +
+		"Via: SIP/2.0/WS pc33.far-far-away.com;branch=z9hG4bK776asdhds;received=%s\r\n" +
 		"To: \"Alice\" <sip:bob@far-far-away.com>\r\n" +
 		"From: \"Bob\" <sip:alice@wonderland.com>;tag=1928301774\r\n" +
 		"Content-Length: 4\r\n" +
 		"\r\n" +
 		"Bye!"
 	msg3 := "SIP/2.0 200 OK\r\n" +
-		"Via: SIP/2.0/TCP pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
+		"Via: SIP/2.0/WS pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
 		"CSeq: 2 INVITE\r\n" +
 		"Call-ID: cheesecake1729\r\n" +
 		"Max-Forwards: 65\r\n" +
@@ -92,7 +94,10 @@ var _ = Describe("TcpProtocol", func() {
 		output = make(chan sip.Message)
 		errs = make(chan error)
 		cancel = make(chan struct{})
-		protocol = transport.NewTcpProtocol(output, errs, cancel, nil, logger)
+		protocol = transport.NewWsProtocol(output, errs, cancel, nil, logger)
+		wsDial = &ws.Dialer{
+			Protocols: []string{"sip"},
+		}
 	})
 	AfterEach(func(done Done) {
 		wg.Wait()
@@ -109,8 +114,8 @@ var _ = Describe("TcpProtocol", func() {
 	}, 3)
 
 	Context("just initialized", func() {
-		It("should has Network = TCP", func() {
-			Expect(protocol.Network()).To(Equal("TCP"))
+		It("should has Network = WS", func() {
+			Expect(protocol.Network()).To(Equal("WS"))
 		})
 		It("should be reliable", func() {
 			Expect(protocol.Reliable()).To(BeTrue())
@@ -120,79 +125,82 @@ var _ = Describe("TcpProtocol", func() {
 		})
 	})
 
-	Context(fmt.Sprintf("listens 2 target: %s, %s", localTarget1, localTarget2), func() {
+	Context(fmt.Sprintf("listens target: %s", localTarget1), func() {
 		BeforeEach(func() {
 			Expect(protocol.Listen(localTarget1)).To(Succeed())
-			Expect(protocol.Listen(localTarget2)).To(Succeed())
 			time.Sleep(time.Millisecond)
 		})
 
 		Context("when 3 clients connects and sends data", func() {
 			BeforeEach(func() {
+				targetUrl, err := url.Parse(fmt.Sprintf("ws://%s", localTarget1.Addr()))
+				Expect(err).ToNot(HaveOccurred())
 				client1 = testutils.CreateClient(network, localTarget1.Addr(), "")
-				client2 = testutils.CreateClient(network, localTarget2.Addr(), "")
+				_, _, err = wsDial.Upgrade(client1, targetUrl)
+				Expect(err).ToNot(HaveOccurred())
+				client2 = testutils.CreateClient(network, localTarget1.Addr(), "")
+				_, _, err = wsDial.Upgrade(client2, targetUrl)
+				Expect(err).ToNot(HaveOccurred())
 				client3 = testutils.CreateClient(network, localTarget1.Addr(), "")
+				_, _, err = wsDial.Upgrade(client3, targetUrl)
+				Expect(err).ToNot(HaveOccurred())
 				wg.Add(3)
 				go func() {
 					defer wg.Done()
 					time.Sleep(time.Millisecond)
-					testutils.WriteToConn(client1, []byte(msg1))
+					Expect(wsutil.WriteClientText(client1, []byte(msg1))).Should(Succeed())
 				}()
 				go func() {
 					defer wg.Done()
 					time.Sleep(100 * time.Millisecond)
-					testutils.WriteToConn(client2, []byte(msg2))
+					Expect(wsutil.WriteClientText(client2, []byte(msg2))).Should(Succeed())
 					time.Sleep(200 * time.Millisecond)
-					testutils.WriteToConn(client2, []byte(bullshit))
+					Expect(wsutil.WriteClientText(client2, []byte(bullshit))).Should(Succeed())
 					time.Sleep(200 * time.Millisecond)
-					testutils.WriteToConn(client2, []byte(msg2))
+					Expect(wsutil.WriteClientText(client2, []byte(msg2))).Should(Succeed())
 				}()
 				go func() {
 					defer wg.Done()
 					time.Sleep(50 * time.Millisecond)
-					testutils.WriteToConn(client3, []byte(broken))
+					Expect(wsutil.WriteClientText(client3, []byte(broken))).Should(Succeed())
 					time.Sleep(100 * time.Millisecond)
-					testutils.WriteToConn(client3, []byte(msg3))
+					Expect(wsutil.WriteClientText(client3, []byte(msg3))).Should(Succeed())
 				}()
 			})
 			It("should pipe incoming messages and errors", func(done Done) {
 				By(fmt.Sprintf("msg1 arrives on output from client1 %s -> %s", client1.LocalAddr().String(), localTarget1.Addr()))
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:5060")
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:80")
 				By(fmt.Sprintf("broken message arrives from client3 and ignored %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
 				time.Sleep(time.Millisecond)
-				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5060")
+				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget1.Addr()))
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:80")
 				By(fmt.Sprintf("msg3 arrives on output from client3 %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
-				testutils.AssertMessageArrived(output, msg3, client3.LocalAddr().String(), "pc33.far-far-away.com:5060")
-				By(fmt.Sprintf("bullshit arrives from client2 and ignored %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
+				testutils.AssertMessageArrived(output, msg3, client3.LocalAddr().String(), "pc33.far-far-away.com:80")
+				By(fmt.Sprintf("bullshit arrives from client2 and ignored %s -> %s", client2.LocalAddr().String(), localTarget1.Addr()))
 				time.Sleep(time.Millisecond)
-				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5060")
-				// for i := 0; i < 4; i++ {
-				//	select {
-				//	case msg := <-output:
-				//		fmt.Printf("\n-------------------------------\n%s\n-------------------------------------\n\n", msg)
-				//	case err := <-errs:
-				//		fmt.Printf("\n-------------------------------\n%s\n-------------------------------------\n\n", err)
-				//	}
-				// }
+				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget1.Addr()))
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:80")
 				close(done)
 			}, 3)
 		})
 
 		Context("when client1 sends invite request", func() {
 			BeforeEach(func() {
+				targetUrl, err := url.Parse(fmt.Sprintf("ws://%s", localTarget1.Addr()))
+				Expect(err).ToNot(HaveOccurred())
 				client1 = testutils.CreateClient(network, localTarget1.Addr(), "")
+				_, _, err = wsDial.Upgrade(client1, targetUrl)
+				Expect(err).ToNot(HaveOccurred())
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
 					time.Sleep(100 * time.Millisecond)
-					testutils.WriteToConn(client1, []byte(msg1))
+					Expect(wsutil.WriteClientText(client1, []byte(msg1))).Should(Succeed())
 				}()
 			})
 			It("should receive message and response with 200 OK", func(done Done) {
 				By("msg1 arrives")
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:5060")
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:80")
 
 				By("prepare response 200 OK")
 				clientTarget, err := transport.NewTargetFromAddr(client1.LocalAddr().String())
@@ -218,14 +226,12 @@ var _ = Describe("TcpProtocol", func() {
 				}()
 				go func() {
 					defer twg.Done()
-					buf := make([]byte, 65535)
 					By("client server waiting 200 OK")
 					for {
-						num, err := client1.Read(buf)
+						buf, err := wsutil.ReadServerText(client1)
 						Expect(err).ToNot(HaveOccurred())
-						Expect(num).To(Equal(len(msg.String())))
-						data := append([]byte{}, buf[:num]...)
-						Expect(string(data)).To(Equal(msg.String()))
+						Expect(len(buf)).To(Equal(len(msg.String())))
+						Expect(string(buf)).To(Equal(msg.String()))
 						return
 					}
 				}()

@@ -15,14 +15,16 @@ import (
 )
 
 const (
-	MTU uint = 1500
+	MTU = sip.MTU
 
-	DefaultHost     = "0.0.0.0"
-	DefaultProtocol = "UDP"
+	DefaultHost     = sip.DefaultHost
+	DefaultProtocol = sip.DefaultProtocol
 
-	DefaultUdpPort sip.Port = 5060
-	DefaultTcpPort sip.Port = 5060
-	DefaultTlsPort sip.Port = 5061
+	DefaultUdpPort = sip.DefaultUdpPort
+	DefaultTcpPort = sip.DefaultTcpPort
+	DefaultTlsPort = sip.DefaultTlsPort
+	DefaultWsPort  = sip.DefaultWsPort
+	DefaultWssPort = sip.DefaultWssPort
 )
 
 // Target endpoint
@@ -80,27 +82,13 @@ func NewTargetFromAddr(addr string) (*Target, error) {
 	return NewTarget(host, iport), nil
 }
 
-// DefaultPort returns protocol default port by network.
-func DefaultPort(protocol string) sip.Port {
-	switch strings.ToLower(protocol) {
-	case "tls":
-		return DefaultTlsPort
-	case "tcp":
-		return DefaultTcpPort
-	case "udp":
-		return DefaultUdpPort
-	default:
-		return DefaultTcpPort
-	}
-}
-
 // Fills endpoint target with default values.
 func FillTargetHostAndPort(network string, target *Target) *Target {
 	if strings.TrimSpace(target.Host) == "" {
 		target.Host = DefaultHost
 	}
 	if target.Port == nil {
-		p := DefaultPort(network)
+		p := sip.DefaultPort(network)
 		target.Port = &p
 	}
 
@@ -351,4 +339,16 @@ func (err UnsupportedProtocolError) Timeout() bool   { return false }
 func (err UnsupportedProtocolError) Temporary() bool { return false }
 func (err UnsupportedProtocolError) Error() string {
 	return "transport.UnsupportedProtocolError: " + string(err)
+}
+
+//TLSConfig for TLS and WSS only
+type TLSConfig struct {
+	TLSDomain string
+	Cert      string
+	Key       string
+	Pass      string
+}
+
+func (c *TLSConfig) ApplyListen(opts *ListenOptions) {
+	opts.TLSConfig = c
 }

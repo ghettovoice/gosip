@@ -20,7 +20,7 @@ type Protocol interface {
 	Network() string
 	Reliable() bool
 	Streamed() bool
-	Listen(target *Target) error
+	Listen(target *Target, options ...ListenOption) error
 	Send(target *Target, msg sip.Message) error
 	String() string
 }

@@ -30,6 +30,7 @@ type Connection interface {
 type connection struct {
 	baseConn net.Conn
 	key      ConnectionKey
+	network  string
 	laddr    net.Addr
 	raddr    net.Addr
 	streamed bool
@@ -38,7 +39,7 @@ type connection struct {
 	log log.Logger
 }
 
-func NewConnection(baseConn net.Conn, key ConnectionKey, logger log.Logger) Connection {
+func NewConnection(baseConn net.Conn, key ConnectionKey, network string, logger log.Logger) Connection {
 	var stream bool
 	switch baseConn.(type) {
 	case net.PacketConn:
@@ -50,6 +51,7 @@ func NewConnection(baseConn net.Conn, key ConnectionKey, logger log.Logger) Conn
 	conn := &connection{
 		baseConn: baseConn,
 		key:      key,
+		network:  network,
 		laddr:    baseConn.LocalAddr(),
 		raddr:    baseConn.RemoteAddr(),
 		streamed: stream,
@@ -92,7 +94,7 @@ func (conn *connection) Streamed() bool {
 }
 
 func (conn *connection) Network() string {
-	return strings.ToUpper(conn.baseConn.LocalAddr().Network())
+	return strings.ToUpper(conn.network)
 }
 
 func (conn *connection) Read(buf []byte) (int, error) {

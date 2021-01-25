@@ -42,17 +42,14 @@ func NewRequest(
 		req.messID = messID
 	}
 	req.startLine = req.StartLine
-	req.SetSipVersion(sipVersion)
+	req.sipVersion = sipVersion
 	req.headers = newHeaders(hdrs)
-	req.SetMethod(method)
-	req.SetRecipient(recipient)
+	req.method = method
+	req.recipient = recipient
+	req.body = body
 	req.fields = fields.WithFields(log.Fields{
 		"request_id": req.messID,
 	})
-
-	if strings.TrimSpace(body) != "" {
-		req.SetBody(body, true)
-	}
 
 	return req
 }
@@ -75,17 +72,25 @@ func (req *request) Short() string {
 }
 
 func (req *request) Method() RequestMethod {
+	req.mu.RLock()
+	defer req.mu.RUnlock()
 	return req.method
 }
 func (req *request) SetMethod(method RequestMethod) {
+	req.mu.Lock()
 	req.method = method
+	req.mu.Unlock()
 }
 
 func (req *request) Recipient() Uri {
+	req.mu.RLock()
+	defer req.mu.RUnlock()
 	return req.recipient
 }
 func (req *request) SetRecipient(recipient Uri) {
+	req.mu.Lock()
 	req.recipient = recipient
+	req.mu.Unlock()
 }
 
 // StartLine returns Request Line - RFC 2361 7.1.
@@ -96,7 +101,7 @@ func (req *request) StartLine() string {
 	buffer.WriteString(
 		fmt.Sprintf(
 			"%s %s %s",
-			string(req.method),
+			string(req.Method()),
 			req.Recipient(),
 			req.SipVersion(),
 		),
@@ -106,27 +111,15 @@ func (req *request) StartLine() string {
 }
 
 func (req *request) Clone() Message {
-	return NewRequest(
-		"",
-		req.Method(),
-		req.Recipient().Clone(),
-		req.SipVersion(),
-		req.headers.CloneHeaders(),
-		req.Body(),
-		req.Fields(),
-	)
+	return cloneRequest(req, "", nil)
 }
 
 func (req *request) WithFields(fields log.Fields) Message {
-	return NewRequest(
-		req.MessageID(),
-		req.Method(),
-		req.Recipient().Clone(),
-		req.SipVersion(),
-		req.headers.CloneHeaders(),
-		req.Body(),
-		req.Fields().WithFields(fields),
-	)
+	req.mu.Lock()
+	req.fields = req.fields.WithFields(fields)
+	req.mu.Unlock()
+
+	return req
 }
 
 func (req *request) IsInvite() bool {
@@ -141,10 +134,46 @@ func (req *request) IsCancel() bool {
 	return req.Method() == CANCEL
 }
 
+func (req *request) Transport() string {
+	tp := req.message.Transport()
+	uri := req.Recipient()
+	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
+		routeHeader, ok := hdrs[0].(*RouteHeader)
+		if ok && len(routeHeader.Addresses) > 0 {
+			uri = routeHeader.Addresses[0]
+		}
+	}
+
+	if uri != nil {
+		if uri.UriParams() != nil {
+			if val, ok := uri.UriParams().Get("transport"); ok && !val.Equals("") {
+				tp = strings.ToUpper(val.String())
+			}
+		}
+
+		if uri.IsEncrypted() {
+			if tp == "TCP" {
+				tp = "TLS"
+			} else if tp == "WS" {
+				tp = "WSS"
+			}
+		}
+	}
+
+	if tp == "UDP" && len(req.String()) > int(MTU)-200 {
+		tp = "TCP"
+	}
+
+	return tp
+}
+
 func (req *request) Source() string {
+	req.mu.RLock()
 	if req.src != "" {
+		defer req.mu.RUnlock()
 		return req.src
 	}
+	req.mu.RUnlock()
 
 	viaHop, ok := req.ViaHop()
 	if !ok {
@@ -156,33 +185,39 @@ func (req *request) Source() string {
 		port Port
 	)
 
-	if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
-		host = received.String()
-	} else {
-		host = viaHop.Host
-	}
-
-	if rport, ok := viaHop.Params.Get("rport"); ok && rport != nil && rport.String() != "" {
-		p, _ := strconv.Atoi(rport.String())
-		port = Port(uint16(p))
-	} else if viaHop.Port != nil {
+	host = viaHop.Host
+	if viaHop.Port != nil {
 		port = *viaHop.Port
 	} else {
 		port = DefaultPort(req.Transport())
+	}
+
+	if viaHop.Params != nil {
+		if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
+			host = received.String()
+		}
+		if rport, ok := viaHop.Params.Get("rport"); ok && rport != nil && rport.String() != "" {
+			if p, err := strconv.Atoi(rport.String()); err == nil {
+				port = Port(uint16(p))
+			}
+		}
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)
 }
 
 func (req *request) Destination() string {
+	req.mu.RLock()
 	if req.dest != "" {
+		defer req.mu.RUnlock()
 		return req.dest
 	}
+	req.mu.RUnlock()
 
 	var uri *SipUri
 	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
-		routeHeader := hdrs[0].(*RouteHeader)
-		if len(routeHeader.Addresses) > 0 {
+		routeHeader, ok := hdrs[0].(*RouteHeader)
+		if ok && len(routeHeader.Addresses) > 0 {
 			uri = routeHeader.Addresses[0].(*SipUri)
 		}
 	}
@@ -196,10 +231,10 @@ func (req *request) Destination() string {
 
 	host := uri.FHost
 	var port Port
-	if uri.FPort == nil {
-		port = DefaultPort(req.Transport())
-	} else {
+	if uri.FPort != nil {
 		port = *uri.FPort
+	} else {
+		port = DefaultPort(req.Transport())
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)
@@ -207,7 +242,7 @@ func (req *request) Destination() string {
 
 // NewAckForInvite creates ACK request for 2xx INVITE
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
-func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response, fields log.Fields) Request {
+func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response, body string, fields log.Fields) Request {
 	recipient := inviteRequest.Recipient()
 	if contact, ok := inviteResponse.Contact(); ok {
 		recipient = contact.Address
@@ -216,9 +251,9 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 		ackID,
 		ACK,
 		recipient,
-		inviteResponse.SipVersion(),
+		inviteRequest.SipVersion(),
 		[]Header{},
-		"",
+		body,
 		inviteRequest.Fields().
 			WithFields(fields).
 			WithFields(log.Fields{
@@ -290,19 +325,27 @@ func NewCancelRequest(cancelID MessageID, requestForCancel Request, fields log.F
 	return cancelReq
 }
 
-func CopyRequest(req Request) Request {
-	hdrs := make([]Header, 0)
-	for _, header := range req.Headers() {
-		hdrs = append(hdrs, header.Clone())
+func cloneRequest(req Request, id MessageID, fields log.Fields) Request {
+	newFields := req.Fields()
+	if fields != nil {
+		newFields = newFields.WithFields(fields)
 	}
 
-	return NewRequest(
-		req.MessageID(),
+	newReq := NewRequest(
+		id,
 		req.Method(),
 		req.Recipient().Clone(),
 		req.SipVersion(),
-		hdrs,
+		cloneHeaders(req),
 		req.Body(),
-		req.Fields(),
+		newFields,
 	)
+	newReq.SetSource(req.Source())
+	newReq.SetDestination(req.Destination())
+
+	return newReq
+}
+
+func CopyRequest(req Request) Request {
+	return cloneRequest(req, req.MessageID(), nil)
 }

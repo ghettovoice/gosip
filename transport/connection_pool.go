@@ -512,6 +512,11 @@ func (pool *connectionPool) serveHandlers() {
 					logger.Error(err)
 				}
 
+				var connErr *ConnectionError
+				if errors.As(herr.Err, &connErr) {
+					pool.errs <- herr.Err
+				}
+
 				continue
 			} else if herr.Network() {
 				// connection broken or closed
@@ -1051,9 +1056,18 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 					viaHop.Params.Add("rport", sip.String{Str: rport})
 				}
 
-				if handler.Connection().Streamed() {
-					msg.SetSource(raddr)
+				if !streamed {
+					if !viaHop.Params.Has("rport") {
+						var port sip.Port
+						if viaHop.Port != nil {
+							port = *viaHop.Port
+						} else {
+							port = sip.DefaultPort(handler.Connection().Network())
+						}
+						raddr = fmt.Sprintf("%s:%d", rhost, port)
+					}
 				}
+				msg.SetSource(raddr)
 			case sip.Response:
 				// Set Remote Address as response source
 				msg.SetSource(raddr)

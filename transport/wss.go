@@ -5,24 +5,25 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 )
 
-type tlsProtocol struct {
-	tcpProtocol
+type wssProtocol struct {
+	wsProtocol
 }
 
-func NewTlsProtocol(
+func NewWssProtocol(
 	output chan<- sip.Message,
 	errs chan<- error,
 	cancel <-chan struct{},
 	msgMapper sip.MessageMapper,
 	logger log.Logger,
 ) Protocol {
-	p := new(tlsProtocol)
-	p.network = "tls"
+	p := new(wsProtocol)
+	p.network = "wss"
 	p.reliable = true
 	p.streamed = true
 	p.conns = make(chan Connection)
@@ -50,15 +51,13 @@ func NewTlsProtocol(
 			Certificates: []tls.Certificate{cert},
 		})
 	}
-	p.dial = func(addr *net.TCPAddr) (net.Conn, error) {
-		return tls.Dial("tcp", addr.String(), &tls.Config{
-			VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-				return nil
-			},
-		})
-	}
-	p.resolveAddr = func(addr string) (*net.TCPAddr, error) {
-		return net.ResolveTCPAddr("tcp", addr)
+	p.resolveAddr = p.defaultResolveAddr
+	p.dialer.Protocols = []string{wsSubProtocol}
+	p.dialer.Timeout = time.Minute
+	p.dialer.TLSConfig = &tls.Config{
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			return nil
+		},
 	}
 	//pipe listener and connection pools
 	go p.pipePools()

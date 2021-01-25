@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -749,9 +750,21 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 			}
 			return
 		}
-
-		key := ConnectionKey(strings.ToLower(baseConn.RemoteAddr().Network()) + ":" + baseConn.RemoteAddr().String())
-		conn := NewConnection(baseConn, key, handler.Log())
+		var network string
+		switch bc := baseConn.(type) {
+		case *tls.Conn:
+			network = "tls"
+		case *wsConn:
+			if _, ok := bc.Conn.(*tls.Conn); ok {
+				network = "wss"
+			} else {
+				network = "ws"
+			}
+		default:
+			network = strings.ToLower(baseConn.RemoteAddr().Network())
+		}
+		key := ConnectionKey(network + ":" + baseConn.RemoteAddr().String())
+		conn := NewConnection(baseConn, key, network, handler.Log())
 
 		select {
 		case <-handler.canceled:
@@ -844,6 +857,10 @@ func (handler *listenerHandler) Done() <-chan struct{} {
 }
 
 func listenerNetwork(ls net.Listener) string {
+	if val, ok := ls.(interface{ Network() string }); ok {
+		return val.Network()
+	}
+
 	switch ls.(type) {
 	case *net.TCPListener:
 		return "tcp"

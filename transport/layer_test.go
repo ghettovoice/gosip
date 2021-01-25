@@ -43,8 +43,8 @@ var _ = Describe("TransportLayer", func() {
 
 	Context(fmt.Sprintf("listen to %s", localAddr1), func() {
 		BeforeEach(func() {
-			Expect(tpl.Listen("udp", localAddr1))
-			Expect(tpl.Listen("tcp", localAddr1))
+			Expect(tpl.Listen("udp", localAddr1, nil))
+			Expect(tpl.Listen("tcp", localAddr1, nil))
 		})
 
 		Context("when remote UDP client sends INVITE request", func() {
@@ -197,6 +197,8 @@ var _ = Describe("TransportLayer", func() {
 						"OK",
 						"",
 					)
+					cl := sip.ContentLength(0)
+					response.AppendHeader(&cl)
 					ua := sip.UserAgentHeader("GoSIP")
 					response.AppendHeader(&ua)
 				})

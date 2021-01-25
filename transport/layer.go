@@ -2,14 +2,21 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 // TransportLayer layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Layer interface {
@@ -18,11 +25,12 @@ type Layer interface {
 	Messages() <-chan sip.Message
 	Errors() <-chan error
 	// Listen starts listening on `addr` for each registered protocol.
-	Listen(network string, addr string) error
+	Listen(network string, addr string, options ...ListenOption) error
 	// Send sends message on suitable protocol.
 	Send(msg sip.Message) error
 	String() string
 	IsReliable(network string) bool
+	IsStreamed(network string) bool
 }
 
 var protocolFactory ProtocolFactory = func(
@@ -38,6 +46,12 @@ var protocolFactory ProtocolFactory = func(
 		return NewUdpProtocol(output, errs, cancel, msgMapper, logger), nil
 	case "tcp":
 		return NewTcpProtocol(output, errs, cancel, msgMapper, logger), nil
+	case "tls":
+		return NewTlsProtocol(output, errs, cancel, msgMapper, logger), nil
+	case "ws":
+		return NewWsProtocol(output, errs, cancel, msgMapper, logger), nil
+	case "wss":
+		return NewWssProtocol(output, errs, cancel, msgMapper, logger), nil
 	default:
 		return nil, UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 	}
@@ -56,11 +70,10 @@ func GetProtocolFactory() ProtocolFactory {
 // TransportLayer implementation.
 type layer struct {
 	protocols   *protocolStore
-	listenPorts map[string]*sip.Port
+	listenPorts map[string][]sip.Port
 	ip          net.IP
 	dnsResolver *net.Resolver
 	msgMapper   sip.MessageMapper
-	ua          string
 
 	msgs     chan sip.Message
 	errs     chan error
@@ -86,11 +99,10 @@ func NewLayer(
 ) Layer {
 	tpl := &layer{
 		protocols:   newProtocolStore(),
-		listenPorts: make(map[string]*sip.Port),
+		listenPorts: make(map[string][]sip.Port),
 		ip:          ip,
 		dnsResolver: dnsResolver,
 		msgMapper:   msgMapper,
-		ua:          "GoSIP",
 
 		msgs:     make(chan sip.Message),
 		errs:     make(chan error),
@@ -109,12 +121,6 @@ func NewLayer(
 	go tpl.serveProtocols()
 
 	return tpl
-}
-
-func (tpl *layer) SetUserAgent(ua string) {
-	if ua != "" {
-		tpl.ua = ua
-	}
 }
 
 func (tpl *layer) String() string {
@@ -162,14 +168,20 @@ func (tpl *layer) IsReliable(network string) bool {
 	return false
 }
 
-func (tpl *layer) Listen(network string, addr string) error {
+func (tpl *layer) IsStreamed(network string) bool {
+	if protocol, ok := tpl.protocols.get(protocolKey(network)); ok && protocol.Streamed() {
+		return true
+	}
+	return false
+}
+
+func (tpl *layer) Listen(network string, addr string, options ...ListenOption) error {
 	select {
 	case <-tpl.canceled:
 		return fmt.Errorf("transport layer is canceled")
 	default:
 	}
 
-	// todo try with separate goroutine/outputs for each protocol
 	protocol, ok := tpl.protocols.get(protocolKey(network))
 	if !ok {
 		var err error
@@ -190,12 +202,19 @@ func (tpl *layer) Listen(network string, addr string) error {
 	if err != nil {
 		return err
 	}
-	target = FillTargetHostAndPort(network, target)
-	if _, ok := tpl.listenPorts[network]; !ok {
-		tpl.listenPorts[network] = target.Port
+	target = FillTargetHostAndPort(protocol.Network(), target)
+
+	err = protocol.Listen(target, options...)
+	if err == nil {
+		if _, ok := tpl.listenPorts[protocol.Network()]; !ok {
+			if tpl.listenPorts[protocol.Network()] == nil {
+				tpl.listenPorts[protocol.Network()] = make([]sip.Port, 0)
+			}
+			tpl.listenPorts[protocol.Network()] = append(tpl.listenPorts[protocol.Network()], *target.Port)
+		}
 	}
 
-	return protocol.Listen(target)
+	return err
 }
 
 func (tpl *layer) Send(msg sip.Message) error {
@@ -213,90 +232,73 @@ func (tpl *layer) Send(msg sip.Message) error {
 		}
 	}
 
-	if hdrs := msg.GetHeaders("User-Agent"); len(hdrs) == 0 {
-		userAgent := sip.UserAgentHeader(tpl.ua)
-		msg.AppendHeader(&userAgent)
-	}
-
 	switch msg := msg.(type) {
 	// RFC 3261 - 18.1.1.
 	case sip.Request:
-		nets := make([]string, 0)
-		msgLen := len(msg.String())
-		// todo check for reliable/non-reliable
-		if msgLen > int(MTU)-200 {
-			nets = append(nets, "TCP", "UDP")
-		} else {
-			nets = append(nets, "UDP", "TCP")
-		}
-
+		network := msg.Transport()
+		// rewrite sent-by transport
+		viaHop.Transport = network
 		viaHop.Host = tpl.ip.String()
-		if viaHop.Params == nil {
-			viaHop.Params = sip.NewParams()
-		}
-		if !viaHop.Params.Has("rport") {
-			viaHop.Params.Add("rport", nil)
+
+		protocol, ok := tpl.protocols.get(protocolKey(network))
+		if !ok {
+			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
 		}
 
-		var err error
-		for _, nt := range nets {
-			protocol, ok := tpl.protocols.get(protocolKey(nt))
-			if !ok {
-				err = UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", nt))
-				continue
-			}
-			// rewrite sent-by transport
-			viaHop.Transport = nt
-			// rewrite sent-by port
-			if port, ok := tpl.listenPorts[nt]; ok {
-				viaHop.Port = port
+		// rewrite sent-by port
+		if viaHop.Port == nil {
+			if ports, ok := tpl.listenPorts[network]; ok {
+				port := ports[rand.Intn(len(ports))]
+				viaHop.Port = &port
 			} else {
-				defPort := DefaultPort(nt)
+				defPort := sip.DefaultPort(network)
 				viaHop.Port = &defPort
 			}
+		}
 
-			var target *Target
-			target, err = NewTargetFromAddr(msg.Destination())
-			if err != nil {
-				continue
-			}
+		target, err := NewTargetFromAddr(msg.Destination())
+		if err != nil {
+			return fmt.Errorf("build address target for %s: %w", msg.Destination(), err)
+		}
 
-			// dns srv lookup
-			if net.ParseIP(target.Host) == nil {
-				ctx := context.Background()
-				proto := strings.ToLower(nt)
-				if _, addrs, err := tpl.dnsResolver.LookupSRV(ctx, "sip", proto, target.Host); err == nil && len(addrs) > 0 {
-					addr := addrs[0]
-					addrStr := fmt.Sprintf("%s:%d", addr.Target[:len(addr.Target)-1], addr.Port)
-					switch nt {
-					case "UDP":
-						if addr, err := net.ResolveUDPAddr("udp", addrStr); err == nil {
-							port := sip.Port(addr.Port)
-							target.Host = addr.IP.String()
-							target.Port = &port
-						}
-					case "TCP":
-						if addr, err := net.ResolveTCPAddr("tcp", addrStr); err == nil {
-							port := sip.Port(addr.Port)
-							target.Host = addr.IP.String()
-							target.Port = &port
-						}
+		// dns srv lookup
+		if net.ParseIP(target.Host) == nil {
+			ctx := context.Background()
+			proto := strings.ToLower(network)
+			if _, addrs, err := tpl.dnsResolver.LookupSRV(ctx, "sip", proto, target.Host); err == nil && len(addrs) > 0 {
+				addr := addrs[0]
+				addrStr := fmt.Sprintf("%s:%d", addr.Target[:len(addr.Target)-1], addr.Port)
+				switch network {
+				case "UDP":
+					if addr, err := net.ResolveUDPAddr("udp", addrStr); err == nil {
+						port := sip.Port(addr.Port)
+						target.Host = addr.IP.String()
+						target.Port = &port
+					}
+				case "TLS":
+					fallthrough
+				case "WS":
+					fallthrough
+				case "WSS":
+					fallthrough
+				case "TCP":
+					if addr, err := net.ResolveTCPAddr("tcp", addrStr); err == nil {
+						port := sip.Port(addr.Port)
+						target.Host = addr.IP.String()
+						target.Port = &port
 					}
 				}
 			}
-
-			logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
-			logger.Infof("sending SIP request:\n%s", msg)
-
-			err = protocol.Send(target, msg)
-			if err == nil {
-				break
-			} else {
-				continue
-			}
 		}
 
-		return err
+		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
+		logger.Infof("sending SIP request:\n%s", msg)
+
+		if err = protocol.Send(target, msg); err != nil {
+			return fmt.Errorf("send SIP message through %s protocol to %s: %w", protocol.Network(), target.Addr(), err)
+		}
+
+		return nil
 		// RFC 3261 - 18.2.2.
 	case sip.Response:
 		// resolve protocol from Via
@@ -307,13 +309,17 @@ func (tpl *layer) Send(msg sip.Message) error {
 
 		target, err := NewTargetFromAddr(msg.Destination())
 		if err != nil {
-			return err
+			return fmt.Errorf("build address target for %s: %w", msg.Destination(), err)
 		}
 
 		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
 		logger.Infof("sending SIP response:\n%s", msg)
 
-		return protocol.Send(target, msg)
+		if err = protocol.Send(target, msg); err != nil {
+			return fmt.Errorf("send SIP message through %s protocol to %s: %w", protocol.Network(), target.Addr(), err)
+		}
+
+		return nil
 	default:
 		return &sip.UnsupportedMessageError{
 			Err: fmt.Errorf("unsupported message %s", msg.Short()),
@@ -351,7 +357,7 @@ func (tpl *layer) dispose() {
 		<-protocol.Done()
 	}
 
-	tpl.listenPorts = make(map[string]*sip.Port)
+	tpl.listenPorts = make(map[string][]sip.Port)
 
 	close(tpl.pmsgs)
 	close(tpl.perrs)
@@ -362,8 +368,7 @@ func (tpl *layer) dispose() {
 // handles incoming message from protocol
 // should be called inside goroutine for non-blocking forwarding
 func (tpl *layer) handleMessage(msg sip.Message) {
-	logger := tpl.Log().
-		WithFields(msg.Fields())
+	logger := tpl.Log().WithFields(msg.Fields())
 
 	logger.Infof("received SIP message:\n%s", msg)
 	logger.Trace("passing up SIP message...")
@@ -378,11 +383,10 @@ func (tpl *layer) handleMessage(msg sip.Message) {
 
 func (tpl *layer) handlerError(err error) {
 	// TODO: implement re-connection strategy for listeners
-	if err, ok := err.(Error); ok {
-		// currently log and ignore
-		tpl.Log().Errorf("SIP transport error: %s", err)
-
-		return
+	var terr Error
+	if errors.As(err, &terr) {
+		// currently log
+		tpl.Log().Warnf("SIP transport error: %s", err)
 	}
 
 	logger := tpl.Log().WithFields(log.Fields{

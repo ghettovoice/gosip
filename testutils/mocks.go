@@ -9,6 +9,7 @@ import (
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/transport"
 )
 
 type MockListener struct {
@@ -129,7 +130,7 @@ func (tpl *MockTransportLayer) Errors() <-chan error {
 	return tpl.InErrs
 }
 
-func (tpl *MockTransportLayer) Listen(network string, addr string) error {
+func (tpl *MockTransportLayer) Listen(network string, addr string, options ...transport.ListenOption) error {
 	return nil
 }
 
@@ -143,6 +144,10 @@ func (tpl *MockTransportLayer) Send(msg sip.Message) error {
 }
 
 func (tpl *MockTransportLayer) IsReliable(network string) bool {
+	return true
+}
+
+func (tpl *MockTransportLayer) IsStreamed(network string) bool {
 	return true
 }
 

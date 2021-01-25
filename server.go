@@ -2,7 +2,9 @@ package gosip
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 
@@ -23,15 +25,14 @@ type RequestHandler func(req sip.Request, tx sip.ServerTransaction)
 type Server interface {
 	Shutdown()
 
-	Listen(network, addr string) error
+	Listen(network, addr string, options ...transport.ListenOption) error
 	Send(msg sip.Message) error
 
 	Request(req sip.Request) (sip.ClientTransaction, error)
 	RequestWithContext(
 		ctx context.Context,
 		request sip.Request,
-		authorizer sip.Authorizer,
-		options ...interface{},
+		options ...RequestWithContextOption,
 	) (sip.Response, error)
 	OnRequest(method sip.RequestMethod, handler RequestHandler) error
 
@@ -51,7 +52,7 @@ type TransportLayerFactory func(
 	logger log.Logger,
 ) transport.Layer
 
-type TransactionLayerFactory func(tpl transport.Layer, logger log.Logger) transaction.Layer
+type TransactionLayerFactory func(tpl sip.Transport, logger log.Logger) transaction.Layer
 
 // ServerConfig describes available options
 type ServerConfig struct {
@@ -75,6 +76,7 @@ type server struct {
 	hmu             *sync.RWMutex
 	requestHandlers map[sip.RequestMethod]RequestHandler
 	extensions      []string
+	userAgent       string
 
 	log log.Logger
 }
@@ -131,6 +133,11 @@ func NewServer(
 		extensions = config.Extensions
 	}
 
+	userAgent := config.UserAgent
+	if userAgent == "" {
+		userAgent = "GoSIP"
+	}
+
 	srv := &server{
 		host:            host,
 		ip:              ip,
@@ -138,15 +145,17 @@ func NewServer(
 		hmu:             new(sync.RWMutex),
 		requestHandlers: make(map[sip.RequestMethod]RequestHandler),
 		extensions:      extensions,
+		userAgent:       userAgent,
 	}
 	srv.log = logger.WithFields(log.Fields{
 		"sip_server_ptr": fmt.Sprintf("%p", srv),
 	})
 	srv.tp = tpFactory(ip, dnsResolver, config.MsgMapper, srv.Log())
-	if tp, ok := srv.tp.(interface{ SetUserAgent(string) }); ok {
-		tp.SetUserAgent(config.UserAgent)
+	sipTp := &sipTransport{
+		tpl: srv.tp,
+		srv: srv,
 	}
-	srv.tx = txFactory(srv.tp, log.AddFieldsFrom(srv.Log(), srv.tp))
+	srv.tx = txFactory(sipTp, log.AddFieldsFrom(srv.Log(), srv.tp))
 
 	srv.running.Set()
 	go srv.serve()
@@ -159,8 +168,8 @@ func (srv *server) Log() log.Logger {
 }
 
 // ListenAndServe starts serving listeners on the provided address
-func (srv *server) Listen(network string, listenAddr string) error {
-	return srv.tp.Listen(network, listenAddr)
+func (srv *server) Listen(network string, listenAddr string, options ...transport.ListenOption) error {
+	return srv.tp.Listen(network, listenAddr, options...)
 }
 
 func (srv *server) serve() {
@@ -200,7 +209,14 @@ func (srv *server) serve() {
 				return
 			}
 
-			srv.Log().Errorf("received SIP transport error: %s", err)
+			var ferr *sip.MalformedMessageError
+			if errors.Is(err, io.EOF) {
+				srv.Log().Debugf("received SIP transport error: %s", err)
+			} else if errors.As(err, &ferr) {
+				srv.Log().Warnf("received SIP transport error: %s", err)
+			} else {
+				srv.Log().Errorf("received SIP transport error: %s", err)
+			}
 		}
 	}
 }
@@ -241,20 +257,16 @@ func (srv *server) Request(req sip.Request) (sip.ClientTransaction, error) {
 func (srv *server) RequestWithContext(
 	ctx context.Context,
 	request sip.Request,
-	authorizer sip.Authorizer,
-	options ...interface{},
+	options ...RequestWithContextOption,
 ) (sip.Response, error) {
-	tx, err := srv.Request(sip.CopyRequest(request))
+	tx, err := srv.Request(request)
 	if err != nil {
 		return nil, err
 	}
 
-	var responseHandler func(res sip.Response) // provisional response handler
+	optionsHash := &RequestWithContextOptions{}
 	for _, opt := range options {
-		switch o := opt.(type) {
-		case func(res sip.Response):
-			responseHandler = o
-		}
+		opt.ApplyRequestWithContext(optionsHash)
 	}
 
 	txResponses := tx.Responses()
@@ -314,14 +326,14 @@ func (srv *server) RequestWithContext(
 				response = sip.CopyResponse(response)
 				lastResponse = response
 
+				if optionsHash.ResponseHandler != nil {
+					optionsHash.ResponseHandler(response, request)
+				}
+
 				if response.IsProvisional() {
 					if _, ok := previousResponsesStatuses[getKey(response)]; !ok {
 						previousMessages = append(previousMessages, response)
 						previousResponsesStatuses[getKey(response)] = true
-
-						if responseHandler != nil {
-							responseHandler(response)
-						}
 					}
 
 					continue
@@ -332,18 +344,26 @@ func (srv *server) RequestWithContext(
 					response.SetPrevious(previousMessages)
 					responses <- response
 
+					go func() {
+						for response := range tx.Responses() {
+							if optionsHash.ResponseHandler != nil {
+								optionsHash.ResponseHandler(response, request)
+							}
+						}
+					}()
+
 					return
 				}
 
 				// unauth request
-				if (response.StatusCode() == 401 || response.StatusCode() == 407) && authorizer != nil {
-					if err := authorizer.AuthorizeRequest(request, response); err != nil {
+				if optionsHash.Authorizer != nil && (response.StatusCode() == 401 || response.StatusCode() == 407) {
+					if err := optionsHash.Authorizer.AuthorizeRequest(request, response); err != nil {
 						errs <- err
 
 						return
 					}
 
-					if response, err := srv.RequestWithContext(ctx, request, nil, options...); err == nil {
+					if response, err := srv.RequestWithContext(ctx, request, options...); err == nil {
 						responses <- response
 					} else {
 						errs <- err
@@ -373,26 +393,6 @@ func (srv *server) RequestWithContext(
 }
 
 func (srv *server) prepareRequest(req sip.Request) sip.Request {
-	if viaHop, ok := req.ViaHop(); ok {
-		if viaHop.Params == nil {
-			viaHop.Params = sip.NewParams()
-		}
-		if !viaHop.Params.Has("branch") {
-			viaHop.Params.Add("branch", sip.String{Str: sip.GenerateBranch()})
-		}
-	} else {
-		viaHop = &sip.ViaHop{
-			ProtocolName:    "SIP",
-			ProtocolVersion: "2.0",
-			Params: sip.NewParams().
-				Add("branch", sip.String{Str: sip.GenerateBranch()}),
-		}
-
-		req.PrependHeaderAfter(sip.ViaHeader{
-			viaHop,
-		}, "Route")
-	}
-
 	srv.appendAutoHeaders(req)
 
 	return req
@@ -511,6 +511,17 @@ func (srv *server) appendAutoHeaders(msg sip.Message) {
 			}
 		}
 	}
+
+	if hdrs := msg.GetHeaders("User-Agent"); len(hdrs) == 0 {
+		userAgent := sip.UserAgentHeader(srv.userAgent)
+		msg.AppendHeader(&userAgent)
+	}
+
+	if srv.tp.IsStreamed(msg.Transport()) {
+		if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
+			msg.SetBody(msg.Body(), true)
+		}
+	}
 }
 
 func (srv *server) getAllowedMethods() []sip.RequestMethod {
@@ -534,4 +545,25 @@ func (srv *server) getAllowedMethods() []sip.RequestMethod {
 	srv.hmu.RUnlock()
 
 	return methods
+}
+
+type sipTransport struct {
+	tpl transport.Layer
+	srv *server
+}
+
+func (tp *sipTransport) Messages() <-chan sip.Message {
+	return tp.tpl.Messages()
+}
+
+func (tp *sipTransport) Send(msg sip.Message) error {
+	return tp.srv.Send(msg)
+}
+
+func (tp *sipTransport) IsReliable(network string) bool {
+	return tp.tpl.IsReliable(network)
+}
+
+func (tp *sipTransport) IsStreamed(network string) bool {
+	return tp.tpl.IsStreamed(network)
 }

@@ -1,7 +1,10 @@
 package testutils
 
 import (
+	"crypto/x509"
+	"io/ioutil"
 	"net"
+	"os"
 	"strings"
 
 	. "github.com/onsi/ginkgo"
@@ -125,4 +128,32 @@ func NewLogrusLogger() *log.LogrusLogger {
 	}
 
 	return log.NewLogrusLogger(logger, "main", nil)
+}
+
+func GetProjectRootPath(projectRootDir string) string {
+	cwd, err := os.Getwd()
+	cwdOrig := cwd
+	if err != nil {
+		panic(err)
+	}
+	for {
+		if strings.HasSuffix(cwd, "/"+projectRootDir) {
+			return cwd
+		}
+		lastSlashIndex := strings.LastIndex(cwd, "/")
+		if lastSlashIndex == -1 {
+			panic(cwdOrig + " did not contain /" + projectRootDir)
+		}
+		cwd = cwd[0:lastSlashIndex]
+	}
+}
+
+func NewRootCAaPool(rootCACert string) *x509.CertPool {
+	rootCAPem, err := ioutil.ReadFile(rootCACert)
+	if err != nil {
+		panic(err)
+	}
+	rootCAs := x509.NewCertPool()
+	rootCAs.AppendCertsFromPEM(rootCAPem)
+	return rootCAs
 }
