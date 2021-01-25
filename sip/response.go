@@ -201,19 +201,22 @@ func (res *response) Destination() string {
 		port Port
 	)
 
-	if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
-		host = received.String()
-	} else {
-		host = viaHop.Host
-	}
-
-	if rport, ok := viaHop.Params.Get("rport"); ok && rport != nil && rport.String() != "" {
-		p, _ := strconv.Atoi(rport.String())
-		port = Port(uint16(p))
-	} else if viaHop.Port != nil {
+	host = viaHop.Host
+	if viaHop.Port != nil {
 		port = *viaHop.Port
 	} else {
 		port = DefaultPort(res.Transport())
+	}
+
+	if viaHop.Params != nil {
+		if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
+			host = received.String()
+		}
+		if rport, ok := viaHop.Params.Get("rport"); ok && rport != nil && rport.String() != "" {
+			if p, err := strconv.Atoi(rport.String()); err == nil {
+				port = Port(uint16(p))
+			}
+		}
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)

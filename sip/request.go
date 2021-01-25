@@ -135,27 +135,28 @@ func (req *request) IsCancel() bool {
 }
 
 func (req *request) Transport() string {
-	var uri Uri
 	tp := req.message.Transport()
-
+	uri := req.Recipient()
 	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
-		routeHeader := hdrs[0].(*RouteHeader)
-		if len(routeHeader.Addresses) > 0 {
-			uri = routeHeader.Addresses[0].(*SipUri)
+		routeHeader, ok := hdrs[0].(*RouteHeader)
+		if ok && len(routeHeader.Addresses) > 0 {
+			uri = routeHeader.Addresses[0]
+		}
+	}
+
+	if uri != nil {
+		if uri.UriParams() != nil {
 			if val, ok := uri.UriParams().Get("transport"); ok && !val.Equals("") {
 				tp = strings.ToUpper(val.String())
 			}
 		}
-	} else if val, ok := req.Recipient().UriParams().Get("transport"); ok && !val.Equals("") {
-		uri = req.Recipient()
-		tp = strings.ToUpper(val.String())
-	}
 
-	if uri != nil && uri.IsEncrypted() {
-		if tp == "TCP" {
-			tp = "TLS"
-		} else if tp == "WS" {
-			tp = "WSS"
+		if uri.IsEncrypted() {
+			if tp == "TCP" {
+				tp = "TLS"
+			} else if tp == "WS" {
+				tp = "WSS"
+			}
 		}
 	}
 
@@ -184,19 +185,22 @@ func (req *request) Source() string {
 		port Port
 	)
 
-	if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
-		host = received.String()
-	} else {
-		host = viaHop.Host
-	}
-
-	if rport, ok := viaHop.Params.Get("rport"); ok && rport != nil && rport.String() != "" {
-		p, _ := strconv.Atoi(rport.String())
-		port = Port(uint16(p))
-	} else if viaHop.Port != nil {
+	host = viaHop.Host
+	if viaHop.Port != nil {
 		port = *viaHop.Port
 	} else {
 		port = DefaultPort(req.Transport())
+	}
+
+	if viaHop.Params != nil {
+		if received, ok := viaHop.Params.Get("received"); ok && received.String() != "" {
+			host = received.String()
+		}
+		if rport, ok := viaHop.Params.Get("rport"); ok && rport != nil && rport.String() != "" {
+			if p, err := strconv.Atoi(rport.String()); err == nil {
+				port = Port(uint16(p))
+			}
+		}
 	}
 
 	return fmt.Sprintf("%v:%v", host, port)
@@ -212,8 +216,8 @@ func (req *request) Destination() string {
 
 	var uri *SipUri
 	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
-		routeHeader := hdrs[0].(*RouteHeader)
-		if len(routeHeader.Addresses) > 0 {
+		routeHeader, ok := hdrs[0].(*RouteHeader)
+		if ok && len(routeHeader.Addresses) > 0 {
 			uri = routeHeader.Addresses[0].(*SipUri)
 		}
 	}
