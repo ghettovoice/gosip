@@ -28,7 +28,7 @@ test-linux:
 			-v `pwd`:/go/src/github.com/ghettovoice/gosip \
 			-v ~/.ssh:/root/.ssh \
 			-w /go/src/github.com/ghettovoice/gosip \
-			golang:stretch \
+			golang:latest \
 			make install && make test
 
 cover-report: cover-merge
