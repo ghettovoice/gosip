@@ -4,11 +4,10 @@ GOFLAGS=
 
 install: .install-utils
 	go get -v -t ./...
+	go mod tidy
 
 .install-utils:
-	@echo "Installing development utilities..."
 	go get -v github.com/wadey/gocovmerge
-	go get -v github.com/sqs/goreturns
 	go get -v github.com/onsi/ginkgo/...
 	go get -v github.com/onsi/gomega/...
 
@@ -24,6 +23,14 @@ test-watch:
 test-watch-%:
 	ginkgo watch -r --trace --race $(GOFLAGS) ./$*
 
+test-linux:
+	docker run -it --rm \
+			-v `pwd`:/go/src/github.com/ghettovoice/gosip \
+			-v ~/.ssh:/root/.ssh \
+			-w /go/src/github.com/ghettovoice/gosip \
+			golang:latest \
+			make install && make test
+
 cover-report: cover-merge
 	go tool cover -html=./gosip.full.coverprofile
 
@@ -36,6 +43,3 @@ cover-merge:
 		./transaction/transaction.coverprofile \
 		./transport/transport.coverprofile \
 	> ./gosip.full.coverprofile
-
-format:
-	goreturns -w */**
