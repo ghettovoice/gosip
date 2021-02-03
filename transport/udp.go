@@ -3,6 +3,7 @@ package transport
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -102,29 +103,36 @@ func (p *udpProtocol) Send(target *Target, msg sip.Message) error {
 		}
 	}
 
-	baseConn, err := net.DialUDP(p.network, nil, raddr)
+	_, port, err := net.SplitHostPort(msg.Source())
 	if err != nil {
 		return &ProtocolError{
 			Err:      err,
-			Op:       fmt.Sprintf("dial to %s", raddr),
+			Op:       "resolve source port",
 			ProtoPtr: fmt.Sprintf("%p", p),
 		}
 	}
 
-	key := ConnectionKey(fmt.Sprintf("%s:%s", p.network, baseConn.LocalAddr()))
-	conn := NewConnection(baseConn, key, p.network, p.Log())
+	for _, conn := range p.connections.All() {
+		parts := strings.Split(string(conn.Key()), ":")
+		if parts[2] == port {
+			logger := log.AddFieldsFrom(p.Log(), conn, msg)
+			logger.Tracef("writing SIP message to %s %s", p.Network(), raddr)
 
-	logger := log.AddFieldsFrom(p.Log(), conn, msg)
-	logger.Tracef("writing SIP message to %s %s", p.Network(), raddr)
+			if _, err = conn.WriteTo([]byte(msg.String()), raddr); err != nil {
+				return &ProtocolError{
+					Err:      err,
+					Op:       fmt.Sprintf("write SIP message to the %s connection", conn.Key()),
+					ProtoPtr: fmt.Sprintf("%p", p),
+				}
+			}
 
-	_, err = conn.Write([]byte(msg.String()))
-	if err != nil {
-		err = &ProtocolError{
-			Err:      err,
-			Op:       fmt.Sprintf("write SIP message to the %s connection", conn.Key()),
-			ProtoPtr: fmt.Sprintf("%p", p),
+			return nil
 		}
 	}
 
-	return err // should be nil
+	return &ProtocolError{
+		fmt.Errorf("connection on port %s not found", port),
+		"search connection",
+		fmt.Sprintf("%p", p),
+	}
 }
