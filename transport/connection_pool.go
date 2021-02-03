@@ -1037,6 +1037,8 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			raddr := getRemoteAddr()
 			rhost, rport, _ := net.SplitHostPort(raddr)
 
+			msg.SetDestination(handler.Connection().LocalAddr().String())
+
 			switch msg := msg.(type) {
 			case sip.Request:
 				// RFC 3261 - 18.2.1

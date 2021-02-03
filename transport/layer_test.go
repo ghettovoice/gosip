@@ -86,7 +86,7 @@ var _ = Describe("TransportLayer", func() {
 					tpl.Messages(),
 					fmt.Sprintf(expectedMsg, clientHost),
 					clientAddr,
-					"far-far-away.com:5060",
+					localAddr1,
 				)
 				close(done)
 			}, 3)
@@ -100,7 +100,7 @@ var _ = Describe("TransportLayer", func() {
 						tpl.Messages(),
 						fmt.Sprintf(expectedMsg, clientHost),
 						clientAddr,
-						"far-far-away.com:5060",
+						localAddr1,
 					).(sip.Request)
 					response = sip.NewResponseFromRequest(
 						"",
@@ -174,7 +174,7 @@ var _ = Describe("TransportLayer", func() {
 					tpl.Messages(),
 					fmt.Sprintf(expectedMsg, client.LocalAddr().(*net.TCPAddr).Port, clientHost),
 					client.LocalAddr().String(),
-					"far-far-away.com:5060",
+					localAddr1,
 				)
 				close(done)
 			}, 3)
@@ -188,7 +188,7 @@ var _ = Describe("TransportLayer", func() {
 						tpl.Messages(),
 						fmt.Sprintf(expectedMsg, client.LocalAddr().(*net.TCPAddr).Port, clientHost),
 						client.LocalAddr().String(),
-						"far-far-away.com:5060",
+						localAddr1,
 					).(sip.Request)
 					response = sip.NewResponseFromRequest(
 						"",

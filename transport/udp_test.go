@@ -159,20 +159,20 @@ var _ = Describe("UdpProtocol", func() {
 			})
 			It("should pipe incoming messages and errors", func(done Done) {
 				By(fmt.Sprintf("msg1 arrives on output from client1 %s -> %s", client1.LocalAddr().String(), localTarget1.Addr()))
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.UDPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:5060")
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.UDPAddr).IP), client1.LocalAddr().String(), localTarget1.Addr())
 				By(fmt.Sprintf("broken message arrives from client3 and ignored %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.UDPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5060")
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.UDPAddr).IP), client2.LocalAddr().String(), localTarget2.Addr())
 				By(fmt.Sprintf("msg3 arrives on output from client3 %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
 				// here we should check actual client remote address, because SIP Response gets Remote Address from connection
-				testutils.AssertMessageArrived(output, msg3, client3.(*testutils.MockConn).Conn.LocalAddr().String(), "pc33.example.com:5060")
+				testutils.AssertMessageArrived(output, msg3, client3.(*testutils.MockConn).Conn.LocalAddr().String(), localTarget1.Addr())
 				By(fmt.Sprintf("bullshit arrives from client2 and ignored %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
 				// err := <-errs
 				// Expect(err).To(HaveOccurred())
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.UDPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5060")
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.UDPAddr).IP), client2.LocalAddr().String(), localTarget2.Addr())
 				// for i := 0; i < 4; i++ {
 				//	select {
 				//	case msg := <-output:
@@ -204,23 +204,13 @@ var _ = Describe("UdpProtocol", func() {
 			})
 			It("should receive message and response with 200 OK", func(done Done) {
 				By("msg1 arrives")
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.UDPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:5060")
+				req := testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.UDPAddr).IP), client1.LocalAddr().String(), localTarget1.Addr())
 
 				By("prepare response 200 OK")
 				clientTarget, err := transport.NewTargetFromAddr(clientAddr1)
 				Expect(clientTarget).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
-				msg := sip.NewResponse(
-					"",
-					"SIP/2.0",
-					200,
-					"OK",
-					[]sip.Header{
-						&sip.CSeq{SeqNo: 2, MethodName: sip.INVITE},
-					},
-					"",
-					nil,
-				)
+				msg := sip.NewResponseFromRequest("", req.(sip.Request), 200, "OK", "")
 				twg := new(sync.WaitGroup)
 				twg.Add(2)
 				go func() {
