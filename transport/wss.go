@@ -40,9 +40,6 @@ func NewWssProtocol(
 		for _, opt := range options {
 			opt.ApplyListen(&optsHash)
 		}
-		if optsHash.TLSConfig == nil {
-			return nil, fmt.Errorf("valid TLSConfig is required to start %s listener", p.Network())
-		}
 		cert, err := tls.LoadX509KeyPair(optsHash.TLSConfig.Cert, optsHash.TLSConfig.Key)
 		if err != nil {
 			return nil, fmt.Errorf("load TLS certficate %s: %w", optsHash.TLSConfig.Cert, err)

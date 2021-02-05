@@ -32,7 +32,7 @@ var _ = Describe("TlsProtocol", func() {
 	port2 := port1 + 1
 	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
 	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
-	srvTlsConf := &transport.TLSConfig{
+	srvTlsConf := transport.TLSConfig{
 		Cert: rootDir + "/examples/certs/server.pem",
 		Key:  rootDir + "/examples/certs/server-key.pem",
 	}

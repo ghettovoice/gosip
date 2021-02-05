@@ -86,5 +86,5 @@ type ListenOption interface {
 }
 
 type ListenOptions struct {
-	TLSConfig *TLSConfig
+	TLSConfig TLSConfig
 }

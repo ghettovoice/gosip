@@ -349,6 +349,9 @@ type TLSConfig struct {
 	Pass   string
 }
 
-func (c *TLSConfig) ApplyListen(opts *ListenOptions) {
-	opts.TLSConfig = c
+func (c TLSConfig) ApplyListen(opts *ListenOptions) {
+	opts.TLSConfig.Domain = c.Domain
+	opts.TLSConfig.Cert = c.Cert
+	opts.TLSConfig.Key = c.Key
+	opts.TLSConfig.Pass = c.Pass
 }
