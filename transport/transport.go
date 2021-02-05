@@ -343,10 +343,10 @@ func (err UnsupportedProtocolError) Error() string {
 
 //TLSConfig for TLS and WSS only
 type TLSConfig struct {
-	TLSDomain string
-	Cert      string
-	Key       string
-	Pass      string
+	Domain string
+	Cert   string
+	Key    string
+	Pass   string
 }
 
 func (c *TLSConfig) ApplyListen(opts *ListenOptions) {
