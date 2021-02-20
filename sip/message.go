@@ -42,6 +42,7 @@ const (
 	NOTIFY    RequestMethod = "NOTIFY"
 	REFER     RequestMethod = "REFER"
 	INFO      RequestMethod = "INFO"
+	MESSAGE   RequestMethod = "MESSAGE"
 )
 
 type MessageID string
