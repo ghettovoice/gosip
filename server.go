@@ -356,7 +356,18 @@ func (srv *server) RequestWithContext(
 				}
 
 				// unauth request
-				if optionsHash.Authorizer != nil && (response.StatusCode() == 401 || response.StatusCode() == 407) {
+				useAuth := false
+				// try with Authorization/Proxy-Authorization on 401/407 only once
+				if response.StatusCode() == 401 {
+					if hdrs := request.GetHeaders("Authorization"); len(hdrs) == 0 {
+						useAuth = true
+					}
+				} else if response.StatusCode() == 407 {
+					if hdrs := request.GetHeaders("Proxy-Authorization"); len(hdrs) == 0 {
+						useAuth = true
+					}
+				}
+				if useAuth && optionsHash.Authorizer != nil {
 					if err := optionsHash.Authorizer.AuthorizeRequest(request, response); err != nil {
 						errs <- err
 
