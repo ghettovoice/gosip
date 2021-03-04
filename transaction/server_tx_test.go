@@ -57,6 +57,7 @@ var _ = Describe("ServerTx", func() {
 				"SIP/2.0 100 Trying",
 				"Via: SIP/2.0/UDP " + clientAddr + ";branch=" + inviteBranch,
 				"CSeq: 1 INVITE",
+				"Content-Length: 0",
 				"",
 				"",
 			})

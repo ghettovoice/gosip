@@ -527,10 +527,8 @@ func (srv *server) appendAutoHeaders(msg sip.Message) {
 		msg.AppendHeader(&userAgent)
 	}
 
-	if srv.tp.IsStreamed(msg.Transport()) {
-		if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
-			msg.SetBody(msg.Body(), true)
-		}
+	if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
+		msg.SetBody(msg.Body(), true)
 	}
 }
 

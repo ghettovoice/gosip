@@ -292,6 +292,8 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 	cseq, _ := ackRequest.CSeq()
 	cseq.MethodName = ACK
 
+	ackRequest.SetBody("", true)
+
 	return ackRequest
 }
 
@@ -321,6 +323,8 @@ func NewCancelRequest(cancelID MessageID, requestForCancel Request, fields log.F
 	CopyHeaders("CSeq", requestForCancel, cancelReq)
 	cseq, _ := cancelReq.CSeq()
 	cseq.MethodName = CANCEL
+
+	cancelReq.SetBody("", true)
 
 	return cancelReq
 }

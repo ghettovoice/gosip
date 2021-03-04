@@ -78,6 +78,7 @@ type Message interface {
 	PrependHeaderAfter(header Header, afterName string)
 	// RemoveHeader removes header from message.
 	RemoveHeader(name string)
+	ReplaceHeaders(name string, headers []Header)
 
 	// Body returns message body.
 	Body() string
