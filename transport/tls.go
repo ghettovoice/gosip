@@ -35,6 +35,9 @@ func NewTlsProtocol(
 	p.listeners = NewListenerPool(p.conns, errs, cancel, p.Log())
 	p.connections = NewConnectionPool(output, errs, cancel, msgMapper, p.Log())
 	p.listen = func(addr *net.TCPAddr, options ...ListenOption) (net.Listener, error) {
+		if len(options) == 0 {
+			return net.ListenTCP("tcp", addr)
+		}
 		optsHash := ListenOptions{}
 		for _, opt := range options {
 			opt.ApplyListen(&optsHash)
