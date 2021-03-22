@@ -36,6 +36,8 @@ type Logger interface {
 
 	WithFields(fields Fields) Logger
 	Fields() Fields
+
+	SetLevel(level Level)
 }
 
 type Loggable interface {
