@@ -1099,7 +1099,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			raddr := getRemoteAddr()
 
 			if isSyntaxError(err) {
-				handler.Log().Warn("ignore error: %s", err)
+				handler.Log().Tracef("ignore error: %s", err)
 
 				continue
 			}
