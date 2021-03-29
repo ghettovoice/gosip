@@ -166,7 +166,7 @@ func (err *ConnectionError) Error() string {
 	}
 
 	if err.Net != "" {
-		fields["net"] = err.Net
+		fields["network"] = err.Net
 	}
 	if err.ConnPtr != "" {
 		fields["connection_ptr"] = err.ConnPtr

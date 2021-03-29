@@ -241,6 +241,9 @@ func (str String) String() string {
 }
 
 func (str String) Equals(other interface{}) bool {
+	if v, ok := other.(string); ok {
+		return str.Str == v
+	}
 	if v, ok := other.(String); ok {
 		return str.Str == v.Str
 	}
