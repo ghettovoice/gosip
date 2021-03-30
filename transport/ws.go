@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -34,6 +35,10 @@ func (wc *wsConn) Read(b []byte) (n int, err error) {
 	}
 	if err != nil {
 		// handle error
+		var wsErr wsutil.ClosedError
+		if errors.As(err, &wsErr) {
+			return n, io.EOF
+		}
 		return n, err
 	}
 	if op == ws.OpClose {
@@ -51,6 +56,10 @@ func (wc *wsConn) Write(b []byte) (n int, err error) {
 	}
 	if err != nil {
 		// handle error
+		var wsErr wsutil.ClosedError
+		if errors.As(err, &wsErr) {
+			return n, io.EOF
+		}
 		return n, err
 	}
 	return len(b), nil
