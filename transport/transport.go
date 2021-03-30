@@ -166,7 +166,7 @@ func (err *ConnectionError) Error() string {
 	}
 
 	if err.Net != "" {
-		fields["net"] = err.Net
+		fields["network"] = err.Net
 	}
 	if err.ConnPtr != "" {
 		fields["connection_ptr"] = err.ConnPtr
@@ -343,12 +343,15 @@ func (err UnsupportedProtocolError) Error() string {
 
 //TLSConfig for TLS and WSS only
 type TLSConfig struct {
-	TLSDomain string
-	Cert      string
-	Key       string
-	Pass      string
+	Domain string
+	Cert   string
+	Key    string
+	Pass   string
 }
 
-func (c *TLSConfig) ApplyListen(opts *ListenOptions) {
-	opts.TLSConfig = c
+func (c TLSConfig) ApplyListen(opts *ListenOptions) {
+	opts.TLSConfig.Domain = c.Domain
+	opts.TLSConfig.Cert = c.Cert
+	opts.TLSConfig.Key = c.Key
+	opts.TLSConfig.Pass = c.Pass
 }

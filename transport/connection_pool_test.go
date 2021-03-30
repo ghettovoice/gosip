@@ -159,7 +159,7 @@ var _ = Describe("ConnectionHandler", func() {
 
 			It("should read, parse and pipe to output", func(done Done) {
 				By("first message arrives on output")
-				testutils.AssertMessageArrived(output, inviteMsg, "pipe", "far-far-away.com:5060")
+				testutils.AssertMessageArrived(output, inviteMsg, "pipe", addr.String())
 				By("bullshit arrives and ignored")
 				time.Sleep(time.Millisecond)
 				By("malformed message 1 arrives on errs")
@@ -167,7 +167,7 @@ var _ = Describe("ConnectionHandler", func() {
 				By("malformed message 2 arrives on errs")
 				testutils.AssertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
 				By("second message arrives on output")
-				testutils.AssertMessageArrived(output, inviteMsg, "pipe", "far-far-away.com:5060")
+				testutils.AssertMessageArrived(output, inviteMsg, "pipe", addr.String())
 				// for i := 0; i < 10; i++ {
 				//	select {
 				//	case msg := <-output:
@@ -598,7 +598,7 @@ var _ = Describe("ConnectionPool", func() {
 				})
 				It("should pipe handler outputs to self outputs", func(done Done) {
 					By(fmt.Sprintf("message msg2 arrives %s -> %s", server2.RemoteAddr(), server2.LocalAddr()))
-					testutils.AssertMessageArrived(output, msg2, "pipe", "far-far-away.com:5060")
+					testutils.AssertMessageArrived(output, msg2, "pipe", server2.LocalAddr().String())
 					By(fmt.Sprintf("malformed message msg3 arrives %s -> %s", server3.RemoteAddr(), server3.LocalAddr()))
 					testutils.AssertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
 					By("server2 expired error arrives and ignored")
@@ -606,7 +606,7 @@ var _ = Describe("ConnectionPool", func() {
 					By("server3 falls with error")
 					testutils.AssertIncomingErrorArrived(errs, "io: read/write on closed pipe")
 					By(fmt.Sprintf("message msg1 arrives %s -> %s", server1.RemoteAddr(), server1.LocalAddr()))
-					testutils.AssertMessageArrived(output, msg1, "pipe", "far-far-away.com:5060")
+					testutils.AssertMessageArrived(output, msg1, "pipe", server1.LocalAddr().String())
 					close(done)
 				}, 3)
 			})

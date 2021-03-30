@@ -234,6 +234,21 @@ func (srv *server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 	if !ok {
 		logger.Warn("SIP request handler not found")
 
+		go func(tx sip.ServerTransaction, logger log.Logger) {
+			for {
+				select {
+				case <-srv.tx.Done():
+					return
+				case err, ok := <-tx.Errors():
+					if !ok {
+						return
+					}
+
+					logger.Warnf("error from SIP server transaction %s: %s", tx, err)
+				}
+			}
+		}(tx, logger)
+
 		res := sip.NewResponseFromRequest("", req, 405, "Method Not Allowed", "")
 		if _, err := srv.Respond(res); err != nil {
 			logger.Errorf("respond '405 Method Not Allowed' failed: %s", err)
@@ -257,6 +272,15 @@ func (srv *server) Request(req sip.Request) (sip.ClientTransaction, error) {
 func (srv *server) RequestWithContext(
 	ctx context.Context,
 	request sip.Request,
+	options ...RequestWithContextOption,
+) (sip.Response, error) {
+	return srv.requestWithContext(ctx, request, 1, options...)
+}
+
+func (srv *server) requestWithContext(
+	ctx context.Context,
+	request sip.Request,
+	attempt int,
 	options ...RequestWithContextOption,
 ) (sip.Response, error) {
 	tx, err := srv.Request(request)
@@ -356,14 +380,15 @@ func (srv *server) RequestWithContext(
 				}
 
 				// unauth request
-				if optionsHash.Authorizer != nil && (response.StatusCode() == 401 || response.StatusCode() == 407) {
+				needAuth := (response.StatusCode() == 401 || response.StatusCode() == 407) && attempt < 2
+				if needAuth && optionsHash.Authorizer != nil {
 					if err := optionsHash.Authorizer.AuthorizeRequest(request, response); err != nil {
 						errs <- err
 
 						return
 					}
 
-					if response, err := srv.RequestWithContext(ctx, request, options...); err == nil {
+					if response, err := srv.requestWithContext(ctx, request, attempt+1, options...); err == nil {
 						responses <- response
 					} else {
 						errs <- err
@@ -517,10 +542,8 @@ func (srv *server) appendAutoHeaders(msg sip.Message) {
 		msg.AppendHeader(&userAgent)
 	}
 
-	if srv.tp.IsStreamed(msg.Transport()) {
-		if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
-			msg.SetBody(msg.Body(), true)
-		}
+	if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
+		msg.SetBody(msg.Body(), true)
 	}
 }
 

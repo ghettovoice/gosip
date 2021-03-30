@@ -930,10 +930,6 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				return
 			}
 
-			if !streamed {
-				handler.addrs.In <- fmt.Sprintf("%v", raddr)
-			}
-
 			data := buf[:num]
 
 			// skip empty udp packets
@@ -941,6 +937,10 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				handler.Log().Tracef("skip empty data: %#v", data)
 
 				continue
+			}
+
+			if !streamed {
+				handler.addrs.In <- fmt.Sprintf("%v", raddr)
 			}
 
 			// parse received data
@@ -996,6 +996,8 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 		case <-handler.canceled:
 			return
 		case <-handler.timer.C():
+			raddr := getRemoteAddr()
+
 			if handler.Expiry().IsZero() {
 				// handler expiryTime is zero only when TTL = 0 (unlimited handler)
 				// so we must not get here with zero expiryTime
@@ -1010,7 +1012,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				fmt.Sprintf("%p", handler),
 				handler.Connection().Network(),
 				fmt.Sprintf("%v", handler.Connection().LocalAddr()),
-				fmt.Sprintf("%v", handler.Connection().RemoteAddr()),
+				raddr,
 			}
 
 			handler.Log().Trace("passing up connection expiry error...")
@@ -1037,6 +1039,8 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			raddr := getRemoteAddr()
 			rhost, rport, _ := net.SplitHostPort(raddr)
 
+			msg.SetDestination(handler.Connection().LocalAddr().String())
+
 			switch msg := msg.(type) {
 			case sip.Request:
 				// RFC 3261 - 18.2.1
@@ -1047,7 +1051,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 					continue
 				}
 
-				if rhost != "" && viaHop.Host != rhost {
+				if rhost != "" {
 					viaHop.Params.Add("received", sip.String{Str: rhost})
 				}
 
@@ -1092,24 +1096,12 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				return
 			}
 
-			if isSyntaxError(err) {
-				// ignore broken message, syntax errors
-				// such error can arrives only from parser goroutine
-				// so we need to read remote address for broken message
-				if !streamed {
-					<-handler.addrs.Out
-				}
+			raddr := getRemoteAddr()
 
-				handler.Log().Warn("ignore error: %s", err)
+			if isSyntaxError(err) {
+				handler.Log().Tracef("ignore error: %s", err)
 
 				continue
-			}
-
-			var raddr string
-			if isNetwork(err) {
-				raddr = fmt.Sprintf("%v", handler.Connection().RemoteAddr())
-			} else {
-				raddr = getRemoteAddr()
 			}
 
 			err = &ConnectionHandlerError{

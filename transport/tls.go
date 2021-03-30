@@ -35,12 +35,12 @@ func NewTlsProtocol(
 	p.listeners = NewListenerPool(p.conns, errs, cancel, p.Log())
 	p.connections = NewConnectionPool(output, errs, cancel, msgMapper, p.Log())
 	p.listen = func(addr *net.TCPAddr, options ...ListenOption) (net.Listener, error) {
+		if len(options) == 0 {
+			return net.ListenTCP("tcp", addr)
+		}
 		optsHash := ListenOptions{}
 		for _, opt := range options {
 			opt.ApplyListen(&optsHash)
-		}
-		if optsHash.TLSConfig == nil {
-			return nil, fmt.Errorf("valid TLSConfig is required to start %s listener", p.Network())
 		}
 		cert, err := tls.LoadX509KeyPair(optsHash.TLSConfig.Cert, optsHash.TLSConfig.Key)
 		if err != nil {

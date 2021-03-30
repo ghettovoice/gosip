@@ -42,6 +42,7 @@ const (
 	NOTIFY    RequestMethod = "NOTIFY"
 	REFER     RequestMethod = "REFER"
 	INFO      RequestMethod = "INFO"
+	MESSAGE   RequestMethod = "MESSAGE"
 )
 
 type MessageID string
@@ -77,6 +78,7 @@ type Message interface {
 	PrependHeaderAfter(header Header, afterName string)
 	// RemoveHeader removes header from message.
 	RemoveHeader(name string)
+	ReplaceHeaders(name string, headers []Header)
 
 	// Body returns message body.
 	Body() string

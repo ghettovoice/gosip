@@ -142,17 +142,14 @@ func AuthorizeRequest(request Request, response Response, user, password MaybeSt
 
 		auth.CalcResponse()
 
-		var authorizationHeader *GenericHeader
-		hdrs = request.GetHeaders(authorizeHeaderName)
-		if len(hdrs) > 0 {
-			authorizationHeader = hdrs[0].(*GenericHeader)
+		if hdrs = request.GetHeaders(authorizeHeaderName); len(hdrs) > 0 {
+			authorizationHeader := hdrs[0].(*GenericHeader)
 			authorizationHeader.Contents = auth.String()
 		} else {
-			authorizationHeader = &GenericHeader{
+			request.AppendHeader(&GenericHeader{
 				HeaderName: authorizeHeaderName,
 				Contents:   auth.String(),
-			}
-			request.AppendHeader(authorizationHeader)
+			})
 		}
 	} else {
 		return fmt.Errorf("authorize request: header '%s' not found in response", authenticateHeaderName)

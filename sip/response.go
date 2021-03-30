@@ -236,10 +236,9 @@ func NewResponseFromRequest(
 		statusCode,
 		reason,
 		[]Header{},
-		body,
+		"",
 		req.Fields(),
 	)
-
 	CopyHeaders("Record-Route", req, res)
 	CopyHeaders("Via", req, res)
 	CopyHeaders("From", req, res)
@@ -250,6 +249,8 @@ func NewResponseFromRequest(
 	if statusCode == 100 {
 		CopyHeaders("Timestamp", req, res)
 	}
+
+	res.SetBody(body, true)
 
 	res.SetSource(req.Destination())
 	res.SetDestination(req.Source())

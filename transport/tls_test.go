@@ -32,7 +32,7 @@ var _ = Describe("TlsProtocol", func() {
 	port2 := port1 + 1
 	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
 	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
-	srvTlsConf := &transport.TLSConfig{
+	srvTlsConf := transport.TLSConfig{
 		Cert: rootDir + "/examples/certs/server.pem",
 		Key:  rootDir + "/examples/certs/server-key.pem",
 	}
@@ -167,17 +167,17 @@ var _ = Describe("TlsProtocol", func() {
 			})
 			It("should pipe incoming messages and errors", func(done Done) {
 				By(fmt.Sprintf("msg1 arrives on output from client1 %s -> %s", client1.LocalAddr().String(), localTarget1.Addr()))
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:5061")
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), localTarget1.Addr())
 				By(fmt.Sprintf("broken message arrives from client3 and ignored %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5061")
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), localTarget2.Addr())
 				By(fmt.Sprintf("msg3 arrives on output from client3 %s -> %s", client3.LocalAddr().String(), localTarget1.Addr()))
-				testutils.AssertMessageArrived(output, msg3, client3.LocalAddr().String(), "pc33.far-far-away.com:5061")
+				testutils.AssertMessageArrived(output, msg3, client3.LocalAddr().String(), localTarget1.Addr())
 				By(fmt.Sprintf("bullshit arrives from client2 and ignored %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
 				time.Sleep(time.Millisecond)
 				By(fmt.Sprintf("msg2 arrives on output from client2 %s -> %s", client2.LocalAddr().String(), localTarget2.Addr()))
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), "far-far-away.com:5061")
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg2, client1.LocalAddr().(*net.TCPAddr).IP), client2.LocalAddr().String(), localTarget2.Addr())
 				close(done)
 			}, 3)
 		})
@@ -194,7 +194,7 @@ var _ = Describe("TlsProtocol", func() {
 			})
 			It("should receive message and response with 200 OK", func(done Done) {
 				By("msg1 arrives")
-				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), "far-far-away.com:5061")
+				testutils.AssertMessageArrived(output, fmt.Sprintf(expectedMsg1, client1.LocalAddr().(*net.TCPAddr).IP), client1.LocalAddr().String(), localTarget1.Addr())
 
 				By("prepare response 200 OK")
 				clientTarget, err := transport.NewTargetFromAddr(client1.LocalAddr().String())
