@@ -292,7 +292,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		}
 
 		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
-		logger.Infof("sending SIP request:\n%s", msg)
+		logger.Debugf("sending SIP request:\n%s", msg)
 
 		if err = protocol.Send(target, msg); err != nil {
 			return fmt.Errorf("send SIP message through %s protocol to %s: %w", protocol.Network(), target.Addr(), err)
@@ -313,7 +313,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		}
 
 		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
-		logger.Infof("sending SIP response:\n%s", msg)
+		logger.Debugf("sending SIP response:\n%s", msg)
 
 		if err = protocol.Send(target, msg); err != nil {
 			return fmt.Errorf("send SIP message through %s protocol to %s: %w", protocol.Network(), target.Addr(), err)
@@ -370,7 +370,7 @@ func (tpl *layer) dispose() {
 func (tpl *layer) handleMessage(msg sip.Message) {
 	logger := tpl.Log().WithFields(msg.Fields())
 
-	logger.Infof("received SIP message:\n%s", msg)
+	logger.Debugf("received SIP message:\n%s", msg)
 	logger.Trace("passing up SIP message...")
 
 	// pass up message
