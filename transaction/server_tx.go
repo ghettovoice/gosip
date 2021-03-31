@@ -428,7 +428,7 @@ func (tx *serverTx) transportErr() {
 	tx.mu.RUnlock()
 
 	err = &TxTransportError{
-		fmt.Errorf("transaction failed to send %s: %w", res, err),
+		fmt.Errorf("transaction failed to send %s: %w", res.Short(), err),
 		tx.Key(),
 		fmt.Sprintf("%p", tx),
 	}

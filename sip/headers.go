@@ -64,6 +64,7 @@ type ContactUri interface {
 type Params interface {
 	Get(key string) (MaybeString, bool)
 	Add(key string, val MaybeString) Params
+	Remove(key string) Params
 	Clone() Params
 	Equals(params interface{}) bool
 	ToString(sep uint8) string
@@ -123,6 +124,22 @@ func (params *headerParams) Add(key string, val MaybeString) Params {
 
 	// Set param value.
 	params.params[key] = val
+	params.mu.Unlock()
+	// Return the params so calls can be chained.
+	return params
+}
+
+func (params *headerParams) Remove(key string) Params {
+	params.mu.Lock()
+	if _, ok := params.params[key]; ok {
+		for k, v := range params.paramOrder {
+			if v == key {
+				params.paramOrder = append(params.paramOrder[:k], params.paramOrder[k+1:]...)
+				break
+			}
+		}
+		delete(params.params, key)
+	}
 	params.mu.Unlock()
 	// Return the params so calls can be chained.
 	return params

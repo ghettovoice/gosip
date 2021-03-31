@@ -302,7 +302,7 @@ func (p *parser) parse(requireContentLength bool) {
 		}
 
 		if termErr != nil {
-			p.Log().Warnf("%s failed to read start line '%s'", p, startLine)
+			p.Log().Tracef("%s failed to read start line '%s'", p, startLine)
 
 			termErr = InvalidStartLineError(fmt.Sprintf("%s failed to parse first line of message: %s", p, termErr))
 			p.setError(termErr)

@@ -203,14 +203,18 @@ func (srv *server) serve() {
 				return
 			}
 
-			srv.Log().Errorf("received SIP transaction error: %s", err)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
+				srv.Log().Debugf("received SIP transaction error: %s", err)
+			} else {
+				srv.Log().Errorf("received SIP transaction error: %s", err)
+			}
 		case err, ok := <-srv.tp.Errors():
 			if !ok {
 				return
 			}
 
 			var ferr *sip.MalformedMessageError
-			if errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
 				srv.Log().Debugf("received SIP transport error: %s", err)
 			} else if errors.As(err, &ferr) {
 				srv.Log().Warnf("received SIP transport error: %s", err)
@@ -233,6 +237,21 @@ func (srv *server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 
 	if !ok {
 		logger.Warn("SIP request handler not found")
+
+		go func(tx sip.ServerTransaction, logger log.Logger) {
+			for {
+				select {
+				case <-srv.tx.Done():
+					return
+				case err, ok := <-tx.Errors():
+					if !ok {
+						return
+					}
+
+					logger.Warnf("error from SIP server transaction %s: %s", tx, err)
+				}
+			}
+		}(tx, logger)
 
 		res := sip.NewResponseFromRequest("", req, 405, "Method Not Allowed", "")
 		if _, err := srv.Respond(res); err != nil {
