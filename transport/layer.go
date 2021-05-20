@@ -302,7 +302,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 		// RFC 3261 - 18.2.2.
 	case sip.Response:
 		// resolve protocol from Via
-		protocol, ok := tpl.protocols.get(protocolKey(viaHop.Transport))
+		protocol, ok := tpl.protocols.get(protocolKey(msg.Transport()))
 		if !ok {
 			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", viaHop.Transport))
 		}
