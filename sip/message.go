@@ -103,6 +103,7 @@ type Message interface {
 	Contact() (*ContactHeader, bool)
 
 	Transport() string
+	SetTransport(tp string)
 	Source() string
 	SetSource(src string)
 	Destination() string
@@ -409,6 +410,7 @@ type message struct {
 	sipVersion string
 	body       string
 	startLine  func() string
+	tp         string
 	src        string
 	dest       string
 	fields     log.Fields
@@ -479,11 +481,24 @@ func (msg *message) SetBody(body string, setContentLength bool) {
 }
 
 func (msg *message) Transport() string {
+	msg.mu.RLock()
+	if msg.tp != "" {
+		defer msg.mu.RUnlock()
+		return msg.tp
+	}
+	msg.mu.RUnlock()
+
 	if viaHop, ok := msg.ViaHop(); ok && viaHop.Transport != "" {
 		return viaHop.Transport
 	} else {
 		return DefaultProtocol
 	}
+}
+
+func (msg *message) SetTransport(tp string) {
+	msg.mu.Lock()
+	msg.tp = strings.ToUpper(tp)
+	msg.mu.Unlock()
 }
 
 func (msg *message) Source() string {

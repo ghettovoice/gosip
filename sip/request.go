@@ -347,6 +347,7 @@ func cloneRequest(req Request, id MessageID, fields log.Fields) Request {
 		req.Body(),
 		newFields,
 	)
+	newReq.SetTransport(req.Transport())
 	newReq.SetSource(req.Source())
 	newReq.SetDestination(req.Destination())
 

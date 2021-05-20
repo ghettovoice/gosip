@@ -182,14 +182,13 @@ func (res *response) IsCancel() bool {
 	return false
 }
 
-func (res *response) Source() string {
-	return res.src
-}
-
 func (res *response) Destination() string {
+	res.mu.RLock()
 	if res.dest != "" {
+		defer res.mu.RUnlock()
 		return res.dest
 	}
+	res.mu.RUnlock()
 
 	viaHop, ok := res.ViaHop()
 	if !ok {
@@ -252,6 +251,7 @@ func NewResponseFromRequest(
 
 	res.SetBody(body, true)
 
+	res.SetTransport(req.Transport())
 	res.SetSource(req.Destination())
 	res.SetDestination(req.Source())
 
@@ -274,6 +274,7 @@ func cloneResponse(res Response, id MessageID, fields log.Fields) Response {
 		newFields,
 	)
 	newRes.SetPrevious(res.Previous())
+	newRes.SetTransport(res.Transport())
 	newRes.SetSource(res.Source())
 	newRes.SetDestination(res.Destination())
 
