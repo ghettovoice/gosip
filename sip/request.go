@@ -60,8 +60,11 @@ func (req *request) Short() string {
 	}
 
 	fields := log.Fields{
-		"method":    req.Method(),
-		"recipient": req.Recipient(),
+		"method":      req.Method(),
+		"recipient":   req.Recipient(),
+		"transport":   req.Transport(),
+		"source":      req.Source(),
+		"destination": req.Destination(),
 	}
 	if cseq, ok := req.CSeq(); ok {
 		fields["sequence"] = cseq.SeqNo

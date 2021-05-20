@@ -427,7 +427,11 @@ func (msg *message) StartLine() string {
 func (msg *message) Fields() log.Fields {
 	msg.mu.RLock()
 	defer msg.mu.RUnlock()
-	return msg.fields
+	return msg.fields.WithFields(log.Fields{
+		"transport":   msg.tp,
+		"source":      msg.src,
+		"destination": msg.dest,
+	})
 }
 
 func (msg *message) String() string {

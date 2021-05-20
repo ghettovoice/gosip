@@ -69,8 +69,11 @@ func (res *response) Short() string {
 	}
 
 	fields := log.Fields{
-		"status": res.StatusCode(),
-		"reason": res.Reason(),
+		"status":      res.StatusCode(),
+		"reason":      res.Reason(),
+		"transport":   res.Transport(),
+		"source":      res.Source(),
+		"destination": res.Destination(),
 	}
 	if cseq, ok := res.CSeq(); ok {
 		fields["method"] = cseq.MethodName
