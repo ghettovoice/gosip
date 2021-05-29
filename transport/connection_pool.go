@@ -1071,9 +1071,11 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 						raddr = fmt.Sprintf("%s:%d", rhost, port)
 					}
 				}
+				msg.SetTransport(handler.connection.Network())
 				msg.SetSource(raddr)
 			case sip.Response:
 				// Set Remote Address as response source
+				msg.SetTransport(handler.connection.Network())
 				msg.SetSource(raddr)
 			}
 

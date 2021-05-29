@@ -36,6 +36,12 @@ func AuthFromValue(value string) *Authorization {
 			auth.algorithm = match[2]
 		case "nonce":
 			auth.nonce = match[2]
+		case "username":
+			auth.username = match[2]
+		case "uri":
+			auth.uri = match[2]
+		case "response":
+			auth.response = match[2]
 		default:
 			auth.other[match[1]] = match[2]
 		}
@@ -44,10 +50,36 @@ func AuthFromValue(value string) *Authorization {
 	return auth
 }
 
+func (auth *Authorization) Realm() string {
+	return auth.realm
+}
+
+func (auth *Authorization) Nonce() string {
+	return auth.nonce
+}
+
+func (auth *Authorization) Algorithm() string {
+	return auth.algorithm
+}
+
+func (auth *Authorization) Username() string {
+	return auth.username
+}
+
 func (auth *Authorization) SetUsername(username string) *Authorization {
 	auth.username = username
 
 	return auth
+}
+
+func (auth *Authorization) SetPassword(password string) *Authorization {
+	auth.password = password
+
+	return auth
+}
+
+func (auth *Authorization) Uri() string {
+	return auth.uri
 }
 
 func (auth *Authorization) SetUri(uri string) *Authorization {
@@ -62,14 +94,16 @@ func (auth *Authorization) SetMethod(method string) *Authorization {
 	return auth
 }
 
-func (auth *Authorization) SetPassword(password string) *Authorization {
-	auth.password = password
-
-	return auth
+func (auth *Authorization) Response() string {
+	return auth.response
 }
 
-func (auth *Authorization) CalcResponse() *Authorization {
-	auth.response = calcResponse(
+func (auth *Authorization) SetResponse(response string) {
+	auth.response = response
+}
+
+func (auth *Authorization) CalcResponse() string {
+	return calcResponse(
 		auth.username,
 		auth.realm,
 		auth.password,
@@ -77,8 +111,6 @@ func (auth *Authorization) CalcResponse() *Authorization {
 		auth.uri,
 		auth.nonce,
 	)
-
-	return auth
 }
 
 func (auth *Authorization) String() string {
@@ -139,8 +171,7 @@ func AuthorizeRequest(request Request, response Response, user, password MaybeSt
 		if password != nil {
 			auth.SetPassword(password.String())
 		}
-
-		auth.CalcResponse()
+		auth.SetResponse(auth.CalcResponse())
 
 		if hdrs = request.GetHeaders(authorizeHeaderName); len(hdrs) > 0 {
 			authorizationHeader := hdrs[0].(*GenericHeader)
