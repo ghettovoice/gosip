@@ -80,9 +80,7 @@ func prepareClientRequest(origin sip.Request) sip.Request {
 				Add("branch", sip.String{Str: sip.GenerateBranch()}),
 		}
 
-		origin.PrependHeaderAfter(sip.ViaHeader{
-			viaHop,
-		}, "Route")
+		origin.PrependHeader(sip.ViaHeader{viaHop})
 	}
 
 	return origin
