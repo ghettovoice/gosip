@@ -695,8 +695,8 @@ func (tx *clientTx) act_invite_proceeding() fsm.Input {
 func (tx *clientTx) act_invite_final() fsm.Input {
 	tx.Log().Debug("act_invite_final")
 
-	tx.passUp()
 	tx.ack()
+	tx.passUp()
 
 	tx.mu.Lock()
 

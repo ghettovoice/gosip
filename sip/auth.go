@@ -174,8 +174,9 @@ func AuthorizeRequest(request Request, response Response, user, password MaybeSt
 		auth.SetResponse(auth.CalcResponse())
 
 		if hdrs = request.GetHeaders(authorizeHeaderName); len(hdrs) > 0 {
-			authorizationHeader := hdrs[0].(*GenericHeader)
+			authorizationHeader := hdrs[0].Clone().(*GenericHeader)
 			authorizationHeader.Contents = auth.String()
+			request.ReplaceHeaders(authorizationHeader.Name(), []Header{authorizationHeader})
 		} else {
 			request.AppendHeader(&GenericHeader{
 				HeaderName: authorizeHeaderName,
@@ -191,7 +192,9 @@ func AuthorizeRequest(request Request, response Response, user, password MaybeSt
 	}
 
 	if cseq, ok := request.CSeq(); ok {
+		cseq := cseq.Clone().(*CSeq)
 		cseq.SeqNo++
+		request.ReplaceHeaders(cseq.Name(), []Header{cseq})
 	}
 
 	return nil
