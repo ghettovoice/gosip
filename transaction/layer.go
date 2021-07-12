@@ -178,6 +178,7 @@ func (txl *layer) listenMessages() {
 
 		close(txl.requests)
 		close(txl.responses)
+		close(txl.acks)
 		close(txl.errs)
 		close(txl.done)
 	}()
@@ -197,7 +198,7 @@ func (txl *layer) listenMessages() {
 				continue
 			}
 
-			go txl.handleMessage(msg)
+			txl.handleMessage(msg)
 		}
 	}
 }
@@ -298,11 +299,8 @@ func (txl *layer) handleRequest(req sip.Request, logger log.Logger) {
 	// put tx to store, to match retransmitting requests later
 	txl.transactions.put(tx.Key(), tx)
 
-	select {
-	case <-txl.canceled:
-		return
-	case txl.serveTxCh <- tx:
-	}
+	txl.txWg.Add(1)
+	go txl.serveTransaction(tx)
 
 	// pass up request
 	logger.Trace("passing up SIP request...")
