@@ -912,7 +912,11 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				var netErr net.Error
 				if errors.As(err, &netErr) {
 					if netErr.Timeout() || netErr.Temporary() {
-						handler.Log().Warnf("connection timeout or temporary unavailable, sleep by %s", netErrRetryTime)
+						handler.Log().Tracef(
+							"connection read failed due to timeout or temporary unavailable reason: %s, sleep by %s",
+							err,
+							netErrRetryTime,
+						)
 
 						time.Sleep(netErrRetryTime)
 
