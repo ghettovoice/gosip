@@ -7,7 +7,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/ghettovoice/gosip/log"
 )
@@ -730,17 +729,17 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 		// wait for the new connection
 		baseConn, err := handler.Listener().Accept()
 		if err != nil {
-			// if we get timeout error just go further and try accept on the next iteration
-			var netErr net.Error
-			if errors.As(err, &netErr) {
-				if netErr.Timeout() || netErr.Temporary() {
-					handler.Log().Warnf("listener timeout or temporary unavailable, sleep by %s", netErrRetryTime)
-
-					time.Sleep(netErrRetryTime)
-
-					continue
-				}
-			}
+			//// if we get timeout error just go further and try accept on the next iteration
+			//var netErr net.Error
+			//if errors.As(err, &netErr) {
+			//	if netErr.Timeout() || netErr.Temporary() {
+			//		handler.Log().Warnf("listener timeout or temporary unavailable, sleep by %s", netErrRetryTime)
+			//
+			//		time.Sleep(netErrRetryTime)
+			//
+			//		continue
+			//	}
+			//}
 
 			// broken or closed listener
 			// pass up error and exit

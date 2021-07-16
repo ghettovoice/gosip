@@ -908,21 +908,21 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 			}
 
 			if err != nil {
-				// if we get timeout error just go further and try read on the next iteration
-				var netErr net.Error
-				if errors.As(err, &netErr) {
-					if netErr.Timeout() || netErr.Temporary() {
-						handler.Log().Tracef(
-							"connection read failed due to timeout or temporary unavailable reason: %s, sleep by %s",
-							err,
-							netErrRetryTime,
-						)
-
-						time.Sleep(netErrRetryTime)
-
-						continue
-					}
-				}
+				//// if we get timeout error just go further and try read on the next iteration
+				//var netErr net.Error
+				//if errors.As(err, &netErr) {
+				//	if netErr.Timeout() || netErr.Temporary() {
+				//		handler.Log().Tracef(
+				//			"connection read failed due to timeout or temporary unavailable reason: %s, sleep by %s",
+				//			err,
+				//			netErrRetryTime,
+				//		)
+				//
+				//		time.Sleep(netErrRetryTime)
+				//
+				//		continue
+				//	}
+				//}
 
 				// broken or closed connection
 				// so send error and exit
