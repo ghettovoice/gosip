@@ -247,7 +247,8 @@ func (req *request) Destination() string {
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
 func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response, body string, fields log.Fields) Request {
 	recipient := inviteRequest.Recipient()
-	if contact, ok := inviteResponse.Contact(); ok {
+	contact, contactHeaderExists := inviteResponse.Contact()
+	if contactHeaderExists {
 		// For ws and wss (like clients in browser), don't use Contact
 		if strings.Index(strings.ToLower(recipient.String()), "transport=ws") == -1 {
 			recipient = contact.Address
@@ -267,6 +268,13 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 				"invite_response_id": inviteResponse.MessageID(),
 			}),
 	)
+
+	if contactHeaderExists {
+		// If available, set the transport protocol based on the parameter in the Contact header
+		if transportType, ok := contact.Params.Get("transport"); ok {
+			ackRequest.SetTransport(transportType.String())
+		}
+	}
 
 	CopyHeaders("Via", inviteRequest, ackRequest)
 	if inviteResponse.IsSuccess() {
