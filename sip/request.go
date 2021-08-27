@@ -117,6 +117,14 @@ func (req *request) Clone() Message {
 	return cloneRequest(req, "", nil)
 }
 
+func (req *request) Fields() log.Fields {
+	return req.fields.WithFields(log.Fields{
+		"transport":   req.Transport(),
+		"source":      req.Source(),
+		"destination": req.Destination(),
+	})
+}
+
 func (req *request) WithFields(fields log.Fields) Message {
 	req.mu.Lock()
 	req.fields = req.fields.WithFields(fields)

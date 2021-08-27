@@ -139,6 +139,14 @@ func (res *response) Clone() Message {
 	return cloneResponse(res, "", nil)
 }
 
+func (res *response) Fields() log.Fields {
+	return res.fields.WithFields(log.Fields{
+		"transport":   res.Transport(),
+		"source":      res.Source(),
+		"destination": res.Destination(),
+	})
+}
+
 func (res *response) WithFields(fields log.Fields) Message {
 	res.mu.Lock()
 	res.fields = res.fields.WithFields(fields)
