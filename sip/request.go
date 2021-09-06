@@ -286,10 +286,12 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 	if len(inviteRequest.GetHeaders("Route")) > 0 {
 		CopyHeaders("Route", inviteRequest, ackRequest)
 	} else {
-		for _, h := range inviteResponse.GetHeaders("Record-Route") {
+		hdrs := inviteResponse.GetHeaders("Record-Route")
+		for i := len(hdrs); i >= 0; i-- {
+			h := hdrs[i]
 			uris := make([]Uri, 0)
-			for i := len(h.(*RecordRouteHeader).Addresses) - 1; i >= 0; i-- {
-				uris = append(uris, h.(*RecordRouteHeader).Addresses[i].Clone())
+			for j := len(h.(*RecordRouteHeader).Addresses) - 1; j >= 0; j-- {
+				uris = append(uris, h.(*RecordRouteHeader).Addresses[j].Clone())
 			}
 			ackRequest.AppendHeader(&RouteHeader{
 				Addresses: uris,
