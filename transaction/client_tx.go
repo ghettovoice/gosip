@@ -237,9 +237,13 @@ func (tx *clientTx) cancel() {
 		"sent_at": time.Now(),
 	})
 	if err := tx.tpl.Send(cancelRequest); err != nil {
+		var lastRespStr string
+		if lastResp != nil {
+			lastRespStr = lastResp.Short()
+		}
 		tx.Log().WithFields(map[string]interface{}{
 			"invite_request":  tx.Origin().Short(),
-			"invite_response": lastResp.Short(),
+			"invite_response": lastRespStr,
 			"cancel_request":  cancelRequest.Short(),
 		}).Errorf("send CANCEL request failed: %s", err)
 
@@ -540,12 +544,11 @@ func (tx *clientTx) transportErr() {
 	defer func() { recover() }()
 
 	tx.mu.RLock()
-	res := tx.lastResp
 	err := tx.lastErr
 	tx.mu.RUnlock()
 
 	err = &TxTransportError{
-		fmt.Errorf("transaction failed to send %s: %w", res.Short(), err),
+		fmt.Errorf("transaction failed to send %s: %w", tx.origin.Short(), err),
 		tx.Key(),
 		fmt.Sprintf("%p", tx),
 	}

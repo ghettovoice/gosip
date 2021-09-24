@@ -422,13 +422,16 @@ func (tx *serverTx) transportErr() {
 	// todo bloody patch
 	defer func() { recover() }()
 
+	var resStr string
 	tx.mu.RLock()
-	res := tx.lastResp
+	if tx.lastResp != nil {
+		resStr = tx.lastResp.Short()
+	}
 	err := tx.lastErr
 	tx.mu.RUnlock()
 
 	err = &TxTransportError{
-		fmt.Errorf("transaction failed to send %s: %w", res.Short(), err),
+		fmt.Errorf("transaction failed to send %s: %w", resStr, err),
 		tx.Key(),
 		fmt.Sprintf("%p", tx),
 	}
