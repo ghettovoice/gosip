@@ -146,7 +146,17 @@ func (req *request) IsCancel() bool {
 }
 
 func (req *request) Transport() string {
-	tp := req.message.Transport()
+	if tp := req.message.Transport(); tp != "" {
+		return tp
+	}
+
+	var tp string
+	if viaHop, ok := req.ViaHop(); ok && viaHop.Transport != "" {
+		tp = viaHop.Transport
+	} else {
+		tp = DefaultProtocol
+	}
+
 	uri := req.Recipient()
 	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
 		routeHeader, ok := hdrs[0].(*RouteHeader)
@@ -179,12 +189,9 @@ func (req *request) Transport() string {
 }
 
 func (req *request) Source() string {
-	req.mu.RLock()
-	if req.src != "" {
-		defer req.mu.RUnlock()
-		return req.src
+	if src := req.message.Source(); src != "" {
+		return src
 	}
-	req.mu.RUnlock()
 
 	viaHop, ok := req.ViaHop()
 	if !ok {
@@ -218,12 +225,9 @@ func (req *request) Source() string {
 }
 
 func (req *request) Destination() string {
-	req.mu.RLock()
-	if req.dest != "" {
-		defer req.mu.RUnlock()
-		return req.dest
+	if dest := req.message.Destination(); dest != "" {
+		return dest
 	}
-	req.mu.RUnlock()
 
 	var uri *SipUri
 	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
@@ -251,7 +255,7 @@ func (req *request) Destination() string {
 	return fmt.Sprintf("%v:%v", host, port)
 }
 
-// NewAckForInvite creates ACK request for 2xx INVITE
+// NewAckRequest creates ACK request for 2xx INVITE
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
 func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response, body string, fields log.Fields) Request {
 	recipient := inviteRequest.Recipient()
