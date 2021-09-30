@@ -833,7 +833,7 @@ func (handler *connectionHandler) Expired() bool {
 // 	}
 // }
 
-// connection serving loop.
+// Serve is connection serving loop.
 // Waits for the connection to expire, and notifies the pool when it does.
 func (handler *connectionHandler) Serve(done func()) {
 	defer func() {
@@ -846,9 +846,11 @@ func (handler *connectionHandler) Serve(done func()) {
 
 	// watch for cancel
 	go func() {
-		<-handler.cancel
-
-		handler.Cancel()
+		select {
+		case <-handler.cancel:
+			handler.Cancel()
+		case <-handler.canceled:
+		}
 	}()
 
 	// start connection serving goroutines
@@ -873,12 +875,7 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 
 	go func() {
 		defer func() {
-			handler.cancelOnce.Do(func() {
-				if err := handler.Connection().Close(); err != nil {
-					handler.Log().Errorf("connection close failed: %s", err)
-				}
-			})
-
+			handler.Cancel()
 			prs.Stop()
 
 			if !streamed {

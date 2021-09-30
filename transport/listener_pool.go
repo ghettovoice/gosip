@@ -695,9 +695,11 @@ func (handler *listenerHandler) Serve(done func()) {
 
 	// watch for cancel signal
 	go func() {
-		<-handler.cancel
-
-		handler.Cancel()
+		select {
+		case <-handler.cancel:
+			handler.Cancel()
+		case <-handler.canceled:
+		}
 	}()
 
 	wg := sync.WaitGroup{}
@@ -710,12 +712,7 @@ func (handler *listenerHandler) Serve(done func()) {
 
 func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan<- Connection, errs chan<- error) {
 	defer func() {
-		handler.cancelOnce.Do(func() {
-			if err := handler.Listener().Close(); err != nil {
-				handler.Log().Errorf("close listener failed: %s", err)
-			}
-		})
-
+		handler.Cancel()
 		close(conns)
 		close(errs)
 
