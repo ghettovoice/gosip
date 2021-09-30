@@ -875,7 +875,11 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 
 	go func() {
 		defer func() {
-			handler.Cancel()
+			handler.cancelOnce.Do(func() {
+				if err := handler.Connection().Close(); err != nil {
+					handler.Log().Errorf("connection close failed: %s", err)
+				}
+			})
 			prs.Stop()
 
 			if !streamed {
@@ -1019,7 +1023,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			handler.Log().Trace("passing up connection expiry error...")
 
 			select {
-			case <-handler.canceled:
+			case <-handler.cancel:
 				return
 			case handler.errs <- err:
 				handler.Log().Trace("connection expiry error passed up")
@@ -1084,7 +1088,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 
 			// pass up
 			select {
-			case <-handler.canceled:
+			case <-handler.cancel:
 				return
 			case handler.output <- msg:
 				logger.Trace("SIP message passed up")
@@ -1119,7 +1123,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			handler.Log().Trace("passing up error...")
 
 			select {
-			case <-handler.canceled:
+			case <-handler.cancel:
 				return
 			case handler.errs <- err:
 				handler.Log().Trace("error passed up")
