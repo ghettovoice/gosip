@@ -43,6 +43,9 @@ const (
 	REFER     RequestMethod = "REFER"
 	INFO      RequestMethod = "INFO"
 	MESSAGE   RequestMethod = "MESSAGE"
+	PRACK     RequestMethod = "PRACK"
+	UPDATE    RequestMethod = "UPDATE"
+	PUBLISH   RequestMethod = "PUBLISH"
 )
 
 type MessageID string
