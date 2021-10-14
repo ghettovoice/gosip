@@ -18,7 +18,7 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
-// TransportLayer layer is responsible for the actual transmission of messages - RFC 3261 - 18.
+// Layer is responsible for the actual transmission of messages - RFC 3261 - 18.
 type Layer interface {
 	Cancel()
 	Done() <-chan struct{}
@@ -62,7 +62,7 @@ func SetProtocolFactory(factory ProtocolFactory) {
 	protocolFactory = factory
 }
 
-// ProtocolFactory returns default protocol factory
+// GetProtocolFactory returns default protocol factory
 func GetProtocolFactory() ProtocolFactory {
 	return protocolFactory
 }

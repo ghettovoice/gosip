@@ -117,6 +117,14 @@ func (req *request) Clone() Message {
 	return cloneRequest(req, "", nil)
 }
 
+func (req *request) Fields() log.Fields {
+	return req.fields.WithFields(log.Fields{
+		"transport":   req.Transport(),
+		"source":      req.Source(),
+		"destination": req.Destination(),
+	})
+}
+
 func (req *request) WithFields(fields log.Fields) Message {
 	req.mu.Lock()
 	req.fields = req.fields.WithFields(fields)
@@ -138,7 +146,17 @@ func (req *request) IsCancel() bool {
 }
 
 func (req *request) Transport() string {
-	tp := req.message.Transport()
+	if tp := req.message.Transport(); tp != "" {
+		return tp
+	}
+
+	var tp string
+	if viaHop, ok := req.ViaHop(); ok && viaHop.Transport != "" {
+		tp = viaHop.Transport
+	} else {
+		tp = DefaultProtocol
+	}
+
 	uri := req.Recipient()
 	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
 		routeHeader, ok := hdrs[0].(*RouteHeader)
@@ -171,12 +189,9 @@ func (req *request) Transport() string {
 }
 
 func (req *request) Source() string {
-	req.mu.RLock()
-	if req.src != "" {
-		defer req.mu.RUnlock()
-		return req.src
+	if src := req.message.Source(); src != "" {
+		return src
 	}
-	req.mu.RUnlock()
 
 	viaHop, ok := req.ViaHop()
 	if !ok {
@@ -210,12 +225,9 @@ func (req *request) Source() string {
 }
 
 func (req *request) Destination() string {
-	req.mu.RLock()
-	if req.dest != "" {
-		defer req.mu.RUnlock()
-		return req.dest
+	if dest := req.message.Destination(); dest != "" {
+		return dest
 	}
-	req.mu.RUnlock()
 
 	var uri *SipUri
 	if hdrs := req.GetHeaders("Route"); len(hdrs) > 0 {
@@ -243,7 +255,7 @@ func (req *request) Destination() string {
 	return fmt.Sprintf("%v:%v", host, port)
 }
 
-// NewAckForInvite creates ACK request for 2xx INVITE
+// NewAckRequest creates ACK request for 2xx INVITE
 // https://tools.ietf.org/html/rfc3261#section-13.2.2.4
 func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Response, body string, fields log.Fields) Request {
 	recipient := inviteRequest.Recipient()
@@ -278,10 +290,12 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 	if len(inviteRequest.GetHeaders("Route")) > 0 {
 		CopyHeaders("Route", inviteRequest, ackRequest)
 	} else {
-		for _, h := range inviteResponse.GetHeaders("Record-Route") {
+		hdrs := inviteResponse.GetHeaders("Record-Route")
+		for i := len(hdrs) - 1; i >= 0; i-- {
+			h := hdrs[i]
 			uris := make([]Uri, 0)
-			for i := len(h.(*RecordRouteHeader).Addresses) - 1; i >= 0; i-- {
-				uris = append(uris, h.(*RecordRouteHeader).Addresses[i].Clone())
+			for j := len(h.(*RecordRouteHeader).Addresses) - 1; j >= 0; j-- {
+				uris = append(uris, h.(*RecordRouteHeader).Addresses[j].Clone())
 			}
 			ackRequest.AppendHeader(&RouteHeader{
 				Addresses: uris,
@@ -299,6 +313,9 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 	cseq.MethodName = ACK
 
 	ackRequest.SetBody("", true)
+	ackRequest.SetTransport(inviteRequest.Transport())
+	ackRequest.SetSource(inviteRequest.Source())
+	ackRequest.SetDestination(inviteRequest.Destination())
 
 	return ackRequest
 }
@@ -331,6 +348,9 @@ func NewCancelRequest(cancelID MessageID, requestForCancel Request, fields log.F
 	cseq.MethodName = CANCEL
 
 	cancelReq.SetBody("", true)
+	cancelReq.SetTransport(requestForCancel.Transport())
+	cancelReq.SetSource(requestForCancel.Source())
+	cancelReq.SetDestination(requestForCancel.Destination())
 
 	return cancelReq
 }

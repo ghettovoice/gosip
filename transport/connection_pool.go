@@ -833,7 +833,7 @@ func (handler *connectionHandler) Expired() bool {
 // 	}
 // }
 
-// connection serving loop.
+// Serve is connection serving loop.
 // Waits for the connection to expire, and notifies the pool when it does.
 func (handler *connectionHandler) Serve(done func()) {
 	defer func() {
@@ -846,9 +846,11 @@ func (handler *connectionHandler) Serve(done func()) {
 
 	// watch for cancel
 	go func() {
-		<-handler.cancel
-
-		handler.Cancel()
+		select {
+		case <-handler.cancel:
+			handler.Cancel()
+		case <-handler.canceled:
+		}
 	}()
 
 	// start connection serving goroutines
@@ -878,7 +880,6 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 					handler.Log().Errorf("connection close failed: %s", err)
 				}
 			})
-
 			prs.Stop()
 
 			if !streamed {
@@ -908,17 +909,21 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 			}
 
 			if err != nil {
-				// if we get timeout error just go further and try read on the next iteration
-				var netErr net.Error
-				if errors.As(err, &netErr) {
-					if netErr.Timeout() || netErr.Temporary() {
-						handler.Log().Warnf("connection timeout or temporary unavailable, sleep by %s", netErrRetryTime)
-
-						time.Sleep(netErrRetryTime)
-
-						continue
-					}
-				}
+				//// if we get timeout error just go further and try read on the next iteration
+				//var netErr net.Error
+				//if errors.As(err, &netErr) {
+				//	if netErr.Timeout() || netErr.Temporary() {
+				//		handler.Log().Tracef(
+				//			"connection read failed due to timeout or temporary unavailable reason: %s, sleep by %s",
+				//			err,
+				//			netErrRetryTime,
+				//		)
+				//
+				//		time.Sleep(netErrRetryTime)
+				//
+				//		continue
+				//	}
+				//}
 
 				// broken or closed connection
 				// so send error and exit
@@ -1018,7 +1023,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			handler.Log().Trace("passing up connection expiry error...")
 
 			select {
-			case <-handler.canceled:
+			case <-handler.cancel:
 				return
 			case handler.errs <- err:
 				handler.Log().Trace("connection expiry error passed up")
@@ -1083,7 +1088,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 
 			// pass up
 			select {
-			case <-handler.canceled:
+			case <-handler.cancel:
 				return
 			case handler.output <- msg:
 				logger.Trace("SIP message passed up")
@@ -1118,7 +1123,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			handler.Log().Trace("passing up error...")
 
 			select {
-			case <-handler.canceled:
+			case <-handler.cancel:
 				return
 			case handler.errs <- err:
 				handler.Log().Trace("error passed up")

@@ -7,7 +7,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/ghettovoice/gosip/log"
 )
@@ -696,9 +695,11 @@ func (handler *listenerHandler) Serve(done func()) {
 
 	// watch for cancel signal
 	go func() {
-		<-handler.cancel
-
-		handler.Cancel()
+		select {
+		case <-handler.cancel:
+			handler.Cancel()
+		case <-handler.canceled:
+		}
 	}()
 
 	wg := sync.WaitGroup{}
@@ -716,7 +717,6 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 				handler.Log().Errorf("close listener failed: %s", err)
 			}
 		})
-
 		close(conns)
 		close(errs)
 
@@ -730,17 +730,17 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 		// wait for the new connection
 		baseConn, err := handler.Listener().Accept()
 		if err != nil {
-			// if we get timeout error just go further and try accept on the next iteration
-			var netErr net.Error
-			if errors.As(err, &netErr) {
-				if netErr.Timeout() || netErr.Temporary() {
-					handler.Log().Warnf("listener timeout or temporary unavailable, sleep by %s", netErrRetryTime)
-
-					time.Sleep(netErrRetryTime)
-
-					continue
-				}
-			}
+			//// if we get timeout error just go further and try accept on the next iteration
+			//var netErr net.Error
+			//if errors.As(err, &netErr) {
+			//	if netErr.Timeout() || netErr.Temporary() {
+			//		handler.Log().Warnf("listener timeout or temporary unavailable, sleep by %s", netErrRetryTime)
+			//
+			//		time.Sleep(netErrRetryTime)
+			//
+			//		continue
+			//	}
+			//}
 
 			// broken or closed listener
 			// pass up error and exit
@@ -795,7 +795,7 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 				logger.Trace("passing up connection...")
 
 				select {
-				case <-handler.canceled:
+				case <-handler.cancel:
 					return
 				case handler.output <- conn:
 					logger.Trace("connection passed up")
@@ -821,7 +821,7 @@ func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Con
 				handler.Log().Trace("passing up listener error...")
 
 				select {
-				case <-handler.canceled:
+				case <-handler.cancel:
 					return
 				case handler.errs <- err:
 					handler.Log().Trace("listener error passed up")

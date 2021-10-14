@@ -237,9 +237,13 @@ func (tx *clientTx) cancel() {
 		"sent_at": time.Now(),
 	})
 	if err := tx.tpl.Send(cancelRequest); err != nil {
+		var lastRespStr string
+		if lastResp != nil {
+			lastRespStr = lastResp.Short()
+		}
 		tx.Log().WithFields(map[string]interface{}{
 			"invite_request":  tx.Origin().Short(),
-			"invite_response": lastResp.Short(),
+			"invite_response": lastRespStr,
 			"cancel_request":  cancelRequest.Short(),
 		}).Errorf("send CANCEL request failed: %s", err)
 
@@ -247,11 +251,13 @@ func (tx *clientTx) cancel() {
 		tx.lastErr = err
 		tx.mu.Unlock()
 
-		tx.fsmMu.RLock()
-		if err := tx.fsm.Spin(client_input_transport_err); err != nil {
-			tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
-		}
-		tx.fsmMu.RUnlock()
+		go func() {
+			tx.fsmMu.RLock()
+			if err := tx.fsm.Spin(client_input_transport_err); err != nil {
+				tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
+			}
+			tx.fsmMu.RUnlock()
+		}()
 	}
 }
 
@@ -275,11 +281,13 @@ func (tx *clientTx) ack() {
 		tx.lastErr = err
 		tx.mu.Unlock()
 
-		tx.fsmMu.RLock()
-		if err := tx.fsm.Spin(client_input_transport_err); err != nil {
-			tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
-		}
-		tx.fsmMu.RUnlock()
+		go func() {
+			tx.fsmMu.RLock()
+			if err := tx.fsm.Spin(client_input_transport_err); err != nil {
+				tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
+			}
+			tx.fsmMu.RUnlock()
+		}()
 	}
 }
 
@@ -339,13 +347,14 @@ func (tx *clientTx) initInviteFSM() {
 	client_state_def_proceeding := fsm.State{
 		Index: client_state_proceeding,
 		Outcomes: map[fsm.Input]fsm.Outcome{
-			client_input_1xx:      {client_state_proceeding, tx.act_passup},
-			client_input_2xx:      {client_state_accepted, tx.act_passup_accept},
-			client_input_300_plus: {client_state_completed, tx.act_invite_final},
-			client_input_cancel:   {client_state_proceeding, tx.act_cancel_timeout},
-			client_input_canceled: {client_state_proceeding, tx.act_invite_canceled},
-			client_input_timer_a:  {client_state_proceeding, fsm.NO_ACTION},
-			client_input_timer_b:  {client_state_terminated, tx.act_timeout},
+			client_input_1xx:           {client_state_proceeding, tx.act_passup},
+			client_input_2xx:           {client_state_accepted, tx.act_passup_accept},
+			client_input_300_plus:      {client_state_completed, tx.act_invite_final},
+			client_input_cancel:        {client_state_proceeding, tx.act_cancel_timeout},
+			client_input_canceled:      {client_state_proceeding, tx.act_invite_canceled},
+			client_input_timer_a:       {client_state_proceeding, fsm.NO_ACTION},
+			client_input_timer_b:       {client_state_terminated, tx.act_timeout},
+			client_input_transport_err: {client_state_terminated, tx.act_trans_err},
 		},
 	}
 
@@ -387,16 +396,17 @@ func (tx *clientTx) initInviteFSM() {
 	client_state_def_terminated := fsm.State{
 		Index: client_state_terminated,
 		Outcomes: map[fsm.Input]fsm.Outcome{
-			client_input_1xx:      {client_state_terminated, fsm.NO_ACTION},
-			client_input_2xx:      {client_state_terminated, fsm.NO_ACTION},
-			client_input_300_plus: {client_state_terminated, fsm.NO_ACTION},
-			client_input_cancel:   {client_state_terminated, fsm.NO_ACTION},
-			client_input_canceled: {client_state_terminated, fsm.NO_ACTION},
-			client_input_timer_a:  {client_state_terminated, fsm.NO_ACTION},
-			client_input_timer_b:  {client_state_terminated, fsm.NO_ACTION},
-			client_input_timer_d:  {client_state_terminated, fsm.NO_ACTION},
-			client_input_timer_m:  {client_state_terminated, fsm.NO_ACTION},
-			client_input_delete:   {client_state_terminated, tx.act_delete},
+			client_input_1xx:           {client_state_terminated, fsm.NO_ACTION},
+			client_input_2xx:           {client_state_terminated, fsm.NO_ACTION},
+			client_input_300_plus:      {client_state_terminated, fsm.NO_ACTION},
+			client_input_cancel:        {client_state_terminated, fsm.NO_ACTION},
+			client_input_canceled:      {client_state_terminated, fsm.NO_ACTION},
+			client_input_timer_a:       {client_state_terminated, fsm.NO_ACTION},
+			client_input_timer_b:       {client_state_terminated, fsm.NO_ACTION},
+			client_input_timer_d:       {client_state_terminated, fsm.NO_ACTION},
+			client_input_timer_m:       {client_state_terminated, fsm.NO_ACTION},
+			client_input_delete:        {client_state_terminated, tx.act_delete},
+			client_input_transport_err: {client_state_terminated, fsm.NO_ACTION},
 		},
 	}
 
@@ -514,11 +524,13 @@ func (tx *clientTx) resend() {
 	tx.mu.Unlock()
 
 	if err != nil {
-		tx.fsmMu.RLock()
-		if err := tx.fsm.Spin(client_input_transport_err); err != nil {
-			tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
-		}
-		tx.fsmMu.RUnlock()
+		go func() {
+			tx.fsmMu.RLock()
+			if err := tx.fsm.Spin(client_input_transport_err); err != nil {
+				tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
+			}
+			tx.fsmMu.RUnlock()
+		}()
 	}
 }
 
@@ -540,12 +552,11 @@ func (tx *clientTx) transportErr() {
 	defer func() { recover() }()
 
 	tx.mu.RLock()
-	res := tx.lastResp
 	err := tx.lastErr
 	tx.mu.RUnlock()
 
 	err = &TxTransportError{
-		fmt.Errorf("transaction failed to send %s: %w", res.Short(), err),
+		fmt.Errorf("transaction failed to send %s: %w", tx.origin.Short(), err),
 		tx.Key(),
 		fmt.Sprintf("%p", tx),
 	}
@@ -695,8 +706,8 @@ func (tx *clientTx) act_invite_proceeding() fsm.Input {
 func (tx *clientTx) act_invite_final() fsm.Input {
 	tx.Log().Debug("act_invite_final")
 
-	tx.passUp()
 	tx.ack()
+	tx.passUp()
 
 	tx.mu.Lock()
 

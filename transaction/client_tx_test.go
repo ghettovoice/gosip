@@ -234,6 +234,12 @@ var _ = Describe("ClientTx", func() {
 
 					time.Sleep(10 * time.Millisecond)
 					tpl.InMsgs <- canceled
+
+					msg = <-tpl.OutMsgs
+					Expect(msg).ToNot(BeNil())
+					req, ok = msg.(sip.Request)
+					Expect(ok).To(BeTrue())
+					Expect(string(req.Method())).To(Equal("ACK"))
 				}()
 
 				mu.Lock()

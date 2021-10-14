@@ -139,6 +139,14 @@ func (res *response) Clone() Message {
 	return cloneResponse(res, "", nil)
 }
 
+func (res *response) Fields() log.Fields {
+	return res.fields.WithFields(log.Fields{
+		"transport":   res.Transport(),
+		"source":      res.Source(),
+		"destination": res.Destination(),
+	})
+}
+
 func (res *response) WithFields(fields log.Fields) Message {
 	res.mu.Lock()
 	res.fields = res.fields.WithFields(fields)
@@ -185,13 +193,25 @@ func (res *response) IsCancel() bool {
 	return false
 }
 
-func (res *response) Destination() string {
-	res.mu.RLock()
-	if res.dest != "" {
-		defer res.mu.RUnlock()
-		return res.dest
+func (res *response) Transport() string {
+	if tp := res.message.Transport(); tp != "" {
+		return tp
 	}
-	res.mu.RUnlock()
+
+	var tp string
+	if viaHop, ok := res.ViaHop(); ok && viaHop.Transport != "" {
+		tp = viaHop.Transport
+	} else {
+		tp = DefaultProtocol
+	}
+
+	return tp
+}
+
+func (res *response) Destination() string {
+	if dest := res.message.Destination(); dest != "" {
+		return dest
+	}
 
 	viaHop, ok := res.ViaHop()
 	if !ok {

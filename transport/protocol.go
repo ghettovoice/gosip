@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	netErrRetryTime = 5 * time.Second
-	sockTTL         = time.Hour
+	//netErrRetryTime = 5 * time.Second
+	sockTTL = time.Hour
 )
 
 // Protocol implements network specific features.

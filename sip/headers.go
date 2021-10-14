@@ -694,7 +694,7 @@ func (from *FromHeader) Value() string {
 
 	buffer.WriteString(fmt.Sprintf("<%s>", from.Address))
 
-	if from.Params.Length() > 0 {
+	if from.Params != nil && from.Params.Length() > 0 {
 		buffer.WriteString(";")
 		buffer.WriteString(from.Params.ToString(';'))
 	}
@@ -1133,7 +1133,7 @@ func (hop *ViaHop) String() string {
 		buffer.WriteString(fmt.Sprintf(":%d", *hop.Port))
 	}
 
-	if hop.Params.Length() > 0 {
+	if hop.Params != nil && hop.Params.Length() > 0 {
 		buffer.WriteString(";")
 		buffer.WriteString(hop.Params.ToString(';'))
 	}
