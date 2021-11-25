@@ -272,7 +272,11 @@ func (tpl *layer) Send(msg sip.Message) error {
 				case "UDP":
 					if addr, err := net.ResolveUDPAddr("udp", addrStr); err == nil {
 						port := sip.Port(addr.Port)
-						target.Host = addr.IP.String()
+						if addr.IP.To4() == nil {
+							target.Host = fmt.Sprintf("[%v]", addr.IP.String())
+						} else {
+							target.Host = addr.IP.String()
+						}
 						target.Port = &port
 					}
 				case "TLS":
@@ -284,7 +288,11 @@ func (tpl *layer) Send(msg sip.Message) error {
 				case "TCP":
 					if addr, err := net.ResolveTCPAddr("tcp", addrStr); err == nil {
 						port := sip.Port(addr.Port)
-						target.Host = addr.IP.String()
+						if addr.IP.To4() == nil {
+							target.Host = fmt.Sprintf("[%v]", addr.IP.String())
+						} else {
+							target.Host = addr.IP.String()
+						}
 						target.Port = &port
 					}
 				}
