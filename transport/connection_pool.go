@@ -1056,7 +1056,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 					continue
 				}
 
-				if rhost != "" {
+				if rhost != "" && rhost != viaHop.Host {
 					viaHop.Params.Add("received", sip.String{Str: rhost})
 				}
 
