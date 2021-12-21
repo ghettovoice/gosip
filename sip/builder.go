@@ -129,45 +129,54 @@ func (rb *RequestBuilder) AddVia(via *ViaHop) *RequestBuilder {
 }
 
 func (rb *RequestBuilder) SetFrom(address *Address) *RequestBuilder {
-	address = address.Clone()
-	if address.Uri.Host() == "" {
-		address.Uri.SetHost(rb.host)
-	}
-
-	rb.from = &FromHeader{
-		DisplayName: address.DisplayName,
-		Address:     address.Uri,
-		Params:      address.Params,
+	if address == nil {
+		rb.from = nil
+	} else {
+		address = address.Clone()
+		if address.Uri.Host() == "" {
+			address.Uri.SetHost(rb.host)
+		}
+		rb.from = &FromHeader{
+			DisplayName: address.DisplayName,
+			Address:     address.Uri,
+			Params:      address.Params,
+		}
 	}
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetTo(address *Address) *RequestBuilder {
-	address = address.Clone()
-	if address.Uri.Host() == "" {
-		address.Uri.SetHost(rb.host)
-	}
-
-	rb.to = &ToHeader{
-		DisplayName: address.DisplayName,
-		Address:     address.Uri,
-		Params:      address.Params,
+	if address == nil {
+		rb.to = nil
+	} else {
+		address = address.Clone()
+		if address.Uri.Host() == "" {
+			address.Uri.SetHost(rb.host)
+		}
+		rb.to = &ToHeader{
+			DisplayName: address.DisplayName,
+			Address:     address.Uri,
+			Params:      address.Params,
+		}
 	}
 
 	return rb
 }
 
 func (rb *RequestBuilder) SetContact(address *Address) *RequestBuilder {
-	address = address.Clone()
-	if address.Uri.Host() == "" {
-		address.Uri.SetHost(rb.host)
-	}
-
-	rb.contact = &ContactHeader{
-		DisplayName: address.DisplayName,
-		Address:     address.Uri,
-		Params:      address.Params,
+	if address == nil {
+		rb.contact = nil
+	} else {
+		address = address.Clone()
+		if address.Uri.Host() == "" {
+			address.Uri.SetHost(rb.host)
+		}
+		rb.contact = &ContactHeader{
+			DisplayName: address.DisplayName,
+			Address:     address.Uri,
+			Params:      address.Params,
+		}
 	}
 
 	return rb
