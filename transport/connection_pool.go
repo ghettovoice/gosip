@@ -944,12 +944,12 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 				continue
 			}
 
-			if !streamed {
-				handler.addrs.In <- fmt.Sprintf("%v", raddr)
-			}
-
 			// parse received data
-			if _, err := prs.Write(append([]byte{}, buf[:num]...)); err != nil {
+			if _, err := prs.Write(append([]byte{}, buf[:num]...)); err == nil {
+				if !streamed {
+					handler.addrs.In <- fmt.Sprintf("%v", raddr)
+				}
+			} else {
 				select {
 				case <-handler.canceled:
 					return
