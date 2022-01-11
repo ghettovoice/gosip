@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -167,14 +166,12 @@ type parser struct {
 	streamed      bool
 	input         *parserBuffer
 	bodyLengths   util.ElasticChan
-	mu            sync.Mutex
 
 	output chan<- sip.Message
 	errs   chan<- error
 
-	terminalErr error
-	stopped     bool
-	done        chan struct{}
+	stopped bool
+	done    chan struct{}
 
 	log log.Logger
 }
@@ -190,51 +187,38 @@ func (p *parser) Log() log.Logger {
 	return p.log
 }
 
-func (p *parser) setError(err error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.terminalErr = err
-}
-
-func (p *parser) getError() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.terminalErr
-}
-
 func (p *parser) Write(data []byte) (int, error) {
-	// termErr := p.getError()
-	// if termErr != nil {
-	//	// The parser has stopped due to a terminal error. Return it.
-	//	p.Log().Warnf(
-	//		"%s ignores %d new bytes due to previous terminal error: %s",
-	//		p,
-	//		len(data),
-	//		termErr,
-	//	)
-	//	return 0, termErr
-	// } else
 	if p.stopped {
 		return 0, WriteError(fmt.Sprintf("cannot write data to stopped %s", p))
 	}
 
+	var (
+		num int
+		err error
+	)
 	if !p.streamed {
 		bl := getBodyLength(data)
-		if bl == -1 {
-			return 0, InvalidMessageFormat(fmt.Sprintf("%s cannot write data: double CRLF sequence not found in the input data", p))
-		}
+		defer func() {
+			if err == nil {
+				p.bodyLengths.In <- []int{bl, len(data)}
+			}
+		}()
 
-		p.bodyLengths.In <- []int{bl, len(data)}
+		if bl == -1 {
+			err = InvalidMessageFormat(fmt.Sprintf("%s cannot write data: double CRLF sequence not found in the input data", p))
+			return num, err
+		}
 	}
 
-	num, err := p.input.Write(data)
+	num, err = p.input.Write(data)
 	if err != nil {
-		return 0, WriteError(fmt.Sprintf("%s write data failed: %s", p, err))
+		err = WriteError(fmt.Sprintf("%s write data failed: %s", p, err))
+		return num, err
 	}
 
 	p.Log().Tracef("write %d bytes to input buffer", num)
 
-	return len(data), nil
+	return num, nil
 }
 
 // Stop parser processing, and allow all resources to be garbage collected.
@@ -259,7 +243,10 @@ func (p *parser) Reset() {
 	// reset state
 	p.done = make(chan struct{})
 	p.stopped = false
-	p.setError(nil)
+	if !p.streamed {
+		p.bodyLengths.Stop()
+		p.bodyLengths.Init()
+	}
 	// and re-run
 	go p.parse(p.streamed)
 }
@@ -272,6 +259,8 @@ func (p *parser) parse(requireContentLength bool) {
 
 	p.Log().Debug("start parsing")
 	defer p.Log().Debug("stop parsing")
+
+	var skipStreamedErr bool
 
 	for {
 		// Parse the StartLine.
@@ -305,10 +294,15 @@ func (p *parser) parse(requireContentLength bool) {
 			p.Log().Tracef("%s failed to read start line '%s'", p, startLine)
 
 			termErr = InvalidStartLineError(fmt.Sprintf("%s failed to parse first line of message: %s", p, termErr))
-			p.setError(termErr)
-			p.errs <- termErr
 
-			if !p.streamed {
+			if p.streamed {
+				if !skipStreamedErr {
+					skipStreamedErr = true
+					p.errs <- termErr
+				}
+			} else {
+				p.errs <- termErr
+
 				slice := (<-p.bodyLengths.Out).([]int)
 				skip := slice[1] - len(startLine) - 2
 
@@ -320,9 +314,11 @@ func (p *parser) parse(requireContentLength bool) {
 			}
 
 			continue
+		} else {
+			skipStreamedErr = false
 		}
 
-		// p.Log().Debugf("%s starts reading headers", p)
+		p.Log().Tracef("%s starts reading headers", p)
 		// Parse the header section.
 		// Headers can be split across lines (marked by whitespace at the start of subsequent lines),
 		// so store lines into a buffer, and then flush and parse it when we hit the end of the header.
@@ -387,14 +383,18 @@ func (p *parser) parse(requireContentLength bool) {
 			// Use the content-length header to identify the end of the message.
 			contentLengthHeaders := msg.GetHeaders("Content-Length")
 			if len(contentLengthHeaders) == 0 {
+				skipStreamedErr = true
+
 				termErr := &sip.MalformedMessageError{
 					Err: fmt.Errorf("missing required 'Content-Length' header"),
 					Msg: msg.String(),
 				}
-				p.setError(termErr)
 				p.errs <- termErr
+
 				continue
 			} else if len(contentLengthHeaders) > 1 {
+				skipStreamedErr = true
+
 				var errbuf bytes.Buffer
 				errbuf.WriteString("multiple 'Content-Length' headers on message '")
 				errbuf.WriteString(msg.Short())
@@ -407,8 +407,8 @@ func (p *parser) parse(requireContentLength bool) {
 					Err: errors.New(errbuf.String()),
 					Msg: msg.String(),
 				}
-				p.setError(termErr)
 				p.errs <- termErr
+
 				continue
 			}
 
@@ -420,14 +420,13 @@ func (p *parser) parse(requireContentLength bool) {
 		}
 
 		// Extract the message body.
-		// p.Log().Debugf("%s reads body with length = %d bytes", p, contentLength)
+		p.Log().Tracef("%s reads body with length = %d bytes", p, contentLength)
 		body, err := p.input.NextChunk(contentLength)
 		if err != nil {
 			termErr := &sip.BrokenMessageError{
 				Err: fmt.Errorf("read message body failed: %w", err),
 				Msg: msg.String(),
 			}
-			p.setError(termErr)
 			p.errs <- termErr
 
 			continue
@@ -435,14 +434,9 @@ func (p *parser) parse(requireContentLength bool) {
 		// RFC 3261 - 18.3.
 		if len(body) != contentLength {
 			termErr := &sip.BrokenMessageError{
-				Err: fmt.Errorf(
-					"incomplete message body: read %d bytes, expected %d bytes",
-					len(body),
-					contentLength,
-				),
+				Err: fmt.Errorf("incomplete message body: read %d bytes, expected %d bytes", len(body), contentLength),
 				Msg: msg.String(),
 			}
-			p.setError(termErr)
 			p.errs <- termErr
 
 			continue

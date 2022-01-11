@@ -3,6 +3,7 @@ package parser_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1474,6 +1475,54 @@ func TestStreamedParse3(t *testing.T) {
 	test.Test(t)
 }
 
+// Test writing 2 malformed messages followed by 1 correct message
+func TestStreamedParse4(t *testing.T) {
+	contentLength := sip.ContentLength(0)
+	maxForwards := sip.MaxForwards(70)
+	test := ParserTest{true, []parserTestStep{
+		// Steps each have: Input, result, sent error, returned error
+		// invalid start line
+		{"INVITE sip:bob@biloxi.com\r\n" +
+			"Content-Length: 0\r\n\r\n" +
+			"INVITE sip:bob@biloxi.com\r\n" +
+			"Content-Length: 0\r\n\r\n",
+			nil,
+			errors.New("malformed message start line"),
+			nil},
+		// missing Content-Length
+		{"INVITE sip:bob@biloxi.com SIP/2.0\r\n" +
+			"Max-Forwards: 70\r\n\r\n",
+			nil,
+			errors.New("missing content-length header"),
+			nil},
+		// valid
+		{"INVITE sip:bob@biloxi.com SIP/2.0\r\n" +
+			"Max-Forwards: 70\r\n" +
+			"Content-Length: 0\r\n\r\n",
+			sip.NewRequest(
+				"",
+				sip.INVITE,
+				&sip.SipUri{
+					FIsEncrypted: false,
+					FUser:        sip.String{Str: "bob"},
+					FPassword:    nil,
+					FHost:        "biloxi.com",
+					FPort:        nil,
+					FUriParams:   noParams,
+					FHeaders:     noParams,
+				},
+				"SIP/2.0",
+				[]sip.Header{&maxForwards, &contentLength},
+				"",
+				nil,
+			),
+			nil,
+			nil},
+	}}
+
+	test.Test(t)
+}
+
 type paramInput struct {
 	paramString      string
 	start            uint8
@@ -2321,7 +2370,7 @@ func (step *parserTestStep) Test(parser parser.Parser, msgChan chan sip.Message,
 			} else {
 				success = true
 			}
-		case <-time.After(time.Second * 1):
+		case <-time.After(time.Second):
 			if step.result != nil || step.sentError != nil {
 				success = false
 				reason = "timeout when processing input"
