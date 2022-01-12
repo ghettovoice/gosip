@@ -3,6 +3,7 @@ package transport_test
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -12,17 +13,16 @@ import (
 	"github.com/ghettovoice/gosip/testutils"
 	"github.com/ghettovoice/gosip/timing"
 	"github.com/ghettovoice/gosip/transport"
-	"github.com/ghettovoice/gosip/util"
 )
 
 var _ = Describe("ConnectionHandler", func() {
 	var (
 		output         chan sip.Message
 		errs           chan error
-		cancel         chan struct{}
 		client, server net.Conn
 		conn           transport.Connection
 		handler        transport.ConnectionHandler
+		wg             *sync.WaitGroup
 	)
 	addr := &testutils.MockAddr{Net: "tcp", Addr: localAddr1}
 	key := transport.ConnectionKey(addr.String())
@@ -56,22 +56,19 @@ var _ = Describe("ConnectionHandler", func() {
 		BeforeEach(func() {
 			output = make(chan sip.Message)
 			errs = make(chan error)
-			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
 			client = &testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}
 			server = &testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}
 			conn = transport.NewConnection(server, key, "tcp", logger)
 		})
 		AfterEach(func() {
-			defer func() { recover() }()
 			client.Close()
 			server.Close()
 			close(output)
 			close(errs)
-			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(conn, ttl, output, errs, cancel, nil, logger)
+			handler = transport.NewConnectionHandler(conn, ttl, output, errs, nil, logger)
 		})
 
 		HasCorrectKeyAndConn := func() {
@@ -122,29 +119,32 @@ var _ = Describe("ConnectionHandler", func() {
 		BeforeEach(func() {
 			output = make(chan sip.Message)
 			errs = make(chan error)
-			cancel = make(chan struct{})
 			c1, c2 := net.Pipe()
 			client = &testutils.MockConn{Conn: c1, LAddr: c1.LocalAddr(), RAddr: addr}
 			server = &testutils.MockConn{Conn: c2, LAddr: addr, RAddr: c2.RemoteAddr()}
 			conn = transport.NewConnection(server, "dummy", "tcp", logger)
+			wg = &sync.WaitGroup{}
 		})
 		AfterEach(func() {
 			defer func() { recover() }()
+			wg.Wait()
 			handler.Cancel()
+			<-handler.Done()
 			client.Close()
 			server.Close()
 			close(output)
 			close(errs)
-			close(cancel)
 		})
 		JustBeforeEach(func() {
-			handler = transport.NewConnectionHandler(conn, ttl, output, errs, cancel, nil, logger)
-			go handler.Serve(util.Noop)
+			handler = transport.NewConnectionHandler(conn, ttl, output, errs, nil, logger)
+			go handler.Serve()
 		})
 
 		Context("when new data arrives", func() {
 			JustBeforeEach(func() {
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					testutils.WriteToConn(client, []byte(inviteMsg))
 					time.Sleep(time.Millisecond)
 					testutils.WriteToConn(client, []byte(bullshit))
@@ -168,14 +168,14 @@ var _ = Describe("ConnectionHandler", func() {
 				testutils.AssertIncomingErrorArrived(errs, "missing required 'Content-Length' header")
 				By("second message arrives on output")
 				testutils.AssertMessageArrived(output, inviteMsg, "pipe", addr.String())
-				// for i := 0; i < 10; i++ {
+				//for i := 0; i < 10; i++ {
 				//	select {
 				//	case msg := <-output:
 				//		fmt.Printf("-------------------------------\n%s\n-------------------------------------\n", msg)
 				//	case err := <-errs:
 				//		fmt.Printf("-------------------------------\n%s\n-------------------------------------\n", err)
 				//	}
-				// }
+				//}
 				close(done)
 			})
 		})
@@ -220,15 +220,6 @@ var _ = Describe("ConnectionHandler", func() {
 			Context("by Cancel() call", func() {
 				JustBeforeEach(func() {
 					handler.Cancel()
-				})
-				It("should resolve Done chan", func(done Done) {
-					<-handler.Done()
-					close(done)
-				}, 3)
-			})
-			Context("by global cancel signal", func() {
-				JustBeforeEach(func() {
-					close(cancel)
 				})
 				It("should resolve Done chan", func(done Done) {
 					<-handler.Done()
@@ -325,27 +316,11 @@ var _ = Describe("ConnectionPool", func() {
 			server = &testutils.MockConn{Conn: c2, LAddr: addr1, RAddr: c2.RemoteAddr()}
 
 			close(cancel)
-			time.Sleep(time.Millisecond)
+			<-pool.Done()
 		})
 
 		It("should decline Put", func() {
 			err = pool.Put(transport.NewConnection(server, key1, "tcp", logger), 0)
-			Expect(err.Error()).To(ContainSubstring(expected))
-			Expect(pool.Length()).To(Equal(0))
-		})
-		It("should decline Get", func() {
-			ls, err := pool.Get(key1)
-			Expect(ls).To(BeNil())
-			Expect(err.Error()).To(ContainSubstring(expected))
-			Expect(pool.Length()).To(Equal(0))
-		})
-		It("should decline Drop", func() {
-			err = pool.Drop(key1)
-			Expect(err.Error()).To(ContainSubstring(expected))
-			Expect(pool.Length()).To(Equal(0))
-		})
-		It("should decline DropAll", func() {
-			err = pool.DropAll()
 			Expect(err.Error()).To(ContainSubstring(expected))
 			Expect(pool.Length()).To(Equal(0))
 		})
@@ -479,11 +454,7 @@ var _ = Describe("ConnectionPool", func() {
 					})
 					It("should has store with 2 connections: server1, server2", func() {
 						// this line sometimes raises DATA RACE warning
-						// Expect(pool.All()).To(ConsistOf(server1, server2))
-						// compare by element
-						all := pool.All()
-						Expect(all[0]).To(Equal(server1))
-						Expect(all[1]).To(Equal(server2))
+						Expect(pool.All()).To(ConsistOf(server1, server2))
 					})
 					It("should find connection server2 by key2", func() {
 						Expect(pool.Get(key2)).To(Equal(server2))

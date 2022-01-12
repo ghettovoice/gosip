@@ -17,7 +17,6 @@ var _ = Describe("ListenerHandler", func() {
 	var (
 		output  chan transport.Connection
 		errs    chan error
-		cancel  chan struct{}
 		ls      *testutils.MockListener
 		handler transport.ListenerHandler
 		wg      *sync.WaitGroup
@@ -32,9 +31,13 @@ var _ = Describe("ListenerHandler", func() {
 		BeforeEach(func() {
 			output = make(chan transport.Connection)
 			errs = make(chan error)
-			cancel = make(chan struct{})
 			ls = testutils.NewMockListener(addr)
-			handler = transport.NewListenerHandler(key, ls, output, errs, cancel, logger)
+			handler = transport.NewListenerHandler(key, ls, output, errs, logger)
+		})
+		AfterEach(func() {
+			ls.Close()
+			close(output)
+			close(errs)
 		})
 
 		It("has ListenerKey", func() {
@@ -49,18 +52,20 @@ var _ = Describe("ListenerHandler", func() {
 		BeforeEach(func() {
 			output = make(chan transport.Connection)
 			errs = make(chan error)
-			cancel = make(chan struct{})
 			ls = testutils.NewMockListener(addr)
-			handler = transport.NewListenerHandler(key, ls, output, errs, cancel, logger)
+			handler = transport.NewListenerHandler(key, ls, output, errs, logger)
 
 			wg = new(sync.WaitGroup)
-			wg.Add(1)
-			go handler.Serve(wg.Done)
+			go handler.Serve()
 			time.Sleep(time.Millisecond)
 		})
 		AfterEach(func() {
-			handler.Cancel()
 			wg.Wait()
+			handler.Cancel()
+			<-handler.Done()
+			ls.Close()
+			close(output)
+			close(errs)
 		})
 
 		Context("when new connection arrives", func() {
@@ -94,18 +99,6 @@ var _ = Describe("ListenerHandler", func() {
 					select {
 					case <-handler.Done():
 					case <-time.After(time.Second):
-						Fail("timed out")
-					}
-				})
-			})
-			Context("by global cancel signal", func() {
-				BeforeEach(func() {
-					close(cancel)
-				})
-				It("should resolve Done chan", func() {
-					select {
-					case <-handler.Done():
-					case <-time.After(100 * time.Millisecond):
 						Fail("timed out")
 					}
 				})
@@ -193,22 +186,6 @@ var _ = Describe("ListenerPool", func() {
 
 		It("should decline Put", func() {
 			err = pool.Put(key1, testutils.NewMockListener(addr1))
-			Expect(err.Error()).To(ContainSubstring(expected))
-			Expect(pool.Length()).To(Equal(0))
-		})
-		It("should decline Get", func() {
-			ls, err := pool.Get(key1)
-			Expect(ls).To(BeNil())
-			Expect(err.Error()).To(ContainSubstring(expected))
-			Expect(pool.Length()).To(Equal(0))
-		})
-		It("should decline Drop", func() {
-			err = pool.Drop(key1)
-			Expect(err.Error()).To(ContainSubstring(expected))
-			Expect(pool.Length()).To(Equal(0))
-		})
-		It("should decline DropAll", func() {
-			err = pool.DropAll()
 			Expect(err.Error()).To(ContainSubstring(expected))
 			Expect(pool.Length()).To(Equal(0))
 		})

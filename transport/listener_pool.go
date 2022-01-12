@@ -38,37 +38,23 @@ type ListenerHandler interface {
 	String() string
 	Key() ListenerKey
 	Listener() net.Listener
-	Serve(done func())
+	Serve()
 	// TODO implement later, runtime replace of the net.Listener in handler
 	// Update(ls net.Listener)
-}
-
-type listenerRequest struct {
-	keys      []ListenerKey
-	listeners []net.Listener
-	response  chan *listenerResponse
-}
-type listenerResponse struct {
-	listeners []net.Listener
-	errs      []error
 }
 
 type listenerPool struct {
 	hwg   sync.WaitGroup
 	mu    sync.RWMutex
 	store map[ListenerKey]ListenerHandler
-	keys  []ListenerKey
 
 	output chan<- Connection
 	errs   chan<- error
 	cancel <-chan struct{}
 
-	done    chan struct{}
-	hconns  chan Connection
-	herrs   chan error
-	gets    chan *listenerRequest
-	updates chan *listenerRequest
-	drops   chan *listenerRequest
+	done   chan struct{}
+	hconns chan Connection
+	herrs  chan error
 
 	log log.Logger
 }
@@ -81,18 +67,14 @@ func NewListenerPool(
 ) ListenerPool {
 	pool := &listenerPool{
 		store: make(map[ListenerKey]ListenerHandler),
-		keys:  make([]ListenerKey, 0),
 
 		output: output,
 		errs:   errs,
 		cancel: cancel,
 
-		done:    make(chan struct{}),
-		hconns:  make(chan Connection),
-		herrs:   make(chan error),
-		gets:    make(chan *listenerRequest),
-		updates: make(chan *listenerRequest),
-		drops:   make(chan *listenerRequest),
+		done:   make(chan struct{}),
+		hconns: make(chan Connection),
+		herrs:  make(chan error),
 	}
 	pool.log = logger.
 		WithPrefix("transport.ListenerPool").
@@ -100,7 +82,10 @@ func NewListenerPool(
 			"listener_pool_ptr": fmt.Sprintf("%p", pool),
 		})
 
-	go pool.serveStore()
+	go func() {
+		<-pool.cancel
+		pool.dispose()
+	}()
 	go pool.serveHandlers()
 
 	return pool
@@ -141,260 +126,69 @@ func (pool *listenerPool) Put(key ListenerKey, listener net.Listener) error {
 		}
 	}
 
-	response := make(chan *listenerResponse, 1)
-	req := &listenerRequest{
-		[]ListenerKey{key},
-		[]net.Listener{listener},
-		response,
-	}
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 
-	logger := pool.Log().WithFields(log.Fields{
-		"listener_key": key,
-		"listener_ptr": fmt.Sprintf("%p", listener),
-	})
-	logger.Trace("sending put listener request")
+	return pool.put(key, listener)
+}
 
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.updates <- req:
-			logger.Trace("put listener request sent")
-		}
-	}()
+func (pool *listenerPool) Get(key ListenerKey) (net.Listener, error) {
+	pool.mu.RLock()
+	defer pool.mu.RUnlock()
 
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("listener pool closed"),
-			"put listener",
-			pool.String(),
-		}
-	case res := <-response:
-		if len(res.errs) > 0 {
-			return res.errs[0]
+	return pool.getListener(key)
+}
+
+func (pool *listenerPool) Drop(key ListenerKey) error {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	return pool.drop(key)
+}
+
+func (pool *listenerPool) DropAll() error {
+	pool.mu.Lock()
+	for key := range pool.store {
+		if err := pool.drop(key); err != nil {
+			pool.Log().Errorf("drop listener %s failed: %s", key, err)
 		}
 	}
+	pool.mu.Unlock()
 
 	return nil
 }
 
-func (pool *listenerPool) Get(key ListenerKey) (net.Listener, error) {
-	select {
-	case <-pool.cancel:
-		return nil, &PoolError{
-			fmt.Errorf("listener pool closed"),
-			"get listener",
-			pool.String(),
-		}
-	default:
-	}
-
-	response := make(chan *listenerResponse, 1)
-	req := &listenerRequest{
-		[]ListenerKey{key},
-		nil,
-		response,
-	}
-
-	logger := pool.Log().WithFields(log.Fields{
-		"listener_key": key,
-	})
-
-	logger.Trace("sending get listener request")
-
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.gets <- req:
-			logger.Trace("get listener request sent")
-		}
-	}()
-
-	select {
-	case <-pool.cancel:
-		return nil, &PoolError{
-			fmt.Errorf("listener pool closed"),
-			"get listener",
-			pool.String(),
-		}
-	case res := <-response:
-		return res.listeners[0], res.errs[0]
-	}
-}
-
-func (pool *listenerPool) Drop(key ListenerKey) error {
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("listener pool closed"),
-			"drop listener",
-			pool.String(),
-		}
-	default:
-	}
-
-	response := make(chan *listenerResponse, 1)
-	req := &listenerRequest{
-		[]ListenerKey{key},
-		nil,
-		response,
-	}
-
-	logger := pool.Log().WithFields(log.Fields{
-		"listener_key": key,
-	})
-
-	logger.Trace("sending drop listener request")
-
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.drops <- req:
-			logger.Trace("drop listener request sent")
-		}
-	}()
-
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("listener pool closed"),
-			"drop listener",
-			pool.String(),
-		}
-	case res := <-response:
-		return res.errs[0]
-	}
-}
-
-func (pool *listenerPool) DropAll() error {
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("listener pool closed"),
-			"drop all listeners",
-			pool.String(),
-		}
-	default:
-	}
-
-	response := make(chan *listenerResponse, 1)
-	keys := pool.allKeys()
-	req := &listenerRequest{
-		keys,
-		nil,
-		response,
-	}
-
-	logger := pool.Log().WithFields(log.Fields{
-		"listener_key": fmt.Sprintf("%v", keys),
-	})
-
-	logger.Trace("sending drop all listeners request")
-
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.drops <- req:
-			logger.Trace("drop all listeners request sent")
-		}
-	}()
-
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("listener pool closed"),
-			"drop all listeners",
-			pool.String(),
-		}
-	case <-response:
-		return nil
-	}
-}
-
 func (pool *listenerPool) All() []net.Listener {
-	select {
-	case <-pool.cancel:
-		return []net.Listener{}
-	default:
+	pool.mu.RLock()
+	listns := make([]net.Listener, 0)
+	for _, handler := range pool.store {
+		listns = append(listns, handler.Listener())
 	}
+	pool.mu.RUnlock()
 
-	response := make(chan *listenerResponse, 1)
-	keys := pool.allKeys()
-	req := &listenerRequest{
-		keys,
-		nil,
-		response,
-	}
-
-	logger := pool.Log().WithFields(log.Fields{
-		"listener_keys": fmt.Sprintf("%v", keys),
-	})
-
-	logger.Trace("sending get all listeners request")
-
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.gets <- req:
-			logger.Trace("get all listeners request sent")
-		}
-	}()
-
-	select {
-	case <-pool.cancel:
-		return []net.Listener{}
-	case res := <-response:
-		return res.listeners
-	}
+	return listns
 }
 
 func (pool *listenerPool) Length() int {
-	return len(pool.allKeys())
-}
+	pool.mu.RLock()
+	defer pool.mu.RUnlock()
 
-func (pool *listenerPool) serveStore() {
-	defer pool.dispose()
-
-	pool.Log().Debug("start serve listener store")
-	defer pool.Log().Debug("stop serve listener store")
-
-	for {
-		select {
-		case <-pool.cancel:
-			return
-		case req := <-pool.updates:
-			pool.handlePut(req)
-		case req := <-pool.gets:
-			pool.handleGet(req)
-		case req := <-pool.drops:
-			pool.handleDrop(req)
-		}
-	}
+	return len(pool.store)
 }
 
 func (pool *listenerPool) dispose() {
-	// wait for handlers
-	for _, key := range pool.allKeys() {
-		if err := pool.drop(key, false); err != nil {
-			pool.Log().WithFields(log.Fields{
-				"listener_key": key,
-			}).Error(err)
-		}
-	}
-
+	// clean pool
+	pool.DropAll()
 	pool.hwg.Wait()
+
 	// stop serveHandlers goroutine
 	close(pool.hconns)
 	close(pool.herrs)
-	// close store channels
-	close(pool.gets)
-	close(pool.updates)
-	close(pool.drops)
+
+	close(pool.done)
 }
 
 func (pool *listenerPool) serveHandlers() {
-	defer close(pool.done)
-
 	pool.Log().Debug("start serve listener handlers")
 	defer pool.Log().Debug("stop serve listener handlers")
 
@@ -429,7 +223,10 @@ func (pool *listenerPool) serveHandlers() {
 
 			var lerr *ListenerHandlerError
 			if errors.As(err, &lerr) {
-				if handler, gerr := pool.get(lerr.Key); gerr == nil {
+				pool.mu.RLock()
+				handler, gerr := pool.get(lerr.Key)
+				pool.mu.RUnlock()
+				if gerr == nil {
 					logger = logger.WithFields(handler.Log().Fields())
 
 					if lerr.Network() {
@@ -466,13 +263,6 @@ func (pool *listenerPool) serveHandlers() {
 	}
 }
 
-func (pool *listenerPool) allKeys() []ListenerKey {
-	pool.mu.RLock()
-	defer pool.mu.RUnlock()
-
-	return append([]ListenerKey{}, pool.keys...)
-}
-
 func (pool *listenerPool) put(key ListenerKey, listener net.Listener) error {
 	if _, err := pool.get(key); err == nil {
 		return &PoolError{
@@ -483,58 +273,42 @@ func (pool *listenerPool) put(key ListenerKey, listener net.Listener) error {
 	}
 
 	// wrap to handler
-	handler := NewListenerHandler(key, listener, pool.hconns, pool.herrs, pool.cancel, pool.Log())
+	handler := NewListenerHandler(key, listener, pool.hconns, pool.herrs, pool.Log())
 
 	pool.Log().WithFields(handler.Log().Fields()).Trace("put listener to the pool")
 
-	pool.mu.Lock()
-
 	// update store
 	pool.store[handler.Key()] = handler
-	pool.keys = append(pool.keys, handler.Key())
-
-	pool.mu.Unlock()
 
 	// start serving
 	pool.hwg.Add(1)
-	go handler.Serve(pool.hwg.Done)
+	go handler.Serve()
+	go func() {
+		<-handler.Done()
+		pool.hwg.Done()
+	}()
 
 	return nil
 }
 
-func (pool *listenerPool) drop(key ListenerKey, cancel bool) error {
+func (pool *listenerPool) drop(key ListenerKey) error {
 	// check existence in pool
 	handler, err := pool.get(key)
 	if err != nil {
 		return err
 	}
 
-	if cancel {
-		handler.Cancel()
-	}
+	handler.Cancel()
 
 	pool.Log().WithFields(handler.Log().Fields()).Trace("drop listener from the pool")
 
-	pool.mu.Lock()
-
 	// modify store
 	delete(pool.store, key)
-	for i, k := range pool.keys {
-		if k == key {
-			pool.keys = append(pool.keys[:i], pool.keys[i+1:]...)
-			break
-		}
-	}
-
-	pool.mu.Unlock()
 
 	return nil
 }
 
 func (pool *listenerPool) get(key ListenerKey) (ListenerHandler, error) {
-	pool.mu.RLock()
-	defer pool.mu.RUnlock()
-
 	if handler, ok := pool.store[key]; ok {
 		return handler, nil
 	}
@@ -546,72 +320,11 @@ func (pool *listenerPool) get(key ListenerKey) (ListenerHandler, error) {
 	}
 }
 
-func (pool *listenerPool) handlePut(req *listenerRequest) {
-	defer close(req.response)
-
-	logger := pool.Log().WithFields(log.Fields{
-		"listener_keys": fmt.Sprintf("%v", req.keys),
-	})
-
-	res := &listenerResponse{nil, []error{}}
-	for i, key := range req.keys {
-		res.errs = append(res.errs, pool.put(key, req.listeners[i]))
-	}
-
-	logger.Trace("sending put listener response")
-
-	select {
-	case <-pool.cancel:
-	case req.response <- res:
-		logger.Trace("put listener response sent")
-	}
-}
-
-func (pool *listenerPool) handleGet(req *listenerRequest) {
-	defer close(req.response)
-
-	logger := pool.Log().WithFields(log.Fields{
-		"listener_keys": fmt.Sprintf("%v", req.keys),
-	})
-
-	res := &listenerResponse{[]net.Listener{}, []error{}}
-	for _, key := range req.keys {
-		var ls net.Listener
-		handler, err := pool.get(key)
-		if err == nil {
-			ls = handler.Listener()
-		}
-		res.listeners = append(res.listeners, ls)
-		res.errs = append(res.errs, err)
-	}
-
-	logger.Trace("sending get listener response")
-
-	select {
-	case <-pool.cancel:
-	case req.response <- res:
-		logger.Trace("get listener response sent")
-	}
-}
-
-func (pool *listenerPool) handleDrop(req *listenerRequest) {
-	defer close(req.response)
-
-	logger := pool.Log().WithFields(log.Fields{
-		"listener_keys": fmt.Sprintf("%v", req.keys),
-	})
-
-	res := &listenerResponse{nil, []error{}}
-	for _, key := range req.keys {
-		res.errs = append(res.errs, pool.drop(key, true))
-	}
-
-	logger.Trace("sending drop listener response")
-
-	select {
-	case <-pool.cancel:
-	case req.response <- res:
-		logger.Trace("drop listener response sent")
+func (pool *listenerPool) getListener(key ListenerKey) (net.Listener, error) {
+	if handler, err := pool.get(key); err == nil {
+		return handler.Listener(), nil
+	} else {
+		return nil, err
 	}
 }
 
@@ -621,11 +334,10 @@ type listenerHandler struct {
 
 	output chan<- Connection
 	errs   chan<- error
-	cancel <-chan struct{}
 
+	cancelOnce sync.Once
 	canceled   chan struct{}
 	done       chan struct{}
-	cancelOnce sync.Once
 
 	log log.Logger
 }
@@ -635,7 +347,6 @@ func NewListenerHandler(
 	listener net.Listener,
 	output chan<- Connection,
 	errs chan<- error,
-	cancel <-chan struct{},
 	logger log.Logger,
 ) ListenerHandler {
 	handler := &listenerHandler{
@@ -644,7 +355,6 @@ func NewListenerHandler(
 
 		output: output,
 		errs:   errs,
-		cancel: cancel,
 
 		canceled: make(chan struct{}),
 		done:     make(chan struct{}),
@@ -681,45 +391,22 @@ func (handler *listenerHandler) Listener() net.Listener {
 	return handler.listener
 }
 
-func (handler *listenerHandler) Serve(done func()) {
-	defer func() {
-		close(handler.done)
-		done()
-	}()
+func (handler *listenerHandler) Serve() {
+	defer close(handler.done)
 
 	handler.Log().Debug("begin serve listener")
 	defer handler.Log().Debugf("stop serve listener")
 
-	conns := make(chan Connection)
-	errs := make(chan error)
-
-	// watch for cancel signal
-	go func() {
-		select {
-		case <-handler.cancel:
-			handler.Cancel()
-		case <-handler.canceled:
-		}
-	}()
-
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go handler.acceptConnections(&wg, conns, errs)
-	go handler.pipeOutputs(&wg, conns, errs)
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go handler.acceptConnections(wg)
 
 	wg.Wait()
 }
 
-func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan<- Connection, errs chan<- error) {
+func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup) {
 	defer func() {
-		handler.cancelOnce.Do(func() {
-			if err := handler.Listener().Close(); err != nil {
-				handler.Log().Errorf("close listener failed: %s", err)
-			}
-		})
-		close(conns)
-		close(errs)
-
+		handler.Listener().Close()
 		wg.Done()
 	}()
 
@@ -744,12 +431,22 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 
 			// broken or closed listener
 			// pass up error and exit
+			err = &ListenerHandlerError{
+				err,
+				handler.Key(),
+				fmt.Sprintf("%p", handler),
+				listenerNetwork(handler.Listener()),
+				handler.Listener().Addr().String(),
+			}
+
 			select {
 			case <-handler.canceled:
-			case errs <- err:
+			case handler.errs <- err:
 			}
+
 			return
 		}
+
 		var network string
 		switch bc := baseConn.(type) {
 		case *tls.Conn:
@@ -763,89 +460,18 @@ func (handler *listenerHandler) acceptConnections(wg *sync.WaitGroup, conns chan
 		default:
 			network = strings.ToLower(baseConn.RemoteAddr().Network())
 		}
+
 		key := ConnectionKey(network + ":" + baseConn.RemoteAddr().String())
-		conn := NewConnection(baseConn, key, network, handler.Log())
-
-		select {
-		case <-handler.canceled:
-			return
-		case conns <- conn:
-		}
-	}
-}
-
-func (handler *listenerHandler) pipeOutputs(wg *sync.WaitGroup, conns <-chan Connection, errs <-chan error) {
-	defer wg.Done()
-
-	handler.Log().Debug("begin pipe outputs")
-	defer handler.Log().Debug("stop pipe outputs")
-
-	for {
-		select {
-		case <-handler.canceled:
-			return
-		case conn, ok := <-conns:
-			// chan closed
-			if !ok {
-				return
-			}
-			if conn != nil {
-
-				logger := log.AddFieldsFrom(handler.Log(), conn)
-				logger.Trace("passing up connection...")
-
-				select {
-				case <-handler.cancel:
-					return
-				case handler.output <- conn:
-					logger.Trace("connection passed up")
-				}
-			}
-		case err, ok := <-errs:
-			// chan closed
-			if !ok {
-				return
-			}
-			if err != nil {
-				var lerr *ListenerHandlerError
-				if !errors.As(err, &lerr) {
-					err = &ListenerHandlerError{
-						err,
-						handler.Key(),
-						fmt.Sprintf("%p", handler),
-						listenerNetwork(handler.Listener()),
-						handler.Listener().Addr().String(),
-					}
-				}
-
-				handler.Log().Trace("passing up listener error...")
-
-				select {
-				case <-handler.cancel:
-					return
-				case handler.errs <- err:
-					handler.Log().Trace("listener error passed up")
-				}
-			}
-		}
+		handler.output <- NewConnection(baseConn, key, network, handler.Log())
 	}
 }
 
 // Cancel stops serving.
 // blocked until Serve completes
 func (handler *listenerHandler) Cancel() {
-	select {
-	case <-handler.canceled:
-		return
-	default:
-	}
-
 	handler.cancelOnce.Do(func() {
 		close(handler.canceled)
-
-		if err := handler.Listener().Close(); err != nil {
-			handler.Log().Errorf("close listener failed: %s")
-		}
+		handler.Listener().Close()
 
 		handler.Log().Debug("listener handler canceled")
 	})

@@ -48,24 +48,11 @@ type ConnectionHandler interface {
 	// TODO put later to allow runtime update
 	// Update(conn Connection, ttl time.Duration)
 	// Manage runs connection serving.
-	Serve(done func())
-}
-
-type connectionRequest struct {
-	keys        []ConnectionKey
-	connections []Connection
-	ttls        []time.Duration
-
-	response chan *connectionResponse
-}
-type connectionResponse struct {
-	connections []Connection
-	errs        []error
+	Serve()
 }
 
 type connectionPool struct {
 	store     map[ConnectionKey]ConnectionHandler
-	keys      []ConnectionKey
 	msgMapper sip.MessageMapper
 
 	output chan<- sip.Message
@@ -75,10 +62,6 @@ type connectionPool struct {
 	done  chan struct{}
 	hmess chan sip.Message
 	herrs chan error
-
-	gets    chan *connectionRequest
-	updates chan *connectionRequest
-	drops   chan *connectionRequest
 
 	hwg sync.WaitGroup
 	mu  sync.RWMutex
@@ -95,7 +78,6 @@ func NewConnectionPool(
 ) ConnectionPool {
 	pool := &connectionPool{
 		store:     make(map[ConnectionKey]ConnectionHandler),
-		keys:      make([]ConnectionKey, 0),
 		msgMapper: msgMapper,
 
 		output: output,
@@ -105,10 +87,6 @@ func NewConnectionPool(
 		done:  make(chan struct{}),
 		hmess: make(chan sip.Message),
 		herrs: make(chan error),
-
-		gets:    make(chan *connectionRequest),
-		updates: make(chan *connectionRequest),
-		drops:   make(chan *connectionRequest),
 	}
 
 	pool.log = logger.
@@ -117,7 +95,10 @@ func NewConnectionPool(
 			"connection_pool_ptr": fmt.Sprintf("%p", pool),
 		})
 
-	go pool.serveStore()
+	go func() {
+		<-pool.cancel
+		pool.dispose()
+	}()
 	go pool.serveHandlers()
 
 	return pool
@@ -146,14 +127,13 @@ func (pool *connectionPool) Put(connection Connection, ttl time.Duration) error 
 	case <-pool.cancel:
 		return &PoolError{
 			fmt.Errorf("connection pool closed"),
-			"put connection",
+			"get connection",
 			pool.String(),
 		}
 	default:
 	}
 
 	key := connection.Key()
-
 	if key == "" {
 		return &PoolError{
 			fmt.Errorf("empty connection key"),
@@ -162,267 +142,69 @@ func (pool *connectionPool) Put(connection Connection, ttl time.Duration) error 
 		}
 	}
 
-	response := make(chan *connectionResponse, 1)
-	req := &connectionRequest{
-		[]ConnectionKey{key},
-		[]Connection{connection},
-		[]time.Duration{ttl},
-		response,
-	}
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 
-	logger := pool.Log().WithFields(log.Fields{
-		"connection_key": key,
-		"connection_ptr": fmt.Sprintf("%p", connection),
-		"connection_ttl": ttl,
-	})
-
-	logger.Trace("sending put connection request")
-
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.updates <- req:
-			logger.Trace("put connection request sent")
-		}
-	}()
-
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("connection pool closed"),
-			"put connection",
-			pool.String(),
-		}
-	case res := <-response:
-		if len(res.errs) > 0 {
-			return res.errs[0]
-		}
-
-		return nil
-	}
+	return pool.put(key, connection, ttl)
 }
 
 func (pool *connectionPool) Get(key ConnectionKey) (Connection, error) {
-	select {
-	case <-pool.cancel:
-		return nil, &PoolError{
-			fmt.Errorf("connection pool closed"),
-			"get connection",
-			pool.String(),
-		}
-	default:
-	}
+	pool.mu.RLock()
+	defer pool.mu.RUnlock()
 
-	response := make(chan *connectionResponse, 1)
-	req := &connectionRequest{
-		[]ConnectionKey{key},
-		nil,
-		nil,
-		response,
-	}
-
-	logger := pool.Log().WithFields(log.Fields{
-		"connection_key": key,
-	})
-
-	logger.Trace("sending get connection request")
-
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.gets <- req:
-			logger.Trace("get connection request sent")
-		}
-	}()
-
-	select {
-	case <-pool.cancel:
-		return nil, &PoolError{
-			fmt.Errorf("connection pool canceled"),
-			"get connection",
-			pool.String(),
-		}
-	case res := <-response:
-		return res.connections[0], res.errs[0]
-	}
+	return pool.getConnection(key)
 }
 
 func (pool *connectionPool) Drop(key ConnectionKey) error {
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("connection pool closed"),
-			"drop connection",
-			pool.String(),
-		}
-	default:
-	}
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 
-	response := make(chan *connectionResponse, 1)
-	req := &connectionRequest{
-		[]ConnectionKey{key},
-		nil,
-		nil,
-		response,
-	}
-
-	logger := pool.Log().WithFields(log.Fields{
-		"connection_key": key,
-	})
-
-	logger.Trace("sending drop connection request")
-
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.drops <- req:
-			logger.Trace("drop connection request sent")
-		}
-	}()
-
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("connection pool canceled"),
-			"drop connection",
-			pool.String(),
-		}
-	case res := <-response:
-		return res.errs[0]
-	}
+	return pool.drop(key)
 }
 
 func (pool *connectionPool) DropAll() error {
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("connection pool closed"),
-			"drop all connections",
-			pool.String(),
+	pool.mu.Lock()
+	for key := range pool.store {
+		if err := pool.drop(key); err != nil {
+			pool.Log().Errorf("drop connection %s failed: %s", key, err)
 		}
-	default:
 	}
+	pool.mu.Unlock()
 
-	response := make(chan *connectionResponse, 1)
-	keys := pool.allKeys()
-	req := &connectionRequest{
-		keys,
-		nil,
-		nil,
-		response,
-	}
-
-	logger := pool.Log().WithFields(log.Fields{
-		"connection_keys": fmt.Sprintf("%v", keys),
-	})
-
-	logger.Trace("sending drop all connections request")
-
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.drops <- req:
-			logger.Trace("drop all connections request sent")
-		}
-	}()
-
-	select {
-	case <-pool.cancel:
-		return &PoolError{
-			fmt.Errorf("connection pool closed"),
-			"drop all connections",
-			pool.String(),
-		}
-	case <-response:
-		return nil
-	}
+	return nil
 }
 
 func (pool *connectionPool) All() []Connection {
-	select {
-	case <-pool.cancel:
-		return []Connection{}
-	default:
+	pool.mu.RLock()
+	conns := make([]Connection, 0)
+	for _, handler := range pool.store {
+		conns = append(conns, handler.Connection())
 	}
+	pool.mu.RUnlock()
 
-	response := make(chan *connectionResponse, 1)
-	keys := pool.allKeys()
-	req := &connectionRequest{
-		keys,
-		nil,
-		nil,
-		response,
-	}
-
-	logger := pool.Log().WithFields(log.Fields{
-		"connection_keys": fmt.Sprintf("%v", keys),
-	})
-
-	logger.Trace("sending get all connections request")
-
-	go func() {
-		select {
-		case <-pool.cancel:
-		case pool.gets <- req:
-			logger.Trace("get all connections request sent")
-		}
-	}()
-
-	select {
-	case <-pool.cancel:
-		return []Connection{}
-	case res := <-response:
-		return res.connections
-	}
+	return conns
 }
 
 func (pool *connectionPool) Length() int {
-	return len(pool.allKeys())
-}
+	pool.mu.RLock()
+	defer pool.mu.RUnlock()
 
-func (pool *connectionPool) serveStore() {
-	defer pool.dispose()
-
-	pool.Log().Debug("begin serve connection store")
-	defer pool.Log().Debug("stop serve connection store")
-
-	for {
-		select {
-		case <-pool.cancel:
-			return
-		case req := <-pool.updates:
-			pool.handlePut(req)
-		case req := <-pool.gets:
-			pool.handleGet(req)
-		case req := <-pool.drops:
-			pool.handleDrop(req)
-		}
-	}
+	return len(pool.store)
 }
 
 func (pool *connectionPool) dispose() {
 	// clean pool
-	for _, key := range pool.allKeys() {
-		if err := pool.drop(key, true); err != nil {
-			pool.Log().WithFields(log.Fields{
-				"connection_key": key,
-			}).Error(err)
-		}
-	}
-
+	pool.DropAll()
 	pool.hwg.Wait()
+
 	// stop serveHandlers goroutine
 	close(pool.hmess)
 	close(pool.herrs)
-	// close store channels
-	close(pool.gets)
-	close(pool.updates)
-	close(pool.drops)
+
+	close(pool.done)
 }
 
 func (pool *connectionPool) serveHandlers() {
-	defer close(pool.done)
-
 	pool.Log().Debug("begin serve connection handlers")
 	defer pool.Log().Debug("stop serve connection handlers")
 
@@ -470,7 +252,9 @@ func (pool *connectionPool) serveHandlers() {
 				continue
 			}
 
+			pool.mu.RLock()
 			handler, gerr := pool.get(herr.Key)
+			pool.mu.RUnlock()
 			if gerr != nil {
 				// ignore, handler already dropped out
 				logger.Tracef("ignore error from already dropped out connection %s: %s", herr.Key, gerr)
@@ -542,13 +326,6 @@ func (pool *connectionPool) serveHandlers() {
 	}
 }
 
-func (pool *connectionPool) allKeys() []ConnectionKey {
-	pool.mu.RLock()
-	defer pool.mu.RUnlock()
-
-	return append([]ConnectionKey{}, pool.keys...)
-}
-
 func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Duration) error {
 	if _, err := pool.get(key); err == nil {
 		return &PoolError{
@@ -564,7 +341,6 @@ func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Dur
 		ttl,
 		pool.hmess,
 		pool.herrs,
-		pool.cancel,
 		pool.msgMapper,
 		pool.Log(),
 	)
@@ -572,55 +348,38 @@ func (pool *connectionPool) put(key ConnectionKey, conn Connection, ttl time.Dur
 	logger := log.AddFieldsFrom(pool.Log(), handler)
 	logger.Tracef("put connection to the pool with TTL = %s", ttl)
 
-	pool.mu.Lock()
-
 	pool.store[handler.Key()] = handler
-	pool.keys = append(pool.keys, handler.Key())
-
-	pool.mu.Unlock()
 
 	// start serving
 	pool.hwg.Add(1)
-	go handler.Serve(pool.hwg.Done)
+	go handler.Serve()
+	go func() {
+		<-handler.Done()
+		pool.hwg.Done()
+	}()
 
 	return nil
 }
 
-func (pool *connectionPool) drop(key ConnectionKey, cancel bool) error {
+func (pool *connectionPool) drop(key ConnectionKey) error {
 	// check existence in pool
 	handler, err := pool.get(key)
 	if err != nil {
 		return err
 	}
 
-	if cancel {
-		handler.Cancel()
-	}
+	handler.Cancel()
 
 	logger := log.AddFieldsFrom(pool.Log(), handler)
 	logger.Trace("drop connection from the pool")
 
-	pool.mu.Lock()
-
 	// modify store
 	delete(pool.store, key)
-	for i, k := range pool.keys {
-		if k == key {
-			pool.keys = append(pool.keys[:i], pool.keys[i+1:]...)
-
-			break
-		}
-	}
-
-	pool.mu.Unlock()
 
 	return nil
 }
 
 func (pool *connectionPool) get(key ConnectionKey) (ConnectionHandler, error) {
-	pool.mu.RLock()
-	defer pool.mu.RUnlock()
-
 	if handler, ok := pool.store[key]; ok {
 		return handler, nil
 	}
@@ -641,74 +400,6 @@ func (pool *connectionPool) getConnection(key ConnectionKey) (Connection, error)
 	return conn, err
 }
 
-func (pool *connectionPool) handlePut(req *connectionRequest) {
-	defer close(req.response)
-
-	logger := pool.Log().WithFields(log.Fields{
-		"connection_keys": fmt.Sprintf("%v", req.keys),
-		"connection_ttls": fmt.Sprintf("%v", req.ttls),
-	})
-
-	res := &connectionResponse{nil, []error{}}
-	for i, key := range req.keys {
-		res.errs = append(res.errs, pool.put(key, req.connections[i], req.ttls[i]))
-	}
-
-	logger.Trace("sending put connection response")
-
-	select {
-	case <-pool.cancel:
-	case req.response <- res:
-		logger.Trace("put connection response sent")
-	}
-}
-
-func (pool *connectionPool) handleGet(req *connectionRequest) {
-	defer close(req.response)
-
-	logger := pool.Log().WithFields(log.Fields{
-		"connection_keys": fmt.Sprintf("%v", req.keys),
-	})
-
-	res := &connectionResponse{[]Connection{}, []error{}}
-	for _, key := range req.keys {
-		conn, err := pool.getConnection(key)
-		res.connections = append(res.connections, conn)
-		res.errs = append(res.errs, err)
-	}
-
-	logger.Trace("sending get connection response")
-
-	select {
-	case <-pool.cancel:
-	case req.response <- res:
-		logger.Trace("get connection response sent")
-	}
-}
-
-func (pool *connectionPool) handleDrop(req *connectionRequest) {
-	defer close(req.response)
-
-	logger := pool.Log().WithFields(log.Fields{
-		"connection_keys": fmt.Sprintf("%v", req.keys),
-	})
-
-	logger.Trace("handle drop connections request")
-
-	res := &connectionResponse{nil, []error{}}
-	for _, key := range req.keys {
-		res.errs = append(res.errs, pool.drop(key, true))
-	}
-
-	logger.Debugf("sending drop connection response")
-
-	select {
-	case <-pool.cancel:
-	case req.response <- res:
-		logger.Debugf("drop connection response sent")
-	}
-}
-
 // connectionHandler actually serves associated connection
 type connectionHandler struct {
 	connection Connection
@@ -720,7 +411,6 @@ type connectionHandler struct {
 
 	output     chan<- sip.Message
 	errs       chan<- error
-	cancel     <-chan struct{}
 	cancelOnce sync.Once
 	canceled   chan struct{}
 	done       chan struct{}
@@ -734,7 +424,6 @@ func NewConnectionHandler(
 	ttl time.Duration,
 	output chan<- sip.Message,
 	errs chan<- error,
-	cancel <-chan struct{},
 	msgMapper sip.MessageMapper,
 	logger log.Logger,
 ) ConnectionHandler {
@@ -742,10 +431,8 @@ func NewConnectionHandler(
 		connection: conn,
 		msgMapper:  msgMapper,
 
-		output: output,
-		errs:   errs,
-		cancel: cancel,
-
+		output:   output,
+		errs:     errs,
 		canceled: make(chan struct{}),
 		done:     make(chan struct{}),
 
@@ -835,23 +522,11 @@ func (handler *connectionHandler) Expired() bool {
 
 // Serve is connection serving loop.
 // Waits for the connection to expire, and notifies the pool when it does.
-func (handler *connectionHandler) Serve(done func()) {
-	defer func() {
-		close(handler.done)
-		done()
-	}()
+func (handler *connectionHandler) Serve() {
+	defer close(handler.done)
 
 	handler.Log().Debug("begin serve connection")
 	defer handler.Log().Debug("stop serve connection")
-
-	// watch for cancel
-	go func() {
-		select {
-		case <-handler.cancel:
-			handler.Cancel()
-		case <-handler.canceled:
-		}
-	}()
 
 	// start connection serving goroutines
 	msgs, errs := handler.readConnection()
@@ -875,11 +550,7 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 
 	go func() {
 		defer func() {
-			handler.cancelOnce.Do(func() {
-				if err := handler.Connection().Close(); err != nil {
-					handler.Log().Errorf("connection close failed: %s", err)
-				}
-			})
+			handler.Connection().Close()
 			prs.Stop()
 
 			if !streamed {
@@ -927,10 +598,7 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 
 				// broken or closed connection
 				// so send error and exit
-				select {
-				case <-handler.canceled:
-				case errs <- err:
-				}
+				handler.handleError(err, fmt.Sprintf("%v", raddr))
 
 				return
 			}
@@ -950,11 +618,7 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 					handler.addrs.In <- fmt.Sprintf("%v", raddr)
 				}
 			} else {
-				select {
-				case <-handler.canceled:
-					return
-				case errs <- err:
-				}
+				handler.handleError(err, fmt.Sprintf("%v", raddr))
 			}
 		}
 	}()
@@ -964,44 +628,17 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 
 func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-chan error) {
 	streamed := handler.Connection().Streamed()
-	getRemoteAddr := func() string {
-		if streamed {
-			return fmt.Sprintf("%v", handler.Connection().RemoteAddr())
-		} else {
-			// use non-blocking read because remote address already should be here
-			// or error occurred in read connection goroutine
-			// TODO: fix this, sometimes it returns nil
-			select {
-			case v := <-handler.addrs.Out:
-				return v.(string)
-			case <-time.After(time.Second):
-				return "<nil>"
-			}
-		}
-	}
-	isSyntaxError := func(err error) bool {
-		var perr parser.Error
-		if errors.As(err, &perr) && perr.Syntax() {
-			return true
-		}
-
-		var merr sip.MessageError
-		if errors.As(err, &merr) && merr.Broken() {
-			return true
-		}
-
-		return false
-	}
 
 	handler.Log().Debug("begin pipe outputs")
 	defer handler.Log().Debug("stop pipe outputs")
 
 	for {
 		select {
-		case <-handler.canceled:
-			return
 		case <-handler.timer.C():
-			raddr := getRemoteAddr()
+			var raddr string
+			if streamed {
+				raddr = fmt.Sprintf("%v", handler.Connection().RemoteAddr())
+			}
 
 			if handler.Expiry().IsZero() {
 				// handler expiryTime is zero only when TTL = 0 (unlimited handler)
@@ -1010,24 +647,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 			}
 
 			// pass up to the pool
-			// pool will make decision to drop out connection or update ttl.
-			err := &ConnectionHandlerError{
-				ExpireError("connection expired"),
-				handler.Key(),
-				fmt.Sprintf("%p", handler),
-				handler.Connection().Network(),
-				fmt.Sprintf("%v", handler.Connection().LocalAddr()),
-				raddr,
-			}
-
-			handler.Log().Trace("passing up connection expiry error...")
-
-			select {
-			case <-handler.cancel:
-				return
-			case handler.errs <- err:
-				handler.Log().Trace("connection expiry error passed up")
-			}
+			handler.handleError(ExpireError("connection expired"), raddr)
 		case msg, ok := <-msgs:
 			if !ok {
 				return
@@ -1038,10 +658,8 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				"received_at":    time.Now(),
 			})
 
-			logger := handler.Log().WithFields(msg.Fields())
-
 			// add Remote Address
-			raddr := getRemoteAddr()
+			raddr := handler.getRemoteAddr()
 			rhost, rport, _ := net.SplitHostPort(raddr)
 
 			msg.SetDestination(handler.Connection().LocalAddr().String())
@@ -1084,15 +702,8 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				msg.SetSource(raddr)
 			}
 
-			logger.Trace("passing up SIP message...")
-
 			// pass up
-			select {
-			case <-handler.cancel:
-				return
-			case handler.output <- msg:
-				logger.Trace("SIP message passed up")
-			}
+			handler.output <- msg
 
 			if !handler.Expiry().IsZero() {
 				handler.expiry = time.Now().Add(handler.ttl)
@@ -1103,49 +714,66 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				return
 			}
 
-			raddr := getRemoteAddr()
-
-			if isSyntaxError(err) {
-				handler.Log().Tracef("ignore error: %s", err)
-
-				continue
-			}
-
-			err = &ConnectionHandlerError{
-				err,
-				handler.Key(),
-				fmt.Sprintf("%p", handler),
-				handler.Connection().Network(),
-				fmt.Sprintf("%v", handler.Connection().LocalAddr()),
-				raddr,
-			}
-
-			handler.Log().Trace("passing up error...")
-
-			select {
-			case <-handler.cancel:
-				return
-			case handler.errs <- err:
-				handler.Log().Trace("error passed up")
-			}
+			handler.handleError(err, handler.getRemoteAddr())
 		}
+	}
+}
+
+func (handler *connectionHandler) getRemoteAddr() string {
+	if handler.Connection().Streamed() {
+		return fmt.Sprintf("%v", handler.Connection().RemoteAddr())
+	} else {
+		// use non-blocking read because remote address already should be here
+		// or error occurred in read connection goroutine
+		select {
+		case v := <-handler.addrs.Out:
+			return v.(string)
+		default:
+			return "<nil>"
+		}
+	}
+}
+
+func isSyntaxError(err error) bool {
+	var perr parser.Error
+	if errors.As(err, &perr) && perr.Syntax() {
+		return true
+	}
+
+	var merr sip.MessageError
+	if errors.As(err, &merr) && merr.Broken() {
+		return true
+	}
+
+	return false
+}
+
+func (handler *connectionHandler) handleError(err error, raddr string) {
+	if isSyntaxError(err) {
+		handler.Log().Tracef("ignore error: %s", err)
+		return
+	}
+
+	err = &ConnectionHandlerError{
+		err,
+		handler.Key(),
+		fmt.Sprintf("%p", handler),
+		handler.Connection().Network(),
+		fmt.Sprintf("%v", handler.Connection().LocalAddr()),
+		raddr,
+	}
+
+	select {
+	case <-handler.canceled:
+	case handler.errs <- err:
 	}
 }
 
 // Cancel simply calls runtime provided cancel function.
 func (handler *connectionHandler) Cancel() {
-	select {
-	case <-handler.canceled:
-		return
-	default:
-	}
-
 	handler.cancelOnce.Do(func() {
 		close(handler.canceled)
-
-		if err := handler.Connection().Close(); err != nil {
-			handler.Log().Errorf("connection close failed: %s", err)
-		}
+		handler.Connection().Close()
 
 		handler.Log().Debug("connection handler canceled")
 	})
