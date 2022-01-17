@@ -94,7 +94,7 @@ var _ = Describe("ServerTx", func() {
 			go func() {
 				defer wg.Done()
 				By(fmt.Sprintf("UAC sends %s", invite.Short()))
-				tpl.InMsgs <- invite
+				tpl.InMsgs <- invite.Clone()
 			}()
 		})
 		AfterEach(func(done Done) {
