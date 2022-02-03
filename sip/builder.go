@@ -284,16 +284,16 @@ func (rb *RequestBuilder) Build() (Request, error) {
 
 	hdrs := make([]Header, 0)
 
+	if rb.route != nil {
+		hdrs = append(hdrs, rb.route)
+	}
+
 	if len(rb.via) != 0 {
 		via := make(ViaHeader, 0)
 		for _, viaHop := range rb.via {
 			via = append(via, viaHop)
 		}
 		hdrs = append(hdrs, via)
-	}
-
-	if rb.route != nil {
-		hdrs = append(hdrs, rb.route)
 	}
 
 	hdrs = append(hdrs, rb.cseq, rb.from, rb.to, rb.callID)
