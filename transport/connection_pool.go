@@ -613,12 +613,16 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 			}
 
 			// parse received data
-			if _, err := prs.Write(append([]byte{}, buf[:num]...)); err == nil {
-				if !streamed {
-					handler.addrs.In <- fmt.Sprintf("%v", raddr)
+			if streamed {
+				if _, err := prs.Write(data); err != nil {
+					handler.handleError(err, fmt.Sprintf("%v", raddr))
 				}
 			} else {
-				handler.handleError(err, fmt.Sprintf("%v", raddr))
+				if msg, err := parser.ParseMessage(data, handler.Log()); err == nil {
+					handler.handleMessage(msg, fmt.Sprintf("%v", raddr))
+				} else {
+					handler.handleError(err, fmt.Sprintf("%v", raddr))
+				}
 			}
 		}
 	}()
@@ -653,62 +657,7 @@ func (handler *connectionHandler) pipeOutputs(msgs <-chan sip.Message, errs <-ch
 				return
 			}
 
-			msg = handler.msgMapper(msg).WithFields(log.Fields{
-				"connection_key": handler.Connection().Key(),
-				"received_at":    time.Now(),
-			})
-
-			// add Remote Address
-			raddr := handler.getRemoteAddr()
-			rhost, rport, _ := net.SplitHostPort(raddr)
-
-			msg.SetDestination(handler.Connection().LocalAddr().String())
-
-			switch msg := msg.(type) {
-			case sip.Request:
-				// RFC 3261 - 18.2.1
-				viaHop, ok := msg.ViaHop()
-				if !ok {
-					handler.Log().Warn("ignore message without 'Via' header")
-
-					continue
-				}
-
-				if rhost != "" && rhost != viaHop.Host {
-					viaHop.Params.Add("received", sip.String{Str: rhost})
-				}
-
-				// rfc3581
-				if viaHop.Params.Has("rport") {
-					viaHop.Params.Add("rport", sip.String{Str: rport})
-				}
-
-				if !streamed {
-					if !viaHop.Params.Has("rport") {
-						var port sip.Port
-						if viaHop.Port != nil {
-							port = *viaHop.Port
-						} else {
-							port = sip.DefaultPort(handler.Connection().Network())
-						}
-						raddr = fmt.Sprintf("%s:%d", rhost, port)
-					}
-				}
-				msg.SetTransport(handler.connection.Network())
-				msg.SetSource(raddr)
-			case sip.Response:
-				// Set Remote Address as response source
-				msg.SetTransport(handler.connection.Network())
-				msg.SetSource(raddr)
-			}
-
-			// pass up
-			handler.output <- msg
-
-			if !handler.Expiry().IsZero() {
-				handler.expiry = time.Now().Add(handler.ttl)
-				handler.timer.Reset(handler.ttl)
-			}
+			handler.handleMessage(msg, handler.getRemoteAddr())
 		case err, ok := <-errs:
 			if !ok {
 				return
@@ -734,18 +683,61 @@ func (handler *connectionHandler) getRemoteAddr() string {
 	}
 }
 
-func isSyntaxError(err error) bool {
-	var perr parser.Error
-	if errors.As(err, &perr) && perr.Syntax() {
-		return true
+func (handler *connectionHandler) handleMessage(msg sip.Message, raddr string) {
+	msg.SetDestination(handler.Connection().LocalAddr().String())
+	rhost, rport, _ := net.SplitHostPort(raddr)
+
+	switch msg := msg.(type) {
+	case sip.Request:
+		// RFC 3261 - 18.2.1
+		viaHop, ok := msg.ViaHop()
+		if !ok {
+			handler.Log().Warn("ignore message without 'Via' header")
+
+			return
+		}
+
+		if rhost != "" && rhost != viaHop.Host {
+			viaHop.Params.Add("received", sip.String{Str: rhost})
+		}
+
+		// rfc3581
+		if viaHop.Params.Has("rport") {
+			viaHop.Params.Add("rport", sip.String{Str: rport})
+		}
+
+		if !handler.Connection().Streamed() {
+			if !viaHop.Params.Has("rport") {
+				var port sip.Port
+				if viaHop.Port != nil {
+					port = *viaHop.Port
+				} else {
+					port = sip.DefaultPort(handler.Connection().Network())
+				}
+				raddr = fmt.Sprintf("%s:%d", rhost, port)
+			}
+		}
+
+		msg.SetTransport(handler.connection.Network())
+		msg.SetSource(raddr)
+	case sip.Response:
+		// Set Remote Address as response source
+		msg.SetTransport(handler.connection.Network())
+		msg.SetSource(raddr)
 	}
 
-	var merr sip.MessageError
-	if errors.As(err, &merr) && merr.Broken() {
-		return true
-	}
+	msg = handler.msgMapper(msg.WithFields(log.Fields{
+		"connection_key": handler.Connection().Key(),
+		"received_at":    time.Now(),
+	}))
 
-	return false
+	// pass up
+	handler.output <- msg
+
+	if !handler.Expiry().IsZero() {
+		handler.expiry = time.Now().Add(handler.ttl)
+		handler.timer.Reset(handler.ttl)
+	}
 }
 
 func (handler *connectionHandler) handleError(err error, raddr string) {
@@ -767,6 +759,20 @@ func (handler *connectionHandler) handleError(err error, raddr string) {
 	case <-handler.canceled:
 	case handler.errs <- err:
 	}
+}
+
+func isSyntaxError(err error) bool {
+	var perr parser.Error
+	if errors.As(err, &perr) && perr.Syntax() {
+		return true
+	}
+
+	var merr sip.MessageError
+	if errors.As(err, &merr) && merr.Broken() {
+		return true
+	}
+
+	return false
 }
 
 // Cancel simply calls runtime provided cancel function.

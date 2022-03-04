@@ -301,8 +301,6 @@ func (p *parser) parse(requireContentLength bool) {
 					p.errs <- termErr
 				}
 			} else {
-				p.errs <- termErr
-
 				slice := (<-p.bodyLengths.Out).([]int)
 				skip := slice[1] - len(startLine) - 2
 
@@ -311,6 +309,8 @@ func (p *parser) parse(requireContentLength bool) {
 				if _, err := p.input.NextChunk(skip); err != nil {
 					p.Log().Errorf("skip failed: %s", err)
 				}
+
+				p.errs <- termErr
 			}
 
 			continue
