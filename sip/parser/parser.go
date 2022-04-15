@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/tevino/abool"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
@@ -107,6 +110,49 @@ func ParseMessage(msgData []byte, logger log.Logger) (sip.Message, error) {
 	}
 }
 
+type PacketParser struct {
+	p    Parser
+	out  chan sip.Message
+	errs chan error
+}
+
+func NewPacketParser(logger log.Logger) *PacketParser {
+	output := make(chan sip.Message, 0)
+	errs := make(chan error, 0)
+
+	return &PacketParser{
+		p:    NewParser(output, errs, false, logger),
+		out:  output,
+		errs: errs,
+	}
+}
+
+func (pp *PacketParser) ParseMessage(msgData []byte) (sip.Message, error) {
+	//defer pp.p.Reset()
+
+	if _, err := pp.p.Write(msgData); err != nil {
+		return nil, err
+	}
+
+	select {
+	case msg := <-pp.out:
+		return msg, nil
+	case err := <-pp.errs:
+		return nil, err
+	}
+}
+
+func (pp *PacketParser) Stop() {
+	if pp == nil {
+		return
+	}
+	if pp.p != nil {
+		pp.p.Stop()
+	}
+	close(pp.out)
+	close(pp.errs)
+}
+
 // Create a new Parser.
 //
 // Parsed SIP messages will be sent down the 'output' chan provided.
@@ -156,7 +202,7 @@ func NewParser(
 	// to allow the parser to block until enough data is available to parse.
 	p.input = newParserBuffer(p.Log())
 	// Done for input a line at a time, and produce SipMessages to send down p.output.
-	go p.parse(streamed)
+	go p.parse(streamed, p.done)
 
 	return p
 }
@@ -170,8 +216,10 @@ type parser struct {
 	output chan<- sip.Message
 	errs   chan<- error
 
-	stopped bool
-	done    chan struct{}
+	stopped abool.AtomicBool
+
+	mu   sync.Mutex
+	done chan struct{}
 
 	log log.Logger
 }
@@ -188,7 +236,7 @@ func (p *parser) Log() log.Logger {
 }
 
 func (p *parser) Write(data []byte) (int, error) {
-	if p.stopped {
+	if p.stopped.IsSet() {
 		return 0, WriteError(fmt.Sprintf("cannot write data to stopped %s", p))
 	}
 
@@ -225,35 +273,49 @@ func (p *parser) Write(data []byte) (int, error) {
 // The parser will not release its resources until Stop() is called,
 // even if the parser object itself is garbage collected.
 func (p *parser) Stop() {
+	if p.stopped.IsSet() {
+		return
+	}
+
 	p.Log().Debug("stopping parser...")
 
-	p.stopped = true
+	p.stopped.Set()
+
 	p.input.Stop()
 	if !p.streamed {
 		// We're in unstreamed mode, so we created a bodyLengths ElasticChan which
 		// needs to be disposed.
 		p.bodyLengths.Stop()
 	}
-	<-p.done
+	p.mu.Lock()
+	done := p.done
+	p.mu.Unlock()
+	<-done
 
 	p.Log().Debug("parser stopped")
 }
 
 func (p *parser) Reset() {
+	p.Stop()
 	// reset state
-	p.done = make(chan struct{})
-	p.stopped = false
+	p.mu.Lock()
+	done := make(chan struct{})
+	p.done = done
+	p.mu.Unlock()
+	p.input.Reset()
 	if !p.streamed {
-		p.bodyLengths.Stop()
 		p.bodyLengths.Init()
+		p.bodyLengths.Run()
 	}
 	// and re-run
-	go p.parse(p.streamed)
+	go p.parse(p.streamed, done)
+
+	p.stopped.UnSet()
 }
 
 // Consume input lines one at a time, producing core.Message objects and sending them down p.output.
-func (p *parser) parse(requireContentLength bool) {
-	defer close(p.done)
+func (p *parser) parse(requireContentLength bool, done chan<- struct{}) {
+	defer close(done)
 
 	var msg sip.Message
 

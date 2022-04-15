@@ -537,7 +537,15 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 	msgs := make(chan sip.Message)
 	errs := make(chan error)
 	streamed := handler.Connection().Streamed()
-	prs := parser.NewParser(msgs, errs, streamed, handler.Log())
+	var (
+		pktPrs *parser.PacketParser
+		strPrs parser.Parser
+	)
+	if streamed {
+		strPrs = parser.NewParser(msgs, errs, streamed, handler.Log())
+	} else {
+		pktPrs = parser.NewPacketParser(handler.Log())
+	}
 
 	var raddr net.Addr
 	if streamed {
@@ -551,7 +559,11 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 	go func() {
 		defer func() {
 			handler.Connection().Close()
-			prs.Stop()
+			if streamed {
+				strPrs.Stop()
+			} else {
+				pktPrs.Stop()
+			}
 
 			if !streamed {
 				handler.addrs.Stop()
@@ -614,11 +626,11 @@ func (handler *connectionHandler) readConnection() (<-chan sip.Message, <-chan e
 
 			// parse received data
 			if streamed {
-				if _, err := prs.Write(data); err != nil {
+				if _, err := strPrs.Write(data); err != nil {
 					handler.handleError(err, fmt.Sprintf("%v", raddr))
 				}
 			} else {
-				if msg, err := parser.ParseMessage(data, handler.Log()); err == nil {
+				if msg, err := pktPrs.ParseMessage(data); err == nil {
 					handler.handleMessage(msg, fmt.Sprintf("%v", raddr))
 				} else {
 					handler.handleError(err, fmt.Sprintf("%v", raddr))
