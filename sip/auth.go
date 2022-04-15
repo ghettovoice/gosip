@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // currently only Digest and MD5
@@ -17,6 +18,9 @@ type Authorization struct {
 	uri       string
 	response  string
 	method    string
+	qop       string
+	nc        string
+	cnonce    string
 	other     map[string]string
 }
 
@@ -42,6 +46,18 @@ func AuthFromValue(value string) *Authorization {
 			auth.uri = match[2]
 		case "response":
 			auth.response = match[2]
+		case "qop":
+			for _, v := range strings.Split(match[2], ",") {
+				v = strings.Trim(v, " ")
+				if v == "auth" || v == "auth-int" {
+					auth.qop = "auth"
+					break
+				}
+			}
+		case "nc":
+			auth.nc = match[2]
+		case "cnonce":
+			auth.cnonce = match[2]
 		default:
 			auth.other[match[1]] = match[2]
 		}
@@ -102,6 +118,30 @@ func (auth *Authorization) SetResponse(response string) {
 	auth.response = response
 }
 
+func (auth *Authorization) Qop() string {
+	return auth.qop
+}
+
+func (auth *Authorization) SetQop(qop string) {
+	auth.qop = qop
+}
+
+func (auth *Authorization) Nc() string {
+	return auth.nc
+}
+
+func (auth *Authorization) SetNc(nc string) {
+	auth.nc = nc
+}
+
+func (auth *Authorization) CNonce() string {
+	return auth.cnonce
+}
+
+func (auth *Authorization) SetCNonce(cnonce string) {
+	auth.cnonce = cnonce
+}
+
 func (auth *Authorization) CalcResponse() string {
 	return calcResponse(
 		auth.username,
@@ -110,11 +150,18 @@ func (auth *Authorization) CalcResponse() string {
 		auth.method,
 		auth.uri,
 		auth.nonce,
+		auth.qop,
+		auth.cnonce,
+		auth.nc,
 	)
 }
 
 func (auth *Authorization) String() string {
-	return fmt.Sprintf(
+	if auth == nil {
+		return "<nil>"
+	}
+
+	str := fmt.Sprintf(
 		`Digest realm="%s",algorithm=%s,nonce="%s",username="%s",uri="%s",response="%s"`,
 		auth.realm,
 		auth.algorithm,
@@ -123,10 +170,15 @@ func (auth *Authorization) String() string {
 		auth.uri,
 		auth.response,
 	)
+	if auth.qop == "auth" {
+		str += fmt.Sprintf(`,qop=%s,nc=%s,cnonce="%s"`, auth.qop, auth.nc, auth.cnonce)
+	}
+
+	return str
 }
 
 // calculates Authorization response https://www.ietf.org/rfc/rfc2617.txt
-func calcResponse(username string, realm string, password string, method string, uri string, nonce string) string {
+func calcResponse(username, realm, password, method, uri, nonce, qop, cnonce, nc string) string {
 	calcA1 := func() string {
 		encoder := md5.New()
 		encoder.Write([]byte(username + ":" + realm + ":" + password))
@@ -141,7 +193,11 @@ func calcResponse(username string, realm string, password string, method string,
 	}
 
 	encoder := md5.New()
-	encoder.Write([]byte(calcA1() + ":" + nonce + ":" + calcA2()))
+	encoder.Write([]byte(calcA1() + ":" + nonce + ":"))
+	if qop != "" {
+		encoder.Write([]byte(nc + ":" + cnonce + ":" + qop + ":"))
+	}
+	encoder.Write([]byte(calcA2()))
 
 	return hex.EncodeToString(encoder.Sum(nil))
 }
@@ -170,6 +226,15 @@ func AuthorizeRequest(request Request, response Response, user, password MaybeSt
 			SetUsername(user.String())
 		if password != nil {
 			auth.SetPassword(password.String())
+		}
+		if auth.Qop() == "auth" {
+			auth.SetNc("00000001")
+			encoder := md5.New()
+			encoder.Write([]byte(user.String() + request.Recipient().String()))
+			if password != nil {
+				encoder.Write([]byte(password.String()))
+			}
+			auth.SetCNonce(hex.EncodeToString(encoder.Sum(nil)))
 		}
 		auth.SetResponse(auth.CalcResponse())
 
