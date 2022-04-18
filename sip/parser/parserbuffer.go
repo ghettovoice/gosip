@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/ghettovoice/gosip/log"
 )
@@ -15,7 +16,9 @@ import (
 // It exposes various blocking read methods, which wait until the requested
 // data is available, and then return it.
 type parserBuffer struct {
-	io.Writer
+	mu sync.RWMutex
+
+	writer io.Writer
 	buffer bytes.Buffer
 
 	// Wraps parserBuffer.pipeReader
@@ -32,7 +35,7 @@ type parserBuffer struct {
 // until the Dispose() method is called.
 func newParserBuffer(logger log.Logger) *parserBuffer {
 	var pb parserBuffer
-	pb.pipeReader, pb.Writer = io.Pipe()
+	pb.pipeReader, pb.writer = io.Pipe()
 	pb.reader = bufio.NewReader(pb.pipeReader)
 	pb.log = logger.
 		WithPrefix("parser.parserBuffer").
@@ -45,6 +48,13 @@ func newParserBuffer(logger log.Logger) *parserBuffer {
 
 func (pb *parserBuffer) Log() log.Logger {
 	return pb.log
+}
+
+func (pb *parserBuffer) Write(p []byte) (n int, err error) {
+	pb.mu.RLock()
+	defer pb.mu.RUnlock()
+
+	return pb.writer.Write(p)
 }
 
 // Block until the buffer contains at least one CRLF-terminated line.
@@ -104,9 +114,18 @@ func (pb *parserBuffer) NextChunk(n int) (response string, err error) {
 
 // Stop the parser buffer.
 func (pb *parserBuffer) Stop() {
+	pb.mu.RLock()
 	if err := pb.pipeReader.Close(); err != nil {
 		pb.Log().Errorf("parser pipe reader close failed: %s", err)
 	}
+	pb.mu.RUnlock()
 
 	pb.Log().Trace("parser buffer stopped")
+}
+
+func (pb *parserBuffer) Reset() {
+	pb.mu.Lock()
+	pb.pipeReader, pb.writer = io.Pipe()
+	pb.reader.Reset(pb.pipeReader)
+	pb.mu.Unlock()
 }
