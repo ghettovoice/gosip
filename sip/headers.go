@@ -190,13 +190,13 @@ func (params *headerParams) ToString(sep uint8) string {
 		}
 		first = false
 
-		buffer.WriteString(fmt.Sprintf("%s", key))
+		buffer.WriteString(fmt.Sprintf("%s", Escape(key, EncodeQueryComponent)))
 
 		if val, ok := val.(String); ok {
 			if strings.ContainsAny(val.String(), abnfWs) {
-				buffer.WriteString(fmt.Sprintf("=\"%s\"", val.String()))
+				buffer.WriteString(fmt.Sprintf("=\"%s\"", Escape(val.String(), EncodeQueryComponent)))
 			} else {
-				buffer.WriteString(fmt.Sprintf("=%s", val.String()))
+				buffer.WriteString(fmt.Sprintf("=%s", Escape(val.String(), EncodeQueryComponent)))
 			}
 		}
 	}
@@ -421,16 +421,16 @@ func (uri *SipUri) String() string {
 
 	// Optional userinfo part.
 	if user, ok := uri.FUser.(String); ok && user.String() != "" {
-		buffer.WriteString(uri.FUser.String())
+		buffer.WriteString(Escape(uri.FUser.String(), EncodeUserPassword))
 		if pass, ok := uri.FPassword.(String); ok && pass.String() != "" {
 			buffer.WriteString(":")
-			buffer.WriteString(pass.String())
+			buffer.WriteString(Escape(pass.String(), EncodeUserPassword))
 		}
 		buffer.WriteString("@")
 	}
 
 	// Compulsory hostname.
-	buffer.WriteString(uri.FHost)
+	buffer.WriteString(Escape(uri.FHost, EncodeHost))
 
 	// Optional port number.
 	if uri.FPort != nil {

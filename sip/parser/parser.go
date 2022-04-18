@@ -626,10 +626,25 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 		if endOfUsernamePart == -1 {
 			// No password component; the whole of the user-info part before
 			// the '@' is a username.
-			uri.FUser = sip.String{Str: uriStr[:endOfUserInfoPart]}
+			if username, er := sip.Unescape(uriStr[:endOfUserInfoPart], sip.EncodeUserPassword); er == nil {
+				uri.FUser = sip.String{Str: username}
+			} else {
+				err = fmt.Errorf("unescape username: %w", er)
+				return
+			}
 		} else {
-			uri.FUser = sip.String{Str: uriStr[:endOfUsernamePart]}
-			uri.FPassword = sip.String{Str: uriStr[endOfUsernamePart+1 : endOfUserInfoPart]}
+			if username, er := sip.Unescape(uriStr[:endOfUsernamePart], sip.EncodeUserPassword); er == nil {
+				uri.FUser = sip.String{Str: username}
+			} else {
+				err = fmt.Errorf("unescape username: %w", er)
+				return
+			}
+			if password, er := sip.Unescape(uriStr[endOfUsernamePart+1:endOfUserInfoPart], sip.EncodeUserPassword); er == nil {
+				uri.FPassword = sip.String{Str: password}
+			} else {
+				err = fmt.Errorf("unescape password: %w", er)
+				return
+			}
 		}
 		uriStr = uriStr[endOfUserInfoPart+1:]
 	}
@@ -694,19 +709,57 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 // The port may or may not be present, so we represent it with a *uint16,
 // and return 'nil' if no port was present.
 func ParseHostPort(rawText string) (host string, port *sip.Port, err error) {
-	colonIdx := strings.Index(rawText, ":")
-	if colonIdx == -1 {
-		host = rawText
-		return
+	var rawHost, rawPort string
+	if i := strings.LastIndex(rawText, ":"); i == -1 {
+		rawHost = rawText
+	} else {
+		rawHost = rawText[:i]
+		rawPort = rawText[i+1:]
 	}
 
-	// Surely there must be a better way..!
-	var portRaw64 uint64
-	var portRaw16 uint16
-	host = rawText[:colonIdx]
-	portRaw64, err = strconv.ParseUint(rawText[colonIdx+1:], 10, 16)
-	portRaw16 = uint16(portRaw64)
-	port = (*sip.Port)(&portRaw16)
+	if strings.HasPrefix(rawHost, "[") {
+		// IPv6 with zone
+		if zone := strings.Index(rawHost, "%25"); zone >= 0 {
+			host1, er := sip.Unescape(rawHost[:zone], sip.EncodeHost)
+			if er != nil {
+				err = fmt.Errorf("unescape host: %w", err)
+				return
+			}
+			host2, er := sip.Unescape(rawHost[zone:len(rawHost)-1], sip.EncodeZone)
+			if er != nil {
+				err = fmt.Errorf("unescape zone: %w", err)
+				return
+			}
+			host3, er := sip.Unescape(rawHost[len(rawHost)-1:], sip.EncodeHost)
+			if er != nil {
+				err = fmt.Errorf("unescape host: %w", err)
+				return
+			}
+			host = host1 + host2 + host3
+		}
+	}
+	if host == "" {
+		// IPv4 or IPv6 without zone
+		if h, er := sip.Unescape(rawHost, sip.EncodeHost); er == nil {
+			host = h
+		} else {
+			err = fmt.Errorf("unescape host: %w", err)
+			return
+		}
+	}
+
+	if rawPort != "" {
+		// Surely there must be a better way..!
+		var portRaw64 uint64
+		var portRaw16 uint16
+		portRaw64, err = strconv.ParseUint(rawPort, 10, 16)
+		if err != nil {
+			err = fmt.Errorf("parse port: %w", err)
+			return
+		}
+		portRaw16 = uint16(portRaw64)
+		port = (*sip.Port)(&portRaw16)
+	}
 
 	return
 }
@@ -728,9 +781,7 @@ func ParseParams(
 	end uint8,
 	quoteValues bool,
 	permitSingletons bool,
-) (
-	params sip.Params, consumed int, err error) {
-
+) (params sip.Params, consumed int, err error) {
 	params = sip.NewParams()
 
 	if len(source) == 0 {
@@ -778,7 +829,12 @@ parseLoop:
 				continue
 			}
 			if parsingKey && permitSingletons {
-				params.Add(buffer.String(), nil)
+				if k, er := sip.Unescape(buffer.String(), sip.EncodeQueryComponent); er == nil {
+					params.Add(k, nil)
+				} else {
+					err = fmt.Errorf("unescape params: %w", er)
+					return
+				}
 			} else if parsingKey {
 				err = fmt.Errorf(
 					"singleton param '%s' when parsing params which disallow singletons: \"%s\"",
@@ -787,7 +843,17 @@ parseLoop:
 				)
 				return
 			} else {
-				params.Add(key, sip.String{Str: buffer.String()})
+				if k, er := sip.Unescape(key, sip.EncodeQueryComponent); er == nil {
+					if v, er := sip.Unescape(buffer.String(), sip.EncodeQueryComponent); er == nil {
+						params.Add(k, sip.String{Str: v})
+					} else {
+						err = fmt.Errorf("unescape params: %w", er)
+						return
+					}
+				} else {
+					err = fmt.Errorf("unescape params: %w", er)
+					return
+				}
 			}
 			buffer.Reset()
 			parsingKey = true
@@ -851,12 +917,27 @@ parseLoop:
 	if inQuotes {
 		err = fmt.Errorf("unclosed quotes in parameter string: %s", source)
 	} else if parsingKey && permitSingletons {
-		params.Add(buffer.String(), nil)
+		if k, er := sip.Unescape(buffer.String(), sip.EncodeQueryComponent); er == nil {
+			params.Add(k, nil)
+		} else {
+			err = fmt.Errorf("unescape params: %w", er)
+			return
+		}
 	} else if parsingKey {
 		err = fmt.Errorf("singleton param '%s' when parsing params which disallow singletons: \"%s\"",
 			buffer.String(), source)
 	} else {
-		params.Add(key, sip.String{Str: buffer.String()})
+		if k, er := sip.Unescape(key, sip.EncodeQueryComponent); er == nil {
+			if v, er := sip.Unescape(buffer.String(), sip.EncodeQueryComponent); er == nil {
+				params.Add(k, sip.String{Str: v})
+			} else {
+				err = fmt.Errorf("unescape params: %w", er)
+				return
+			}
+		} else {
+			err = fmt.Errorf("unescape params: %w", er)
+			return
+		}
 	}
 	return
 }
