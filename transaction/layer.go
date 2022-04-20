@@ -277,6 +277,10 @@ func (txl *layer) handleRequest(req sip.Request, logger log.Logger) {
 	}
 	if req.IsCancel() {
 		// transaction for CANCEL already completed and terminated
+		res := sip.NewResponseFromRequest("", req, 481, "Transaction Does Not Exist", "")
+		if err := txl.tpl.Send(res); err != nil {
+			logger.Error(fmt.Errorf("respond '481 Transaction Does Not Exist' on non-matched CANCEL request: %w", err))
+		}
 		return
 	}
 
