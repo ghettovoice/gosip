@@ -15,7 +15,6 @@ import (
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/ghettovoice/gosip/util"
 )
 
 // The whitespace characters recognised by the Augmented Backus-Naur Form syntax
@@ -190,13 +189,6 @@ func NewParser(
 
 	p.output = output
 	p.errs = errs
-	p.bodyLengths.Init()
-	p.bodyLengths.SetLog(p.Log())
-
-	if !streamed {
-		// If we're not in streaming mode, set up a channel so the Write method can pass calculated body lengths to the parser.
-		p.bodyLengths.Run()
-	}
 
 	// Create a managed buffer to allow message data to be asynchronously provided to the parser, and
 	// to allow the parser to block until enough data is available to parse.
@@ -211,7 +203,6 @@ type parser struct {
 	headerParsers map[string]HeaderParser
 	streamed      bool
 	input         *parserBuffer
-	bodyLengths   util.ElasticChan
 
 	output chan<- sip.Message
 	errs   chan<- error
@@ -246,16 +237,13 @@ func (p *parser) Write(data []byte) (int, error) {
 	)
 	if !p.streamed {
 		bl := getBodyLength(data)
-		defer func() {
-			if err == nil {
-				p.bodyLengths.In <- []int{bl, len(data)}
-			}
-		}()
 
 		if bl == -1 {
 			err = InvalidMessageFormat(fmt.Sprintf("%s cannot write data: double CRLF sequence not found in the input data", p))
 			return num, err
 		}
+
+		data = append([]byte(fmt.Sprintf("%d %d\r\n", bl, len(data))), data...)
 	}
 
 	num, err = p.input.Write(data)
@@ -282,11 +270,6 @@ func (p *parser) Stop() {
 	p.stopped.Set()
 
 	p.input.Stop()
-	if !p.streamed {
-		// We're in unstreamed mode, so we created a bodyLengths ElasticChan which
-		// needs to be disposed.
-		p.bodyLengths.Stop()
-	}
 	p.mu.Lock()
 	done := p.done
 	p.mu.Unlock()
@@ -303,10 +286,6 @@ func (p *parser) Reset() {
 	p.done = done
 	p.mu.Unlock()
 	p.input.Reset()
-	if !p.streamed {
-		p.bodyLengths.Init()
-		p.bodyLengths.Run()
-	}
 	// and re-run
 	go p.parse(p.streamed, done)
 
@@ -325,6 +304,17 @@ func (p *parser) parse(requireContentLength bool, done chan<- struct{}) {
 	var skipStreamedErr bool
 
 	for {
+		var bodyLen, msgLen int
+		if !p.streamed {
+			// extract body/msg len
+			line, err := p.input.NextLine()
+			if err != nil {
+				break
+			}
+			strs := strings.Split(line, " ")
+			bodyLen, _ = strconv.Atoi(strs[0])
+			msgLen, _ = strconv.Atoi(strs[1])
+		}
 		// Parse the StartLine.
 		startLine, err := p.input.NextLine()
 		if err != nil {
@@ -363,10 +353,9 @@ func (p *parser) parse(requireContentLength bool, done chan<- struct{}) {
 					p.errs <- termErr
 				}
 			} else {
-				slice := (<-p.bodyLengths.Out).([]int)
-				skip := slice[1] - len(startLine) - 2
+				skip := msgLen - len(startLine) - 2
 
-				p.Log().Tracef("skip %d - %d - 2 = %d bytes", p, slice[1], len(startLine), skip)
+				p.Log().Tracef("skip %d - %d - 2 = %d bytes", p, msgLen, len(startLine), skip)
 
 				if _, err := p.input.NextChunk(skip); err != nil {
 					p.Log().Errorf("skip failed: %s", err)
@@ -476,9 +465,12 @@ func (p *parser) parse(requireContentLength bool, done chan<- struct{}) {
 
 			contentLength = int(*(contentLengthHeaders[0].(*sip.ContentLength)))
 		} else {
-			// We're not in streaming mode, so the Write method should have calculated the length of the body for us.
-			slice := (<-p.bodyLengths.Out).([]int)
-			contentLength = slice[0]
+			contentLengthHeaders := msg.GetHeaders("Content-Length")
+			if len(contentLengthHeaders) == 0 {
+				contentLength = bodyLen
+			} else {
+				contentLength = int(*(contentLengthHeaders[0].(*sip.ContentLength)))
+			}
 		}
 
 		// Extract the message body.
