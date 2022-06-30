@@ -243,7 +243,7 @@ func (p *parser) Write(data []byte) (int, error) {
 			return num, err
 		}
 
-		data = append([]byte(fmt.Sprintf("%d %d\r\n", bl, len(data))), data...)
+		data = append([]byte(fmt.Sprintf("%d|%d\r\n", bl, len(data))), data...)
 	}
 
 	num, err = p.input.Write(data)
@@ -311,9 +311,18 @@ func (p *parser) parse(requireContentLength bool, done chan<- struct{}) {
 			if err != nil {
 				break
 			}
-			strs := strings.Split(line, " ")
-			bodyLen, _ = strconv.Atoi(strs[0])
-			msgLen, _ = strconv.Atoi(strs[1])
+			strs := strings.Split(line, "|")
+			if len(strs) != 2 {
+				continue
+			}
+			bodyLen, err = strconv.Atoi(strs[0])
+			if err != nil {
+				continue
+			}
+			msgLen, err = strconv.Atoi(strs[1])
+			if err != nil {
+				continue
+			}
 		}
 		// Parse the StartLine.
 		startLine, err := p.input.NextLine()
@@ -465,12 +474,7 @@ func (p *parser) parse(requireContentLength bool, done chan<- struct{}) {
 
 			contentLength = int(*(contentLengthHeaders[0].(*sip.ContentLength)))
 		} else {
-			contentLengthHeaders := msg.GetHeaders("Content-Length")
-			if len(contentLengthHeaders) == 0 {
-				contentLength = bodyLen
-			} else {
-				contentLength = int(*(contentLengthHeaders[0].(*sip.ContentLength)))
-			}
+			contentLength = bodyLen
 		}
 
 		// Extract the message body.
