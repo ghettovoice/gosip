@@ -182,21 +182,9 @@ func (tpl *layer) Listen(network string, addr string, options ...ListenOption) e
 	default:
 	}
 
-	protocol, ok := tpl.protocols.get(protocolKey(network))
-	if !ok {
-		var err error
-		protocol, err = protocolFactory(
-			network,
-			tpl.pmsgs,
-			tpl.perrs,
-			tpl.canceled,
-			tpl.msgMapper,
-			tpl.Log(),
-		)
-		if err != nil {
-			return err
-		}
-		tpl.protocols.put(protocolKey(protocol.Network()), protocol)
+	protocol, err := tpl.getProtocol(network)
+	if err != nil {
+		return err
 	}
 	target, err := NewTargetFromAddr(addr)
 	if err != nil {
@@ -240,9 +228,9 @@ func (tpl *layer) Send(msg sip.Message) error {
 		viaHop.Transport = network
 		viaHop.Host = tpl.ip.String()
 
-		protocol, ok := tpl.protocols.get(protocolKey(network))
-		if !ok {
-			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", network))
+		protocol, err := tpl.getProtocol(network)
+		if err != nil {
+			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported: %s", network, err))
 		}
 
 		// rewrite sent-by port
@@ -334,6 +322,27 @@ func (tpl *layer) Send(msg sip.Message) error {
 			Msg: msg.String(),
 		}
 	}
+}
+
+func (tpl *layer) getProtocol(network string) (p Protocol, err error) {
+	var ok bool
+	p, ok = tpl.protocols.get(protocolKey(network))
+	if ok {
+		return
+	}
+	p, err = protocolFactory(
+		network,
+		tpl.pmsgs,
+		tpl.perrs,
+		tpl.canceled,
+		tpl.msgMapper,
+		tpl.Log(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	tpl.protocols.put(protocolKey(p.Network()), p)
+	return p, nil
 }
 
 func (tpl *layer) serveProtocols() {
