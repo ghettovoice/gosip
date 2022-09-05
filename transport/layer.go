@@ -325,24 +325,16 @@ func (tpl *layer) Send(msg sip.Message) error {
 }
 
 func (tpl *layer) getProtocol(network string) (p Protocol, err error) {
-	var ok bool
-	p, ok = tpl.protocols.get(protocolKey(network))
-	if ok {
-		return
-	}
-	p, err = protocolFactory(
-		network,
-		tpl.pmsgs,
-		tpl.perrs,
-		tpl.canceled,
-		tpl.msgMapper,
-		tpl.Log(),
-	)
-	if err != nil {
-		return nil, err
-	}
-	tpl.protocols.put(protocolKey(p.Network()), p)
-	return p, nil
+	return tpl.protocols.getOrPutNew(protocolKey(network), func() (Protocol, error) {
+		return protocolFactory(
+			network,
+			tpl.pmsgs,
+			tpl.perrs,
+			tpl.canceled,
+			tpl.msgMapper,
+			tpl.Log(),
+		)
+	})
 }
 
 func (tpl *layer) serveProtocols() {
@@ -444,6 +436,22 @@ func (store *protocolStore) get(key protocolKey) (Protocol, bool) {
 	defer store.mu.RUnlock()
 	protocol, ok := store.protocols[key]
 	return protocol, ok
+}
+
+func (store *protocolStore) getOrPutNew(key protocolKey, factory func() (Protocol, error)) (Protocol, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	protocol, ok := store.protocols[key]
+	if ok {
+		return protocol, nil
+	}
+	var err error
+	protocol, err = factory()
+	if err != nil {
+		return nil, err
+	}
+	store.protocols[key] = protocol
+	return protocol, nil
 }
 
 func (store *protocolStore) drop(key protocolKey) bool {
