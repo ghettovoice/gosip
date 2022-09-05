@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/ghettovoice/gosip/log"
 )
@@ -195,7 +196,7 @@ func (res *response) IsCancel() bool {
 
 func (res *response) Transport() string {
 	if tp := res.message.Transport(); tp != "" {
-		return tp
+		return strings.ToUpper(tp)
 	}
 
 	var tp string

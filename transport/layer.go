@@ -225,12 +225,12 @@ func (tpl *layer) Send(msg sip.Message) error {
 	case sip.Request:
 		network := msg.Transport()
 		// rewrite sent-by transport
-		viaHop.Transport = network
+		viaHop.Transport = strings.ToUpper(network)
 		viaHop.Host = tpl.ip.String()
 
 		protocol, err := tpl.getProtocol(network)
 		if err != nil {
-			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported: %s", network, err))
+			return err
 		}
 
 		// rewrite sent-by port
@@ -298,9 +298,9 @@ func (tpl *layer) Send(msg sip.Message) error {
 		// RFC 3261 - 18.2.2.
 	case sip.Response:
 		// resolve protocol from Via
-		protocol, ok := tpl.protocols.get(protocolKey(msg.Transport()))
-		if !ok {
-			return UnsupportedProtocolError(fmt.Sprintf("protocol %s is not supported", viaHop.Transport))
+		protocol, err := tpl.getProtocol(msg.Transport())
+		if err != nil {
+			return err
 		}
 
 		target, err := NewTargetFromAddr(msg.Destination())
@@ -324,7 +324,8 @@ func (tpl *layer) Send(msg sip.Message) error {
 	}
 }
 
-func (tpl *layer) getProtocol(network string) (p Protocol, err error) {
+func (tpl *layer) getProtocol(network string) (Protocol, error) {
+	network = strings.ToLower(network)
 	return tpl.protocols.getOrPutNew(protocolKey(network), func() (Protocol, error) {
 		return protocolFactory(
 			network,

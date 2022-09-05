@@ -45,6 +45,7 @@ var _ = Describe("TransportLayer", func() {
 		BeforeEach(func() {
 			Expect(tpl.Listen("udp", localAddr1, nil))
 			Expect(tpl.Listen("tcp", localAddr1, nil))
+			time.Sleep(time.Second)
 		})
 
 		Context("when remote UDP client sends INVITE request", func() {
