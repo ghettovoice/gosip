@@ -193,10 +193,13 @@ func (params *headerParams) ToString(sep uint8) string {
 		buffer.WriteString(fmt.Sprintf("%s", Escape(key, EncodeQueryComponent)))
 
 		if val, ok := val.(String); ok {
-			if strings.ContainsAny(val.String(), abnfWs) {
-				buffer.WriteString(fmt.Sprintf("=\"%s\"", Escape(val.String(), EncodeQueryComponent)))
+			valStr := val.String()
+			if valStr[0] == '"' && valStr[len(valStr)-1] == '"' { // already escaped header param value
+				buffer.WriteString(fmt.Sprintf("=%s", valStr))
+			} else if strings.ContainsAny(valStr, abnfWs) {
+				buffer.WriteString(fmt.Sprintf("=\"%s\"", Escape(valStr, EncodeQueryComponent)))
 			} else {
-				buffer.WriteString(fmt.Sprintf("=%s", Escape(val.String(), EncodeQueryComponent)))
+				buffer.WriteString(fmt.Sprintf("=%s", Escape(valStr, EncodeQueryComponent)))
 			}
 		}
 	}
@@ -265,7 +268,7 @@ func cloneWithNil(params Params) Params {
 
 // SipUri
 // A SIP or SIPS URI, including all params and URI header params.
-//noinspection GoNameStartsWithPackageName
+// noinspection GoNameStartsWithPackageName
 type SipUri struct {
 	// True if and only if the URI is a SIPS URI.
 	FIsEncrypted bool
