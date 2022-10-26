@@ -152,23 +152,15 @@ func shouldEscape(c byte, mode encoding) bool {
 	}
 
 	switch c {
-	case '-', '_', '.', '~': // §2.3 Unreserved characters (mark)
+	case '-', '_', '.', '~', '!', '*', '\'', '(', ')':
 		return false
 
-	case '$', '&', '+', ',', '/', ':', ';', '=', '?', '@': // §2.2 Reserved characters (reserved)
-		// Different sections of the URL allow a few of
-		// the reserved characters to appear unescaped.
+	case '$', '&', '+', ',', '/', ':', ';', '=', '?', '@', '[', ']':
 		switch mode {
-		case EncodeUserPassword: // §3.2.1
-			// The RFC allows ';', ':', '&', '=', '+', '$', and ',' in
-			// userinfo, so we must escape only '@', '/', and '?'.
-			// The parsing of userinfo treats ':' as special so we must escape
-			// that too.
+		case EncodeUserPassword:
 			return c == '@' || c == '/' || c == '?' || c == ':'
-
-		case EncodeQueryComponent: // §3.4
-			// The RFC reserves (so we must escape) everything.
-			return true
+		case EncodeQueryComponent:
+			return c == '&' || c == ';'
 		}
 	}
 

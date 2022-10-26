@@ -197,7 +197,7 @@ func (params *headerParams) ToString(sep uint8) string {
 			if valStr[0] == '"' && valStr[len(valStr)-1] == '"' { // already escaped header param value
 				buffer.WriteString(fmt.Sprintf("=%s", valStr))
 			} else if strings.ContainsAny(valStr, abnfWs) {
-				buffer.WriteString(fmt.Sprintf("=\"%s\"", Escape(valStr, EncodeQueryComponent)))
+				buffer.WriteString(fmt.Sprintf("=\"%s\"", strings.ReplaceAll(Escape(valStr, EncodeQueryComponent), "\"", "\\\"")))
 			} else {
 				buffer.WriteString(fmt.Sprintf("=%s", Escape(valStr, EncodeQueryComponent)))
 			}
