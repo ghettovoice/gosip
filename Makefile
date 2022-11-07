@@ -2,14 +2,10 @@ VERSION=$(shell git describe --tags)
 LDFLAGS=-ldflags "-X gosip.Version=${VERSION}"
 GOFLAGS=
 
-install: .install-utils
-	go get -v -t ./...
-	go mod tidy
-
-.install-utils:
+install:
 	go get -v github.com/wadey/gocovmerge
-	go get -v github.com/onsi/ginkgo/...
-	go get -v github.com/onsi/gomega/...
+	go get -v -t ./...
+	go install -mod=mod github.com/onsi/ginkgo/...
 
 test:
 	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --progress $(GOFLAGS)
