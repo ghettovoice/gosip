@@ -657,13 +657,21 @@ func ParseSipUri(uriStr string) (uri sip.SipUri, err error) {
 		return
 	}
 	uriStr = uriStr[3:]
-
+	// check if URI authority part exist after scheme
+	if len(uriStr) < 1 {
+		err = fmt.Errorf("uri too short to parse. '%s'", uriStrCopy)
+		return
+	}
 	if strings.ToLower(uriStr[0:1]) == "s" {
 		// URI started 'sips', so it's encrypted.
 		uri.FIsEncrypted = true
 		uriStr = uriStr[1:]
 	}
-
+	// check if URI authority part exist after scheme
+	if len(uriStr) < 1 {
+		err = fmt.Errorf("uri too short to parse. '%s'", uriStrCopy)
+		return
+	}
 	// The 'sip' or 'sips' protocol name should be followed by a ':' character.
 	if uriStr[0] != ':' {
 		err = fmt.Errorf("no ':' after protocol name in SIP uri '%s'", uriStrCopy)

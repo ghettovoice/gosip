@@ -287,6 +287,8 @@ func TestSipUris(t *testing.T) {
 		{sipUriInput("sip:bob@example.com:5;foo=baz?foo"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50;foo=baz?foo"), &sipUriResult{fail, sip.SipUri{}}},
 		{sipUriInput("sip:bob@example.com:50;foo=baz?foo=bar&baz"), &sipUriResult{fail, sip.SipUri{}}},
+		{sipUriInput("sip"), &sipUriResult{fail, sip.SipUri{}}},
+		{sipUriInput("sips"), &sipUriResult{fail, sip.SipUri{}}},
 	}, t)
 }
 
