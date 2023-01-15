@@ -267,7 +267,7 @@ func (srv *server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 		return
 	}
 
-	go handler(req, tx)
+	handler(req, tx)
 }
 
 // Send SIP message
