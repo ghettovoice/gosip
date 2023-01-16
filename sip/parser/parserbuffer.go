@@ -57,9 +57,9 @@ func (pb *parserBuffer) Write(p []byte) (n int, err error) {
 	return pb.writer.Write(p)
 }
 
-// Block until the buffer contains at least one CRLF-terminated line.
+// NextLine block until the buffer contains at least one CRLF-terminated line.
 // Return the line, excluding the terminal CRLF, and delete it from the buffer.
-// Returns an error if the parserbuffer has been stopped.
+// Returns an error if the parserBuffer has been stopped.
 func (pb *parserBuffer) NextLine() (response string, err error) {
 	var buffer bytes.Buffer
 	var data string
@@ -91,7 +91,7 @@ func (pb *parserBuffer) NextLine() (response string, err error) {
 	}
 }
 
-// Block until the buffer contains at least n characters.
+// NextChunk block until the buffer contains at least n characters.
 // Return precisely those n characters, then delete them from the buffer.
 func (pb *parserBuffer) NextChunk(n int) (response string, err error) {
 	var data = make([]byte, n)
