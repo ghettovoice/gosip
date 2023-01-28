@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo"
@@ -136,13 +137,14 @@ func GetProjectRootPath(projectRootDir string) string {
 	if err != nil {
 		panic(err)
 	}
+	sep := string(filepath.Separator)
 	for {
-		if strings.HasSuffix(cwd, "/"+projectRootDir) {
+		if strings.HasSuffix(cwd, sep+projectRootDir) {
 			return cwd
 		}
-		lastSlashIndex := strings.LastIndex(cwd, "/")
+		lastSlashIndex := strings.LastIndex(cwd, sep)
 		if lastSlashIndex == -1 {
-			panic(cwdOrig + " did not contain /" + projectRootDir)
+			panic(cwdOrig + " did not contain" + projectRootDir)
 		}
 		cwd = cwd[0:lastSlashIndex]
 	}

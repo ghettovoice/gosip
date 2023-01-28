@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -26,19 +27,19 @@ var _ = Describe("TlsProtocol", func() {
 		wg                        *sync.WaitGroup
 	)
 
-	rootDir := testutils.GetProjectRootPath("ghettovoice/gosip")
+	rootDir := testutils.GetProjectRootPath("gosip")
 	network := "tcp"
 	port1 := 9061
 	port2 := port1 + 1
 	localTarget1 := transport.NewTarget(transport.DefaultHost, port1)
 	localTarget2 := transport.NewTarget(transport.DefaultHost, port2)
 	srvTlsConf := transport.TLSConfig{
-		Cert: rootDir + "/examples/certs/server.pem",
-		Key:  rootDir + "/examples/certs/server-key.pem",
+		Cert: filepath.Join(rootDir, "/examples/certs/server.pem"),
+		Key:  filepath.Join(rootDir, "/examples/certs/server-key.pem"),
 	}
 	clTlsConf := &tls.Config{
 		ServerName: "example.com",
-		RootCAs:    testutils.NewRootCAaPool(rootDir + "/examples/certs/rootCA.pem"),
+		RootCAs:    testutils.NewRootCAaPool(filepath.Join(rootDir, "/examples/certs/rootCA.pem")),
 	}
 	msg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/TLS pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +

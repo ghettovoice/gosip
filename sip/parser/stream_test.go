@@ -308,23 +308,23 @@ func TestHostPort(t *testing.T) {
 }
 
 /*
-func TestHeaderBlocks(t *testing.T) {
-	doTests([]test{
-		test{headerBlockInput([]string{"All on one line."}), &headerBlockResult{"All on one line.", 1}},
-		test{headerBlockInput([]string{"Line one", "Line two."}), &headerBlockResult{"Line one", 1}},
-		test{headerBlockInput([]string{"Line one", " then an indent"}), &headerBlockResult{"Line one then an indent", 2}},
-		test{headerBlockInput([]string{"Line one", " then an indent", "then line two"}), &headerBlockResult{"Line one then an indent", 2}},
-		test{headerBlockInput([]string{"Line one", "Line two", " then an indent"}), &headerBlockResult{"Line one", 1}},
-		test{headerBlockInput([]string{"Line one", "\twith tab indent"}), &headerBlockResult{"Line one with tab indent", 2}},
-		test{headerBlockInput([]string{"Line one", "      with a big indent"}), &headerBlockResult{"Line one with a big indent", 2}},
-		test{headerBlockInput([]string{"Line one", " \twith space then tab"}), &headerBlockResult{"Line one with space then tab", 2}},
-		test{headerBlockInput([]string{"Line one", "\t    with tab then spaces"}), &headerBlockResult{"Line one with tab then spaces", 2}},
-		test{headerBlockInput([]string{""}), &headerBlockResult{"", 0}},
-		test{headerBlockInput([]string{" "}), &headerBlockResult{" ", 1}},
-		test{headerBlockInput([]string{}), &headerBlockResult{"", 0}},
-		test{headerBlockInput([]string{" foo"}), &headerBlockResult{" foo", 1}},
-	}, t)
-}
+	func TestHeaderBlocks(t *testing.T) {
+		doTests([]test{
+			test{headerBlockInput([]string{"All on one line."}), &headerBlockResult{"All on one line.", 1}},
+			test{headerBlockInput([]string{"Line one", "Line two."}), &headerBlockResult{"Line one", 1}},
+			test{headerBlockInput([]string{"Line one", " then an indent"}), &headerBlockResult{"Line one then an indent", 2}},
+			test{headerBlockInput([]string{"Line one", " then an indent", "then line two"}), &headerBlockResult{"Line one then an indent", 2}},
+			test{headerBlockInput([]string{"Line one", "Line two", " then an indent"}), &headerBlockResult{"Line one", 1}},
+			test{headerBlockInput([]string{"Line one", "\twith tab indent"}), &headerBlockResult{"Line one with tab indent", 2}},
+			test{headerBlockInput([]string{"Line one", "      with a big indent"}), &headerBlockResult{"Line one with a big indent", 2}},
+			test{headerBlockInput([]string{"Line one", " \twith space then tab"}), &headerBlockResult{"Line one with space then tab", 2}},
+			test{headerBlockInput([]string{"Line one", "\t    with tab then spaces"}), &headerBlockResult{"Line one with tab then spaces", 2}},
+			test{headerBlockInput([]string{""}), &headerBlockResult{"", 0}},
+			test{headerBlockInput([]string{" "}), &headerBlockResult{" ", 1}},
+			test{headerBlockInput([]string{}), &headerBlockResult{"", 0}},
+			test{headerBlockInput([]string{" foo"}), &headerBlockResult{" foo", 1}},
+		}, t)
+	}
 */
 func TestToHeaders(t *testing.T) {
 	fooEqBar := sip.NewParams().Add("foo", sip.String{"bar"})
@@ -2314,6 +2314,24 @@ func (pt *ParserTest) Test(t *testing.T) {
 			return
 		}
 	}
+	if !pt.streamed {
+		p := parser.NewPacketParser(logger)
+		for stepIdx, step := range pt.steps {
+			var (
+				success bool
+				reason  string
+			)
+			msg, err := p.ParseMessage([]byte(step.input))
+			if err != nil {
+				success, reason = step.checkError(err)
+			} else {
+				success, reason = step.checkMsg(msg)
+			}
+			if !success {
+				t.Errorf("failure in pt step %d of input:\n%s\n\nfailure was: %s", stepIdx, pt.String(), reason)
+			}
+		}
+	}
 
 	testsPassed++
 	return
@@ -2339,6 +2357,35 @@ type parserTestStep struct {
 	returnedError error
 }
 
+func (step *parserTestStep) checkError(err error) (success bool, reason string) {
+	if err == nil && step.sentError != nil {
+		success = false
+		reason = fmt.Sprintf("nil error output from parser; expected: %s", step.sentError.Error())
+	} else if err != nil && step.sentError == nil {
+		success = false
+		reason = fmt.Sprintf("expected no error; parser output: %s", err.Error())
+	} else {
+		success = true
+	}
+	return
+}
+
+func (step *parserTestStep) checkMsg(msg sip.Message) (success bool, reason string) {
+	if msg == nil && step.result != nil {
+		success = false
+		reason = fmt.Sprintf("nil message returned from parser; expected:\n%s", step.result.String())
+	} else if msg != nil && step.result == nil {
+		success = false
+		reason = fmt.Sprintf("expected no message to be returned; got\n%s", msg.String())
+	} else if msg.String() != step.result.String() {
+		success = false
+		reason = fmt.Sprintf("unexpected message returned by parser; expected:\n\n%s\n\nbut got:\n\n%s", step.result.String(), msg.String())
+	} else {
+		success = true
+	}
+	return
+}
+
 func (step *parserTestStep) Test(parser parser.Parser, msgChan chan sip.Message, errChan chan error) (success bool, reason string) {
 	_, err := parser.Write([]byte(step.input))
 	if err != step.returnedError {
@@ -2354,28 +2401,9 @@ func (step *parserTestStep) Test(parser parser.Parser, msgChan chan sip.Message,
 	if err == nil {
 		select {
 		case msg := <-msgChan:
-			if msg == nil && step.result != nil {
-				success = false
-				reason = fmt.Sprintf("nil message returned from parser; expected:\n%s", step.result.String())
-			} else if msg != nil && step.result == nil {
-				success = false
-				reason = fmt.Sprintf("expected no message to be returned; got\n%s", msg.String())
-			} else if msg.String() != step.result.String() {
-				success = false
-				reason = fmt.Sprintf("unexpected message returned by parser; expected:\n\n%s\n\nbut got:\n\n%s", step.result.String(), msg.String())
-			} else {
-				success = true
-			}
+			success, reason = step.checkMsg(msg)
 		case err = <-errChan:
-			if err == nil && step.sentError != nil {
-				success = false
-				reason = fmt.Sprintf("nil error output from parser; expected: %s", step.sentError.Error())
-			} else if err != nil && step.sentError == nil {
-				success = false
-				reason = fmt.Sprintf("expected no error; parser output: %s", err.Error())
-			} else {
-				success = true
-			}
+			success, reason = step.checkError(err)
 		case <-time.After(time.Second):
 			if step.result != nil || step.sentError != nil {
 				success = false
