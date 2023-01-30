@@ -1031,6 +1031,15 @@ func TestUserAgent(t *testing.T) {
 	}, t)
 }
 
+func TestServer(t *testing.T) {
+	doTests([]test{
+		{serverInput("Server: GoSIP v1.2.3"), &serverResult{pass, "GoSIP v1.2.3"}},
+		{serverInput("Server:      GoSIP v1.2.3"), &serverResult{pass, "GoSIP v1.2.3"}},
+		{serverInput("Server:\tGoSIP v1.2.3"), &serverResult{pass, "GoSIP v1.2.3"}},
+		{serverInput("Server:\n  GoSIP v1.2.3"), &serverResult{pass, "GoSIP v1.2.3"}},
+	}, t)
+}
+
 func TestAllow(t *testing.T) {
 	doTests([]test{
 		{allowInput("Allow: INVITE, ACK, BYE"), &allowResult{pass, sip.AllowHeader{sip.INVITE, sip.ACK, sip.BYE}}},
@@ -2117,6 +2126,41 @@ func (expected *userAgentResult) equals(other result) (equal bool, reason string
 		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
 	} else if actual.err == nil && expected.header != actual.header {
 		return false, fmt.Sprintf("unexpected User-Agent value: expected \"%s\", got \"%s\"",
+			expected.header, actual.header)
+	}
+	return true, ""
+}
+
+type serverInput string
+
+func (data serverInput) String() string {
+	return string(data)
+}
+
+func (data serverInput) evaluate() result {
+	headers, err := parseHeader(string(data))
+	if len(headers) == 1 {
+		return &serverResult{err, *(headers[0].(*sip.ServerHeader))}
+	} else if len(headers) == 0 {
+		return &serverResult{err, ""}
+	} else {
+		panic(fmt.Sprintf("Multiple headers returned by Server test: %s", string(data)))
+	}
+}
+
+type serverResult struct {
+	err    error
+	header sip.ServerHeader
+}
+
+func (expected *serverResult) equals(other result) (equal bool, reason string) {
+	actual := *(other.(*serverResult))
+	if expected.err == nil && actual.err != nil {
+		return false, fmt.Sprintf("unexpected error: %s", actual.err.Error())
+	} else if expected.err != nil && actual.err == nil {
+		return false, fmt.Sprintf("unexpected success: got \"%s\"", actual.header.String())
+	} else if actual.err == nil && expected.header != actual.header {
+		return false, fmt.Sprintf("unexpected Server value: expected \"%s\", got \"%s\"",
 			expected.header, actual.header)
 	}
 	return true, ""

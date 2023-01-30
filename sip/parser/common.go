@@ -65,6 +65,7 @@ func defaultHeaderParsers() map[string]HeaderParser {
 		"l":              parseContentLength,
 		"expires":        parseExpires,
 		"user-agent":     parseUserAgent,
+		"server":         parseServer,
 		"allow":          parseAllow,
 		"content-type":   parseContentType,
 		"c":              parseContentType,
@@ -874,6 +875,15 @@ func parseUserAgent(headerName string, headerText string) (headers []sip.Header,
 	headerText = strings.TrimSpace(headerText)
 	userAgent = sip.UserAgentHeader(headerText)
 	headers = []sip.Header{&userAgent}
+
+	return
+}
+
+func parseServer(headerName string, headerText string) (headers []sip.Header, err error) {
+	var srv sip.ServerHeader
+	headerText = strings.TrimSpace(headerText)
+	srv = sip.ServerHeader(headerText)
+	headers = []sip.Header{&srv}
 
 	return
 }

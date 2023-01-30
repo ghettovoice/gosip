@@ -1432,6 +1432,40 @@ func (ua *UserAgentHeader) Equals(other interface{}) bool {
 	return false
 }
 
+type ServerHeader string
+
+func (srv *ServerHeader) String() string {
+	return fmt.Sprintf("%s: %s", srv.Name(), srv.Value())
+}
+
+func (srv *ServerHeader) Name() string { return "Server" }
+
+func (srv ServerHeader) Value() string { return string(srv) }
+
+func (srv *ServerHeader) Clone() Header { return srv }
+
+func (srv *ServerHeader) Equals(other interface{}) bool {
+	if h, ok := other.(ServerHeader); ok {
+		if srv == nil {
+			return false
+		}
+
+		return *srv == h
+	}
+	if h, ok := other.(*ServerHeader); ok {
+		if srv == h {
+			return true
+		}
+		if srv == nil && h != nil || srv != nil && h == nil {
+			return false
+		}
+
+		return *srv == *h
+	}
+
+	return false
+}
+
 type AllowHeader []RequestMethod
 
 func (allow AllowHeader) String() string {

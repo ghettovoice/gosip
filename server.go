@@ -519,9 +519,19 @@ func (srv *server) appendAutoHeaders(msg sip.Message) {
 	switch m := msg.(type) {
 	case sip.Request:
 		msgMethod = m.Method()
+
+		if hdrs := msg.GetHeaders("User-Agent"); len(hdrs) == 0 {
+			hdr := sip.UserAgentHeader(srv.userAgent)
+			msg.AppendHeader(&hdr)
+		}
 	case sip.Response:
 		if cseq, ok := m.CSeq(); ok && !m.IsProvisional() {
 			msgMethod = cseq.MethodName
+		}
+
+		if hdrs := msg.GetHeaders("Server"); len(hdrs) == 0 {
+			hdr := sip.ServerHeader(srv.userAgent)
+			msg.AppendHeader(&hdr)
 		}
 	}
 	if len(msgMethod) > 0 {
@@ -545,11 +555,6 @@ func (srv *server) appendAutoHeaders(msg sip.Message) {
 				})
 			}
 		}
-	}
-
-	if hdrs := msg.GetHeaders("User-Agent"); len(hdrs) == 0 {
-		userAgent := sip.UserAgentHeader(srv.userAgent)
-		msg.AppendHeader(&userAgent)
 	}
 
 	if hdrs := msg.GetHeaders("Content-Length"); len(hdrs) == 0 {
