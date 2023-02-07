@@ -1,41 +1,31 @@
-VERSION=$(shell git describe --tags)
-LDFLAGS=-ldflags "-X gosip.Version=${VERSION}"
-GOFLAGS=
+GINKGO_FLAGS=
+GINKGO_BASE_FLAGS=-r --randomize-all -p --trace --race --vet=all --covermode=atomic --coverprofile=cover.profile
+GINKGO_TEST_FLAGS=${GINKGO_BASE_FLAGS} --randomize-suites
+GINKGO_WATCH_FLAGS=${GINKGO_BASE_FLAGS}
+
+PKG_PATH=
+
+setup:
+	go get -v -t ./...
+	go install -mod=mod github.com/onsi/ginkgo/v2/ginkgo
+
+build:
+	go build -v -o ./out/abnf ./cmd/...
 
 install:
-	go get -v github.com/wadey/gocovmerge
-	go get -v -t ./...
-	go install -mod=mod github.com/onsi/ginkgo/...
+	go install -v ./cmd/...
 
 test:
-	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --progress $(GOFLAGS)
+	ginkgo version
+	ginkgo $(GINKGO_TEST_FLAGS) $(GINKGO_FLAGS) ./$(PKG_PATH)
 
-test-%:
-	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --progress $(GOFLAGS) ./$*
+watch:
+	ginkgo version
+	ginkgo watch $(GINKGO_WATCH_FLAGS) $(GINKGO_FLAGS) ./$(PKG_PATH)
 
-test-watch:
-	ginkgo watch -r --trace --race $(GOFLAGS)
+cover-report:
+	go tool cover -html=./cover.profile
 
-test-watch-%:
-	ginkgo watch -r --trace --race $(GOFLAGS) ./$*
-
-test-linux:
-	docker run -it --rm \
-			-v `pwd`:/go/src/github.com/ghettovoice/gosip \
-			-v ~/.ssh:/root/.ssh \
-			-w /go/src/github.com/ghettovoice/gosip \
-			golang:latest \
-			make install && make test
-
-cover-report: cover-merge
-	go tool cover -html=./gosip.full.coverprofile
-
-cover-merge:
-	gocovmerge \
-		./gosip.coverprofile \
-		./sip/sip.coverprofile \
-		./sip/parser/parser.coverprofile \
-		./timing/timing.coverprofile \
-		./transaction/transaction.coverprofile \
-		./transport/transport.coverprofile \
-	> ./gosip.full.coverprofile
+doc:
+	@echo "Running documentation on http://localhost:8080/github.com/ghettovoice/abnf"
+	pkgsite -http=localhost:8080

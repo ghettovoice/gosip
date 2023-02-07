@@ -1,0 +1,57 @@
+name: Tests
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - master
+            - dev
+    pull_request:
+        branches:
+            - master
+            - dev
+jobs:
+    test:
+        name: Test
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Go
+              uses: actions/setup-go@v3
+              with:
+                  go-version: 1.19
+
+            - name: Set up project
+              run: make setup
+
+            - name: Test
+              run: make test
+
+            - uses: actions/upload-artifact@v3
+              with:
+                  name: coverage_profile
+                  path: ./cover.profile
+
+    report:
+        name: Report
+        runs-on: ubuntu-latest
+        needs: [test]
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Go
+              uses: actions/setup-go@v3
+              with:
+                  go-version: 1.19
+
+            - name: Install
+              run: go install github.com/mattn/goveralls@latest
+
+            - uses: actions/download-artifact@v3
+              with:
+                  name: coverage_profile
+
+            - name: Send coverage
+              env:
+                  COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: goveralls -coverprofile=./cover.profile -service=github

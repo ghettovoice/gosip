@@ -3,12 +3,11 @@ package gosip_test
 import (
 	"testing"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 func TestGosip(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RegisterTestingT(t)
 	RunSpecs(t, "GoSip Suite")
 }

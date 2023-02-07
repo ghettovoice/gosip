@@ -1,4 +1,2 @@
+// Package gosip provides SIP stack as described in RFC 3261
 package gosip
-
-// Version is the current gosip package version
-var Version = "0.0.0"
