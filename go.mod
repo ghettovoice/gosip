@@ -15,6 +15,6 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/tevino/abool v0.0.0-20170917061928-9b9efcf221b5
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
-	golang.org/x/sys v0.0.0-20201214095126-aec9a390925b // indirect
+	golang.org/x/sys v0.1.0 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 )
