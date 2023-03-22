@@ -1687,3 +1687,35 @@ func (route *RecordRouteHeader) Equals(other interface{}) bool {
 
 	return false
 }
+
+type Event string
+
+func (et *Event) String() string { return fmt.Sprintf("%s: %s", et.Name(), et.Value()) }
+
+func (et *Event) Name() string { return "Event" }
+
+func (et Event) Value() string { return string(et) }
+
+func (et *Event) Clone() Header { return et }
+
+func (et *Event) Equals(other interface{}) bool {
+	if h, ok := other.(Event); ok {
+		if et == nil {
+			return false
+		}
+
+		return *et == h
+	}
+	if h, ok := other.(*Event); ok {
+		if et == h {
+			return true
+		}
+		if et == nil && h != nil || et != nil && h == nil {
+			return false
+		}
+
+		return *et == *h
+	}
+
+	return false
+}
