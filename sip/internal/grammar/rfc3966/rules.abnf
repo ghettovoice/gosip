@@ -1,0 +1,30 @@
+; RFC 3966 Section 3.
+; https://www.rfc-editor.org/rfc/rfc3966#section-3
+
+telephone-uri        = "tel:" telephone-subscriber
+telephone-subscriber = global-number / local-number
+global-number        = global-number-digits *par
+local-number         = local-number-digits *par context *par
+par                  = extension / isdn-subaddress / parameter
+isdn-subaddress      = ";isub=" 1*paramchar
+extension            = ";ext=" 1*phonedigit
+context              = ";phone-context=" descriptor
+descriptor           = domainname / global-number-digits
+global-number-digits = "+" *phonedigit DIGIT *phonedigit
+local-number-digits  = *phonedigit-hex ( HEXDIG / "*" / "#" ) *phonedigit-hex
+domainname           = *( domainlabel "." ) toplabel [ "." ]
+domainlabel          = alphanum / alphanum *( alphanum / "-" ) alphanum
+toplabel             = ALPHA / ALPHA *( alphanum / "-" ) alphanum
+parameter            = ";" pname ["=" pvalue ]
+pname                = 1*( alphanum / "-" )
+pvalue               = 1*paramchar
+paramchar            = param-unreserved / unreserved / escaped
+unreserved           = alphanum / mark
+mark                 = "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")"
+escaped              = "%" HEXDIG HEXDIG
+param-unreserved     = "[" / "]" / "/" / ":" / "&" / "+" / "$"
+phonedigit           = DIGIT / visual-separator
+phonedigit-hex       = HEXDIG / "*" / "#" / visual-separator
+visual-separator     = "-" / "." / "(" / ")"
+alphanum             = ALPHA / DIGIT
+reserved             = ";" / "/" / "?" / ":" / "@" / "&" / "=" / "+" / "$" / ","

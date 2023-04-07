@@ -2,6 +2,9 @@
   <profile version="1.0">
     <option name="myName" value="Project Default" />
     <inspection_tool class="CheckEmptyScriptTag" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="EmptyDirectory" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="onlyReportDirectoriesUnderSourceRoots" value="true" />
+    </inspection_tool>
     <inspection_tool class="Eslint" enabled="true" level="ERROR" enabled_by_default="true" />
     <inspection_tool class="ForgottenDebugOutputInspection" enabled="true" level="ERROR" enabled_by_default="true">
       <option name="configuration">
@@ -69,6 +72,13 @@
       </option>
       <option name="migratedIntoUserSpace" value="true" />
     </inspection_tool>
+    <inspection_tool class="GoContextTodo" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
+    <inspection_tool class="GoNameStartsWithPackageName" enabled="true" level="INFORMATION" enabled_by_default="true" />
+    <inspection_tool class="GoReservedWordUsedAsName" enabled="true" level="INFORMATION" enabled_by_default="true" />
+    <inspection_tool class="GoShadowedVar" enabled="true" level="INFORMATION" enabled_by_default="true" />
+    <inspection_tool class="GoStructInitializationWithoutFieldNames" enabled="true" level="INFORMATION" enabled_by_default="true" />
+    <inspection_tool class="GoUnhandledErrorResult" enabled="true" level="INFORMATION" enabled_by_default="true" />
+    <inspection_tool class="GoUnnecessarilyExportedIdentifiers" enabled="true" level="INFORMATION" enabled_by_default="true" editorAttributes="INFORMATION_ATTRIBUTES" />
     <inspection_tool class="HtmlUnknownAttribute" enabled="true" level="WARNING" enabled_by_default="true">
       <option name="myValues">
         <value>
@@ -87,6 +97,41 @@
       </option>
       <option name="myCustomValuesEnabled" value="true" />
     </inspection_tool>
+    <inspection_tool class="HttpUrlsUsage" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="ignoredUrls">
+        <list>
+          <option value="http://0.0.0.0" />
+          <option value="http://127.0.0.1" />
+          <option value="http://activemq.apache.org/schema/" />
+          <option value="http://cxf.apache.org/schemas/" />
+          <option value="http://example.com" />
+          <option value="http://example.org" />
+          <option value="http://java.sun.com/" />
+          <option value="http://javafx.com/fxml" />
+          <option value="http://javafx.com/javafx/" />
+          <option value="http://json-schema.org/draft" />
+          <option value="http://localhost" />
+          <option value="http://maven.apache.org/POM/" />
+          <option value="http://maven.apache.org/xsd/" />
+          <option value="http://primefaces.org/ui" />
+          <option value="http://schema.cloudfoundry.org/spring/" />
+          <option value="http://schemas.xmlsoap.org/" />
+          <option value="http://tiles.apache.org/" />
+          <option value="http://www.example.com" />
+          <option value="http://www.ibm.com/webservices/xsd" />
+          <option value="http://www.jboss.com/xml/ns/" />
+          <option value="http://www.jboss.org/j2ee/schema/" />
+          <option value="http://www.springframework.org/schema/" />
+          <option value="http://www.springframework.org/security/tags" />
+          <option value="http://www.springframework.org/tags" />
+          <option value="http://www.thymeleaf.org" />
+          <option value="http://www.w3.org/" />
+          <option value="http://xmlns.jcp.org/" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="InconsistentLineSeparators" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ProblematicWhitespace" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="SecurityAdvisoriesInspection" enabled="true" level="WARNING" enabled_by_default="true">
       <option name="optionConfiguration">
         <list>
@@ -142,5 +187,11 @@
         </list>
       </option>
     </inspection_tool>
+    <inspection_tool class="SpellCheckingInspection" enabled="true" level="INFORMATION" enabled_by_default="true">
+      <option name="processCode" value="true" />
+      <option name="processLiterals" value="true" />
+      <option name="processComments" value="true" />
+    </inspection_tool>
+    <inspection_tool class="TodoComment" enabled="true" level="WARNING" enabled_by_default="true" />
   </profile>
 </component>

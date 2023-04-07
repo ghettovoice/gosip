@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestGosip(t *testing.T) {
+func TestGoSIP(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "GoSip Suite")
+	RunSpecs(t, "GoSIP Suite")
 }
