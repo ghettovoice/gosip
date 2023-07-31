@@ -24,30 +24,37 @@ type Authorization struct {
 	other     map[string]string
 }
 
+func trimQuotes(s string) string {
+	if len(s) > 1 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
 func AuthFromValue(value string) *Authorization {
 	auth := &Authorization{
 		algorithm: "MD5",
 		other:     make(map[string]string),
 	}
 
-	re := regexp.MustCompile(`([\w]+)="([^"]+)"`)
+	re := regexp.MustCompile(`(\w+)=("[^"]+"|[^,\s]+)`)
 	matches := re.FindAllStringSubmatch(value, -1)
 	for _, match := range matches {
 		switch match[1] {
 		case "realm":
-			auth.realm = match[2]
+			auth.realm = trimQuotes(match[2])
 		case "algorithm":
-			auth.algorithm = match[2]
+			auth.algorithm = trimQuotes(match[2])
 		case "nonce":
-			auth.nonce = match[2]
+			auth.nonce = trimQuotes(match[2])
 		case "username":
-			auth.username = match[2]
+			auth.username = trimQuotes(match[2])
 		case "uri":
-			auth.uri = match[2]
+			auth.uri = trimQuotes(match[2])
 		case "response":
-			auth.response = match[2]
+			auth.response = trimQuotes(match[2])
 		case "qop":
-			for _, v := range strings.Split(match[2], ",") {
+			for _, v := range strings.Split(trimQuotes(match[2]), ",") {
 				v = strings.Trim(v, " ")
 				if v == "auth" || v == "auth-int" {
 					auth.qop = "auth"
@@ -55,11 +62,11 @@ func AuthFromValue(value string) *Authorization {
 				}
 			}
 		case "nc":
-			auth.nc = match[2]
+			auth.nc = trimQuotes(match[2])
 		case "cnonce":
-			auth.cnonce = match[2]
+			auth.cnonce = trimQuotes(match[2])
 		default:
-			auth.other[match[1]] = match[2]
+			auth.other[match[1]] = trimQuotes(match[2])
 		}
 	}
 
