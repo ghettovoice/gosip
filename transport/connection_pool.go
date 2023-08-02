@@ -572,6 +572,9 @@ func (handler *connectionHandler) readStream() {
 }
 
 func (handler *connectionHandler) readPacket() {
+	handler.Log().Debug("begin read connection")
+	defer handler.Log().Debug("stop read connection")
+
 	buf := make([]byte, bufferSize)
 	pktPrs := parser.NewPacketParser(handler.Log())
 	var (
@@ -579,25 +582,21 @@ func (handler *connectionHandler) readPacket() {
 		err   error
 		raddr net.Addr
 	)
-	handler.Log().Debug("begin read connection")
-	defer handler.Log().Debug("stop read connection")
 	for {
 		num, raddr, err = handler.Connection().ReadFrom(buf)
 		if err != nil {
+			handler.handleError(err, "")
 			return
 		}
 		if len(bytes.Trim(buf[:num], "\x00")) == 0 {
 			continue
 		}
-		cloned := make([]byte, num)
-		copy(cloned, buf[:num])
-		go func(data []byte, addr net.Addr) {
-			if msg, err := pktPrs.ParseMessage(data); err != nil {
-				handler.handleError(err, addr.String())
-			} else {
-				handler.handleMessage(msg, addr.String())
-			}
-		}(cloned, raddr)
+
+		if msg, err := pktPrs.ParseMessage(buf[:num]); err == nil {
+			handler.handleMessage(msg, raddr.String())
+		} else {
+			handler.handleError(err, raddr.String())
+		}
 	}
 }
 
