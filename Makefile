@@ -3,15 +3,16 @@ LDFLAGS=-ldflags "-X gosip.Version=${VERSION}"
 GOFLAGS=
 
 install:
-	go get -v github.com/wadey/gocovmerge
+	#go get -v github.com/wadey/gocovmerge
 	go get -v -t ./...
-	go install -mod=mod github.com/onsi/ginkgo/...
+	#go install -mod=mod github.com/onsi/ginkgo/...
 
 test:
-	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --progress $(GOFLAGS)
+	#ginkgo -r --trace --race --compilers=2 $(GOFLAGS)
+	go test -race ./...
 
 test-%:
-	ginkgo -r --randomizeAllSpecs --randomizeSuites --cover --trace --race --compilers=2 --progress $(GOFLAGS) ./$*
+	ginkgo -r --trace --race --compilers=2 $(GOFLAGS) ./$*
 
 test-watch:
 	ginkgo watch -r --trace --race $(GOFLAGS)
