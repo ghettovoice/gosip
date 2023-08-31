@@ -34,10 +34,10 @@ type Logger interface {
 	WithPrefix(prefix string) Logger
 	Prefix() string
 
-	WithFields(fields Fields) Logger
+	WithFields(fields map[string]interface{}) Logger
 	Fields() Fields
 
-	SetLevel(level Level)
+	SetLevel(level uint32)
 }
 
 type Loggable interface {
