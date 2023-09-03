@@ -120,14 +120,14 @@ func (l *LogrusLogger) Panicf(format string, args ...interface{}) {
 }
 
 func (l *LogrusLogger) WithPrefix(prefix string) Logger {
-	return NewLogrusLogger(l.log, prefix, l.Fields())
+	return NewLogrusLogger(l.log, prefix, map[string]interface{}(l.Fields()))
 }
 
 func (l *LogrusLogger) Prefix() string {
 	return l.prefix
 }
 
-func (l *LogrusLogger) WithFields(fields Fields) Logger {
+func (l *LogrusLogger) WithFields(fields map[string]interface{}) Logger {
 	return NewLogrusLogger(l.log, l.Prefix(), l.Fields().WithFields(fields))
 }
 
@@ -141,7 +141,7 @@ func (l *LogrusLogger) prepareEntry() *logrus.Entry {
 		WithField("prefix", l.Prefix())
 }
 
-func (l *LogrusLogger) SetLevel(level Level) {
+func (l *LogrusLogger) SetLevel(level uint32) {
 	if ll, ok := l.log.(*logrus.Logger); ok {
 		ll.SetLevel(logrus.Level(level))
 	}
