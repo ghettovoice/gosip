@@ -52,6 +52,7 @@ func NewTlsProtocol(
 	}
 	p.dial = func(addr *net.TCPAddr) (net.Conn, error) {
 		return tls.Dial("tcp", addr.String(), &tls.Config{
+			InsecureSkipVerify: true,
 			VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 				return nil
 			},
