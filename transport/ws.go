@@ -44,8 +44,8 @@ func (wc *wsConn) Read(b []byte) (n int, err error) {
 	if op == ws.OpClose {
 		return n, io.EOF
 	}
-	copy(b, msg)
-	return len(msg), err
+	n = copy(b, msg)
+	return n, err
 }
 
 func (wc *wsConn) Write(b []byte) (n int, err error) {
@@ -157,7 +157,7 @@ func (p *wsProtocol) Done() <-chan struct{} {
 	return p.connections.Done()
 }
 
-//piping new connections to connection pool for serving
+// piping new connections to connection pool for serving
 func (p *wsProtocol) pipePools() {
 	defer close(p.conns)
 
