@@ -302,7 +302,7 @@ func (tx *serverTx) initInviteFSM() {
 			server_input_user_1xx:      {server_state_accepted, fsm.NO_ACTION},
 			server_input_user_2xx:      {server_state_accepted, tx.act_respond},
 			server_input_user_300_plus: {server_state_accepted, fsm.NO_ACTION},
-			server_input_transport_err: {server_state_accepted, fsm.NO_ACTION},
+			server_input_transport_err: {server_state_terminated, tx.act_trans_err},
 			server_input_timer_l:       {server_state_terminated, tx.act_delete},
 		},
 	}
@@ -498,6 +498,10 @@ func (tx *serverTx) delete() {
 	if tx.timer_j != nil {
 		tx.timer_j.Stop()
 		tx.timer_j = nil
+	}
+	if tx.timer_l != nil {
+		tx.timer_l.Stop()
+		tx.timer_l = nil
 	}
 	if tx.timer_1xx != nil {
 		tx.timer_1xx.Stop()
