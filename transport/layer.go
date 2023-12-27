@@ -235,7 +235,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 
 		// rewrite sent-by port
 		if viaHop.Port == nil {
-			if ports, ok := tpl.listenPorts[network]; ok {
+			if ports, ok := tpl.listenPorts[network]; ok && (len(ports) > 0) {
 				port := ports[rand.Intn(len(ports))]
 				viaHop.Port = &port
 			} else {
