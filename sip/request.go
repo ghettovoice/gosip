@@ -271,7 +271,7 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 		recipient,
 		inviteRequest.SipVersion(),
 		[]Header{},
-		body,
+		"",
 		inviteRequest.Fields().
 			WithFields(fields).
 			WithFields(log.Fields{
@@ -312,7 +312,7 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 	cseq, _ := ackRequest.CSeq()
 	cseq.MethodName = ACK
 
-	ackRequest.SetBody("", true)
+	ackRequest.SetBody(body, true)
 	ackRequest.SetTransport(inviteRequest.Transport())
 	ackRequest.SetSource(inviteRequest.Source())
 	ackRequest.SetDestination(inviteRequest.Destination())
