@@ -323,6 +323,8 @@ var _ = Describe("GoSIP Server", func() {
 				num, err = conn.Write([]byte(res.String()))
 				Expect(err).ShouldNot(HaveOccurred())
 
+				time.Sleep(100 * time.Millisecond)
+
 				return
 			}
 		}()
