@@ -686,7 +686,11 @@ func (handler *connectionHandler) handleMessage(msg sip.Message, raddr string) {
 	}))
 
 	// pass up
-	handler.output <- msg
+	select {
+	case <-handler.canceled:
+		return
+	case handler.output <- msg:
+	}
 
 	if !handler.Expiry().IsZero() {
 		handler.expiry = time.Now().Add(handler.ttl)
