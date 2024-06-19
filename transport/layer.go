@@ -286,9 +286,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 				}
 			}
 		}
-		if msg.Recipient() != nil && msg.Recipient().UriParams() != nil {
-			msg.Recipient().UriParams().Remove("transport")
-		}
+
 		logger := log.AddFieldsFrom(tpl.Log(), protocol, msg)
 		logger.Debugf("sending SIP request:\n%s", msg)
 
