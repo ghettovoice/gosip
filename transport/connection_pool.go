@@ -58,9 +58,10 @@ type connectionPool struct {
 	errs   chan<- error
 	cancel <-chan struct{}
 
-	done  chan struct{}
-	hmess chan sip.Message
-	herrs chan error
+	done     chan struct{}
+	hmess    chan sip.Message
+	herrs    chan error
+	srvhDone chan struct{}
 
 	hwg sync.WaitGroup
 	mu  sync.RWMutex
@@ -83,9 +84,10 @@ func NewConnectionPool(
 		errs:   errs,
 		cancel: cancel,
 
-		done:  make(chan struct{}),
-		hmess: make(chan sip.Message),
-		herrs: make(chan error),
+		done:     make(chan struct{}),
+		hmess:    make(chan sip.Message),
+		herrs:    make(chan error),
+		srvhDone: make(chan struct{}),
 	}
 
 	pool.log = logger.
@@ -200,12 +202,15 @@ func (pool *connectionPool) dispose() {
 	close(pool.hmess)
 	close(pool.herrs)
 
+	<-pool.srvhDone
 	close(pool.done)
 }
 
 func (pool *connectionPool) serveHandlers() {
 	pool.Log().Debug("begin serve connection handlers")
 	defer pool.Log().Debug("stop serve connection handlers")
+
+	defer close(pool.srvhDone)
 
 	for {
 		logger := pool.Log()
