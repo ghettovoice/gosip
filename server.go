@@ -293,14 +293,21 @@ func (srv *server) requestWithContext(
 	attempt int,
 	options ...RequestWithContextOption,
 ) (sip.Response, error) {
+	optionsHash := &RequestWithContextOptions{}
+	for _, opt := range options {
+		opt.ApplyRequestWithContext(optionsHash)
+	}
+
 	tx, err := srv.Request(request)
 	if err != nil {
 		return nil, err
 	}
 
-	optionsHash := &RequestWithContextOptions{}
-	for _, opt := range options {
-		opt.ApplyRequestWithContext(optionsHash)
+	if optionsHash.OnAck != nil {
+		tx.OnAck(optionsHash.OnAck)
+	}
+	if optionsHash.OnCancel != nil {
+		tx.OnCancel(optionsHash.OnCancel)
 	}
 
 	txResponses := tx.Responses()

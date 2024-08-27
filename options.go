@@ -9,6 +9,11 @@ type RequestWithContextOption interface {
 type RequestWithContextOptions struct {
 	ResponseHandler func(res sip.Response, request sip.Request)
 	Authorizer      sip.Authorizer
+	ClientTransactionCallbacks
+}
+
+type ClientTransactionCallbacks struct {
+	OnAck, OnCancel func(sip.Request)
 }
 
 type withResponseHandler struct {
@@ -33,4 +38,17 @@ func (o withAuthorizer) ApplyRequestWithContext(options *RequestWithContextOptio
 
 func WithAuthorizer(authorizer sip.Authorizer) RequestWithContextOption {
 	return withAuthorizer{authorizer}
+}
+
+type withClientTxCallbacks struct {
+	onAckFn, onCancFn func(sip.Request)
+}
+
+func WithClientTransactionCallbacks(callbacks ClientTransactionCallbacks) RequestWithContextOption {
+	return withClientTxCallbacks{callbacks.OnAck, callbacks.OnCancel}
+}
+
+func (o withClientTxCallbacks) ApplyRequestWithContext(options *RequestWithContextOptions) {
+	options.OnAck = o.onAckFn
+	options.OnCancel = o.onCancFn
 }

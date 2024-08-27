@@ -16,6 +16,9 @@ type ClientTx interface {
 	Tx
 	Responses() <-chan sip.Response
 	Cancel() error
+
+	OnAck(fn func(sip.Request))
+	OnCancel(fn func(sip.Request))
 }
 
 type clientTx struct {
@@ -31,6 +34,8 @@ type clientTx struct {
 
 	mu        sync.RWMutex
 	closeOnce sync.Once
+
+	onAckFn, onCancFn func(sip.Request)
 }
 
 func NewClientTx(origin sip.Request, tpl sip.Transport, logger log.Logger) (ClientTx, error) {
@@ -231,11 +236,15 @@ func (tx *clientTx) cancel() {
 
 	tx.mu.RLock()
 	lastResp := tx.lastResp
+	onCanc := tx.onCancFn
 	tx.mu.RUnlock()
 
 	cancelRequest := sip.NewCancelRequest("", tx.Origin(), log.Fields{
 		"sent_at": time.Now(),
 	})
+	if onCanc != nil {
+		onCanc(cancelRequest)
+	}
 	if err := tx.tpl.Send(cancelRequest); err != nil {
 		var lastRespStr string
 		if lastResp != nil {
@@ -264,11 +273,15 @@ func (tx *clientTx) cancel() {
 func (tx *clientTx) ack() {
 	tx.mu.RLock()
 	lastResp := tx.lastResp
+	onAck := tx.onAckFn
 	tx.mu.RUnlock()
 
 	ack := sip.NewAckRequest("", tx.Origin(), lastResp, "", log.Fields{
 		"sent_at": time.Now(),
 	})
+	if onAck != nil {
+		onAck(ack)
+	}
 	err := tx.tpl.Send(ack)
 	if err != nil {
 		tx.Log().WithFields(log.Fields{
@@ -623,6 +636,18 @@ func (tx *clientTx) delete() {
 		tx.timer_m.Stop()
 		tx.timer_m = nil
 	}
+	tx.mu.Unlock()
+}
+
+func (tx *clientTx) OnAck(fn func(sip.Request)) {
+	tx.mu.Lock()
+	tx.onAckFn = fn
+	tx.mu.Unlock()
+}
+
+func (tx *clientTx) OnCancel(fn func(sip.Request)) {
+	tx.mu.Lock()
+	tx.onCancFn = fn
 	tx.mu.Unlock()
 }
 

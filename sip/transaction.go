@@ -25,4 +25,7 @@ type ClientTransaction interface {
 	Transaction
 	Responses() <-chan Response
 	Cancel() error
+
+	OnAck(fn func(Request))
+	OnCancel(fn func(Request))
 }
