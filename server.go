@@ -216,7 +216,7 @@ func (srv *server) serve() {
 			var ferr *sip.MalformedMessageError
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
 				srv.Log().Debugf("received SIP transport error: %s", err)
-			} else if errors.As(err, &ferr) {
+			} else if errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &ferr) {
 				srv.Log().Warnf("received SIP transport error: %s", err)
 			} else {
 				srv.Log().Errorf("received SIP transport error: %s", err)
