@@ -206,20 +206,17 @@ func (srv *server) serve() {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
 				srv.Log().Debugf("received SIP transaction error: %s", err)
 			} else {
-				srv.Log().Errorf("received SIP transaction error: %s", err)
+				srv.Log().Warnf("received SIP transaction error: %s", err)
 			}
 		case err, ok := <-srv.tp.Errors():
 			if !ok {
 				return
 			}
 
-			var ferr *sip.MalformedMessageError
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
 				srv.Log().Debugf("received SIP transport error: %s", err)
-			} else if errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &ferr) {
-				srv.Log().Warnf("received SIP transport error: %s", err)
 			} else {
-				srv.Log().Errorf("received SIP transport error: %s", err)
+				srv.Log().Warnf("received SIP transport error: %s", err)
 			}
 		}
 	}
