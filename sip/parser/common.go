@@ -823,7 +823,7 @@ func parseViaHeader(headerName string, headerText string) (
 		var port *sip.Port
 		if paramsIdx == -1 {
 			// There are no header parameters, so the rest of the Via body is part of the host[:post].
-			host, port, err = ParseHostPort(viaBody)
+			host, port, err = ParseHostPort(strings.Trim(viaBody, abnfWs))
 			hop.Host = host
 			hop.Port = port
 			if err != nil {
@@ -831,14 +831,14 @@ func parseViaHeader(headerName string, headerText string) (
 			}
 			hop.Params = sip.NewParams()
 		} else {
-			host, port, err = ParseHostPort(viaBody[:paramsIdx])
+			host, port, err = ParseHostPort(strings.Trim(viaBody[:paramsIdx], abnfWs))
 			if err != nil {
 				return
 			}
 			hop.Host = host
 			hop.Port = port
 
-			hop.Params, _, err = ParseParams(viaBody[paramsIdx:],
+			hop.Params, _, err = ParseParams(strings.Trim(viaBody[paramsIdx:], abnfWs),
 				';', ';', 0, true, true)
 		}
 		via = append(via, &hop)
@@ -1096,7 +1096,7 @@ func ParseAddressValue(addressText string) (
 	}
 
 	// Now parse the SIP URI.
-	uri, err = ParseUri(addressText[:endOfUri])
+	uri, err = ParseUri(strings.TrimSpace(addressText[:endOfUri]))
 	if err != nil {
 		return
 	}

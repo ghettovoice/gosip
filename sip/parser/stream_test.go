@@ -1084,7 +1084,7 @@ func TestViaHeaders(t *testing.T) {
 		{viaInput("Via: SIP/2.0/UDP box;foo=bar"), &viaResult{pass, sip.ViaHeader{&sip.ViaHop{"SIP", "2.0", "UDP", "box", nil, fooEqBar}}}},
 		{viaInput("Via: SIP/2.0/UDP box:5060;foo=bar"), &viaResult{pass, sip.ViaHeader{&sip.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, fooEqBar}}}},
 		{viaInput("Via: SIP/2.0/UDP box:5060;foo"), &viaResult{pass, sip.ViaHeader{&sip.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, singleFoo}}}},
-		{viaInput("Via: SIP/2.0/UDP box:5060;foo=//bar"), &viaResult{pass, sip.ViaHeader{&sip.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, fooEqSlashBar}}}},
+		{viaInput("Via: SIP/2.0/UDP    box:5060;foo=//bar"), &viaResult{pass, sip.ViaHeader{&sip.ViaHop{"SIP", "2.0", "UDP", "box", &port5060, fooEqSlashBar}}}},
 		{viaInput("Via: /2.0/UDP box:5060;foo=bar"), &viaResult{fail, sip.ViaHeader{}}},
 		{viaInput("Via: SIP//UDP box:5060;foo=bar"), &viaResult{fail, sip.ViaHeader{}}},
 		{viaInput("Via: SIP/2.0/ box:5060;foo=bar"), &viaResult{fail, sip.ViaHeader{}}},
