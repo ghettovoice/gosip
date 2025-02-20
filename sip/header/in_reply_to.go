@@ -7,18 +7,18 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type InReplyTo []CallID
 
-func (hdr InReplyTo) HeaderName() string { return "In-Reply-To" }
+func (InReplyTo) CanonicName() Name { return "In-Reply-To" }
 
-func (hdr InReplyTo) RenderHeaderTo(w io.Writer) error {
+func (hdr InReplyTo) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -26,21 +26,21 @@ func (hdr InReplyTo) RenderHeaderTo(w io.Writer) error {
 
 func (hdr InReplyTo) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
 
-func (hdr InReplyTo) RenderHeader() string {
+func (hdr InReplyTo) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr InReplyTo) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }

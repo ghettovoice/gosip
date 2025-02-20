@@ -8,16 +8,16 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/internal/utils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 	"github.com/ghettovoice/gosip/sip/uri"
 )
 
 type AuthCredentials interface {
-	AuthCredentialsScheme() string
-	RenderAuthCredentials() string
-	RenderAuthCredentialsTo(io.Writer) error
+	Render() string
+	RenderTo(w io.Writer) error
 	Clone() AuthCredentials
 }
 
@@ -26,13 +26,13 @@ type Authorization struct {
 	AuthCredentials
 }
 
-func (hdr *Authorization) HeaderName() string { return "Authorization" }
+func (*Authorization) CanonicName() Name { return "Authorization" }
 
-func (hdr *Authorization) RenderHeaderTo(w io.Writer) error {
+func (hdr *Authorization) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -40,30 +40,30 @@ func (hdr *Authorization) RenderHeaderTo(w io.Writer) error {
 
 func (hdr *Authorization) renderValue(w io.Writer) error {
 	if hdr.AuthCredentials != nil {
-		if err := hdr.AuthCredentials.RenderAuthCredentialsTo(w); err != nil {
+		if err := hdr.AuthCredentials.RenderTo(w); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (hdr *Authorization) RenderHeader() string {
+func (hdr *Authorization) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *Authorization) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.renderValue(sb)
 	return sb.String()
 }
 
@@ -102,10 +102,10 @@ func (hdr *Authorization) IsValid() bool {
 
 func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
 	var hdr Authorization
-	node = utils.MustGetNode(node, "credentials")
-	switch scheme := node.Children[0].Children[0].String(); utils.LCase(scheme) {
+	node = abnfutils.MustGetNode(node, "credentials")
+	switch scheme := node.Children[0].Children[0].String(); stringutils.LCase(scheme) {
 	case "digest":
-		crd := &DigestAuthCredentials{}
+		crd := &DigestCredentials{}
 		hdr.AuthCredentials = crd
 		for _, paramNode := range node.GetNodes("dig-resp") {
 			paramNode = paramNode.Children[0]
@@ -140,11 +140,11 @@ func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
 			}
 		}
 	case "bearer":
-		hdr.AuthCredentials = &BearerAuthCredentials{
-			Token: utils.MustGetNode(node, "bearer-response").String(),
+		hdr.AuthCredentials = &BearerCredentials{
+			Token: abnfutils.MustGetNode(node, "bearer-response").String(),
 		}
 	default:
-		crd := &GenericAuthCredentials{
+		crd := &AnyCredentials{
 			Scheme: node.Children[0].Children[0].String(),
 		}
 		hdr.AuthCredentials = crd
@@ -158,8 +158,8 @@ func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
 	return &hdr
 }
 
-// DigestAuthCredentials represents the digest authentication credentials.
-type DigestAuthCredentials struct {
+// DigestCredentials represents the digest authentication credentials.
+type DigestCredentials struct {
 	Username,
 	Realm,
 	Nonce,
@@ -173,9 +173,7 @@ type DigestAuthCredentials struct {
 	Params     Values
 }
 
-func (crd *DigestAuthCredentials) AuthCredentialsScheme() string { return "Digest" }
-
-func (crd *DigestAuthCredentials) Clone() AuthCredentials {
+func (crd *DigestCredentials) Clone() AuthCredentials {
 	if crd == nil {
 		return nil
 	}
@@ -185,15 +183,16 @@ func (crd *DigestAuthCredentials) Clone() AuthCredentials {
 	return &crd2
 }
 
-func (crd *DigestAuthCredentials) RenderAuthCredentialsTo(w io.Writer) error {
+//nolint:gocognit
+func (crd *DigestCredentials) RenderTo(w io.Writer) error {
 	if crd == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, crd.AuthCredentialsScheme(), " "); err != nil {
+	if _, err := fmt.Fprint(w, "Digest "); err != nil {
 		return err
 	}
 
-	var kvs [][]string
+	var kvs [][]string //nolint:prealloc
 	// resolve and write all non-empty std scalar parameters in alphabet order
 	for k, v := range map[string]string{
 		"username":  crd.Username,
@@ -218,7 +217,7 @@ func (crd *DigestAuthCredentials) RenderAuthCredentialsTo(w io.Writer) error {
 		kvs = append(kvs, []string{"nc", fmt.Sprintf("%08x", crd.NonceCount)})
 	}
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, utils.CmpKVs)
+		slices.SortFunc(kvs, stringutils.CmpKVs)
 		for i, kv := range kvs {
 			if i > 0 {
 				if _, err := fmt.Fprint(w, ", "); err != nil {
@@ -237,7 +236,7 @@ func (crd *DigestAuthCredentials) RenderAuthCredentialsTo(w io.Writer) error {
 				return err
 			}
 		}
-		if err := utils.RenderTo(w, "uri=\"", crd.URI, "\""); err != nil {
+		if err := stringutils.RenderTo(w, "uri=\"", crd.URI, "\""); err != nil {
 			return err
 		}
 	}
@@ -253,9 +252,9 @@ func (crd *DigestAuthCredentials) RenderAuthCredentialsTo(w io.Writer) error {
 		clear(kvs)
 		kvs = kvs[:0]
 		for k := range crd.Params {
-			kvs = append(kvs, []string{utils.LCase(k), crd.Params.Last(k)})
+			kvs = append(kvs, []string{stringutils.LCase(k), crd.Params.Last(k)})
 		}
-		slices.SortFunc(kvs, utils.CmpKVs)
+		slices.SortFunc(kvs, stringutils.CmpKVs)
 		for i, kv := range kvs {
 			if i > 0 {
 				if _, err := fmt.Fprint(w, ", "); err != nil {
@@ -271,29 +270,29 @@ func (crd *DigestAuthCredentials) RenderAuthCredentialsTo(w io.Writer) error {
 	return nil
 }
 
-func (crd *DigestAuthCredentials) RenderAuthCredentials() string {
+func (crd *DigestCredentials) Render() string {
 	if crd == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	crd.RenderAuthCredentialsTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = crd.RenderTo(sb)
 	return sb.String()
 }
 
-func (crd *DigestAuthCredentials) String() string {
+func (crd *DigestCredentials) String() string {
 	if crd == nil {
-		return "<nil>"
+		return nilTag
 	}
-	return crd.RenderAuthCredentials()
+	return crd.Render()
 }
 
-func (crd *DigestAuthCredentials) Equal(val any) bool {
-	var other *DigestAuthCredentials
+func (crd *DigestCredentials) Equal(val any) bool {
+	var other *DigestCredentials
 	switch v := val.(type) {
-	case DigestAuthCredentials:
+	case DigestCredentials:
 		other = &v
-	case *DigestAuthCredentials:
+	case *DigestCredentials:
 		other = v
 	default:
 		return false
@@ -306,19 +305,19 @@ func (crd *DigestAuthCredentials) Equal(val any) bool {
 	}
 
 	return crd.Username == other.Username &&
-		utils.LCase(crd.Realm) == utils.LCase(other.Realm) &&
+		stringutils.LCase(crd.Realm) == stringutils.LCase(other.Realm) &&
 		crd.Nonce == other.Nonce &&
 		crd.Response == other.Response &&
-		utils.LCase(crd.Algorithm) == utils.LCase(other.Algorithm) &&
+		stringutils.LCase(crd.Algorithm) == stringutils.LCase(other.Algorithm) &&
 		crd.CNonce == other.CNonce &&
 		crd.Opaque == other.Opaque &&
-		utils.LCase(crd.QOP) == utils.LCase(other.QOP) &&
+		stringutils.LCase(crd.QOP) == stringutils.LCase(other.QOP) &&
 		crd.NonceCount == other.NonceCount &&
 		utils.IsEqual(crd.URI, other.URI) &&
 		compareHeaderParams(crd.Params, other.Params, nil)
 }
 
-func (crd *DigestAuthCredentials) IsValid() bool {
+func (crd *DigestCredentials) IsValid() bool {
 	return crd != nil &&
 		crd.Username != "" && crd.Realm != "" && crd.Nonce != "" &&
 		len(crd.Response) == 32 &&
@@ -327,14 +326,12 @@ func (crd *DigestAuthCredentials) IsValid() bool {
 		utils.IsValid(crd.URI) && validateHeaderParams(crd.Params)
 }
 
-// BearerAuthCredentials represents the bearer authentication credentials.
-type BearerAuthCredentials struct {
+// BearerCredentials represents the bearer authentication credentials.
+type BearerCredentials struct {
 	Token string
 }
 
-func (crd *BearerAuthCredentials) AuthCredentialsScheme() string { return "Bearer" }
-
-func (crd *BearerAuthCredentials) Clone() AuthCredentials {
+func (crd *BearerCredentials) Clone() AuthCredentials {
 	if crd == nil {
 		return nil
 	}
@@ -342,37 +339,37 @@ func (crd *BearerAuthCredentials) Clone() AuthCredentials {
 	return &crd2
 }
 
-func (crd *BearerAuthCredentials) RenderAuthCredentialsTo(w io.Writer) error {
+func (crd *BearerCredentials) RenderTo(w io.Writer) error {
 	if crd == nil {
 		return nil
 	}
-	_, err := fmt.Fprint(w, crd.AuthCredentialsScheme(), " ", crd.Token)
+	_, err := fmt.Fprint(w, "Bearer ", crd.Token)
 	return err
 }
 
-func (crd *BearerAuthCredentials) RenderAuthCredentials() string {
+func (crd *BearerCredentials) Render() string {
 	if crd == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	crd.RenderAuthCredentialsTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = crd.RenderTo(sb)
 	return sb.String()
 }
 
-func (crd *BearerAuthCredentials) String() string {
+func (crd *BearerCredentials) String() string {
 	if crd == nil {
-		return "<nil>"
+		return nilTag
 	}
-	return crd.RenderAuthCredentials()
+	return crd.Render()
 }
 
-func (crd *BearerAuthCredentials) Equal(val any) bool {
-	var other *BearerAuthCredentials
+func (crd *BearerCredentials) Equal(val any) bool {
+	var other *BearerCredentials
 	switch v := val.(type) {
-	case BearerAuthCredentials:
+	case BearerCredentials:
 		other = &v
-	case *BearerAuthCredentials:
+	case *BearerCredentials:
 		other = v
 	default:
 		return false
@@ -387,17 +384,15 @@ func (crd *BearerAuthCredentials) Equal(val any) bool {
 	return crd.Token == other.Token
 }
 
-func (crd *BearerAuthCredentials) IsValid() bool { return crd != nil && crd.Token != "" }
+func (crd *BearerCredentials) IsValid() bool { return crd != nil && crd.Token != "" }
 
-// GenericAuthCredentials represents generic authentication credentials.
-type GenericAuthCredentials struct {
+// AnyCredentials represents generic authentication credentials.
+type AnyCredentials struct {
 	Scheme string
 	Params Values
 }
 
-func (crd *GenericAuthCredentials) AuthCredentialsScheme() string { return crd.Scheme }
-
-func (crd *GenericAuthCredentials) Clone() AuthCredentials {
+func (crd *AnyCredentials) Clone() AuthCredentials {
 	if crd == nil {
 		return nil
 	}
@@ -406,7 +401,7 @@ func (crd *GenericAuthCredentials) Clone() AuthCredentials {
 	return &crd2
 }
 
-func (crd *GenericAuthCredentials) RenderAuthCredentialsTo(w io.Writer) error {
+func (crd *AnyCredentials) RenderTo(w io.Writer) error {
 	if crd == nil {
 		return nil
 	}
@@ -416,10 +411,10 @@ func (crd *GenericAuthCredentials) RenderAuthCredentialsTo(w io.Writer) error {
 
 	kvs := make([][]string, 0, len(crd.Params))
 	for k := range crd.Params {
-		kvs = append(kvs, []string{utils.LCase(k), crd.Params.Last(k)})
+		kvs = append(kvs, []string{stringutils.LCase(k), crd.Params.Last(k)})
 	}
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, utils.CmpKVs)
+		slices.SortFunc(kvs, stringutils.CmpKVs)
 		for i, kv := range kvs {
 			if i > 0 {
 				if _, err := fmt.Fprint(w, ", "); err != nil {
@@ -435,29 +430,29 @@ func (crd *GenericAuthCredentials) RenderAuthCredentialsTo(w io.Writer) error {
 	return nil
 }
 
-func (crd *GenericAuthCredentials) RenderAuthCredentials() string {
+func (crd *AnyCredentials) Render() string {
 	if crd == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	crd.RenderAuthCredentialsTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = crd.RenderTo(sb)
 	return sb.String()
 }
 
-func (crd *GenericAuthCredentials) String() string {
+func (crd *AnyCredentials) String() string {
 	if crd == nil {
-		return "<nil>"
+		return nilTag
 	}
-	return crd.RenderAuthCredentials()
+	return crd.Render()
 }
 
-func (crd *GenericAuthCredentials) Equal(val any) bool {
-	var other *GenericAuthCredentials
+func (crd *AnyCredentials) Equal(val any) bool {
+	var other *AnyCredentials
 	switch v := val.(type) {
-	case GenericAuthCredentials:
+	case AnyCredentials:
 		other = &v
-	case *GenericAuthCredentials:
+	case *AnyCredentials:
 		other = v
 	default:
 		return false
@@ -469,13 +464,11 @@ func (crd *GenericAuthCredentials) Equal(val any) bool {
 		return false
 	}
 
-	return utils.LCase(crd.Scheme) == utils.LCase(other.Scheme) &&
+	return stringutils.LCase(crd.Scheme) == stringutils.LCase(other.Scheme) &&
 		compareHeaderParams(crd.Params, other.Params, nil)
 }
 
-func (crd *GenericAuthCredentials) IsValid() bool {
-	return crd != nil &&
-		grammar.IsToken(crd.Scheme) &&
-		len(crd.Params) > 0 &&
+func (crd *AnyCredentials) IsValid() bool {
+	return crd != nil && grammar.IsToken(crd.Scheme) && len(crd.Params) > 0 &&
 		validateHeaderParams(crd.Params)
 }

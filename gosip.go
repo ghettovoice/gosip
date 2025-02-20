@@ -2,5 +2,6 @@
 package gosip
 
 const (
-	Version = "0.1.0" // package version
+	// Version holds package version.
+	Version = "0.1.0"
 )

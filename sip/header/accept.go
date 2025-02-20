@@ -7,19 +7,19 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Accept []MIMERange
 
-func (hdr Accept) HeaderName() string { return "Accept" }
+func (Accept) CanonicName() Name { return "Accept" }
 
-func (hdr Accept) RenderHeaderTo(w io.Writer) error {
+func (hdr Accept) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -27,21 +27,21 @@ func (hdr Accept) RenderHeaderTo(w io.Writer) error {
 
 func (hdr Accept) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
 
-func (hdr Accept) RenderHeader() string {
+func (hdr Accept) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr Accept) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }
@@ -72,7 +72,7 @@ func buildFromAcceptNode(node *abnf.Node) Accept {
 	rngNodes := node.GetNodes("accept-range")
 	hdr := make(Accept, 0, len(rngNodes))
 	for _, rngNode := range rngNodes {
-		mt, ps := buildFromMIMETypeNode(utils.MustGetNode(rngNode, "media-range"))
+		mt, ps := buildFromMIMETypeNode(abnfutils.MustGetNode(rngNode, "media-range"))
 		rng := MIMERange{MIMEType: mt}
 		if len(ps) > 0 {
 			rng.Params = make(Values, len(ps))
@@ -92,10 +92,10 @@ type MIMERange struct {
 }
 
 func (rng MIMERange) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteString(rng.MIMEType.String())
-	renderHeaderParams(sb, rng.Params, len(rng.MIMEType.Params) > 0)
+	_ = renderHeaderParams(sb, rng.Params, len(rng.MIMEType.Params) > 0)
 	return sb.String()
 }
 
@@ -112,18 +112,15 @@ func (rng MIMERange) Equal(val any) bool {
 	default:
 		return false
 	}
-	return rng.MIMEType.Equal(other.MIMEType) &&
-		compareHeaderParams(rng.Params, other.Params, map[string]bool{"q": true})
+	return rng.MIMEType.Equal(other.MIMEType) && compareHeaderParams(rng.Params, other.Params, map[string]bool{"q": true})
 }
 
 func (rng MIMERange) IsValid() bool {
-	return rng.MIMEType.IsValid() &&
-		validateHeaderParams(rng.Params)
+	return rng.MIMEType.IsValid() && validateHeaderParams(rng.Params)
 }
 
 func (rng MIMERange) IsZero() bool {
-	return rng.MIMEType.IsZero() &&
-		len(rng.Params) == 0
+	return rng.MIMEType.IsZero() && len(rng.Params) == 0
 }
 
 func (rng MIMERange) Clone() MIMERange {

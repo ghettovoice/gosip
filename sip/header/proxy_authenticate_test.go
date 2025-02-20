@@ -22,7 +22,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					"\tnonce=\"f84f1cec41e6cbe5aea9c8e88d359\",\r\n"+
 					"\topaque=\"\", stale=true, algorithm=MD5,\r\n"+
 					"\tp1=abc, p2=\"a b c\"",
-				&header.ProxyAuthenticate{&header.DigestAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
 						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
@@ -42,7 +42,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				"Proxy-Authenticate: Bearer realm=\"atlanta.com\",\r\n"+
 					"\tscope=\"abc\", authz_server=\"http://example.com\", error=\"qwerty\",\r\n"+
 					"\tp1=abc, p2=\"a b c\"",
-				&header.ProxyAuthenticate{&header.BearerAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
 					Realm:       "atlanta.com",
 					Scope:       "abc",
 					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
@@ -53,7 +53,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				"Proxy-Authenticate: Custom p1=abc, p2=\"a b c\"",
-				&header.ProxyAuthenticate{&header.GenericAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
 					Scheme: "Custom",
 					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				}},
@@ -67,7 +67,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, (*header.ProxyAuthenticate)(nil), ""),
 			Entry(nil, &header.ProxyAuthenticate{}, "Proxy-Authenticate: "),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.DigestAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
 						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
@@ -86,7 +86,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					"domain=\"sip:ss1.carrier.com http://example.com /a/b/c\", p1=abc, p2=\"a b c\"",
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.BearerAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
 					Realm:       "atlanta.com",
 					Scope:       "abc",
 					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
@@ -97,7 +97,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					"authz_server=\"http://example.com\", p1=abc, p2=\"a b c\"",
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.GenericAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
 					Scheme: "Custom",
 					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				}},
@@ -113,17 +113,17 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, &header.ProxyAuthenticate{}, (*header.ProxyAuthenticate)(nil), false),
 			Entry(nil, &header.ProxyAuthenticate{}, &header.ProxyAuthenticate{}, true),
 			Entry(nil,
-				&header.ProxyAuthenticate{(*header.DigestAuthChallenge)(nil)},
-				&header.ProxyAuthenticate{(*header.DigestAuthChallenge)(nil)},
+				&header.ProxyAuthenticate{AuthChallenge: (*header.DigestChallenge)(nil)},
+				&header.ProxyAuthenticate{AuthChallenge: (*header.DigestChallenge)(nil)},
 				true,
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{(*header.DigestAuthChallenge)(nil)},
-				&header.ProxyAuthenticate{(*header.BearerAuthChallenge)(nil)},
+				&header.ProxyAuthenticate{AuthChallenge: (*header.DigestChallenge)(nil)},
+				&header.ProxyAuthenticate{AuthChallenge: (*header.BearerChallenge)(nil)},
 				false,
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.DigestAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
 						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
@@ -137,7 +137,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					Opaque:    "qwerty",
 					Params:    make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				}},
-				header.ProxyAuthenticate{&header.DigestAuthChallenge{
+				header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
 					Realm: "ATLANTA.com",
 					Domain: []uri.URI{
 						&uri.SIP{Addr: uri.Host("SS1.CARRIER.COM")},
@@ -154,14 +154,14 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				true,
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.BearerAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
 					Realm:       "atlanta.com",
 					Scope:       "abc",
 					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
 					Error:       "qwerty",
 					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				}},
-				&header.ProxyAuthenticate{&header.BearerAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
 					Realm:       "ATLANTA.COM",
 					Scope:       "abc",
 					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
@@ -171,11 +171,11 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				true,
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.GenericAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
 					Scheme: "Custom",
 					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				}},
-				&header.ProxyAuthenticate{&header.GenericAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
 					Scheme: "CUSTOM",
 					Params: make(header.Values).Set("p1", "ABC").Set("p2", `"a b c"`),
 				}},
@@ -188,9 +188,9 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			// region
 			Entry(nil, (*header.ProxyAuthenticate)(nil), false),
 			Entry(nil, &header.ProxyAuthenticate{}, false),
-			Entry(nil, &header.ProxyAuthenticate{&header.DigestAuthChallenge{}}, false),
+			Entry(nil, &header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{}}, false),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.DigestAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
 						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
@@ -207,7 +207,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				true,
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.BearerAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
 					Realm:       "atlanta.com",
 					Scope:       "abc",
 					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
@@ -217,7 +217,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				true,
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.GenericAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
 					Scheme: "Custom",
 					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				}},
@@ -231,19 +231,19 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			func(hdr1, hdr2 *header.ProxyAuthenticate) {
 				Expect(reflect.ValueOf(hdr2).Pointer()).ToNot(Equal(reflect.ValueOf(hdr1).Pointer()))
 				switch cln1 := hdr1.AuthChallenge.(type) {
-				case *header.DigestAuthChallenge:
-					cln2 := hdr2.AuthChallenge.(*header.DigestAuthChallenge)
+				case *header.DigestChallenge:
+					cln2, _ := hdr2.AuthChallenge.(*header.DigestChallenge)
 					if cln1 == nil || reflect.ValueOf(cln1).IsNil() {
 						Expect(cln2).To(BeNil())
 					} else {
 						Expect(reflect.ValueOf(cln2).Pointer()).ToNot(Equal(reflect.ValueOf(cln1).Pointer()))
 						if len(cln1.QOP) == 0 {
-							Expect(cln2.QOP).To(HaveLen(0))
+							Expect(cln2.QOP).To(BeEmpty())
 						} else {
 							Expect(reflect.ValueOf(cln2.QOP).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.QOP).Pointer()))
 						}
 						if len(cln1.Domain) == 0 {
-							Expect(cln2.Domain).To(HaveLen(0))
+							Expect(cln2.Domain).To(BeEmpty())
 						} else {
 							Expect(reflect.ValueOf(cln2.Domain).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.Domain).Pointer()))
 							for i := range cln1.Domain {
@@ -256,8 +256,8 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Expect(reflect.ValueOf(cln2.Params).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.Params).Pointer()))
 						}
 					}
-				case *header.BearerAuthChallenge:
-					cln2 := hdr2.AuthChallenge.(*header.BearerAuthChallenge)
+				case *header.BearerChallenge:
+					cln2, _ := hdr2.AuthChallenge.(*header.BearerChallenge)
 					if cln1 == nil || reflect.ValueOf(cln1).IsNil() {
 						Expect(cln2).To(BeNil())
 					} else {
@@ -273,8 +273,8 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Expect(reflect.ValueOf(cln2.Params).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.Params).Pointer()))
 						}
 					}
-				case *header.GenericAuthChallenge:
-					cln2 := hdr2.AuthChallenge.(*header.GenericAuthChallenge)
+				case *header.AnyChallenge:
+					cln2, _ := hdr2.AuthChallenge.(*header.AnyChallenge)
 					if cln1 == nil || reflect.ValueOf(cln1).IsNil() {
 						Expect(cln2).To(BeNil())
 					} else {
@@ -291,7 +291,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, &header.ProxyAuthenticate{}),
 			// Entry(nil, &header.ProxyAuthenticate{(*header.DigestAuthChallenge)(nil)}),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.DigestAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
 						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
@@ -307,7 +307,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				}},
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.BearerAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
 					Realm:       "atlanta.com",
 					Scope:       "abc",
 					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
@@ -316,7 +316,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				}},
 			),
 			Entry(nil,
-				&header.ProxyAuthenticate{&header.GenericAuthChallenge{
+				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
 					Scheme: "Custom",
 					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				}},

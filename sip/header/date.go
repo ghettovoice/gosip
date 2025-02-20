@@ -8,21 +8,21 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Date struct {
 	time.Time
 }
 
-func (hdr *Date) HeaderName() string { return "Date" }
+func (*Date) CanonicName() Name { return "Date" }
 
-func (hdr *Date) RenderHeaderTo(w io.Writer) error {
+func (hdr *Date) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -33,23 +33,23 @@ func (hdr *Date) renderValue(w io.Writer) error {
 	return err
 }
 
-func (hdr *Date) RenderHeader() string {
+func (hdr *Date) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *Date) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.renderValue(sb)
 	return sb.String()
 }
 
@@ -84,6 +84,6 @@ func (hdr *Date) Equal(val any) bool {
 func (hdr *Date) IsValid() bool { return hdr != nil && !hdr.IsZero() }
 
 func buildFromDateNode(node *abnf.Node) *Date {
-	t, _ := time.Parse(http.TimeFormat, utils.MustGetNode(node, "rfc1123-date").String())
+	t, _ := time.Parse(http.TimeFormat, abnfutils.MustGetNode(node, "rfc1123-date").String())
 	return &Date{t}
 }

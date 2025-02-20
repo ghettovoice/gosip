@@ -13,9 +13,9 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 	Describe("Warning", func() {
 		assertHeaderParsing(
 			// region
-			Entry(nil, "Warning: ", &header.Any{"Warning", ""}, nil),
-			Entry(nil, "Warning: qwerty", &header.Any{"Warning", "qwerty"}, nil),
-			Entry(nil, "Warning: 307 isi.edu", &header.Any{"Warning", "307 isi.edu"}, nil),
+			Entry(nil, "Warning: ", &header.Any{Name: "Warning"}, nil),
+			Entry(nil, "Warning: qwerty", &header.Any{Name: "Warning", Value: "qwerty"}, nil),
+			Entry(nil, "Warning: 307 isi.edu", &header.Any{Name: "Warning", Value: "307 isi.edu"}, nil),
 			Entry(nil,
 				"Warning: 307 isi.edu \"\"",
 				header.Warning{

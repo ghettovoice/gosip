@@ -7,18 +7,18 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Route []EntityAddr
 
-func (hdr Route) HeaderName() string { return "Route" }
+func (Route) CanonicName() Name { return "Route" }
 
-func (hdr Route) RenderHeaderTo(w io.Writer) error {
+func (hdr Route) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -26,21 +26,21 @@ func (hdr Route) RenderHeaderTo(w io.Writer) error {
 
 func (hdr Route) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
 
-func (hdr Route) RenderHeader() string {
+func (hdr Route) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr Route) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }
@@ -52,6 +52,11 @@ func (hdr Route) Equal(val any) bool {
 	switch v := val.(type) {
 	case Route:
 		other = v
+	case *Route:
+		if v == nil {
+			return false
+		}
+		other = *v
 	default:
 		return false
 	}

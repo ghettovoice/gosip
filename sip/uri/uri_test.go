@@ -17,10 +17,10 @@ func assertURIParsing(entries ...TableEntry) {
 				Expect(u).ToNot(BeNil(), "assert parsed URI isn't nil")
 				Expect(u).To(Equal(expectURI), "assert parsed %s URI is equal to the expected URI")
 				// Expect(u.Equal(expectURI)).To(BeTrue(), "parsed URI == expected URI")
-				Expect(err).To(BeNil(), "assert parse error is nil")
+				Expect(err).ToNot(HaveOccurred(), "assert parse error is nil")
 			} else {
 				Expect(u).To(BeNil(), "assert parsed %s URI is nil")
-				Expect(err).To(MatchError(expectErr), "assert parse error matches the expected error")
+				Expect(err).To(MatchError(expectErr.(error)), "assert parse error matches the expected error") //nolint:forcetypeassert
 			}
 		},
 		EntryDescription("%[1]q"),
@@ -32,7 +32,7 @@ func assertURIParsing(entries ...TableEntry) {
 func assertURIRendering(entries ...TableEntry) {
 	DescribeTable("rendering", Label("rendering"),
 		func(u uri.URI, expect string) {
-			Expect(u.RenderURI()).To(Equal(expect))
+			Expect(u.Render()).To(Equal(expect))
 		},
 		EntryDescription("%#[1]v"),
 		entries,

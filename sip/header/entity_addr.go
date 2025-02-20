@@ -6,7 +6,8 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/internal/utils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 	"github.com/ghettovoice/gosip/sip/uri"
@@ -19,17 +20,17 @@ type EntityAddr struct {
 }
 
 func (addr EntityAddr) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	if addr.DisplayName != "" {
-		fmt.Fprint(sb, grammar.Quote(addr.DisplayName), " ")
+		_, _ = fmt.Fprint(sb, grammar.Quote(addr.DisplayName), " ")
 	}
-	fmt.Fprint(sb, "<")
+	_, _ = fmt.Fprint(sb, "<")
 	if addr.URI != nil {
-		utils.RenderTo(sb, addr.URI)
+		_ = stringutils.RenderTo(sb, addr.URI)
 	}
-	fmt.Fprint(sb, ">")
-	renderHeaderParams(sb, addr.Params, false)
+	_, _ = fmt.Fprint(sb, ">")
+	_ = renderHeaderParams(sb, addr.Params, false)
 	return sb.String()
 }
 
@@ -70,7 +71,7 @@ func (addr EntityAddr) Clone() EntityAddr {
 
 func buildFromHeaderAddrNode(node *abnf.Node, psNodeKey string) EntityAddr {
 	addr := EntityAddr{
-		URI:    uri.FromABNF(utils.MustGetNode(node, "addr-spec").Children[0]),
+		URI:    uri.FromABNF(abnfutils.MustGetNode(node, "addr-spec").Children[0]),
 		Params: buildFromHeaderParamNodes(node.GetNodes(psNodeKey), nil),
 	}
 	if dnameNode := node.GetNode("display-name"); dnameNode != nil {

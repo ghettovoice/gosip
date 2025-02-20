@@ -54,7 +54,7 @@ func BenchmarkEscape(b *testing.B) {
 		b.Run(fmt.Sprintf("case_%d", i+1), func(b *testing.B) {
 			g := NewGomegaWithT(b)
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				switch in := tc.in.(type) {
 				case string:
 					g.Expect(grammar.Escape(in, nil)).To(Equal(tc.out))

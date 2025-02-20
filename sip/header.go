@@ -11,6 +11,8 @@ import (
 // See [header.Header].
 type Header = header.Header
 
+type HeaderName = header.Name
+
 // HeaderParser represents a custom SIP header parser.
 // See [header.Parser].
 type HeaderParser = header.Parser
@@ -23,7 +25,7 @@ func ParseHeader[T constraints.Byteseq](s T, hdrPrs map[string]HeaderParser) (He
 
 // CanonicHeaderName returns a canonicalized header name.
 // See [header.CanonicName].
-func CanonicHeaderName(name string) string { return header.CanonicName(name) }
+func CanonicHeaderName[T ~string](name T) HeaderName { return header.CanonicName(name) }
 
 type missingHeaderError struct {
 	Header string
@@ -33,4 +35,4 @@ func (err *missingHeaderError) Error() string {
 	return fmt.Sprintf("missing %q header", CanonicHeaderName(err.Header))
 }
 
-func (err *missingHeaderError) Grammar() bool { return true }
+func (*missingHeaderError) Grammar() bool { return true }

@@ -7,19 +7,19 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
-// AlertInfo implements Alert-Info header.
+// AlertInfo implements the Alert-Info header.
 type AlertInfo []ResourceAddr
 
-func (hdr AlertInfo) HeaderName() string { return "Alert-Info" }
+func (AlertInfo) CanonicName() Name { return "Alert-Info" }
 
-func (hdr AlertInfo) RenderHeaderTo(w io.Writer) error {
+func (hdr AlertInfo) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -27,21 +27,21 @@ func (hdr AlertInfo) RenderHeaderTo(w io.Writer) error {
 
 func (hdr AlertInfo) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
 
-func (hdr AlertInfo) RenderHeader() string {
+func (hdr AlertInfo) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr AlertInfo) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }

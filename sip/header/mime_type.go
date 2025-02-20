@@ -6,8 +6,8 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
@@ -19,17 +19,17 @@ type MIMEType struct {
 }
 
 func (mt MIMEType) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	fmt.Fprint(sb, mt.Type, "/", mt.Subtype)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_, _ = fmt.Fprint(sb, mt.Type, "/", mt.Subtype)
 	if len(mt.Params) > 0 {
 		kvs := make([][]string, 0, len(mt.Params))
 		for k := range mt.Params {
-			kvs = append(kvs, []string{utils.LCase(k), mt.Params.Last(k)})
+			kvs = append(kvs, []string{stringutils.LCase(k), mt.Params.Last(k)})
 		}
-		slices.SortFunc(kvs, utils.CmpKVs)
+		slices.SortFunc(kvs, stringutils.CmpKVs)
 		for _, kv := range kvs {
-			fmt.Fprint(sb, ";", kv[0], "=", kv[1])
+			_, _ = fmt.Fprint(sb, ";", kv[0], "=", kv[1])
 		}
 	}
 	return sb.String()
@@ -48,8 +48,8 @@ func (mt MIMEType) Equal(val any) bool {
 	default:
 		return false
 	}
-	return utils.LCase(mt.Type) == utils.LCase(other.Type) &&
-		utils.LCase(mt.Subtype) == utils.LCase(other.Subtype) &&
+	return stringutils.LCase(mt.Type) == stringutils.LCase(other.Type) &&
+		stringutils.LCase(mt.Subtype) == stringutils.LCase(other.Subtype) &&
 		compareHeaderParams(mt.Params, other.Params, map[string]bool{"charset": true})
 }
 
@@ -89,12 +89,12 @@ func buildFromMIMETypeNode(node *abnf.Node) (MIMEType, [][2]string) {
 	)
 	if paramNodes := node.GetNodes("m-parameter"); len(paramNodes) > 0 {
 		for _, paramNode := range paramNodes {
-			valNode := utils.MustGetNode(paramNode, "m-value")
+			valNode := abnfutils.MustGetNode(paramNode, "m-value")
 			kv := [2]string{paramNode.Children[0].String(), valNode.String()}
 
-			if otherParamsStarted || utils.LCase(kv[0]) == "q" {
+			if otherParamsStarted || stringutils.LCase(kv[0]) == "q" {
 				// media-range usually used as part of accept-range
-				// we interpret 'q' param as separator between media-range and accept-range params
+				// we interpret 'q' param as a separator between media-range and accept-range params
 				// RFC 2616 Section 14.1.
 				otherParams = append(otherParams, kv)
 				otherParamsStarted = true

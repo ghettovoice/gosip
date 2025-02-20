@@ -17,8 +17,7 @@ var (
 
 func ParseSIPURI[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if len(s) == 0 {
-		err = ErrEmptyInput
-		return
+		return n, ErrEmptyInput
 	}
 
 	ns := getNodes()
@@ -28,13 +27,12 @@ func ParseSIPURI[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if n.Len() < len(s) {
 		err = ErrMalformedInput
 	}
-	return
+	return n, err
 }
 
 func ParseSIPSURI[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if len(s) == 0 {
-		err = ErrEmptyInput
-		return
+		return n, ErrEmptyInput
 	}
 
 	ns := getNodes()
@@ -44,13 +42,12 @@ func ParseSIPSURI[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if n.Len() < len(s) {
 		err = ErrMalformedInput
 	}
-	return
+	return n, err
 }
 
 func ParseTelURI[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if len(s) == 0 {
-		err = ErrEmptyInput
-		return
+		return n, ErrEmptyInput
 	}
 
 	ns := getNodes()
@@ -60,13 +57,12 @@ func ParseTelURI[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if n.Len() < len(s) {
 		err = ErrMalformedInput
 	}
-	return
+	return n, err
 }
 
 func ParseRequest[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if len(s) == 0 {
-		err = ErrEmptyInput
-		return
+		return n, ErrEmptyInput
 	}
 
 	ns := getNodes()
@@ -76,13 +72,12 @@ func ParseRequest[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if n.Len() < len(s) {
 		err = ErrMalformedInput
 	}
-	return
+	return n, err
 }
 
 func ParseResponse[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if len(s) == 0 {
-		err = ErrEmptyInput
-		return
+		return n, ErrEmptyInput
 	}
 
 	ns := getNodes()
@@ -92,13 +87,12 @@ func ParseResponse[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if n.Len() < len(s) {
 		err = ErrMalformedInput
 	}
-	return
+	return n, err
 }
 
 func ParseMessage[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if len(s) == 0 {
-		err = ErrEmptyInput
-		return
+		return n, ErrEmptyInput
 	}
 
 	ns := getNodes()
@@ -108,13 +102,12 @@ func ParseMessage[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if n.Len() < len(s) {
 		err = ErrMalformedInput
 	}
-	return
+	return n, err
 }
 
 func ParseMessageStart[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if len(s) == 0 {
-		err = ErrEmptyInput
-		return
+		return n, ErrEmptyInput
 	}
 
 	ns := getNodes()
@@ -124,13 +117,12 @@ func ParseMessageStart[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if n.Len() < len(s) {
 		err = ErrMalformedInput
 	}
-	return
+	return n, err
 }
 
 func ParseMessageHeader[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if len(s) == 0 {
-		err = ErrEmptyInput
-		return
+		return n, ErrEmptyInput
 	}
 
 	ns := getNodes()
@@ -140,5 +132,5 @@ func ParseMessageHeader[T constraints.Byteseq](s T) (n *abnf.Node, err error) {
 	if n.Len() < len(s) {
 		err = ErrMalformedInput
 	}
-	return
+	return n, err
 }

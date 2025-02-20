@@ -9,8 +9,8 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type RetryAfter struct {
@@ -19,13 +19,13 @@ type RetryAfter struct {
 	Params  Values
 }
 
-func (hdr *RetryAfter) HeaderName() string { return "Retry-After" }
+func (*RetryAfter) CanonicName() Name { return "Retry-After" }
 
-func (hdr *RetryAfter) RenderHeaderTo(w io.Writer) error {
+func (hdr *RetryAfter) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -36,28 +36,28 @@ func (hdr *RetryAfter) renderValue(w io.Writer) error {
 		return err
 	}
 	if hdr.Comment != "" {
-		fmt.Fprint(w, " (", hdr.Comment, ")")
+		_, _ = fmt.Fprint(w, " (", hdr.Comment, ")")
 	}
 	return renderHeaderParams(w, hdr.Params, false)
 }
 
-func (hdr *RetryAfter) RenderHeader() string {
+func (hdr *RetryAfter) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *RetryAfter) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.renderValue(sb)
 	return sb.String()
 }
 
@@ -96,10 +96,10 @@ func (hdr *RetryAfter) IsValid() bool {
 }
 
 func buildFromRetryAfterNode(node *abnf.Node) *RetryAfter {
-	sec, _ := strconv.ParseUint(utils.MustGetNode(node, "delta-seconds").String(), 10, 64)
+	sec, _ := strconv.ParseUint(abnfutils.MustGetNode(node, "delta-seconds").String(), 10, 64)
 	return &RetryAfter{
 		Delay:   time.Duration(sec) * time.Second,
-		Comment: strings.Trim(utils.MustGetNode(node, "comment").String(), "()"),
+		Comment: strings.Trim(abnfutils.MustGetNode(node, "comment").String(), "()"),
 		Params:  buildFromHeaderParamNodes(node.GetNodes("retry-param"), nil),
 	}
 }

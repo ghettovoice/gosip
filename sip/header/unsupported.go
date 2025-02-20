@@ -6,37 +6,37 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Unsupported Require
 
-func (hdr Unsupported) HeaderName() string { return "Unsupported" }
+func (Unsupported) CanonicName() Name { return "Unsupported" }
 
-func (hdr Unsupported) RenderHeaderTo(w io.Writer) error {
+func (hdr Unsupported) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return Require(hdr).renderValue(w)
 }
 
-func (hdr Unsupported) RenderHeader() string {
+func (hdr Unsupported) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr Unsupported) String() string { return Require(hdr).String() }
 
 func (hdr Unsupported) Clone() Header {
-	return Unsupported(Require(hdr).Clone().(Require))
+	return Unsupported(Require(hdr).Clone().(Require)) //nolint:forcetypeassert
 }
 
 func (hdr Unsupported) Equal(val any) bool {
@@ -44,6 +44,11 @@ func (hdr Unsupported) Equal(val any) bool {
 	switch v := val.(type) {
 	case Unsupported:
 		other = v
+	case *Unsupported:
+		if v == nil {
+			return false
+		}
+		other = *v
 	default:
 		return false
 	}

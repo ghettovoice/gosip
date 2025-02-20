@@ -8,20 +8,19 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Via []ViaHop
 
-func (hdr Via) HeaderName() string { return "Via" }
+func (Via) CanonicName() Name { return "Via" }
 
-func (hdr Via) RenderHeaderTo(w io.Writer) error {
+func (hdr Via) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -29,21 +28,21 @@ func (hdr Via) RenderHeaderTo(w io.Writer) error {
 
 func (hdr Via) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
 
-func (hdr Via) RenderHeader() string {
+func (hdr Via) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr Via) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }
@@ -74,11 +73,11 @@ func buildFromViaNode(node *abnf.Node) Via {
 	hopNodes := node.GetNodes("via-parm")
 	h := make(Via, len(hopNodes))
 	for i, hopNode := range hopNodes {
-		protoNode := utils.MustGetNode(hopNode, "sent-protocol")
+		protoNode := abnfutils.MustGetNode(hopNode, "sent-protocol")
 		h[i] = ViaHop{
-			Proto:     Proto{Name: protoNode.Children[0].String(), Version: protoNode.Children[2].String()},
-			Transport: protoNode.Children[4].String(),
-			Addr:      buildFromSentByNode(utils.MustGetNode(hopNode, "sent-by")),
+			Proto:     ProtoInfo{Name: protoNode.Children[0].String(), Version: protoNode.Children[2].String()},
+			Transport: TransportProto(protoNode.Children[4].String()),
+			Addr:      buildFromSentByNode(abnfutils.MustGetNode(hopNode, "sent-by")),
 			Params:    buildFromHeaderParamNodes(hopNode.GetNodes("via-params"), nil),
 		}
 	}
@@ -86,7 +85,7 @@ func buildFromViaNode(node *abnf.Node) Via {
 }
 
 func buildFromSentByNode(node *abnf.Node) Addr {
-	host := utils.MustGetNode(node, "host").String()
+	host := abnfutils.MustGetNode(node, "host").String()
 	if portNode := node.GetNode("port"); portNode != nil {
 		port, _ := strconv.Atoi(portNode.String())
 		return HostPort(host, uint16(port))
@@ -95,17 +94,17 @@ func buildFromSentByNode(node *abnf.Node) Addr {
 }
 
 type ViaHop struct {
-	Proto     Proto
-	Transport string
+	Proto     ProtoInfo
+	Transport TransportProto
 	Addr      Addr
 	Params    Values
 }
 
 func (hop ViaHop) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	fmt.Fprint(sb, hop.Proto, "/", hop.Transport, " ", hop.Addr)
-	renderHeaderParams(sb, hop.Params, false)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_, _ = fmt.Fprint(sb, hop.Proto, "/", hop.Transport, " ", hop.Addr)
+	_ = renderHeaderParams(sb, hop.Params, false)
 	return sb.String()
 }
 
@@ -123,7 +122,7 @@ func (hop ViaHop) Equal(val any) bool {
 		return false
 	}
 	return hop.Proto.Equal(other.Proto) &&
-		utils.UCase(hop.Transport) == utils.UCase(other.Transport) &&
+		hop.Transport.Equal(other.Transport) &&
 		hop.Addr.Equal(other.Addr) &&
 		compareHeaderParams(hop.Params, other.Params, map[string]bool{
 			"maddr":    true,
@@ -135,7 +134,7 @@ func (hop ViaHop) Equal(val any) bool {
 
 func (hop ViaHop) IsValid() bool {
 	return hop.Proto.IsValid() &&
-		grammar.IsToken(hop.Transport) &&
+		hop.Transport.IsValid() &&
 		hop.Addr.IsValid() &&
 		validateHeaderParams(hop.Params)
 }

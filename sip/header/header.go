@@ -1,3 +1,4 @@
+// Package header implements various SIP headers defined in the RFC 3261.
 package header
 
 import (
@@ -8,21 +9,44 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
+	"github.com/ghettovoice/gosip/internal/abnfutils"
 	"github.com/ghettovoice/gosip/internal/constraints"
-	"github.com/ghettovoice/gosip/internal/utils"
-	"github.com/ghettovoice/gosip/sip/common"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/sip/internal/shared"
 )
 
 // Header represents a generic SIP header.
 type Header interface {
-	HeaderName() string
-	RenderHeader() string
-	RenderHeaderTo(w io.Writer) error
+	CanonicName() Name
+	Render() string
+	RenderTo(w io.Writer) error
 	Clone() Header
 }
 
-var headerNames = map[string]string{
+type Name string
+
+func (n Name) ToCanonic() Name { return CanonicName(n) }
+
+func (n Name) IsValid() bool { return grammar.IsToken(n) }
+
+func (n Name) IsEqual(val any) bool {
+	var other Name
+	switch v := val.(type) {
+	case Name:
+		other = v
+	case *Name:
+		if v == nil {
+			return false
+		}
+		other = *v
+	default:
+		return false
+	}
+	return CanonicName(n) == CanonicName(other)
+}
+
+var headerNames = map[string]Name{
 	"c":                "Content-Type",
 	"e":                "Content-Encoding",
 	"f":                "From",
@@ -42,18 +66,18 @@ var headerNames = map[string]string{
 // CanonicName converts name to the canonical form.
 // The canonicalization converts the first letter and any letter following a hyphen to upper case;
 // the rest are converted to lowercase. For example, the canonical name for "accept-encoding" is "Accept-Encoding".
-// Also, any compact name converted to its full canonical form. For example, "c" converts to "Content-Type".
-func CanonicName(name string) string {
-	name = utils.TrimSP(name)
-	if n, ok := headerNames[name]; ok {
+// Also, any compact name is converted to its full canonical form. For example, "c" converts to "Content-Type".
+func CanonicName[T ~string](name T) Name {
+	name = stringutils.TrimSP(name)
+	if n, ok := headerNames[string(name)]; ok {
 		return n
 	}
 
-	name = textproto.CanonicalMIMEHeaderKey(name)
-	if n, ok := headerNames[name]; ok {
+	name = T(textproto.CanonicalMIMEHeaderKey(string(name)))
+	if n, ok := headerNames[string(name)]; ok {
 		return n
 	}
-	return name
+	return Name(name)
 }
 
 func renderHeaderEntries[H ~[]E, E any](w io.Writer, hdr H) error {
@@ -76,14 +100,14 @@ func renderHeaderParams(w io.Writer, params Values, addQParam bool) error {
 	}
 
 	// Sort parameters in alphabet order, but with "q" parameter always the first place.
-	// If missing "q" param, then dump it with default value.
+	// If missing the "q" param, then dump it with the default value.
 	// RFC 2616 Section 14.1.
-	var kvs [][]string
+	var kvs [][]string //nolint:prealloc
 	if addQParam && !params.Has("q") {
 		kvs = append(kvs, []string{"q", "1"})
 	}
 	for k := range params {
-		kvs = append(kvs, []string{utils.LCase(k), params.Last(k)})
+		kvs = append(kvs, []string{stringutils.LCase(k), params.Last(k)})
 	}
 	slices.SortFunc(kvs, func(a, b []string) int {
 		if a[0] == "q" && b[0] != "q" {
@@ -91,7 +115,7 @@ func renderHeaderParams(w io.Writer, params Values, addQParam bool) error {
 		} else if a[0] != "q" && b[0] == "q" {
 			return 1
 		}
-		return utils.CmpKVs(a, b)
+		return stringutils.CmpKVs(a, b)
 	})
 	for _, kv := range kvs {
 		if _, err := fmt.Fprint(w, ";", kv[0]); err != nil {
@@ -107,36 +131,37 @@ func renderHeaderParams(w io.Writer, params Values, addQParam bool) error {
 }
 
 func compareHeaderParams(params1, params2 Values, specParams map[string]bool) bool {
-	if len(params1) == 0 && len(params2) == 0 {
+	switch {
+	case len(params1) == 0 && len(params2) == 0:
 		return true
-	} else if len(params1) == 0 {
+	case len(params1) == 0:
 		return !hasSpecHeaderParam(params2, specParams)
-	} else if len(params2) == 0 {
+	case len(params2) == 0:
 		return !hasSpecHeaderParam(params1, specParams)
 	}
 
 	checked := map[string]bool{}
 	// Any non-special parameters appearing in only one list are ignored.
-	// First traverse over self-parameters, compare values appearing in both lists,
+	// First, traverse over self-parameters, compare values appearing in both lists,
 	// check on speciality and save checked param names.
 	for k := range params1 {
 		if params2.Has(k) {
 			// Any parameter appearing in both URIs must match.
 			v1, v2 := params1.Last(k), params2.Last(k)
 			if !grammar.IsQuoted(v1) {
-				v1 = utils.LCase(v1)
+				v1 = stringutils.LCase(v1)
 			}
 			if !grammar.IsQuoted(v1) {
-				v2 = utils.LCase(v2)
+				v2 = stringutils.LCase(v2)
 			}
 			if v1 != v2 {
 				return false
 			}
-		} else if specParams[utils.LCase(k)] {
+		} else if specParams[stringutils.LCase(k)] {
 			// Any special SIP URI parameter appearing in one URI must appear in the other.
 			return false
 		}
-		checked[utils.LCase(k)] = true
+		checked[stringutils.LCase(k)] = true
 	}
 	// Then need only check that there are no non-checked special parameters in the other list.
 	for k := range specParams {
@@ -293,8 +318,8 @@ func FromABNF(node *abnf.Node, hdrPrs map[string]Parser) Header {
 	case "WWW-Authenticate":
 		return buildFromWWWAuthenticateNode(node)
 	case "extension-header":
-		if prs, ok := hdrPrs[utils.LCase(string(node.Children[0].Value))]; ok && prs != nil {
-			if hdr := prs(node.Children[0].String(), utils.MustGetNode(node, "header-value").Value); hdr != nil {
+		if prs, ok := hdrPrs[stringutils.LCase(string(node.Children[0].Value))]; ok && prs != nil {
+			if hdr := prs(node.Children[0].String(), abnfutils.MustGetNode(node, "header-value").Value); hdr != nil {
 				return hdr
 			}
 		}
@@ -341,12 +366,18 @@ func buildFromGenericParamNode(node *abnf.Node) [2]string {
 	return kv
 }
 
-type Addr = common.Addr
+type Addr = shared.Addr
 
-func Host(host string) Addr { return common.Host(host) }
+func Host(host string) Addr { return shared.Host(host) }
 
-func HostPort(host string, port uint16) Addr { return common.HostPort(host, port) }
+func HostPort(host string, port uint16) Addr { return shared.HostPort(host, port) }
 
-type Values = common.Values
+type Values = shared.Values
 
-type Proto = common.ProtoInfo
+type ProtoInfo = shared.ProtoInfo
+
+type TransportProto = shared.TransportProto
+
+type RequestMethod = shared.RequestMethod
+
+var nilTag = "<nil>"

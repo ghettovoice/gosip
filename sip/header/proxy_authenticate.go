@@ -6,40 +6,40 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type ProxyAuthenticate WWWAuthenticate
 
-func (hdr *ProxyAuthenticate) HeaderName() string { return "Proxy-Authenticate" }
+func (*ProxyAuthenticate) CanonicName() Name { return "Proxy-Authenticate" }
 
-func (hdr *ProxyAuthenticate) RenderHeaderTo(w io.Writer) error {
+func (hdr *ProxyAuthenticate) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return (*WWWAuthenticate)(hdr).renderValue(w)
 }
 
-func (hdr *ProxyAuthenticate) RenderHeader() string {
+func (hdr *ProxyAuthenticate) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *ProxyAuthenticate) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	(*WWWAuthenticate)(hdr).renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = (*WWWAuthenticate)(hdr).renderValue(sb)
 	return sb.String()
 }
 
@@ -47,7 +47,7 @@ func (hdr *ProxyAuthenticate) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
-	return (*ProxyAuthenticate)((*WWWAuthenticate)(hdr).Clone().(*WWWAuthenticate))
+	return (*ProxyAuthenticate)((*WWWAuthenticate)(hdr).Clone().(*WWWAuthenticate)) //nolint:forcetypeassert
 }
 
 func (hdr *ProxyAuthenticate) Equal(val any) bool {

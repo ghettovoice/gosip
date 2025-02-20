@@ -7,22 +7,22 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type ContentLength uint
 
-func (hdr ContentLength) HeaderName() string { return "Content-Length" }
+func (ContentLength) CanonicName() Name { return "Content-Length" }
 
-func (hdr ContentLength) RenderHeaderTo(w io.Writer) error {
-	_, err := fmt.Fprint(w, hdr.HeaderName(), ": ", uint(hdr))
+func (hdr ContentLength) RenderTo(w io.Writer) error {
+	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", uint(hdr))
 	return err
 }
 
-func (hdr ContentLength) RenderHeader() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+func (hdr ContentLength) Render() string {
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
@@ -44,7 +44,7 @@ func (hdr ContentLength) Equal(val any) bool {
 	return hdr == other
 }
 
-func (hdr ContentLength) IsValid() bool { return true }
+func (ContentLength) IsValid() bool { return true }
 
 func buildFromContentLengthNode(node *abnf.Node) ContentLength {
 	l, _ := strconv.ParseUint(node.Children[2].String(), 10, 64)

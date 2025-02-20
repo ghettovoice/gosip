@@ -1,6 +1,7 @@
 package uri_test
 
 import (
+	"fmt"
 	"reflect"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -58,112 +59,144 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 			Entry(nil, "sip::passwd@example.com", nil, grammar.ErrMalformedInput),
 			Entry(nil,
 				"sip:admin@example.com;transport=tcp",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("transport", "tcp"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;transport=wss",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("transport", "wss"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;transport=any",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("transport", "any"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;TranspOrt=UDP",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("transport", "UDP"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:+1-222-333;field=qwerty@example.com;user=phone",
-				&uri.SIP{User: uri.User("+1-222-333;field=qwerty"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("+1-222-333;field=qwerty"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("user", "phone"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;user=any",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("user", "any"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;method=INVITE",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("method", "INVITE"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;method=refer",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("method", "refer"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;ttl=50",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("ttl", "50"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;maddr=example.com",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("maddr", "example.com"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;maddr=127.0.0.1",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("maddr", "127.0.0.1"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;lr",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("lr", ""),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;foo=bar",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("foo", "bar"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;foo%3D=b%40r",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("foo=", "b@r"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;foo%3D=b%40r;baz",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:   uri.User("admin"),
+					Addr:   uri.Host("example.com"),
 					Params: make(uri.Values).Set("foo=", "b@r").Set("baz", ""),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com;transport=wss;user=phone;lr;foo%3D=b%40r;transport=TCP;bAz=%E4%B8%96%E7%95%8C",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User: uri.User("admin"),
+					Addr: uri.Host("example.com"),
 					Params: make(uri.Values).
 						Append("transport", "wss").
 						Append("user", "phone").
@@ -176,14 +209,18 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 			),
 			Entry(nil,
 				"sip:admin@example.com?subject=hello%20world",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User:    uri.User("admin"),
+					Addr:    uri.Host("example.com"),
 					Headers: make(uri.Values).Append("subject", "hello world"),
 				},
 				nil,
 			),
 			Entry(nil,
 				"sip:admin@example.com?subject=hello%20world&to=admin%40example.com&body=QWERTY&to=root%40example.org",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User: uri.User("admin"),
+					Addr: uri.Host("example.com"),
 					Headers: make(uri.Values).
 						Append("subject", "hello world").
 						Append("to", "admin@example.com").
@@ -199,7 +236,9 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 			),
 			Entry(nil,
 				"sip:admin@example.com?%20=hello%20world&To=admin%40example.com&priority=",
-				&uri.SIP{User: uri.User("admin"), Addr: uri.Host("example.com"),
+				&uri.SIP{
+					User: uri.User("admin"),
+					Addr: uri.Host("example.com"),
 					Headers: make(uri.Values).
 						Append(" ", "hello world").
 						Append("to", "admin@example.com").
@@ -491,7 +530,8 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 				if u1 == nil {
 					Expect(u2).To(BeNil(), "assert cloned URI is nil")
 				} else {
-					u2 := u2.(*uri.SIP)
+					u2, ok := u2.(*uri.SIP)
+					Expect(ok).To(BeTrue(), fmt.Sprintf("assert cloned URI is of type %T", u1))
 					Expect(u2).To(Equal(u1), "assert cloned URI is equal to the original URI")
 					Expect(reflect.ValueOf(u2).Pointer()).
 						ToNot(Equal(reflect.ValueOf(u1).Pointer()), "assert cloned URI pointer is different than the original")

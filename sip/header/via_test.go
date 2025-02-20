@@ -17,12 +17,12 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, "Via: ", &header.Any{Name: "Via"}, nil),
 			Entry(nil, "Via: abc", &header.Any{Name: "Via", Value: "abc"}, nil),
 			Entry(nil,
-				"Via: SIP / 2.0 / UDP erlang.bell-telephone.com:5060;received=192.0.2.207;branch=z9hG4bK87asdks7,\r\n"+
+				"Via: SIP / 2.0 / UDP     erlang.bell-telephone.com:5060;received=192.0.2.207;branch=z9hG4bK87asdks7,\r\n"+
 					"\tSIP/2.0/UDP first.example.com: 4000;ttl=16\r\n"+
 					"\t;maddr=224.2.0.1 ;branch=z9hG4bKa7c6a8dlze.1",
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "UDP",
 						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
 						Params: make(header.Values).
@@ -30,7 +30,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Set("branch", "z9hG4bK87asdks7"),
 					},
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "UDP",
 						Addr:      header.HostPort("first.example.com", 4000),
 						Params: make(header.Values).
@@ -52,7 +52,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil,
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "UDP",
 						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
 						Params: make(header.Values).
@@ -60,7 +60,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Set("branch", "z9hG4bK87asdks7"),
 					},
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "TCP",
 						Addr:      header.HostPort("first.example.com", 4000),
 						Params: make(header.Values).
@@ -85,7 +85,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil,
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "UDP",
 						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
 						Params: make(header.Values).
@@ -93,7 +93,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Set("branch", "z9hG4bK87asdks7"),
 					},
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "TCP",
 						Addr:      header.HostPort("first.example.com", 4000),
 						Params: make(header.Values).
@@ -104,7 +104,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				},
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "TCP",
 						Addr:      header.HostPort("first.example.com", 4000),
 						Params: make(header.Values).
@@ -113,7 +113,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Set("branch", "z9hG4bKa7c6a8dlze.1"),
 					},
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "UDP",
 						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
 						Params: make(header.Values).
@@ -126,7 +126,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil,
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "UDP",
 						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
 						Params: make(header.Values).
@@ -136,7 +136,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				},
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "UDP",
 						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
 						Params: make(header.Values).
@@ -144,7 +144,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Set("branch", "z9hG4bK87asdks7"),
 					},
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "TCP",
 						Addr:      header.HostPort("first.example.com", 4000),
 						Params: make(header.Values).
@@ -158,7 +158,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil,
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "sip", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "sip", Version: "2.0"},
 						Transport: "udp",
 						Addr:      header.HostPort("ERLANG.BELL-TELEPHONE.COM", 5060),
 						Params: make(header.Values).
@@ -166,7 +166,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Set("branch", "z9hG4bK87asdks7"),
 					},
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "TCP",
 						Addr:      header.HostPort("first.example.com", 4000),
 						Params: make(header.Values).
@@ -179,7 +179,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				},
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "UDP",
 						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
 						Params: make(header.Values).
@@ -187,7 +187,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Set("branch", "z9hG4bK87asdks7"),
 					},
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "TCP",
 						Addr:      header.HostPort("first.example.com", 4000),
 						Params: make(header.Values).
@@ -210,13 +210,13 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil,
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "TLS",
 						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
 						Params:    make(header.Values).Set("branch", "z9hG4bK87asdks7"),
 					},
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "TCP",
 						Addr:      header.HostPort("first.example.com", 4000),
 						Params: make(header.Values).
@@ -236,7 +236,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				if len(hdr1) > 0 {
 					Expect(reflect.ValueOf(hdr2).Pointer()).
 						ToNot(Equal(reflect.ValueOf(hdr1).Pointer()))
-					for i := 0; i < len(hdr1); i++ {
+					for i := range hdr1 {
 						if hdr1[i].Params == nil {
 							Expect(hdr2[i].Params).To(BeNil())
 						} else {
@@ -251,7 +251,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil,
 				header.Via{
 					{
-						Proto:     header.Proto{Name: "sip", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "sip", Version: "2.0"},
 						Transport: "udp",
 						Addr:      header.HostPort("ERLANG.BELL-TELEPHONE.COM", 5060),
 						Params: make(header.Values).
@@ -259,7 +259,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 							Set("branch", "z9hG4bK87asdks7"),
 					},
 					{
-						Proto:     header.Proto{Name: "SIP", Version: "2.0"},
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 						Transport: "TCP",
 						Addr:      header.HostPort("first.example.com", 4000),
 						Params: make(header.Values).

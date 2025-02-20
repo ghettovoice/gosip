@@ -8,21 +8,21 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Expires struct {
 	time.Duration
 }
 
-func (hdr *Expires) HeaderName() string { return "Expires" }
+func (*Expires) CanonicName() Name { return "Expires" }
 
-func (hdr *Expires) RenderHeaderTo(w io.Writer) error {
+func (hdr *Expires) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -33,23 +33,23 @@ func (hdr *Expires) renderValue(w io.Writer) error {
 	return err
 }
 
-func (hdr *Expires) RenderHeader() string {
+func (hdr *Expires) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *Expires) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.renderValue(sb)
 	return sb.String()
 }
 
@@ -84,6 +84,6 @@ func (hdr *Expires) Equal(val any) bool {
 func (hdr *Expires) IsValid() bool { return hdr != nil }
 
 func buildFromExpiresNode(node *abnf.Node) *Expires {
-	sec, _ := strconv.ParseUint(utils.MustGetNode(node, "delta-seconds").String(), 10, 64)
+	sec, _ := strconv.ParseUint(abnfutils.MustGetNode(node, "delta-seconds").String(), 10, 64)
 	return &Expires{time.Duration(sec) * time.Second}
 }

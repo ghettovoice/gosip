@@ -8,20 +8,20 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
 type Warning []WarningItem
 
-func (hdr Warning) HeaderName() string { return "Warning" }
+func (Warning) CanonicName() Name { return "Warning" }
 
-func (hdr Warning) RenderHeaderTo(w io.Writer) error {
+func (hdr Warning) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -29,21 +29,21 @@ func (hdr Warning) RenderHeaderTo(w io.Writer) error {
 
 func (hdr Warning) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
 
-func (hdr Warning) RenderHeader() string {
+func (hdr Warning) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr Warning) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }
@@ -77,9 +77,9 @@ type WarningItem struct {
 }
 
 func (wrn WarningItem) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	fmt.Fprintf(sb, "%d %s \"%s\"", wrn.Code, wrn.Agent, wrn.Text)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_, _ = fmt.Fprintf(sb, "%d %s \"%s\"", wrn.Code, wrn.Agent, wrn.Text)
 	return sb.String()
 }
 
@@ -96,7 +96,7 @@ func (wrn WarningItem) Equal(val any) bool {
 	default:
 		return false
 	}
-	return wrn.Code == other.Code && utils.LCase(wrn.Agent) == utils.LCase(other.Agent) && wrn.Text == other.Text
+	return wrn.Code == other.Code && stringutils.LCase(wrn.Agent) == stringutils.LCase(other.Agent) && wrn.Text == other.Text
 }
 
 func (wrn WarningItem) IsValid() bool { return wrn.Code > 0 && grammar.IsToken(wrn.Agent) }
@@ -109,10 +109,10 @@ func buildFromWarningNode(node *abnf.Node) Warning {
 	warnNodes := node.GetNodes("warning-value")
 	h := make(Warning, len(warnNodes))
 	for i, warnNode := range warnNodes {
-		c, _ := strconv.ParseUint(utils.MustGetNode(warnNode, "warn-code").String(), 10, 64)
+		c, _ := strconv.ParseUint(abnfutils.MustGetNode(warnNode, "warn-code").String(), 10, 64)
 		h[i] = WarningItem{
 			Code:  uint(c),
-			Agent: utils.MustGetNode(warnNode, "warn-agent").String(),
+			Agent: abnfutils.MustGetNode(warnNode, "warn-agent").String(),
 			Text:  grammar.Unquote(warnNode.Children[4].String()),
 		}
 	}

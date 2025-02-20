@@ -92,7 +92,7 @@ func BenchmarkCleanTelNum(b *testing.B) {
 		b.Run(fmt.Sprintf("case_%d", i+1), func(b *testing.B) {
 			g := NewGomegaWithT(b)
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				switch in := tc.in.(type) {
 				case string:
 					g.Expect(grammar2.CleanTelNum(in)).To(Equal(tc.out))
@@ -136,7 +136,7 @@ func BenchmarkParseRequest(b *testing.B) {
 		"Hello world!"
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		if _, err := grammar2.ParseRequest(str); err != nil {
 			b.Errorf("%d parse failed: %s", i, err)
 		}
@@ -170,7 +170,7 @@ func BenchmarkParseResponse(b *testing.B) {
 		"Hello world!"
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		if _, err := grammar2.ParseResponse(str); err != nil {
 			b.Errorf("%d parse failed: %s", i, err)
 		}

@@ -6,37 +6,37 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type RecordRoute Route
 
-func (hdr RecordRoute) HeaderName() string { return "Record-Route" }
+func (RecordRoute) CanonicName() Name { return "Record-Route" }
 
-func (hdr RecordRoute) RenderHeaderTo(w io.Writer) error {
+func (hdr RecordRoute) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return Route(hdr).renderValue(w)
 }
 
-func (hdr RecordRoute) RenderHeader() string {
+func (hdr RecordRoute) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr RecordRoute) String() string { return Route(hdr).String() }
 
 func (hdr RecordRoute) Clone() Header {
-	return RecordRoute(Route(hdr).Clone().(Route))
+	return RecordRoute(Route(hdr).Clone().(Route)) //nolint:forcetypeassert
 }
 
 func (hdr RecordRoute) Equal(val any) bool {
@@ -44,6 +44,11 @@ func (hdr RecordRoute) Equal(val any) bool {
 	switch v := val.(type) {
 	case RecordRoute:
 		other = v
+	case *RecordRoute:
+		if v == nil {
+			return false
+		}
+		other = *v
 	default:
 		return false
 	}

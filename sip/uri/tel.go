@@ -8,9 +8,9 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
+	"github.com/ghettovoice/gosip/internal/abnfutils"
 	"github.com/ghettovoice/gosip/internal/constraints"
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
@@ -18,12 +18,11 @@ import (
 type Tel struct {
 	// Telephone number matching telephone-subscriber ABNF. Required.
 	Number string
-	// URI's parameters. Optional when telephone number is global. And mandatory to have
-	// at least "phone-context" parameter when telephone number is local.
+	// URI's parameters.
+	// Optional when the telephone number is global.
+	// And mandatory to have at least a "phone-context" parameter when the telephone number is local.
 	Params Values
 }
-
-func (u *Tel) URIScheme() string { return "tel" }
 
 // IsGlob checks whether the telephone number is global or not.
 // RFC 3966 Section 5.1.4.
@@ -38,7 +37,8 @@ func (u *Tel) Clone() URI {
 	return &u2
 }
 
-func (u *Tel) RenderURITo(w io.Writer) error {
+//nolint:gocognit
+func (u *Tel) RenderTo(w io.Writer) error {
 	if u == nil {
 		return nil
 	}
@@ -48,7 +48,7 @@ func (u *Tel) RenderURITo(w io.Writer) error {
 	if len(u.Params) > 0 {
 		var kvs [][]string
 		for k := range u.Params {
-			kvs = append(kvs, []string{utils.LCase(k), u.Params.Last(k)})
+			kvs = append(kvs, []string{stringutils.LCase(k), u.Params.Last(k)})
 		}
 		// RFC 3966 Section 3.
 		// The 'isub' or 'ext' MUST appear first, if present,
@@ -65,7 +65,7 @@ func (u *Tel) RenderURITo(w io.Writer) error {
 			} else if a[0] != "phone-context" && b[0] == "phone-context" {
 				return 1
 			}
-			return utils.CmpKVs(a, b)
+			return stringutils.CmpKVs(a, b)
 		})
 		for _, kv := range kvs {
 			if _, err := fmt.Fprint(w, ";", kv[0]); err != nil {
@@ -83,21 +83,21 @@ func (u *Tel) RenderURITo(w io.Writer) error {
 
 func (u *Tel) number() string { return strings.ReplaceAll(u.Number, " ", "") }
 
-func (u *Tel) RenderURI() string {
+func (u *Tel) Render() string {
 	if u == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	u.RenderURITo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = u.RenderTo(sb)
 	return sb.String()
 }
 
 func (u *Tel) String() string {
 	if u == nil {
-		return "<nil>"
+		return nilTag
 	}
-	return u.RenderURI()
+	return u.Render()
 }
 
 func (u *Tel) Equal(val any) bool {
@@ -119,8 +119,8 @@ func (u *Tel) Equal(val any) bool {
 
 	// URI comparison is case-insensitive.
 	// Both must be either a local or a global number, i.e., start with a '+'.
-	// The numbers must be equal, after removing all visual separators.
-	return utils.LCase(grammar.CleanTelNum(u.number())) == utils.LCase(grammar.CleanTelNum(other.number())) &&
+	// The numbers must be equal after removing all visual separators.
+	return stringutils.LCase(grammar.CleanTelNum(u.number())) == stringutils.LCase(grammar.CleanTelNum(other.number())) &&
 		u.compareParams(other.Params)
 }
 
@@ -138,8 +138,8 @@ func (u *Tel) compareParams(params Values) bool {
 		if !params.Has(k) {
 			return false
 		}
-		v1, v2 := utils.LCase(u.Params.Last(k)), utils.LCase(params.Last(k))
-		switch utils.LCase(k) {
+		v1, v2 := stringutils.LCase(u.Params.Last(k)), stringutils.LCase(params.Last(k))
+		switch stringutils.LCase(k) {
 		case "ext", "phone-context":
 			if grammar.IsTelNum(v1) {
 				v1 = grammar.CleanTelNum(v1)
@@ -179,7 +179,7 @@ func (u *Tel) ToSIP() *SIP {
 		return nil
 	}
 
-	u2 := u.Clone().(*Tel)
+	u2, _ := u.Clone().(*Tel)
 	u2.Number = grammar.CleanTelNum(u2.Number)
 
 	var host string
@@ -198,7 +198,7 @@ func (u *Tel) ToSIP() *SIP {
 	// All parameter names and values SHOULD use lower-case characters, as
 	// tel URIs may be used within contexts where comparisons are case-sensitive.
 	return &SIP{
-		User:   User(utils.LCase(u2.RenderURI()[4:])),
+		User:   User(stringutils.LCase(u2.Render()[4:])),
 		Addr:   Host(host),
 		Params: make(Values).Set("user", "phone"),
 	}
@@ -215,9 +215,9 @@ func ParseTel[T constraints.Byteseq](src T) (*Tel, error) {
 func buildFromTelURINode(node *abnf.Node) *Tel {
 	var num string
 	if node.Contains("global-number") {
-		num = string(utils.MustGetNode(node, "global-number-digits").Value)
+		num = string(abnfutils.MustGetNode(node, "global-number-digits").Value)
 	} else if node.Contains("local-number") {
-		num = string(utils.MustGetNode(node, "local-number-digits").Value)
+		num = string(abnfutils.MustGetNode(node, "local-number-digits").Value)
 	}
 
 	return &Tel{
@@ -252,7 +252,7 @@ func buildTelURIParams(node *abnf.Node) Values {
 				)
 			default:
 				ps.Append(
-					utils.MustGetNode(n, "pname").String(),
+					abnfutils.MustGetNode(n, "pname").String(),
 					grammar.Unescape(n.GetNode("pvalue").String()),
 				)
 			}

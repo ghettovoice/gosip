@@ -1,6 +1,7 @@
 package uri_test
 
 import (
+	"fmt"
 	"net/url"
 	"reflect"
 
@@ -68,7 +69,8 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 				if u1 == nil {
 					Expect(u2).To(BeNil(), "assert cloned URI is nil")
 				} else {
-					u2 := u2.(*uri.Any)
+					u2, ok := u2.(*uri.Any)
+					Expect(ok).To(BeTrue(), fmt.Sprintf("assert cloned URI is of type %T", u1))
 					Expect(u2).To(Equal(u1), "assert cloned URI is equal to the original URI")
 					Expect(reflect.ValueOf(u2).Pointer()).
 						ToNot(Equal(reflect.ValueOf(u1).Pointer()), "assert cloned URI pointer is different than the original")

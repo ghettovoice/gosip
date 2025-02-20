@@ -7,23 +7,22 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type CSeq struct {
 	SeqNum uint
-	Method string
+	Method RequestMethod
 }
 
-func (hdr *CSeq) HeaderName() string { return "CSeq" }
+func (*CSeq) CanonicName() Name { return "CSeq" }
 
-func (hdr *CSeq) RenderHeaderTo(w io.Writer) error {
+func (hdr *CSeq) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -34,23 +33,23 @@ func (hdr *CSeq) renderValue(w io.Writer) error {
 	return err
 }
 
-func (hdr *CSeq) RenderHeader() string {
+func (hdr *CSeq) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *CSeq) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.renderValue(sb)
 	return sb.String()
 }
 
@@ -79,15 +78,15 @@ func (hdr *CSeq) Equal(val any) bool {
 		return false
 	}
 
-	return hdr.SeqNum == other.SeqNum && utils.UCase(hdr.Method) == utils.UCase(other.Method)
+	return hdr.SeqNum == other.SeqNum && hdr.Method.Equal(other.Method)
 }
 
-func (hdr *CSeq) IsValid() bool { return hdr != nil && hdr.SeqNum > 0 && grammar.IsToken(hdr.Method) }
+func (hdr *CSeq) IsValid() bool { return hdr != nil && hdr.SeqNum > 0 && hdr.Method.IsValid() }
 
 func buildFromCSeqNode(node *abnf.Node) *CSeq {
 	seq, _ := strconv.ParseUint(node.Children[2].String(), 10, 64)
 	return &CSeq{
 		SeqNum: uint(seq),
-		Method: utils.MustGetNode(node, "Method").String(),
+		Method: RequestMethod(abnfutils.MustGetNode(node, "Method").String()),
 	}
 }

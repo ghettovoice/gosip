@@ -6,40 +6,40 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type ProxyAuthorization Authorization
 
-func (hdr *ProxyAuthorization) HeaderName() string { return "Proxy-Authorization" }
+func (*ProxyAuthorization) CanonicName() Name { return "Proxy-Authorization" }
 
-func (hdr *ProxyAuthorization) RenderHeaderTo(w io.Writer) error {
+func (hdr *ProxyAuthorization) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return (*Authorization)(hdr).renderValue(w)
 }
 
-func (hdr *ProxyAuthorization) RenderHeader() string {
+func (hdr *ProxyAuthorization) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *ProxyAuthorization) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	(*Authorization)(hdr).renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = (*Authorization)(hdr).renderValue(sb)
 	return sb.String()
 }
 
@@ -47,7 +47,7 @@ func (hdr *ProxyAuthorization) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
-	return (*ProxyAuthorization)((*Authorization)(hdr).Clone().(*Authorization))
+	return (*ProxyAuthorization)((*Authorization)(hdr).Clone().(*Authorization)) //nolint:forcetypeassert
 }
 
 func (hdr *ProxyAuthorization) Equal(val any) bool {

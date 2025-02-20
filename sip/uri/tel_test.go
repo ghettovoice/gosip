@@ -1,12 +1,12 @@
 package uri_test
 
 import (
+	"fmt"
 	"reflect"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/ghettovoice/gosip/sip/common"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 	"github.com/ghettovoice/gosip/sip/uri"
 )
@@ -163,7 +163,8 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 				if u1 == nil {
 					Expect(u2).To(BeNil(), "assert cloned TelURI is nil")
 				} else {
-					u2 := u2.(*uri.Tel)
+					u2, ok := u2.(*uri.Tel)
+					Expect(ok).To(BeTrue(), fmt.Sprintf("assert cloned TelURI is of type %T", u1))
 					Expect(u2).To(Equal(u1), "assert cloned TelURI equal to the original URI")
 					Expect(reflect.ValueOf(u2).Pointer()).
 						ToNot(Equal(reflect.ValueOf(u1).Pointer()), "assert cloned TelURI pointer is different than the original")
@@ -212,7 +213,7 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 				&uri.Tel{},
 				&uri.SIP{
 					User:   uri.User(""),
-					Addr:   common.Host(""),
+					Addr:   uri.Host(""),
 					Params: make(uri.Values).Set("user", "phone"),
 				},
 			),
@@ -226,7 +227,7 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 				},
 				&uri.SIP{
 					User:   uri.User("+123456;ext=555;baz;foo=bar"),
-					Addr:   common.Host(""),
+					Addr:   uri.Host(""),
 					Params: make(uri.Values).Set("user", "phone"),
 				},
 			),
@@ -241,7 +242,7 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 				},
 				&uri.SIP{
 					User:   uri.User("123456;ext=555;phone-context=+222;baz;foo=bar"),
-					Addr:   common.Host(""),
+					Addr:   uri.Host(""),
 					Params: make(uri.Values).Set("user", "phone"),
 				},
 			),
@@ -256,7 +257,7 @@ var _ = Describe("URI", Label("sip", "uri"), func() {
 				},
 				&uri.SIP{
 					User:   uri.User("123456;ext=555;baz;foo=bar"),
-					Addr:   common.Host("voip.gw.net"),
+					Addr:   uri.Host("voip.gw.net"),
 					Params: make(uri.Values).Set("user", "phone"),
 				},
 			),

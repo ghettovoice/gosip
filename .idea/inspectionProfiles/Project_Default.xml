@@ -1,11 +1,6 @@
 <component name="InspectionProjectProfileManager">
   <profile version="1.0">
     <option name="myName" value="Project Default" />
-    <inspection_tool class="CheckEmptyScriptTag" enabled="false" level="WARNING" enabled_by_default="false" />
-    <inspection_tool class="EmptyDirectory" enabled="true" level="WARNING" enabled_by_default="true">
-      <option name="onlyReportDirectoriesUnderSourceRoots" value="true" />
-    </inspection_tool>
-    <inspection_tool class="Eslint" enabled="true" level="ERROR" enabled_by_default="true" />
     <inspection_tool class="ForgottenDebugOutputInspection" enabled="true" level="ERROR" enabled_by_default="true">
       <option name="configuration">
         <list>
@@ -33,8 +28,10 @@
           <option value="kpr" />
           <option value="phpinfo" />
           <option value="print_r" />
+          <option value="trap" />
           <option value="var_dump" />
           <option value="var_export" />
+          <option value="wp_die" />
           <option value="xdebug_break" />
           <option value="xdebug_call_class" />
           <option value="xdebug_call_file" />
@@ -72,30 +69,42 @@
       </option>
       <option name="migratedIntoUserSpace" value="true" />
     </inspection_tool>
-    <inspection_tool class="GoContextTodo" enabled="true" level="WEAK WARNING" enabled_by_default="true" />
-    <inspection_tool class="GoNameStartsWithPackageName" enabled="true" level="INFORMATION" enabled_by_default="true" />
-    <inspection_tool class="GoReservedWordUsedAsName" enabled="true" level="INFORMATION" enabled_by_default="true" />
-    <inspection_tool class="GoShadowedVar" enabled="true" level="INFORMATION" enabled_by_default="true" />
-    <inspection_tool class="GoStructInitializationWithoutFieldNames" enabled="true" level="INFORMATION" enabled_by_default="true" />
-    <inspection_tool class="GoUnhandledErrorResult" enabled="true" level="INFORMATION" enabled_by_default="true" />
-    <inspection_tool class="GoUnnecessarilyExportedIdentifiers" enabled="true" level="INFORMATION" enabled_by_default="true" editorAttributes="INFORMATION_ATTRIBUTES" />
-    <inspection_tool class="HtmlUnknownAttribute" enabled="true" level="WARNING" enabled_by_default="true">
-      <option name="myValues">
-        <value>
-          <list size="9">
-            <item index="0" class="java.lang.String" itemvalue="inject-view-key" />
-            <item index="1" class="java.lang.String" itemvalue="color" />
-            <item index="2" class="java.lang.String" itemvalue="url" />
-            <item index="3" class="java.lang.String" itemvalue="layers" />
-            <item index="4" class="java.lang.String" itemvalue="server-type" />
-            <item index="5" class="java.lang.String" itemvalue="layer-name" />
-            <item index="6" class="java.lang.String" itemvalue="matrix-set" />
-            <item index="7" class="java.lang.String" itemvalue="format" />
-            <item index="8" class="java.lang.String" itemvalue="style-name" />
-          </list>
-        </value>
-      </option>
-      <option name="myCustomValuesEnabled" value="true" />
+    <inspection_tool class="GoUnhandledErrorResult" enabled="true" level="WARNING" enabled_by_default="true">
+      <methods>
+        <method importPath="hash" receiver="Hash" name="Write" />
+        <method importPath="bytes" receiver="*Buffer" name="WriteString" />
+        <method importPath="strings" receiver="*Builder" name="WriteRune" />
+        <method importPath="bytes" receiver="*Buffer" name="Write" />
+        <method importPath="bytes" receiver="*Buffer" name="WriteByte" />
+        <method importPath="strings" receiver="*Builder" name="Write" />
+        <method importPath="math/rand" receiver="*Rand" name="Read" />
+        <method importPath="strings" receiver="*Builder" name="WriteString" />
+        <method importPath="bytes" receiver="*Buffer" name="WriteRune" />
+        <method importPath="strings" receiver="*Builder" name="WriteByte" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*packetConn" name="Close" />
+        <method importPath="net" receiver="PacketConn" name="SetWriteDeadline" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*udpConnection" name="Close" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*udpConnection" name="SetWriteDeadline" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*baseConn" name="Close" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*baseConn" name="SetWriteDeadline" />
+        <method importPath="net" receiver="Listener" name="Close" />
+        <method importPath="net" receiver="PacketConn" name="Close" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport/internal/netutils" receiver="*packetConn" name="Close" />
+        <method importPath="net" receiver="Conn" name="Close" />
+        <method importPath="net" receiver="Conn" name="SetWriteDeadline" />
+        <method importPath="net" receiver="Conn" name="SetReadDeadline" />
+        <method importPath="net" receiver="*UDPConn" name="Close" />
+        <method importPath="net" receiver="*UDPConn" name="SetReadDeadline" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*base" name="serveConn" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*baseConn" name="serve" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*base" name="initAndServeConn" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*reliableConn" name="Close" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*reliableConn" name="serve" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*unreliableConn" name="Close" />
+        <method importPath="github.com/ghettovoice/gosip/sip/transport" receiver="*unreliableConn" name="serve" />
+        <method importPath="io" receiver="Closer" name="Close" />
+        <method importPath="net" receiver="Conn" name="SetDeadline" />
+      </methods>
     </inspection_tool>
     <inspection_tool class="HttpUrlsUsage" enabled="true" level="WEAK WARNING" enabled_by_default="true">
       <option name="ignoredUrls">
@@ -130,8 +139,6 @@
         </list>
       </option>
     </inspection_tool>
-    <inspection_tool class="InconsistentLineSeparators" enabled="true" level="WARNING" enabled_by_default="true" />
-    <inspection_tool class="ProblematicWhitespace" enabled="true" level="WARNING" enabled_by_default="true" />
     <inspection_tool class="SecurityAdvisoriesInspection" enabled="true" level="WARNING" enabled_by_default="true">
       <option name="optionConfiguration">
         <list>
@@ -187,11 +194,5 @@
         </list>
       </option>
     </inspection_tool>
-    <inspection_tool class="SpellCheckingInspection" enabled="true" level="INFORMATION" enabled_by_default="true">
-      <option name="processCode" value="true" />
-      <option name="processLiterals" value="true" />
-      <option name="processComments" value="true" />
-    </inspection_tool>
-    <inspection_tool class="TodoComment" enabled="true" level="WARNING" enabled_by_default="true" />
   </profile>
 </component>

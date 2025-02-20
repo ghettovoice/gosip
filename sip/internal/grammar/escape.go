@@ -38,16 +38,17 @@ func Escape[T constraints.Byteseq](s T, shouldEscape func(c byte) bool) T {
 	var b bytes.Buffer
 	b.Grow(len(s))
 	for i := 0; i < len(s); i++ {
-		if s[i] == '%' && i+2 <= len(s) && ishex(s[i+1]) && ishex(s[i+2]) {
+		switch {
+		case s[i] == '%' && i+2 <= len(s) && ishex(s[i+1]) && ishex(s[i+2]):
 			b.WriteByte(s[i])
 			b.WriteByte(s[i+1])
 			b.WriteByte(s[i+2])
 			i += 2
-		} else if shouldEscape(s[i]) {
+		case shouldEscape(s[i]):
 			b.WriteByte('%')
 			b.WriteByte(upperhex[s[i]>>4])
 			b.WriteByte(upperhex[s[i]&15])
-		} else {
+		default:
 			b.WriteByte(s[i])
 		}
 	}

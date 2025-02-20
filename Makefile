@@ -1,5 +1,5 @@
 GINKGO_FLAGS=
-GINKGO_BASE_FLAGS=-r --randomize-all -p --trace --race --vet=all --covermode=atomic --coverprofile=cover.profile
+GINKGO_BASE_FLAGS=-r -p --randomize-all --trace --race --vet="" --covermode=atomic --coverprofile=cover.profile
 GINKGO_TEST_FLAGS=${GINKGO_BASE_FLAGS} --randomize-suites
 GINKGO_WATCH_FLAGS=${GINKGO_BASE_FLAGS}
 
@@ -40,6 +40,6 @@ doc:
 	@echo "Running documentation on http://localhost:8080/github.com/ghettovoice/gosip"
 	pkgsite -http=localhost:8080
 
-sip-gen:
+gram-gen:
 	abnf gen -y -c ./sip/internal/grammar/rfc3966/abnf.yml
 	abnf gen -y -c ./sip/internal/grammar/rfc3261/abnf.yml

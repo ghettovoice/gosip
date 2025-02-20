@@ -1,9 +1,0 @@
-1. Messages pool to re-use the same message objects after freeing them.
-   At least could be useful with inbound messages.
-
-2. Connection metadata.
-   WebSocket UPGRADE request or response HTTP headers, other useful data related to the connection.
-
-3. Events or callbacks delegates on each step: receive, parse, send, ...
-
-4. Methods to get current UA's state for metrics: calls number, transactions number, etc.

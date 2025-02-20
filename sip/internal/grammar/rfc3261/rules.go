@@ -1313,7 +1313,6 @@ func Encoding(s []byte, ns abnf.Nodes) abnf.Nodes {
 	return encoding(s, ns)
 }
 
-//goland:noinspection GoReservedWordUsedAsName
 var error abnf.Operator
 
 // Error rule: error = 1*NQSCHAR
@@ -3643,6 +3642,24 @@ func ResponseDigest(s []byte, ns abnf.Nodes) abnf.Nodes {
 	return responseDigest(s, ns)
 }
 
+var responsePort abnf.Operator
+
+// ResponsePort rule: response-port = "rport" [EQUAL 1*DIGIT]
+func ResponsePort(s []byte, ns abnf.Nodes) abnf.Nodes {
+	if responsePort == nil {
+		responsePort = abnf.Concat(
+			"response-port",
+			abnf.Literal("\"rport\"", []byte{114, 112, 111, 114, 116}),
+			abnf.Optional("[EQUAL 1*DIGIT]", abnf.Concat(
+				"EQUAL 1*DIGIT",
+				EQUAL,
+				abnf.Repeat1Inf("1*DIGIT", abnf_core.DIGIT),
+			)),
+		)
+	}
+	return responsePort(s, ns)
+}
+
 var retryAfter abnf.Operator
 
 // RetryAfter rule: Retry-After = "Retry-After" HCOLON delta-seconds [ comment ] *( SEMI retry-param )
@@ -4855,7 +4872,7 @@ func ViaMaddr(s []byte, ns abnf.Nodes) abnf.Nodes {
 
 var viaParams abnf.Operator
 
-// ViaParams rule: via-params = via-ttl / via-maddr / via-received / via-branch / via-extension
+// ViaParams rule: via-params = via-ttl / via-maddr / via-received / via-branch / response-port / via-extension
 func ViaParams(s []byte, ns abnf.Nodes) abnf.Nodes {
 	if viaParams == nil {
 		viaParams = abnf.Alt(
@@ -4864,6 +4881,7 @@ func ViaParams(s []byte, ns abnf.Nodes) abnf.Nodes {
 			ViaMaddr,
 			ViaReceived,
 			ViaBranch,
+			ResponsePort,
 			ViaExtension,
 		)
 	}

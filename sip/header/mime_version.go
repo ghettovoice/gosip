@@ -6,23 +6,22 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type MIMEVersion string
 
-func (hdr MIMEVersion) HeaderName() string { return "MIME-Version" }
+func (MIMEVersion) CanonicName() Name { return "MIME-Version" }
 
-func (hdr MIMEVersion) RenderHeaderTo(w io.Writer) error {
-	_, err := fmt.Fprint(w, hdr.HeaderName(), ": ", string(hdr))
+func (hdr MIMEVersion) RenderTo(w io.Writer) error {
+	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", string(hdr))
 	return err
 }
 
-func (hdr MIMEVersion) RenderHeader() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+func (hdr MIMEVersion) Render() string {
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
@@ -41,7 +40,7 @@ func (hdr MIMEVersion) Equal(val any) bool {
 	default:
 		return false
 	}
-	return utils.LCase(string(hdr)) == utils.LCase(string(other))
+	return stringutils.LCase(string(hdr)) == stringutils.LCase(string(other))
 }
 
 func (hdr MIMEVersion) IsValid() bool { return len(hdr) > 0 }

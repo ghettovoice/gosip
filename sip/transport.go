@@ -1,94 +1,108 @@
 package sip
 
 import (
-	"net"
+	"context"
+	"math"
+	"net/netip"
 	"time"
 
-	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip/internal/shared"
 )
 
 var (
-	MTU uint16 = 1500
+	MTU        = 1500 // Maximum Transport Unit.
+	MaxMsgSize = math.MaxUint16
 )
 
-const (
-	defPortUDP uint16 = 5060
-	defPortTCP uint16 = 5060
-	defPortTLS uint16 = 5061
-	// defPortWS  uint16 = 80
-	// defPortWSS uint16 = 443
-)
-
-const (
-	TransportProtoUDP = "UDP"
-	TransportProtoTCP = "TCP"
-	TransportProtoTLS = "TLS"
-	// TransportProtoWS  TransportProto = "WS"
-	// TransportProtoWSS TransportProto = "WSS"
-)
-
-// TransportOptions are used to configure SIP transport.
-// The zero value is a valid configuration and provides default values for all fields.
-type TransportOptions struct {
-	// Parser is the parser that will be used to parse incoming SIP messages.
-	// Defaults to [DefaultParser].
-	Parser Parser
-	// SentByHost is the host name that will be used in the Via's "sent-by" field.
-	// Defaults to "localhost".
-	SentByHost string
-	// ConnTTL is the time-to-live for connections (except for UDP listen connections).
-	// Defaults to [TimeC].
-	// If the value is less than 0, the TTL will be ignored, i.e., the connection will not expire.
-	ConnTTL time.Duration
-	Log     log.Logger
-}
-
-func (tp *TransportOptions) GetParser() Parser {
-	if tp.Parser == nil {
-		return defParser
-	}
-	return tp.Parser
-}
-
-func (tp *TransportOptions) GetSentByHost() string {
-	if tp.SentByHost == "" {
-		return "localhost"
-	}
-	return tp.SentByHost
-}
-
-func (tp *TransportOptions) GetLog() log.Logger {
-	if tp.Log == nil {
-		return noopLogger
-	}
-	return tp.Log
-}
-
-func (tp *TransportOptions) GetConnTTL() time.Duration {
-	if tp.ConnTTL >= 0 && tp.ConnTTL <= TimeC {
-		return TimeC
-	}
-	return tp.ConnTTL
-}
+type TransportProto = shared.TransportProto
 
 // Transport represents a SIP transport.
+// It provides methods for both sides (server and client).
+// RFC 3261 Section 18.
 type Transport interface {
-	Proto() string
-	IsReliable() bool
-	IsStreamed() bool
-	IsSecured() bool
-	ListenAndServe(addr string, onMsg func(Message), opts ...any) error
-	Close() error
+	Proto() TransportProto
+	ListenAndServe(ctx context.Context, addr netip.AddrPort, opts ...any) error
+	GetOrDial(ctx context.Context, addr netip.AddrPort, opts ...any) (RequestWriter, error)
+	Shutdown() error
+	Stats() TransportReport
+
+	OnInboundRequest(fn func(context.Context, *Request, ResponseWriter) error)
+	OnInboundResponse(fn func(context.Context, *Response) error)
+	OnOutboundRequest(fn func(context.Context, *Request) error)
+	OnOutboundResponse(fn func(context.Context, *Response) error)
 }
 
-type inboundRequest struct {
-	*Request
-	conn    *connection
-	rmtAddr net.Addr
+// TransportReport provides statistics about the transport.
+type TransportReport struct {
+	Proto TransportProto `json:"proto"       yaml:"proto"`
+	// Number of running listeners.
+	Listeners uint32 `json:"listeners"   yaml:"listeners"`
+	// Number of running connections.
+	Connections uint32 `json:"connections" yaml:"connections"`
+
+	InboundRequests          uint64 `json:"inbound_requests"           yaml:"inbound_requests"`
+	InboundRequestsRejected  uint64 `json:"inbound_requests_rejected"  yaml:"inbound_requests_rejected"`
+	InboundResponses         uint64 `json:"inbound_responses"          yaml:"inbound_responses"`
+	InboundResponsesRejected uint64 `json:"inbound_responses_rejected" yaml:"inbound_responses_rejected"`
+
+	OutboundRequests          uint64 `json:"outbound_requests"           yaml:"outbound_requests"`
+	OutboundRequestsRejected  uint64 `json:"outbound_requests_rejected"  yaml:"outbound_requests_rejected"`
+	OutboundResponses         uint64 `json:"outbound_responses"          yaml:"outbound_responses"`
+	OutboundResponsesRejected uint64 `json:"outbound_responses_rejected" yaml:"outbound_responses_rejected"`
+
+	// Average round trip time over network.
+	MessageRTT time.Duration `json:"message_rtt"              yaml:"message_rtt"`
+	// Number of measurements of the RTT.
+	MessageRTTMeasurements uint64 `json:"message_rtt_measurements" yaml:"message_rtt_measurements"`
 }
 
-func (req *inboundRequest) Respond(res *Response) error {
-	// TODO RFC 3261 Section 18.2.2 + RFC 3581 Section 4 + RFC 3263 Section 5.
-	//   resolve ip and port, dial new connection if needed (failover).
-	return req.conn.writeMsg(res, req.rmtAddr)
+// TransportFactory creates a new transport.
+type TransportFactory interface {
+	NewTransport() (Transport, error)
+}
+
+// TransportMetadata describes a transport.
+// It is used to register a transports in the library registry.
+type TransportMetadata struct {
+	Proto       TransportProto
+	Network     string
+	DefaultPort uint16
+	IsReliable  bool
+	IsSecured   bool
+	Factory     TransportFactory
+}
+
+var transportRegistry = make(map[TransportProto]TransportMetadata)
+
+// RegisterTransport registers a transport in the library registry.
+func RegisterTransport(md TransportMetadata) {
+	transportRegistry[md.Proto.ToUpper()] = md
+}
+
+func IsReliableTransport(proto TransportProto) bool {
+	if md, ok := transportRegistry[proto.ToUpper()]; ok {
+		return md.IsReliable
+	}
+	return false
+}
+
+func IsSecuredTransport(proto TransportProto) bool {
+	if md, ok := transportRegistry[proto.ToUpper()]; ok {
+		return md.IsSecured
+	}
+	return false
+}
+
+func TransportDefaultPort(proto TransportProto) uint16 {
+	if md, ok := transportRegistry[proto.ToUpper()]; ok {
+		return md.DefaultPort
+	}
+	return 0
+}
+
+func TransportNetwork(proto TransportProto) string {
+	if md, ok := transportRegistry[proto.ToUpper()]; ok {
+		return md.Network
+	}
+	return ""
 }

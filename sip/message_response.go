@@ -1,209 +1,115 @@
 package sip
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"slices"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/iterutils"
+	"github.com/ghettovoice/gosip/internal/randutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/sip/header"
+	"github.com/ghettovoice/gosip/sip/internal/shared"
 )
+
+type ResponseStatus = shared.ResponseStatus
 
 const (
-	ResponseStatusTrying               uint = 100
-	ResponseStatusRinging              uint = 180
-	ResponseStatusCallIsBeingForwarded uint = 181
-	ResponseStatusQueued               uint = 182
-	ResponseStatusSessionProgress      uint = 183
+	ResponseStatusTrying               = shared.ResponseStatusTrying
+	ResponseStatusRinging              = shared.ResponseStatusRinging
+	ResponseStatusCallIsBeingForwarded = shared.ResponseStatusCallIsBeingForwarded
+	ResponseStatusQueued               = shared.ResponseStatusQueued
+	ResponseStatusSessionProgress      = shared.ResponseStatusSessionProgress
 
-	ResponseStatusOK             uint = 200
-	ResponseStatusAccepted       uint = 202 // [RFC3265]
-	ResponseStatusNoNotification uint = 204 // [RFC5839]
+	ResponseStatusOK             = shared.ResponseStatusOK
+	ResponseStatusAccepted       = shared.ResponseStatusAccepted
+	ResponseStatusNoNotification = shared.ResponseStatusNoNotification
 
-	ResponseStatusMultipleChoices    uint = 300
-	ResponseStatusMovedPermanently   uint = 301
-	ResponseStatusMovedTemporarily   uint = 302
-	ResponseStatusUseProxy           uint = 305
-	ResponseStatusAlternativeService uint = 380
+	ResponseStatusMultipleChoices    = shared.ResponseStatusMultipleChoices
+	ResponseStatusMovedPermanently   = shared.ResponseStatusMovedPermanently
+	ResponseStatusMovedTemporarily   = shared.ResponseStatusMovedTemporarily
+	ResponseStatusUseProxy           = shared.ResponseStatusUseProxy
+	ResponseStatusAlternativeService = shared.ResponseStatusAlternativeService
 
-	ResponseStatusBadRequest                   uint = 400
-	ResponseStatusUnauthorized                 uint = 401
-	ResponseStatusPaymentRequired              uint = 402
-	ResponseStatusForbidden                    uint = 403
-	ResponseStatusNotFound                     uint = 404
-	ResponseStatusMethodNotAllowed             uint = 405
-	ResponseStatusNotAcceptable                uint = 406
-	ResponseStatusProxyAuthenticationRequired  uint = 407
-	ResponseStatusRequestTimeout               uint = 408
-	ResponseStatusConflict                     uint = 409
-	ResponseStatusGone                         uint = 410
-	ResponseStatusLengthRequired               uint = 411
-	ResponseStatusConditionalRequestFailed     uint = 412 // [RFC3903]
-	ResponseStatusRequestEntityTooLarge        uint = 413
-	ResponseStatusRequestURITooLong            uint = 414
-	ResponseStatusUnsupportedMediaType         uint = 415
-	ResponseStatusUnsupportedURIScheme         uint = 416
-	ResponseStatusUnknownResourcePriority      uint = 417
-	ResponseStatusBadExtension                 uint = 420
-	ResponseStatusExtensionRequired            uint = 421
-	ResponseStatusSessionIntervalTooSmall      uint = 422 // [RFC4028]
-	ResponseStatusIntervalTooBrief             uint = 423
-	ResponseStatusUseIdentityHeader            uint = 428 // [RFC4474]
-	ResponseStatusProvideReferrerIdentity      uint = 429 // [RFC3892]
-	ResponseStatusFlowFailed                   uint = 430 // [RFC5626]
-	ResponseStatusAnonymityDisallowed          uint = 433 // [RFC5079]
-	ResponseStatusBadIdentityInfo              uint = 436 // [RFC4474]
-	ResponseStatusUnsupportedCertificate       uint = 437 // [RFC4474]
-	ResponseStatusInvalidIdentityHeader        uint = 438 // [RFC4474]
-	ResponseStatusFirstHopLacksOutboundSupport uint = 439 // [RFC5626]
-	ResponseStatusMaxBreadthExceeded           uint = 440 // [RFC5393]
-	ResponseStatusConsentNeeded                uint = 470 // [RFC5360]
-	ResponseStatusTemporarilyUnavailable       uint = 480
-	ResponseStatusCallTransactionDoesNotExist  uint = 481
-	ResponseStatusLoopDetected                 uint = 482
-	ResponseStatusTooManyHops                  uint = 483
-	ResponseStatusAddressIncomplete            uint = 484
-	ResponseStatusAmbiguous                    uint = 485
-	ResponseStatusBusyHere                     uint = 486
-	ResponseStatusRequestTerminated            uint = 487
-	ResponseStatusNotAcceptableHere            uint = 488
-	ResponseStatusBadEvent                     uint = 489 // [RFC3265]
-	ResponseStatusRequestPending               uint = 491
-	ResponseStatusUndecipherable               uint = 493
-	ResponseStatusSecurityAgreementRequired    uint = 494 // [RFC3329]
+	ResponseStatusBadRequest                   = shared.ResponseStatusBadRequest
+	ResponseStatusUnauthorized                 = shared.ResponseStatusUnauthorized
+	ResponseStatusPaymentRequired              = shared.ResponseStatusPaymentRequired
+	ResponseStatusForbidden                    = shared.ResponseStatusForbidden
+	ResponseStatusNotFound                     = shared.ResponseStatusNotFound
+	ResponseStatusMethodNotAllowed             = shared.ResponseStatusMethodNotAllowed
+	ResponseStatusNotAcceptable                = shared.ResponseStatusNotAcceptable
+	ResponseStatusProxyAuthenticationRequired  = shared.ResponseStatusProxyAuthenticationRequired
+	ResponseStatusRequestTimeout               = shared.ResponseStatusRequestTimeout
+	ResponseStatusConflict                     = shared.ResponseStatusConflict
+	ResponseStatusGone                         = shared.ResponseStatusGone
+	ResponseStatusLengthRequired               = shared.ResponseStatusLengthRequired
+	ResponseStatusConditionalRequestFailed     = shared.ResponseStatusConditionalRequestFailed
+	ResponseStatusRequestEntityTooLarge        = shared.ResponseStatusRequestEntityTooLarge
+	ResponseStatusRequestURITooLong            = shared.ResponseStatusRequestURITooLong
+	ResponseStatusUnsupportedMediaType         = shared.ResponseStatusUnsupportedMediaType
+	ResponseStatusUnsupportedURIScheme         = shared.ResponseStatusUnsupportedURIScheme
+	ResponseStatusUnknownResourcePriority      = shared.ResponseStatusUnknownResourcePriority
+	ResponseStatusBadExtension                 = shared.ResponseStatusBadExtension
+	ResponseStatusExtensionRequired            = shared.ResponseStatusExtensionRequired
+	ResponseStatusSessionIntervalTooSmall      = shared.ResponseStatusSessionIntervalTooSmall
+	ResponseStatusIntervalTooBrief             = shared.ResponseStatusIntervalTooBrief
+	ResponseStatusUseIdentityHeader            = shared.ResponseStatusUseIdentityHeader
+	ResponseStatusProvideReferrerIdentity      = shared.ResponseStatusProvideReferrerIdentity
+	ResponseStatusFlowFailed                   = shared.ResponseStatusFlowFailed
+	ResponseStatusAnonymityDisallowed          = shared.ResponseStatusAnonymityDisallowed
+	ResponseStatusBadIdentityInfo              = shared.ResponseStatusBadIdentityInfo
+	ResponseStatusUnsupportedCertificate       = shared.ResponseStatusUnsupportedCertificate
+	ResponseStatusInvalidIdentityHeader        = shared.ResponseStatusInvalidIdentityHeader
+	ResponseStatusFirstHopLacksOutboundSupport = shared.ResponseStatusFirstHopLacksOutboundSupport
+	ResponseStatusMaxBreadthExceeded           = shared.ResponseStatusMaxBreadthExceeded
+	ResponseStatusConsentNeeded                = shared.ResponseStatusConsentNeeded
+	ResponseStatusTemporarilyUnavailable       = shared.ResponseStatusTemporarilyUnavailable
+	ResponseStatusCallTransactionDoesNotExist  = shared.ResponseStatusCallTransactionDoesNotExist
+	ResponseStatusLoopDetected                 = shared.ResponseStatusLoopDetected
+	ResponseStatusTooManyHops                  = shared.ResponseStatusTooManyHops
+	ResponseStatusAddressIncomplete            = shared.ResponseStatusAddressIncomplete
+	ResponseStatusAmbiguous                    = shared.ResponseStatusAmbiguous
+	ResponseStatusBusyHere                     = shared.ResponseStatusBusyHere
+	ResponseStatusRequestTerminated            = shared.ResponseStatusRequestTerminated
+	ResponseStatusNotAcceptableHere            = shared.ResponseStatusNotAcceptableHere
+	ResponseStatusBadEvent                     = shared.ResponseStatusBadEvent
+	ResponseStatusRequestPending               = shared.ResponseStatusRequestPending
+	ResponseStatusUndecipherable               = shared.ResponseStatusUndecipherable
+	ResponseStatusSecurityAgreementRequired    = shared.ResponseStatusSecurityAgreementRequired
 
-	ResponseStatusServerInternalError uint = 500
-	ResponseStatusNotImplemented      uint = 501
-	ResponseStatusBadGateway          uint = 502
-	ResponseStatusServiceUnavailable  uint = 503
-	ResponseStatusGatewayTimeout      uint = 504
-	ResponseStatusVersionNotSupported uint = 505
-	ResponseStatusMessageTooLarge     uint = 513
-	ResponseStatusPreconditionFailure uint = 580 // [RFC3312]
+	ResponseStatusServerInternalError = shared.ResponseStatusServerInternalError
+	ResponseStatusNotImplemented      = shared.ResponseStatusNotImplemented
+	ResponseStatusBadGateway          = shared.ResponseStatusBadGateway
+	ResponseStatusServiceUnavailable  = shared.ResponseStatusServiceUnavailable
+	ResponseStatusGatewayTimeout      = shared.ResponseStatusGatewayTimeout
+	ResponseStatusVersionNotSupported = shared.ResponseStatusVersionNotSupported
+	ResponseStatusMessageTooLarge     = shared.ResponseStatusMessageTooLarge
+	ResponseStatusPreconditionFailure = shared.ResponseStatusPreconditionFailure
 
-	ResponseStatusBusyEverywhere       uint = 600
-	ResponseStatusDecline              uint = 603
-	ResponseStatusDoesNotExistAnywhere uint = 604
-	ResponseStatusNotAcceptable606     uint = 606
-	ResponseStatusDialogTerminated     uint = 687
+	ResponseStatusBusyEverywhere       = shared.ResponseStatusBusyEverywhere
+	ResponseStatusDecline              = shared.ResponseStatusDecline
+	ResponseStatusDoesNotExistAnywhere = shared.ResponseStatusDoesNotExistAnywhere
+	ResponseStatusNotAcceptable606     = shared.ResponseStatusNotAcceptable606
+	ResponseStatusDialogTerminated     = shared.ResponseStatusDialogTerminated
 )
 
-var responseReasons = map[uint]string{
-	ResponseStatusTrying:               "Trying",
-	ResponseStatusRinging:              "Ringing",
-	ResponseStatusCallIsBeingForwarded: "Call Is Being Forwarded",
-	ResponseStatusQueued:               "Queued",
-	ResponseStatusSessionProgress:      "Session Progress",
-
-	ResponseStatusOK:             "OK",
-	ResponseStatusAccepted:       "Accepted",
-	ResponseStatusNoNotification: "No Notification",
-
-	ResponseStatusMultipleChoices:    "Multiple Choices",
-	ResponseStatusMovedPermanently:   "Moved Permanently",
-	ResponseStatusMovedTemporarily:   "Moved Temporarily",
-	ResponseStatusUseProxy:           "Use Proxy",
-	ResponseStatusAlternativeService: "Alternative Service",
-
-	ResponseStatusBadRequest:                   "Bad Request",
-	ResponseStatusUnauthorized:                 "Unauthorized",
-	ResponseStatusPaymentRequired:              "Payment Required",
-	ResponseStatusForbidden:                    "Forbidden",
-	ResponseStatusNotFound:                     "Not Found",
-	ResponseStatusMethodNotAllowed:             "Method Not Allowed",
-	ResponseStatusNotAcceptable:                "Not Acceptable",
-	ResponseStatusProxyAuthenticationRequired:  "Proxy Authentication Required",
-	ResponseStatusRequestTimeout:               "Request Timeout",
-	ResponseStatusConflict:                     "Conflict",
-	ResponseStatusGone:                         "Gone",
-	ResponseStatusLengthRequired:               "Length Required",
-	ResponseStatusConditionalRequestFailed:     "Conditional Request Failed",
-	ResponseStatusRequestEntityTooLarge:        "Request Entity Too Large",
-	ResponseStatusRequestURITooLong:            "Request-URI Too Long",
-	ResponseStatusUnsupportedMediaType:         "Unsupported Media Type",
-	ResponseStatusUnsupportedURIScheme:         "Unsupported URI Scheme",
-	ResponseStatusUnknownResourcePriority:      "Unknown Resource-Priority",
-	ResponseStatusBadExtension:                 "Bad Extension",
-	ResponseStatusExtensionRequired:            "Extension Required",
-	ResponseStatusSessionIntervalTooSmall:      "Session Interval Too Small",
-	ResponseStatusIntervalTooBrief:             "Interval Too Brief",
-	ResponseStatusUseIdentityHeader:            "Use Identity Header",
-	ResponseStatusProvideReferrerIdentity:      "Provide Referrer Identity",
-	ResponseStatusFlowFailed:                   "Flow Failed",
-	ResponseStatusAnonymityDisallowed:          "Anonymity Disallowed",
-	ResponseStatusBadIdentityInfo:              "Bad Identity-Info",
-	ResponseStatusUnsupportedCertificate:       "Unsupported Certificate",
-	ResponseStatusInvalidIdentityHeader:        "Invalid Identity Header",
-	ResponseStatusFirstHopLacksOutboundSupport: "First Hop Lacks Outbound Support",
-	ResponseStatusMaxBreadthExceeded:           "Max-Breadth Exceeded",
-	ResponseStatusConsentNeeded:                "Consent Needed",
-	ResponseStatusTemporarilyUnavailable:       "Temporarily Unavailable",
-	ResponseStatusCallTransactionDoesNotExist:  "Call/Transaction Does Not Exist",
-	ResponseStatusLoopDetected:                 "Loop Detected",
-	ResponseStatusTooManyHops:                  "Too Many Hops",
-	ResponseStatusAddressIncomplete:            "Address StatusIncomplete",
-	ResponseStatusAmbiguous:                    "Ambiguous",
-	ResponseStatusBusyHere:                     "Busy Here",
-	ResponseStatusRequestTerminated:            "Request Terminated",
-	ResponseStatusNotAcceptableHere:            "Not Acceptable Here",
-	ResponseStatusBadEvent:                     "Bad Event",
-	ResponseStatusRequestPending:               "Request Pending",
-	ResponseStatusUndecipherable:               "Undecipherable",
-	ResponseStatusSecurityAgreementRequired:    "Security Agreement Required",
-
-	ResponseStatusServerInternalError:  "Server Internal Error",
-	ResponseStatusNotImplemented:       "Not Implemented",
-	ResponseStatusBadGateway:           "Bad Gateway",
-	ResponseStatusServiceUnavailable:   "Service Unavailable",
-	ResponseStatusGatewayTimeout:       "Gateway Time-out",
-	ResponseStatusVersionNotSupported:  "Version Not Supported",
-	ResponseStatusMessageTooLarge:      "Message Too Large",
-	ResponseStatusPreconditionFailure:  "Precondition Failure",
-	ResponseStatusBusyEverywhere:       "Busy Everywhere",
-	ResponseStatusDecline:              "Decline",
-	ResponseStatusDoesNotExistAnywhere: "Does Not Exist Anywhere",
-	ResponseStatusNotAcceptable606:     "Not Acceptable",
-	ResponseStatusDialogTerminated:     "Dialog Terminated",
-}
-
-func ResponseStatusReason(status uint) string {
-	return responseReasons[status]
-}
+func ResponseStatusReason(status ResponseStatus) string { return shared.ResponseStatusReason(status) }
 
 type Response struct {
-	Status  uint
+	Status  ResponseStatus
 	Reason  string
-	Proto   Proto
+	Proto   ProtoInfo
 	Headers Headers
 	Body    []byte
 
-	Metadata Metadata
+	Metadata MessageMetadata
 }
 
-func (res *Response) MessageHeaders() Headers { return res.Headers }
-
-func (res *Response) SetMessageHeaders(h Headers) Message {
-	res.Headers = h
-	return res
-}
-
-func (res *Response) MessageBody() []byte { return res.Body }
-
-func (res *Response) SetMessageBody(b []byte) Message {
-	res.Body = b
-	return res
-}
-
-func (res *Response) MessageMetadata() Metadata { return res.Metadata }
-
-func (res *Response) SetMessageMetadata(data Metadata) Message {
-	res.Metadata = data
-	return res
-}
-
-func (res *Response) RenderMessageTo(w io.Writer) error {
+func (res *Response) RenderTo(w io.Writer) error {
 	if res == nil {
 		return nil
 	}
@@ -222,14 +128,47 @@ func (res *Response) RenderMessageTo(w io.Writer) error {
 	return nil
 }
 
-func (res *Response) RenderMessage() string {
+func (res *Response) Render() string {
 	if res == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	res.RenderMessageTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = res.RenderTo(sb)
 	return sb.String()
+}
+
+func (res *Response) String() string {
+	if res == nil {
+		return "<nil>"
+	}
+	return res.Render()
+}
+
+func (res *Response) LogValue() slog.Value {
+	if res == nil {
+		return slog.Value{}
+	}
+	_, viaHop := iterutils.IterFirst2(res.Headers.ViaHops())
+	return slog.GroupValue(
+		slog.String("type", fmt.Sprintf("%T", res)),
+		slog.String("ptr", fmt.Sprintf("%p", res)),
+		slog.Any("status", res.Status),
+		slog.String("reason", res.Reason),
+		slog.Group("headers",
+			slog.Any("Via", utils.ValOrNil(viaHop)),
+			slog.Any("From", res.Headers.From()),
+			slog.Any("To", res.Headers.To()),
+			slog.Any("Call-ID", res.Headers.CallID()),
+			slog.Any("CSeq", res.Headers.CSeq()),
+		),
+		slog.Group("metadata",
+			slog.Any(LocalAddrField, res.Metadata[LocalAddrField]),
+			slog.Any(RemoteAddrField, res.Metadata[RemoteAddrField]),
+			slog.Any(RequestTstampField, res.Metadata[RequestTstampField]),
+			slog.Any(ResponseTstampField, res.Metadata[ResponseTstampField]),
+		),
+	)
 }
 
 func (res *Response) Clone() Message {
@@ -245,7 +184,7 @@ func (res *Response) Clone() Message {
 
 func (res *Response) IsValid() bool {
 	return res != nil &&
-		res.Status >= 100 &&
+		res.Status.IsValid() &&
 		res.Proto.IsValid() &&
 		validateHeaders(res.Headers) &&
 		res.Headers.Has("Via") &&
@@ -272,19 +211,15 @@ func (res *Response) Equal(val any) bool {
 		return false
 	}
 
-	return res.Status == other.Status &&
-		utils.LCase(res.Reason) == utils.LCase(other.Reason) &&
+	return res.Status.Equal(other.Status) &&
+		stringutils.LCase(res.Reason) == stringutils.LCase(other.Reason) &&
 		res.Proto.Equal(other.Proto) &&
 		compareHeaders(res.Headers, other.Headers) &&
 		slices.Equal(res.Body, other.Body)
 }
 
-// BuildResponse generates a SIP response from a SIP request as described in RFC 3261 Section 8.2.6.
-func BuildResponse(req *Request, status uint, reason string) (*Response, error) {
-	if !req.IsValid() {
-		return nil, errors.New("request is invalid")
-	}
-
+// NewResponse generates a SIP response from a SIP request as described in RFC 3261 Section 8.2.6.
+func NewResponse(req *Request, status ResponseStatus, reason string) *Response {
 	if reason == "" {
 		reason = ResponseStatusReason(status)
 	}
@@ -292,16 +227,38 @@ func BuildResponse(req *Request, status uint, reason string) (*Response, error) 
 		Status:   status,
 		Reason:   reason,
 		Proto:    req.Proto,
-		Headers:  make(Headers, 6).CopyFrom(req.Headers, "Via", "From", "To", "Call-ID", "CSeq"),
-		Body:     slices.Clone(req.Body),
+		Headers:  make(Headers, 6).CopyFrom(req.Headers, "Via", "From", "To", "Call-ID", "CSeq", "Timestamp"),
 		Metadata: maps.Clone(req.Metadata),
 	}
-	if status == ResponseStatusTrying {
-		res.Headers.CopyFrom(req.Headers, "Timestamp")
-	} else {
+	if status != ResponseStatusTrying && res.Headers.To() != nil {
 		if res.Headers.To().Params == nil || !res.Headers.To().Params.Has("tag") {
-			res.Headers.To().Params.Set("tag", utils.RandString(16))
+			if res.Headers.To().Params == nil {
+				res.Headers.To().Params = make(header.Values)
+			}
+			res.Headers.To().Params.Set("tag", randutils.RandString(16))
 		}
 	}
-	return res, nil
+	return res
+}
+
+// ResponseWriter is used to generate a SIP response on inbound request and send it to the remote peer
+// using the procedure defined in RFC 3261 Section 18.2.2.
+//
+// Example of responding on inbound INVITE request:
+//
+//	w.Headers().Set(header.Contact{{URI: &uri.SIP{User: uri.User("bob"), Addr: uri.HostPort("192.0.2.4", 5060)}}})
+//	w.SetTag("1234")
+//	w.Write(ctx, sip.ResponseStatusRinging)
+//	w.Write(ctx, sip.ResponseStatusOk, "OK", []byte("v=0\r\n...")/*, header.MIMEType{Type: "application", Subtype: "sdp"} */)
+type ResponseWriter interface {
+	// Headers returns a map for configuring addtional response headers.
+	Headers() Headers
+	// SetTag sets a local tag to the To header for all responses generated with Write.
+	SetTag(tag string)
+	// Write generates a SIP response and sends to the remote peer.
+	// Implementations should support at least following optional arguments:
+	//  - reason as string
+	//  - body as []byte
+	//  - MIME type as [header.MIMEType]
+	Write(ctx context.Context, status ResponseStatus, opts ...any) error
 }

@@ -6,24 +6,24 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
 type Priority string
 
-func (hdr Priority) HeaderName() string { return "Priority" }
+func (Priority) CanonicName() Name { return "Priority" }
 
-func (hdr Priority) RenderHeaderTo(w io.Writer) error {
-	_, err := fmt.Fprint(w, hdr.HeaderName(), ": ", string(hdr))
+func (hdr Priority) RenderTo(w io.Writer) error {
+	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", string(hdr))
 	return err
 }
 
-func (hdr Priority) RenderHeader() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+func (hdr Priority) Render() string {
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
@@ -34,14 +34,19 @@ func (hdr Priority) Equal(val any) bool {
 	switch v := val.(type) {
 	case Priority:
 		other = v
+	case *Priority:
+		if v == nil {
+			return false
+		}
+		other = *v
 	default:
 		return false
 	}
-	return utils.LCase(hdr) == utils.LCase(other)
+	return stringutils.LCase(hdr) == stringutils.LCase(other)
 }
 
 func (hdr Priority) IsValid() bool { return grammar.IsToken(string(hdr)) }
 
 func buildFromPriorityNode(node *abnf.Node) Priority {
-	return Priority(utils.MustGetNode(node, "priority-value").Value)
+	return Priority(abnfutils.MustGetNode(node, "priority-value").Value)
 }

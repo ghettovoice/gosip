@@ -571,7 +571,7 @@ Via               =  ( "Via" / "v" ) HCOLON via-parm *(COMMA via-parm)
 via-parm          =  sent-protocol LWS sent-by *( SEMI via-params )
 via-params        =  via-ttl / via-maddr
                      / via-received / via-branch
-                     / via-extension
+                     / response-port / via-extension
 via-ttl           =  "ttl" EQUAL ttl
 via-maddr         =  "maddr" EQUAL host
 via-received      =  "received" EQUAL (IPv4address / IPv6address)
@@ -585,6 +585,7 @@ transport         =  "UDP" / "TCP" / "TLS" / "SCTP"
                      / other-transport
 sent-by           =  host [ COLON port ]
 ttl               =  1*3DIGIT ; 0 to 255
+response-port     = "rport" [EQUAL 1*DIGIT] ; RFC 3581
 
 Warning        =  "Warning" HCOLON warning-value *(COMMA warning-value)
 warning-value  =  warn-code SP warn-agent SP warn-text

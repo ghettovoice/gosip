@@ -1,7 +1,6 @@
 package grammar
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,9 +14,9 @@ import (
 
 type Error string
 
-func (e Error) Error() string { return fmt.Sprintf("grammar error: %s", string(e)) }
+func (e Error) Error() string { return "grammar error: " + string(e) }
 
-func (e Error) Grammar() bool { return true }
+func (Error) Grammar() bool { return true }
 
 var nodesPool = sync.Pool{
 	New: func() any {
@@ -27,7 +26,7 @@ var nodesPool = sync.Pool{
 }
 
 func getNodes() abnf.Nodes {
-	ns := nodesPool.Get().(*abnf.Nodes)
+	ns := nodesPool.Get().(*abnf.Nodes) //nolint:forcetypeassert
 	return *ns
 }
 

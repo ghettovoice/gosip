@@ -6,22 +6,22 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Subject string
 
-func (hdr Subject) HeaderName() string { return "Subject" }
+func (Subject) CanonicName() Name { return "Subject" }
 
-func (hdr Subject) RenderHeaderTo(w io.Writer) error {
-	_, err := fmt.Fprint(w, hdr.HeaderName(), ": ", string(hdr))
+func (hdr Subject) RenderTo(w io.Writer) error {
+	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", string(hdr))
 	return err
 }
 
-func (hdr Subject) RenderHeader() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+func (hdr Subject) Render() string {
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
@@ -43,7 +43,7 @@ func (hdr Subject) Equal(val any) bool {
 	return hdr == other
 }
 
-func (hdr Subject) IsValid() bool { return true }
+func (Subject) IsValid() bool { return true }
 
 func buildFromSubjectNode(node *abnf.Node) Subject {
 	return Subject(node.Children[2].Value)

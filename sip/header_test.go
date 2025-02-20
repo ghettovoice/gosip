@@ -23,7 +23,7 @@ func parseCustomHeader(name string, value []byte) sip.Header {
 	return &customHeader{name: name, num: num, str: parts[1]}
 }
 
-func (hdr *customHeader) HeaderName() string { return header.CanonicName(hdr.name) }
+func (hdr *customHeader) CanonicName() sip.HeaderName { return header.CanonicName(hdr.name) }
 
 func (hdr *customHeader) Clone() sip.Header {
 	if hdr == nil {
@@ -33,20 +33,20 @@ func (hdr *customHeader) Clone() sip.Header {
 	return &hdr2
 }
 
-func (hdr *customHeader) RenderHeader() string {
+func (hdr *customHeader) Render() string {
 	if hdr == nil {
 		return ""
 	}
 	var sb strings.Builder
-	hdr.RenderHeaderTo(&sb)
+	_ = hdr.RenderTo(&sb)
 	return sb.String()
 }
 
-func (hdr *customHeader) RenderHeaderTo(w io.Writer) error {
+func (hdr *customHeader) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	_, err := fmt.Fprint(w, hdr.HeaderName(), ": ", hdr.num, " ", hdr.str)
+	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", hdr.num, " ", hdr.str)
 	return err
 }
 

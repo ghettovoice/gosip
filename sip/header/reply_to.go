@@ -6,34 +6,34 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type ReplyTo EntityAddr
 
-func (hdr *ReplyTo) HeaderName() string { return "Reply-To" }
+func (*ReplyTo) CanonicName() Name { return "Reply-To" }
 
-func (hdr *ReplyTo) RenderHeaderTo(w io.Writer) error {
+func (hdr *ReplyTo) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	_, err := fmt.Fprint(w, hdr.HeaderName(), ": ", EntityAddr(*hdr))
+	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", EntityAddr(*hdr))
 	return err
 }
 
-func (hdr *ReplyTo) RenderHeader() string {
+func (hdr *ReplyTo) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *ReplyTo) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
 	return EntityAddr(*hdr).String()
 }

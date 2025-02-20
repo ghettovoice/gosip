@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ghettovoice/abnf"
 
+	"github.com/ghettovoice/gosip/internal/abnfutils"
 	"github.com/ghettovoice/gosip/internal/constraints"
 	"github.com/ghettovoice/gosip/internal/utils"
 	"github.com/ghettovoice/gosip/sip/header"
@@ -19,18 +22,15 @@ import (
 
 // Message represents a SIP message.
 type Message interface {
-	MessageHeaders() Headers
-	SetMessageHeaders(hdrs Headers) Message
-	// MessageBody returns the body of the message.
-	MessageBody() []byte
-	SetMessageBody(body []byte) Message
-	MessageMetadata() Metadata
-	SetMessageMetadata(data Metadata) Message
-	RenderMessage() string
-	RenderMessageTo(io.Writer) error
+	// Render renders the SIP message to a string.
+	Render() string
+	// RenderTo renders the SIP message to a writer.
+	RenderTo(w io.Writer) error
+	// Clone returns a clone of the message.
 	Clone() Message
 }
 
+// ParseMessage parses a SIP message from a byte sequence.
 func ParseMessage[T constraints.Byteseq](s T, hdrPrs map[string]HeaderParser) (Message, error) {
 	node, err := grammar.ParseMessage(s)
 	if err != nil {
@@ -55,35 +55,35 @@ func buildFromRequestNode(node *abnf.Node, hdrPrs map[string]HeaderParser) *Requ
 		body = n.Value
 	}
 	return &Request{
-		Method:  utils.MustGetNode(node, "Method").String(),
-		URI:     uri.FromABNF(utils.MustGetNode(node, "Request-URI").Children[0]),
-		Proto:   buildFromSIPVerNode(utils.MustGetNode(node, "SIP-Version")),
+		Method:  RequestMethod(abnfutils.MustGetNode(node, "Method").String()),
+		URI:     uri.FromABNF(abnfutils.MustGetNode(node, "Request-URI").Children[0]),
+		Proto:   buildFromSIPVerNode(abnfutils.MustGetNode(node, "SIP-Version")),
 		Headers: buildFromMessageHeaderNodes(node.GetNodes("message-header"), hdrPrs),
 		Body:    body,
 	}
 }
 
 func buildFromResponseNode(node *abnf.Node, hdrPrs map[string]HeaderParser) *Response {
-	code, _ := strconv.ParseUint(utils.MustGetNode(node, "Status-Code").String(), 10, 16)
+	code, _ := strconv.ParseUint(abnfutils.MustGetNode(node, "Status-Code").String(), 10, 16)
 	var body []byte
 	if n := node.GetNode("message-body"); n != nil {
 		body = n.Value
 	}
 	return &Response{
-		Status:  uint(code),
-		Reason:  utils.MustGetNode(node, "Reason-Phrase").String(),
-		Proto:   buildFromSIPVerNode(utils.MustGetNode(node, "SIP-Version")),
+		Status:  ResponseStatus(code),
+		Reason:  abnfutils.MustGetNode(node, "Reason-Phrase").String(),
+		Proto:   buildFromSIPVerNode(abnfutils.MustGetNode(node, "SIP-Version")),
 		Headers: buildFromMessageHeaderNodes(node.GetNodes("message-header"), hdrPrs),
 		Body:    body,
 	}
 }
 
-func buildFromSIPVerNode(node *abnf.Node) Proto {
+func buildFromSIPVerNode(node *abnf.Node) ProtoInfo {
 	var version string
 	for _, n := range node.Children[2:] {
 		version += n.String()
 	}
-	return Proto{Name: node.Children[0].String(), Version: version}
+	return ProtoInfo{Name: node.Children[0].String(), Version: version}
 }
 
 func buildFromMessageHeaderNodes(nodes abnf.Nodes, hdrPrs map[string]HeaderParser) Headers {
@@ -114,36 +114,36 @@ func parseMessageStart[T constraints.Byteseq](src T) (Message, error) {
 
 // Headers maps string header name to a list of headers.
 // The keys in the map are canonical header names.
-type Headers map[string][]Header
+type Headers map[header.Name][]Header
 
-func (hdrs Headers) Get(name string) []Header {
-	return hdrs[CanonicHeaderName(name)]
+func (hdrs Headers) Get(n HeaderName) []Header {
+	return hdrs[n.ToCanonic()]
 }
 
 func (hdrs Headers) Set(hdr Header) Headers {
-	hdrs[hdr.HeaderName()] = []Header{hdr}
+	hdrs[hdr.CanonicName()] = []Header{hdr}
 	return hdrs
 }
 
 func (hdrs Headers) Append(hdr Header) Headers {
-	n := hdr.HeaderName()
+	n := hdr.CanonicName()
 	hdrs[n] = append(hdrs[n], hdr)
 	return hdrs
 }
 
 func (hdrs Headers) Prepend(hdr Header) Headers {
-	n := hdr.HeaderName()
+	n := hdr.CanonicName()
 	hdrs[n] = append([]Header{hdr}, hdrs[n]...)
 	return hdrs
 }
 
-func (hdrs Headers) Del(name string) Headers {
-	delete(hdrs, CanonicHeaderName(name))
+func (hdrs Headers) Del(n HeaderName) Headers {
+	delete(hdrs, n.ToCanonic())
 	return hdrs
 }
 
-func (hdrs Headers) Has(name string) bool {
-	_, ok := hdrs[CanonicHeaderName(name)]
+func (hdrs Headers) Has(n HeaderName) bool {
+	_, ok := hdrs[n.ToCanonic()]
 	return ok
 }
 
@@ -172,7 +172,9 @@ func (hdrs Headers) ViaHops() iter.Seq2[int, *header.ViaHop] {
 		for _, hdr := range hdrs.Get("Via") {
 			if via, ok := hdr.(header.Via); ok {
 				for j := range via {
-					yield(i, &via[j])
+					if !yield(i, &via[j]) {
+						return
+					}
 					i++
 				}
 			}
@@ -231,7 +233,9 @@ func (hdrs Headers) Contacts() iter.Seq2[int, *header.EntityAddr] {
 		for _, hdr := range hdrs.Get("Contact") {
 			if cnt, ok := hdr.(header.Contact); ok {
 				for j := range cnt {
-					yield(i, &cnt[j])
+					if !yield(i, &cnt[j]) {
+						return
+					}
 					i++
 				}
 			}
@@ -239,12 +243,18 @@ func (hdrs Headers) Contacts() iter.Seq2[int, *header.EntityAddr] {
 	}
 }
 
-func (hdrs Headers) CopyFrom(other Headers, name string, names ...string) Headers {
+func (hdrs Headers) CopyFrom(other Headers, name HeaderName, names ...HeaderName) Headers {
 	copyMessageHeader(hdrs, other, name)
 	for _, n := range names {
 		copyMessageHeader(hdrs, other, n)
 	}
 	return hdrs
+}
+
+func copyMessageHeader(dst, src Headers, name HeaderName) {
+	for _, hdr := range src.Get(name) {
+		dst.Append(utils.Clone[Header](hdr))
+	}
 }
 
 func validateHeaders(hdrs Headers) bool {
@@ -261,7 +271,7 @@ func validateHeaders(hdrs Headers) bool {
 	return true
 }
 
-func compareHeaders(hdrs Headers, other Headers) bool {
+func compareHeaders(hdrs, other Headers) bool {
 	if len(hdrs) != len(other) {
 		return false
 	}
@@ -282,38 +292,38 @@ func compareHeaders(hdrs Headers, other Headers) bool {
 	return true
 }
 
-var headersOrder = []string{
+var headersOrder = []HeaderName{
+	"Route",
+	"Record-Route",
 	"Via",
 	"From",
 	"To",
 	"Call-ID",
 	"CSeq",
 	"Contact",
-	"Route",
-	"Record-Route",
 	"Max-Forwards",
-	"Date",
-	"Subject",
-	"Expires",
-	"Min-SE",
-	"Session-Expires",
-	"In-Reply-To",
-	"Refer-To",
-	"Allow",
-	"Accept",
-	"Accept-Encoding",
-	"Accept-Language",
-	"User-Agent",
-	"Server",
-	"Timestamp",
-	"Supported",
-	"Unsupported",
-	"Require",
-	"Proxy-Require",
 	"Authorization",
 	"Proxy-Authorization",
 	"WWW-Authenticate",
 	"Proxy-Authenticate",
+	"Expires",
+	"Allow",
+	"Accept",
+	"Accept-Encoding",
+	"Accept-Language",
+	"Require",
+	"Proxy-Require",
+	"Supported",
+	"Unsupported",
+	"Timestamp",
+	"Date",
+	"Subject",
+	"Min-SE",
+	"Session-Expires",
+	"Refer-To",
+	"In-Reply-To",
+	"User-Agent",
+	"Server",
 	"Content-Type",
 	"Content-Length",
 }
@@ -330,7 +340,7 @@ func renderHeaders(w io.Writer, hdrs Headers) error {
 		}
 	}
 	slices.SortStableFunc(elems, func(hs1, hs2 []Header) int {
-		n1, n2 := hs1[0].HeaderName(), hs2[0].HeaderName()
+		n1, n2 := hs1[0].CanonicName(), hs2[0].CanonicName()
 		i1, i2 := slices.Index(headersOrder, n1), slices.Index(headersOrder, n2)
 		if i1 == -1 && i2 == -1 {
 			return strings.Compare(string(n1), string(n2))
@@ -345,7 +355,7 @@ func renderHeaders(w io.Writer, hdrs Headers) error {
 	})
 	for _, hs := range elems {
 		for i := range hs {
-			if err := hs[i].RenderHeaderTo(w); err != nil {
+			if err := hs[i].RenderTo(w); err != nil {
 				return err
 			}
 			if _, err := fmt.Fprint(w, "\r\n"); err != nil {
@@ -356,8 +366,112 @@ func renderHeaders(w io.Writer, hdrs Headers) error {
 	return nil
 }
 
-func copyMessageHeader(dst, src Headers, name string) {
-	for _, hdr := range src.Get(name) {
-		dst.Append(utils.Clone[Header](hdr))
+type MessageMetadata map[string]any
+
+const (
+	// TransportField is the metadata field name of the message transport protocol.
+	TransportField = "transport"
+	// RemoteAddrField is the metadata field name of the message remote address.
+	RemoteAddrField = "remote_addr"
+	// LocalAddrField is the metadata field name of the message local address.
+	LocalAddrField = "local_addr"
+	// RequestTstampField is the metadata field name of the timestamp when the request was sent/received.
+	RequestTstampField = "request_tstamp"
+	// ResponseTstampField is the metadata field name of the timestamp when the response was sent/received.
+	ResponseTstampField = "response_tstamp"
+)
+
+func (md MessageMetadata) Transport() TransportProto {
+	v, _ := md[TransportField].(TransportProto)
+	return v
+}
+
+func (md MessageMetadata) RemoteAddr() netip.AddrPort {
+	v, _ := md[RemoteAddrField].(netip.AddrPort)
+	return v
+}
+
+func (md MessageMetadata) LocalAddr() netip.AddrPort {
+	v, _ := md[LocalAddrField].(netip.AddrPort)
+	return v
+}
+
+func (md MessageMetadata) RequestTstamp() time.Time {
+	v, _ := md[RequestTstampField].(time.Time)
+	return v
+}
+
+func (md MessageMetadata) ResponseTstamp() time.Time {
+	v, _ := md[ResponseTstampField].(time.Time)
+	return v
+}
+
+func unexpectMsgTypeError(msg any) error {
+	return fmt.Errorf("unexpected message type %T", msg)
+}
+
+func GetMessageHeaders(msg Message) Headers {
+	switch m := msg.(type) {
+	case *Request:
+		return m.Headers
+	case *Response:
+		return m.Headers
+	default:
+		panic(unexpectMsgTypeError(msg))
+	}
+}
+
+func SetMessageHeaders(msg Message, hdrs Headers) {
+	switch m := msg.(type) {
+	case *Request:
+		m.Headers = hdrs
+	case *Response:
+		m.Headers = hdrs
+	default:
+		panic(unexpectMsgTypeError(msg))
+	}
+}
+
+func GetMessageBody(msg Message) []byte {
+	switch m := msg.(type) {
+	case *Request:
+		return m.Body
+	case *Response:
+		return m.Body
+	default:
+		panic(unexpectMsgTypeError(msg))
+	}
+}
+
+func SetMessageBody(msg Message, body []byte) {
+	switch m := msg.(type) {
+	case *Request:
+		m.Body = body
+	case *Response:
+		m.Body = body
+	default:
+		panic(unexpectMsgTypeError(msg))
+	}
+}
+
+func GetMessageMetadata(msg Message) MessageMetadata {
+	switch m := msg.(type) {
+	case *Request:
+		return m.Metadata
+	case *Response:
+		return m.Metadata
+	default:
+		panic(unexpectMsgTypeError(msg))
+	}
+}
+
+func SetMessageMetadata(msg Message, md MessageMetadata) {
+	switch m := msg.(type) {
+	case *Request:
+		m.Metadata = md
+	case *Response:
+		m.Metadata = md
+	default:
+		panic(unexpectMsgTypeError(msg))
 	}
 }

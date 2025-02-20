@@ -6,44 +6,44 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type ProxyRequire Require
 
-func (hdr ProxyRequire) HeaderName() string { return "Proxy-Require" }
+func (ProxyRequire) CanonicName() Name { return "Proxy-Require" }
 
-func (hdr ProxyRequire) RenderHeaderTo(w io.Writer) error {
+func (hdr ProxyRequire) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return Require(hdr).renderValue(w)
 }
 
-func (hdr ProxyRequire) RenderHeader() string {
+func (hdr ProxyRequire) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr ProxyRequire) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	Require(hdr).renderValue(sb)
+	_ = Require(hdr).renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }
 
 func (hdr ProxyRequire) Clone() Header {
-	return ProxyRequire(Require(hdr).Clone().(Require))
+	return ProxyRequire(Require(hdr).Clone().(Require)) //nolint:forcetypeassert
 }
 
 func (hdr ProxyRequire) Equal(val any) bool {
@@ -51,6 +51,11 @@ func (hdr ProxyRequire) Equal(val any) bool {
 	switch v := val.(type) {
 	case ProxyRequire:
 		other = v
+	case *ProxyRequire:
+		if v == nil {
+			return false
+		}
+		other = *v
 	default:
 		return false
 	}

@@ -20,7 +20,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					"\turi=\"sip:example.com\", response=\"587245234b3434cc3412213e5f113a54\", algorithm=MD5,\r\n"+
 					"\tcnonce=\"1q2w3e\", opaque=\"zxc\", qop=auth, nc=00000005, p1=abc, p2=\"a b c\"",
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:   "root",
 						Realm:      "example.com",
 						Nonce:      "qwerty",
@@ -39,7 +39,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil,
 				"Proxy-Authorization: Bearer QweRTY123",
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{
+					AuthCredentials: &header.BearerCredentials{
 						Token: "QweRTY123",
 					},
 				},
@@ -48,7 +48,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil,
 				"Proxy-Authorization: Custom p1=abc, p2=\"a b c\"",
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Custom",
 						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 					},
@@ -64,7 +64,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, &header.ProxyAuthorization{}, "Proxy-Authorization: "),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:   "root",
 						Realm:      "example.com",
 						Nonce:      "qwerty",
@@ -84,7 +84,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{
+					AuthCredentials: &header.BearerCredentials{
 						Token: "QweRTY123",
 					},
 				},
@@ -92,7 +92,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Custom",
 						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 					},
@@ -109,7 +109,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, &header.ProxyAuthorization{}, (*header.ProxyAuthorization)(nil), false),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:   "root",
 						Realm:      "example.com",
 						Nonce:      "qwerty",
@@ -124,7 +124,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					},
 				},
 				header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:   "root",
 						Realm:      "example.com",
 						Nonce:      "qwerty",
@@ -142,7 +142,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:   "root",
 						Realm:      "example.com",
 						Nonce:      "qwerty",
@@ -157,7 +157,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					},
 				},
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:   "ROOT",
 						Realm:      "example.com",
 						Nonce:      "qwerty",
@@ -175,7 +175,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:   "root",
 						Realm:      "example.com",
 						Nonce:      "qwerty",
@@ -190,13 +190,13 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					},
 				},
 				&header.ProxyAuthorization{
-					AuthCredentials: (*header.DigestAuthCredentials)(nil),
+					AuthCredentials: (*header.DigestCredentials)(nil),
 				},
 				false,
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:   "root",
 						Realm:      "example.com",
 						Nonce:      "qwerty",
@@ -211,7 +211,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					},
 				},
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{
+					AuthCredentials: &header.BearerCredentials{
 						Token: "QwertY",
 					},
 				},
@@ -219,12 +219,12 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{
+					AuthCredentials: &header.BearerCredentials{
 						Token: "QWERTY",
 					},
 				},
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{
+					AuthCredentials: &header.BearerCredentials{
 						Token: "qwerty",
 					},
 				},
@@ -232,12 +232,12 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{
+					AuthCredentials: &header.BearerCredentials{
 						Token: "QwertY",
 					},
 				},
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{
+					AuthCredentials: &header.BearerCredentials{
 						Token: "QwertY",
 					},
 				},
@@ -245,13 +245,13 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "custom",
 						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 					},
 				},
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Custom",
 						Params: make(header.Values).Set("p1", "ABC").Set("p2", `"a b c"`),
 					},
@@ -260,13 +260,13 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Custom",
 						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 					},
 				},
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Qwerty",
 						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 					},
@@ -275,13 +275,13 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Custom",
 						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 					},
 				},
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Custom",
 						Params: make(header.Values).Set("p1", "abc").Set("p2", `"zxc"`),
 					},
@@ -297,7 +297,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, &header.ProxyAuthorization{}, false),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username: "root",
 						Response: "587245234b3434cc3412213e5f113a54",
 					},
@@ -306,7 +306,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:  "root",
 						Realm:     "example.com",
 						Nonce:     "qwerty",
@@ -320,25 +320,25 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{},
+					AuthCredentials: &header.BearerCredentials{},
 				},
 				false,
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{Token: "QwertY"},
+					AuthCredentials: &header.BearerCredentials{Token: "QwertY"},
 				},
 				true,
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{},
+					AuthCredentials: &header.AnyCredentials{},
 				},
 				false,
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Custom",
 						Params: make(header.Values),
 					},
@@ -347,7 +347,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Custom",
 						Params: make(header.Values).Set("p1", "abc"),
 					},
@@ -362,8 +362,8 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			func(hdr1, hdr2 *header.ProxyAuthorization) {
 				Expect(reflect.ValueOf(hdr2).Pointer()).ToNot(Equal(reflect.ValueOf(hdr1).Pointer()))
 				switch crd1 := hdr1.AuthCredentials.(type) {
-				case *header.DigestAuthCredentials:
-					crd2 := hdr2.AuthCredentials.(*header.DigestAuthCredentials)
+				case *header.DigestCredentials:
+					crd2, _ := hdr2.AuthCredentials.(*header.DigestCredentials)
 					if crd1 == nil || reflect.ValueOf(crd1).IsNil() {
 						Expect(crd2).To(BeNil())
 					} else {
@@ -382,15 +382,15 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 								ToNot(Equal(reflect.ValueOf(crd1.Params).Pointer()))
 						}
 					}
-				case *header.BearerAuthCredentials:
-					crd2 := hdr2.AuthCredentials.(*header.BearerAuthCredentials)
+				case *header.BearerCredentials:
+					crd2, _ := hdr2.AuthCredentials.(*header.BearerCredentials)
 					if crd1 == nil || reflect.ValueOf(crd1).IsNil() {
 						Expect(crd2).To(BeNil())
 					} else {
 						Expect(reflect.ValueOf(crd2).Pointer()).ToNot(Equal(reflect.ValueOf(crd1).Pointer()))
 					}
-				case *header.GenericAuthCredentials:
-					crd2 := hdr2.AuthCredentials.(*header.GenericAuthCredentials)
+				case *header.AnyCredentials:
+					crd2, _ := hdr2.AuthCredentials.(*header.AnyCredentials)
 					if crd1 == nil || reflect.ValueOf(crd1).IsNil() {
 						Expect(crd2).To(BeNil())
 					} else {
@@ -408,7 +408,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, &header.ProxyAuthorization{}),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestAuthCredentials{
+					AuthCredentials: &header.DigestCredentials{
 						Username:   "root",
 						Realm:      "example.com",
 						Nonce:      "qwerty",
@@ -425,14 +425,14 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerAuthCredentials{
+					AuthCredentials: &header.BearerCredentials{
 						Token: "QweRTY123",
 					},
 				},
 			),
 			Entry(nil,
 				&header.ProxyAuthorization{
-					AuthCredentials: &header.GenericAuthCredentials{
+					AuthCredentials: &header.AnyCredentials{
 						Scheme: "Custom",
 						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 					},

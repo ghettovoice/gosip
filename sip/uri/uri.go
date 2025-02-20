@@ -1,3 +1,4 @@
+// Package uri implements various URIs used across SIP protocol.
 package uri
 
 import (
@@ -6,16 +7,15 @@ import (
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/constraints"
-	"github.com/ghettovoice/gosip/internal/utils"
-	"github.com/ghettovoice/gosip/sip/common"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/sip/internal/shared"
 )
 
 // URI represents generic URI (SIP, SIPS, Tel, ...etc).
 type URI interface {
-	URIScheme() string
-	RenderURI() string
-	RenderURITo(w io.Writer) error
+	Render() string
+	RenderTo(w io.Writer) error
 	Clone() URI
 }
 
@@ -24,7 +24,7 @@ type URI interface {
 // parsing any other URI returns [Any].
 func Parse[T constraints.Byteseq](s T) (URI, error) {
 	if len(s) >= 3 {
-		switch utils.LCase(string(s[:3])) {
+		switch stringutils.LCase(string(s[:3])) {
 		case "sip":
 			return ParseSIP(s)
 		case "tel":
@@ -42,7 +42,7 @@ func FromABNF(node *abnf.Node) URI {
 		return buildFromTelURINode(node)
 	case "absoluteURI":
 		if sn := node.GetNode("scheme"); sn != nil {
-			switch utils.LCase(sn.String()) {
+			switch stringutils.LCase(sn.String()) {
 			case "sip", "sips":
 				if u, err := ParseSIP(node.Value); err == nil {
 					return u
@@ -63,10 +63,12 @@ func shouldEscapeURIParamChar(c byte) bool { return !grammar.IsURIParamCharUnres
 
 func shouldEscapeURIHeaderChar(c byte) bool { return !grammar.IsURIHeaderCharUnreserved(c) }
 
-type Addr = common.Addr
+type Addr = shared.Addr
 
-func Host(host string) Addr { return common.Host(host) }
+func Host(host string) Addr { return shared.Host(host) }
 
-func HostPort(host string, port uint16) Addr { return common.HostPort(host, port) }
+func HostPort(host string, port uint16) Addr { return shared.HostPort(host, port) }
 
-type Values = common.Values
+type Values = shared.Values
+
+var nilTag = "<nil>"

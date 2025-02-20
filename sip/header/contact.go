@@ -7,18 +7,18 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Contact []EntityAddr
 
-func (hdr Contact) HeaderName() string { return "Contact" }
+func (Contact) CanonicName() Name { return "Contact" }
 
-func (hdr Contact) RenderHeaderTo(w io.Writer) error {
+func (hdr Contact) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -32,21 +32,21 @@ func (hdr Contact) renderValue(w io.Writer) error {
 	return renderHeaderEntries(w, hdr)
 }
 
-func (hdr Contact) RenderHeader() string {
+func (hdr Contact) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr Contact) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }
@@ -58,6 +58,11 @@ func (hdr Contact) Equal(val any) bool {
 	switch v := val.(type) {
 	case Contact:
 		other = v
+	case *Contact:
+		if v == nil {
+			return false
+		}
+		other = *v
 	default:
 		return false
 	}

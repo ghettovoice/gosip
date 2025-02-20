@@ -7,20 +7,19 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
 type Allow []string
 
-func (hdr Allow) HeaderName() string { return "Allow" }
+func (Allow) CanonicName() Name { return "Allow" }
 
-func (hdr Allow) RenderHeaderTo(w io.Writer) error {
+func (hdr Allow) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -28,21 +27,21 @@ func (hdr Allow) RenderHeaderTo(w io.Writer) error {
 
 func (hdr Allow) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
 
-func (hdr Allow) RenderHeader() string {
+func (hdr Allow) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr Allow) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }
@@ -62,7 +61,7 @@ func (hdr Allow) Equal(val any) bool {
 	default:
 		return false
 	}
-	return slices.EqualFunc(hdr, other, func(mtd1, mtd2 string) bool { return utils.UCase(mtd1) == utils.UCase(mtd2) })
+	return slices.EqualFunc(hdr, other, func(mtd1, mtd2 string) bool { return stringutils.UCase(mtd1) == stringutils.UCase(mtd2) })
 }
 
 func (hdr Allow) IsValid() bool {

@@ -15,7 +15,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, "Date: abc", &header.Any{Name: "Date", Value: "abc"}, nil),
 			Entry(nil,
 				"Date: Sat, 13 Nov 2010 23:29:00 GMT",
-				&header.Date{time.Date(2010, 11, 13, 23, 29, 00, 0, time.UTC)},
+				&header.Date{Time: time.Date(2010, 11, 13, 23, 29, 0, 0, time.UTC)},
 				nil,
 			),
 			// endregion
@@ -26,7 +26,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, (*header.Date)(nil), ""),
 			Entry(nil, &header.Date{}, "Date: Mon, 01 Jan 0001 00:00:00 GMT"),
 			Entry(nil,
-				&header.Date{time.Date(2010, 11, 13, 23, 29, 00, 0, time.UTC)},
+				&header.Date{Time: time.Date(2010, 11, 13, 23, 29, 0, 0, time.UTC)},
 				"Date: Sat, 13 Nov 2010 23:29:00 GMT",
 			),
 			// endregion
@@ -38,13 +38,13 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, (*header.Date)(nil), (*header.Date)(nil), true),
 			Entry(nil, &header.Date{}, (*header.Date)(nil), false),
 			Entry(nil,
-				&header.Date{time.Date(2010, 11, 13, 23, 29, 00, 0, time.UTC)},
-				header.Date{time.Date(2010, 11, 13, 23, 29, 00, 0, time.UTC)},
+				&header.Date{Time: time.Date(2010, 11, 13, 23, 29, 0, 0, time.UTC)},
+				header.Date{Time: time.Date(2010, 11, 13, 23, 29, 0, 0, time.UTC)},
 				true,
 			),
 			Entry(nil,
-				&header.Date{time.Date(2019, 4, 13, 23, 29, 00, 0, time.UTC)},
-				&header.Date{time.Date(2010, 11, 13, 23, 29, 00, 0, time.UTC)},
+				&header.Date{Time: time.Date(2019, 4, 13, 23, 29, 0, 0, time.UTC)},
+				&header.Date{Time: time.Date(2010, 11, 13, 23, 29, 0, 0, time.UTC)},
 				false,
 			),
 			// endregion
@@ -54,7 +54,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			// region
 			Entry(nil, (*header.Date)(nil), false),
 			Entry(nil, &header.Date{}, false),
-			Entry(nil, &header.Date{time.Now()}, true),
+			Entry(nil, &header.Date{Time: time.Now().UTC()}, true),
 			// endregion
 		)
 
@@ -62,7 +62,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			// region
 			func(hdr1, hdr2 *header.Date) {},
 			Entry(nil, (*header.Date)(nil)),
-			Entry(nil, &header.Date{time.Now()}),
+			Entry(nil, &header.Date{Time: time.Now().UTC()}),
 			// endregion
 		)
 	})

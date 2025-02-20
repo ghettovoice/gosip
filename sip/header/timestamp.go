@@ -8,54 +8,61 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Timestamp struct {
-	ReqTstamp, ResDelay time.Duration
+	ReqTime  time.Time
+	ResDelay time.Duration
 }
 
-func (hdr *Timestamp) HeaderName() string { return "Timestamp" }
+func (*Timestamp) CanonicName() Name { return "Timestamp" }
 
-func (hdr *Timestamp) RenderHeaderTo(w io.Writer) error {
+func (hdr *Timestamp) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
 }
 
 func (hdr *Timestamp) renderValue(w io.Writer) error {
-	if _, err := fmt.Fprint(w, hdr.ReqTstamp.Seconds()); err != nil {
-		return err
+	if !hdr.ReqTime.IsZero() {
+		if _, err := fmt.Fprintf(w, "%.3f", float64(hdr.ReqTime.UnixNano())/1e9); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprint(w, "0"); err != nil {
+			return err
+		}
 	}
 	if hdr.ResDelay > 0 {
-		if _, err := fmt.Fprint(w, " ", hdr.ResDelay.Seconds()); err != nil {
+		if _, err := fmt.Fprintf(w, " %.3f", hdr.ResDelay.Seconds()); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (hdr *Timestamp) RenderHeader() string {
+func (hdr *Timestamp) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *Timestamp) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.renderValue(sb)
 	return sb.String()
 }
 
@@ -84,17 +91,17 @@ func (hdr *Timestamp) Equal(val any) bool {
 		return false
 	}
 
-	return hdr.ReqTstamp == other.ReqTstamp && hdr.ResDelay == other.ResDelay
+	return hdr.ReqTime.Equal(other.ReqTime) && hdr.ResDelay == other.ResDelay
 }
 
 func (hdr *Timestamp) IsValid() bool {
-	return hdr != nil && hdr.ReqTstamp >= 0 && hdr.ResDelay >= 0
+	return hdr != nil && !hdr.ReqTime.IsZero() && hdr.ResDelay >= 0
 }
 
 func buildFromTimestampNode(node *abnf.Node) *Timestamp {
 	var hdr Timestamp
 	sec, _ := strconv.ParseFloat(string(append(node.Children[2].Value, node.Children[3].Value...)), 64)
-	hdr.ReqTstamp = time.Duration(sec * float64(time.Second))
+	hdr.ReqTime = time.UnixMilli(int64(sec * 1e3)).UTC()
 	if delNode := node.GetNode("delay"); !delNode.IsEmpty() {
 		sec, _ = strconv.ParseFloat(string(append(delNode.Children[0].Value, delNode.Children[1].Value...)), 64)
 		hdr.ResDelay = time.Duration(sec * float64(time.Second))

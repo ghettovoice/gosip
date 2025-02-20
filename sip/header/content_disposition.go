@@ -6,8 +6,8 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
@@ -16,13 +16,13 @@ type ContentDisposition struct {
 	Params Values
 }
 
-func (hdr *ContentDisposition) HeaderName() string { return "Content-Disposition" }
+func (*ContentDisposition) CanonicName() Name { return "Content-Disposition" }
 
-func (hdr *ContentDisposition) RenderHeaderTo(w io.Writer) error {
+func (hdr *ContentDisposition) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -35,23 +35,23 @@ func (hdr *ContentDisposition) renderValue(w io.Writer) error {
 	return renderHeaderParams(w, hdr.Params, false)
 }
 
-func (hdr *ContentDisposition) RenderHeader() string {
+func (hdr *ContentDisposition) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *ContentDisposition) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.renderValue(sb)
 	return sb.String()
 }
 
@@ -81,7 +81,8 @@ func (hdr *ContentDisposition) Equal(val any) bool {
 		return false
 	}
 
-	return utils.LCase(hdr.Type) == utils.LCase(other.Type) && compareHeaderParams(hdr.Params, other.Params, map[string]bool{"handling": true})
+	return stringutils.LCase(hdr.Type) == stringutils.LCase(other.Type) &&
+		compareHeaderParams(hdr.Params, other.Params, map[string]bool{"handling": true})
 }
 
 func (hdr *ContentDisposition) IsValid() bool {
@@ -90,7 +91,7 @@ func (hdr *ContentDisposition) IsValid() bool {
 
 func buildFromContentDispositionNode(node *abnf.Node) *ContentDisposition {
 	return &ContentDisposition{
-		Type:   utils.MustGetNode(node, "disp-type").String(),
+		Type:   abnfutils.MustGetNode(node, "disp-type").String(),
 		Params: buildFromHeaderParamNodes(node.GetNodes("disp-param"), nil),
 	}
 }

@@ -7,20 +7,19 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
 type ContentEncoding []string
 
-func (hdr ContentEncoding) HeaderName() string { return "Content-Encoding" }
+func (ContentEncoding) CanonicName() Name { return "Content-Encoding" }
 
-func (hdr ContentEncoding) RenderHeaderTo(w io.Writer) error {
+func (hdr ContentEncoding) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -28,21 +27,21 @@ func (hdr ContentEncoding) RenderHeaderTo(w io.Writer) error {
 
 func (hdr ContentEncoding) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
 
-func (hdr ContentEncoding) RenderHeader() string {
+func (hdr ContentEncoding) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr ContentEncoding) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }
@@ -62,7 +61,7 @@ func (hdr ContentEncoding) Equal(val any) bool {
 	default:
 		return false
 	}
-	return slices.EqualFunc(hdr, other, func(enc1, enc2 string) bool { return utils.LCase(enc1) == utils.LCase(enc2) })
+	return slices.EqualFunc(hdr, other, func(enc1, enc2 string) bool { return stringutils.LCase(enc1) == stringutils.LCase(enc2) })
 }
 
 func (hdr ContentEncoding) IsValid() bool {

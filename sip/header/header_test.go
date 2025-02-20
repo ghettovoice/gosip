@@ -1,6 +1,7 @@
 package header_test
 
 import (
+	"fmt"
 	"reflect"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -14,22 +15,21 @@ import (
 var _ = Describe("Header", Label("sip", "header"), func() {
 	DescribeTable("CanonicName()",
 		// region
-		func(in, expect string) {
+		func(in string, expect header.Name) {
 			Expect(header.CanonicName(in)).To(Equal(expect))
 		},
 		EntryDescription(`should convert "%s" to "%v"`),
 		// region entries
-		Entry(nil, "call-id", "Call-ID"),
-		Entry(nil, "call-id", "Call-ID"),
-		Entry(nil, "cALL-id", "Call-ID"),
-		Entry(nil, "Call-Id", "Call-ID"),
-		Entry(nil, "i", "Call-ID"),
-		Entry(nil, "Call-ID", "Call-ID"),
-		Entry(nil, "cseq", "CSeq"),
-		Entry(nil, "Cseq", "CSeq"),
-		Entry(nil, "x-custom-header", "X-Custom-Header"),
-		Entry(nil, "l", "Content-Length"),
-		Entry(nil, "mime-version", "MIME-Version"),
+		Entry(nil, "call-id", header.Name("Call-ID")),
+		Entry(nil, "cALL-id", header.Name("Call-ID")),
+		Entry(nil, "Call-Id", header.Name("Call-ID")),
+		Entry(nil, "i", header.Name("Call-ID")),
+		Entry(nil, "Call-ID", header.Name("Call-ID")),
+		Entry(nil, "cseq", header.Name("CSeq")),
+		Entry(nil, "Cseq", header.Name("CSeq")),
+		Entry(nil, "x-custom-header", header.Name("X-Custom-Header")),
+		Entry(nil, "l", header.Name("Content-Length")),
+		Entry(nil, "mime-version", header.Name("MIME-Version")),
 		// endregion
 		// endregion
 	)
@@ -42,10 +42,10 @@ func assertHeaderParsing(entries ...TableEntry) {
 			if expectErr == nil {
 				Expect(hdr).ToNot(BeNil(), "assert parsed header isn't nil")
 				Expect(hdr).To(Equal(expectHdr), "assert parsed header is equal to the expected header")
-				Expect(err).To(BeNil(), "assert parsed error is nil")
+				Expect(err).ToNot(HaveOccurred(), "assert parsed error is nil")
 			} else {
 				Expect(hdr).To(BeNil(), "assert parsed header is nil")
-				Expect(err).To(MatchError(expectErr), "assert parse error matches the expected error")
+				Expect(err).To(MatchError(expectErr.(error)), "assert parse error matches the expected error") //nolint:forcetypeassert
 			}
 		},
 		EntryDescription("%[1]q"),
@@ -58,7 +58,7 @@ func assertHeaderParsing(entries ...TableEntry) {
 func assertHeaderRendering(entries ...TableEntry) {
 	DescribeTable("rendering", Label("rendering"),
 		func(hdr header.Header, expect string) {
-			Expect(hdr.RenderHeader()).To(Equal(expect))
+			Expect(hdr.Render()).To(Equal(expect))
 		},
 		EntryDescription("%#[1]v"),
 		entries,
@@ -97,7 +97,8 @@ func assertHeaderCloning[T header.Header](checkFn func(hdr1, hdr2 T), entries ..
 				rval.IsNil() {
 				Expect(hdr2).To(BeNil(), "assert cloned header is nil")
 			} else {
-				hdr2 := hdr2.(T)
+				hdr2, ok := hdr2.(T)
+				Expect(ok).To(BeTrue(), fmt.Sprintf("assert cloned header is %T", hdr1))
 				Expect(hdr2).To(Equal(hdr1), "assert cloned header is equal to the original header")
 				checkFn(hdr1, hdr2)
 			}

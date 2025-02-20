@@ -6,19 +6,19 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type ContentType MIMEType
 
-func (hdr *ContentType) HeaderName() string { return "Content-Type" }
+func (*ContentType) CanonicName() Name { return "Content-Type" }
 
-func (hdr *ContentType) RenderHeaderTo(w io.Writer) error {
+func (hdr *ContentType) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -29,19 +29,19 @@ func (hdr *ContentType) renderValue(w io.Writer) error {
 	return err
 }
 
-func (hdr *ContentType) RenderHeader() string {
+func (hdr *ContentType) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *ContentType) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
 	return MIMEType(*hdr).String()
 }
@@ -77,7 +77,7 @@ func (hdr *ContentType) Equal(val any) bool {
 func (hdr *ContentType) IsValid() bool { return hdr != nil && MIMEType(*hdr).IsValid() }
 
 func buildFromContentTypeNode(node *abnf.Node) *ContentType {
-	mt, ps := buildFromMIMETypeNode(utils.MustGetNode(node, "media-type"))
+	mt, ps := buildFromMIMETypeNode(abnfutils.MustGetNode(node, "media-type"))
 	for i := range ps {
 		mt.Params.Append(ps[i][0], ps[i][1])
 	}

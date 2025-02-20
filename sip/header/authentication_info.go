@@ -8,8 +8,7 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
@@ -21,20 +20,20 @@ type AuthenticationInfo struct {
 	NonceCount uint
 }
 
-func (hdr *AuthenticationInfo) HeaderName() string { return "Authentication-Info" }
+func (*AuthenticationInfo) CanonicName() Name { return "Authentication-Info" }
 
-func (hdr *AuthenticationInfo) RenderHeaderTo(w io.Writer) error {
+func (hdr *AuthenticationInfo) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
 }
 
 func (hdr *AuthenticationInfo) renderValue(w io.Writer) error {
-	var kvs [][]string
+	var kvs [][]string //nolint:prealloc
 	for k, v := range map[string]string{
 		"nextnonce": hdr.NextNonce,
 		"qop":       hdr.QOP,
@@ -54,7 +53,7 @@ func (hdr *AuthenticationInfo) renderValue(w io.Writer) error {
 		kvs = append(kvs, []string{"nc", fmt.Sprintf("%08x", hdr.NonceCount)})
 	}
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, utils.CmpKVs)
+		slices.SortFunc(kvs, stringutils.CmpKVs)
 		for i, kv := range kvs {
 			if i > 0 {
 				if _, err := fmt.Fprint(w, ", "); err != nil {
@@ -69,23 +68,23 @@ func (hdr *AuthenticationInfo) renderValue(w io.Writer) error {
 	return nil
 }
 
-func (hdr *AuthenticationInfo) RenderHeader() string {
+func (hdr *AuthenticationInfo) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *AuthenticationInfo) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.renderValue(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.renderValue(sb)
 	return sb.String()
 }
 
@@ -115,7 +114,7 @@ func (hdr *AuthenticationInfo) Equal(val any) bool {
 	}
 
 	return hdr.NextNonce == other.NextNonce &&
-		utils.LCase(hdr.QOP) == utils.LCase(other.QOP) &&
+		stringutils.LCase(hdr.QOP) == stringutils.LCase(other.QOP) &&
 		hdr.RspAuth == other.RspAuth &&
 		hdr.CNonce == other.CNonce &&
 		hdr.NonceCount == other.NonceCount

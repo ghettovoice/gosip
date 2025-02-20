@@ -1,6 +1,7 @@
 package sip_test
 
 import (
+	"fmt"
 	"reflect"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -23,10 +24,10 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 					req, ok := msg.(*sip.Request)
 					Expect(ok).To(BeTrue(), "assert parsed message is of type *sip.Request")
 					Expect(req).To(Equal(expectReq), "assert parsed request is equal to the expected request")
-					Expect(err).To(BeNil(), "assert parsed error is nil")
+					Expect(err).ToNot(HaveOccurred(), "assert parsed error is nil")
 				} else {
 					Expect(msg).To(BeNil(), "assert parsed message is nil")
-					Expect(err).To(MatchError(expectErr), "assert parse error matches the expected error")
+					Expect(err).To(MatchError(expectErr.(error)), "assert parse error matches the expected error") //nolint:forcetypeassert
 				}
 			},
 			EntryDescription("%[1]q"),
@@ -42,7 +43,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 				},
 				nil,
 			),
@@ -69,28 +70,28 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("a.example.com"),
-								Params:    make(sip.Values).Append("branch", "qwerty"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("a.example.com"),
+								Params:    make(header.Values).Append("branch", "qwerty"),
 							},
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("b.example.com"),
-								Params:    make(sip.Values).Append("branch", "asdf"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("b.example.com"),
+								Params:    make(header.Values).Append("branch", "asdf"),
 							},
 						}).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -98,7 +99,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -115,7 +116,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 									User: uri.User("alice"),
 									Addr: uri.HostPort("a.example.com", 5060),
 								},
-								Params: make(sip.Values).Append("transport", "tcp"),
+								Params: make(header.Values).Append("transport", "tcp"),
 							},
 						}).
 						Append(&header.Any{Name: "X-Custom-Header", Value: "123"}).
@@ -144,14 +145,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&customHeader{"P-Custom-Header", 123, "abc"}).
@@ -166,7 +167,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 		DescribeTable("rendering", Label("rendering"),
 			// region
 			func(req *sip.Request, expect string) {
-				Expect(req.RenderMessage()).To(Equal(expect))
+				Expect(req.Render()).To(Equal(expect))
 			},
 			EntryDescription("%#[1]v"),
 			Entry(nil, (*sip.Request)(nil), ""),
@@ -178,20 +179,20 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("a.example.com"),
-								Params:    make(sip.Values).Append("branch", "qwerty"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("a.example.com"),
+								Params:    make(header.Values).Append("branch", "qwerty"),
 							},
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("b.example.com"),
-								Params:    make(sip.Values).Append("branch", "asdf"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("b.example.com"),
+								Params:    make(header.Values).Append("branch", "asdf"),
 							},
 						}).
 						Append(&header.From{
@@ -199,7 +200,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -225,28 +226,28 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("a.example.com"),
-								Params:    make(sip.Values).Append("branch", "qwerty"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("a.example.com"),
+								Params:    make(header.Values).Append("branch", "qwerty"),
 							},
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("b.example.com"),
-								Params:    make(sip.Values).Append("branch", "asdf"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("b.example.com"),
+								Params:    make(header.Values).Append("branch", "asdf"),
 							},
 						}).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -254,7 +255,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -318,14 +319,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -333,7 +334,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -351,14 +352,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -366,7 +367,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -387,14 +388,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -402,7 +403,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -420,14 +421,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("alice"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -435,7 +436,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -456,14 +457,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -471,7 +472,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -489,14 +490,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto{Name: "SIP", Version: "3.0"},
+					Proto: sip.ProtoInfo{Name: "SIP", Version: "3.0"},
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -504,7 +505,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -525,14 +526,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -540,7 +541,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -558,14 +559,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -573,7 +574,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("john"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -594,14 +595,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -609,7 +610,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -627,14 +628,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -642,7 +643,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -663,14 +664,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -678,7 +679,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -696,14 +697,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -711,7 +712,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -754,7 +755,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 				},
 				false,
 			),
@@ -765,10 +766,10 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(&header.From{
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -786,14 +787,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -801,7 +802,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -822,14 +823,14 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						User: uri.User("bob"),
 						Addr: uri.Host("b.example.com"),
 					},
-					Proto: sip.Proto20,
+					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
 						Append(header.Via{
 							{
-								Proto:     sip.Proto20,
-								Transport: sip.TransportProtoUDP,
-								Addr:      sip.Host("c.example.com"),
-								Params:    make(sip.Values).Append("branch", "zxcvb"),
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("c.example.com"),
+								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						}).
 						Append(&header.From{
@@ -837,7 +838,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								User: uri.User("alice"),
 								Addr: uri.Host("a.example.com"),
 							},
-							Params: make(sip.Values).Append("tag", "abc"),
+							Params: make(header.Values).Append("tag", "abc"),
 						}).
 						Append(&header.To{
 							URI: &uri.SIP{
@@ -862,7 +863,8 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 				if req1 == nil {
 					Expect(req2).To(BeNil(), "assert cloned request is nil")
 				} else {
-					req2 := req2.(*sip.Request)
+					req2, ok := req2.(*sip.Request)
+					Expect(ok).To(BeTrue(), fmt.Sprintf("assert cloned request is of type %T", req1))
 					Expect(req1).To(Equal(req2), "assert cloned request is equal to the original request")
 					Expect(reflect.ValueOf(req2).Pointer()).ToNot(Equal(reflect.ValueOf(req1).Pointer()), "assert cloned request pointer is different than the original")
 					if req1.URI != nil {
@@ -887,28 +889,28 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 					User: uri.User("bob"),
 					Addr: uri.Host("b.example.com"),
 				},
-				Proto: sip.Proto20,
+				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
 					Append(header.Via{
 						{
-							Proto:     sip.Proto20,
-							Transport: sip.TransportProtoUDP,
-							Addr:      sip.Host("a.example.com"),
-							Params:    make(sip.Values).Append("branch", "qwerty"),
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("a.example.com"),
+							Params:    make(header.Values).Append("branch", "qwerty"),
 						},
 						{
-							Proto:     sip.Proto20,
-							Transport: sip.TransportProtoUDP,
-							Addr:      sip.Host("b.example.com"),
-							Params:    make(sip.Values).Append("branch", "asdf"),
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("b.example.com"),
+							Params:    make(header.Values).Append("branch", "asdf"),
 						},
 					}).
 					Append(header.Via{
 						{
-							Proto:     sip.Proto20,
-							Transport: sip.TransportProtoUDP,
-							Addr:      sip.Host("c.example.com"),
-							Params:    make(sip.Values).Append("branch", "zxcvb"),
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("c.example.com"),
+							Params:    make(header.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
@@ -916,7 +918,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 							User: uri.User("alice"),
 							Addr: uri.Host("a.example.com"),
 						},
-						Params: make(sip.Values).Append("tag", "abc"),
+						Params: make(header.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &uri.SIP{
@@ -942,7 +944,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 					}).
 					Append(header.ContentLength(14)),
 				Body: []byte("Hello world!\r\n"),
-				Metadata: sip.Metadata{
+				Metadata: sip.MessageMetadata{
 					"foo": "bar",
 					"bar": "foo",
 				},

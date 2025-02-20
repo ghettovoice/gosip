@@ -6,35 +6,35 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type From EntityAddr
 
-func (hdr *From) HeaderName() string { return "From" }
+func (*From) CanonicName() Name { return "From" }
 
-func (hdr *From) RenderHeaderTo(w io.Writer) error {
+func (hdr *From) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	_, err := fmt.Fprint(w, hdr.HeaderName(), ": ", EntityAddr(*hdr))
+	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", EntityAddr(*hdr))
 	return err
 }
 
-func (hdr *From) RenderHeader() string {
+func (hdr *From) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *From) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
 	return EntityAddr(*hdr).String()
 }
@@ -70,6 +70,6 @@ func (hdr *From) Equal(val any) bool {
 func (hdr *From) IsValid() bool { return hdr != nil && EntityAddr(*hdr).IsValid() }
 
 func buildFromFromNode(node *abnf.Node) *From {
-	hdr := From(buildFromHeaderAddrNode(utils.MustGetNode(node, "from-spec"), "from-param"))
+	hdr := From(buildFromHeaderAddrNode(abnfutils.MustGetNode(node, "from-spec"), "from-param"))
 	return &hdr
 }

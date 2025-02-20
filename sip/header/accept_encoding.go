@@ -7,20 +7,20 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
 type AcceptEncoding []EncodingRange
 
-func (hdr AcceptEncoding) HeaderName() string { return "Accept-Encoding" }
+func (AcceptEncoding) CanonicName() Name { return "Accept-Encoding" }
 
-func (hdr AcceptEncoding) RenderHeaderTo(w io.Writer) error {
+func (hdr AcceptEncoding) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, hdr.HeaderName(), ": "); err != nil {
+	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
 		return err
 	}
 	return hdr.renderValue(w)
@@ -28,21 +28,21 @@ func (hdr AcceptEncoding) RenderHeaderTo(w io.Writer) error {
 
 func (hdr AcceptEncoding) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
 
-func (hdr AcceptEncoding) RenderHeader() string {
+func (hdr AcceptEncoding) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr AcceptEncoding) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteByte('[')
-	hdr.renderValue(sb)
+	_ = hdr.renderValue(sb)
 	sb.WriteByte(']')
 	return sb.String()
 }
@@ -74,7 +74,7 @@ func buildFromAcceptEncodingNode(node *abnf.Node) AcceptEncoding {
 	hdr := make(AcceptEncoding, len(rngNodes))
 	for i, rngNode := range rngNodes {
 		hdr[i] = EncodingRange{
-			Encoding: utils.MustGetNode(rngNode, "codings").String(),
+			Encoding: abnfutils.MustGetNode(rngNode, "codings").String(),
 			Params:   buildFromHeaderParamNodes(rngNode.GetNodes("accept-param"), nil),
 		}
 	}
@@ -87,10 +87,10 @@ type EncodingRange struct {
 }
 
 func (rng EncodingRange) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	sb.WriteString(rng.Encoding)
-	renderHeaderParams(sb, rng.Params, false)
+	_ = renderHeaderParams(sb, rng.Params, false)
 	return sb.String()
 }
 
@@ -107,7 +107,7 @@ func (rng EncodingRange) Equal(val any) bool {
 	default:
 		return false
 	}
-	return utils.LCase(rng.Encoding) == utils.LCase(other.Encoding) && compareHeaderParams(rng.Params, other.Params, map[string]bool{"q": true})
+	return stringutils.LCase(rng.Encoding) == stringutils.LCase(other.Encoding) && compareHeaderParams(rng.Params, other.Params, map[string]bool{"q": true})
 }
 
 func (rng EncodingRange) IsValid() bool {

@@ -6,22 +6,22 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 )
 
 type Organization string
 
-func (hdr Organization) HeaderName() string { return "Organization" }
+func (Organization) CanonicName() Name { return "Organization" }
 
-func (hdr Organization) RenderHeaderTo(w io.Writer) error {
-	_, err := fmt.Fprint(w, hdr.HeaderName(), ": ", string(hdr))
+func (hdr Organization) RenderTo(w io.Writer) error {
+	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", string(hdr))
 	return err
 }
 
-func (hdr Organization) RenderHeader() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+func (hdr Organization) Render() string {
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
@@ -43,7 +43,7 @@ func (hdr Organization) Equal(val any) bool {
 	return hdr == other
 }
 
-func (hdr Organization) IsValid() bool { return true }
+func (Organization) IsValid() bool { return true }
 
 func buildFromOrganizationNode(node *abnf.Node) Organization {
 	return Organization(node.Children[2].Value)

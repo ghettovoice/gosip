@@ -9,9 +9,9 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
+	"github.com/ghettovoice/gosip/internal/abnfutils"
 	"github.com/ghettovoice/gosip/internal/constraints"
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
@@ -22,13 +22,6 @@ type SIP struct {
 	Params  Values   // parameters
 	Headers Values   // headers
 	Secured bool
-}
-
-func (u *SIP) URIScheme() string {
-	if u.Secured {
-		return "sips"
-	}
-	return "sip"
 }
 
 func (u *SIP) Clone() URI {
@@ -42,11 +35,11 @@ func (u *SIP) Clone() URI {
 	return &u2
 }
 
-func (u *SIP) RenderURITo(w io.Writer) error {
+func (u *SIP) RenderTo(w io.Writer) error {
 	if u == nil {
 		return nil
 	}
-	if _, err := fmt.Fprint(w, u.URIScheme(), ":"); err != nil {
+	if _, err := fmt.Fprint(w, u.scheme(), ":"); err != nil {
 		return err
 	}
 	if !u.User.IsZero() {
@@ -60,10 +53,14 @@ func (u *SIP) RenderURITo(w io.Writer) error {
 	if err := u.renderParams(w); err != nil {
 		return err
 	}
-	if err := u.renderHeaders(w); err != nil {
-		return err
+	return u.renderHeaders(w)
+}
+
+func (u *SIP) scheme() string {
+	if u.Secured {
+		return "sips"
 	}
-	return nil
+	return "sip"
 }
 
 func (u *SIP) renderParams(w io.Writer) error {
@@ -73,9 +70,9 @@ func (u *SIP) renderParams(w io.Writer) error {
 
 	kvs := make([][]string, 0, len(u.Params))
 	for k := range u.Params {
-		kvs = append(kvs, []string{utils.LCase(k), u.Params.Last(k)})
+		kvs = append(kvs, []string{stringutils.LCase(k), u.Params.Last(k)})
 	}
-	slices.SortFunc(kvs, utils.CmpKVs)
+	slices.SortFunc(kvs, stringutils.CmpKVs)
 	for _, kv := range kvs {
 		if _, err := fmt.Fprint(w, ";", grammar.Escape(kv[0], shouldEscapeURIParamChar)); err != nil {
 			return err
@@ -96,9 +93,9 @@ func (u *SIP) renderHeaders(w io.Writer) error {
 
 	kvs := make([][]string, 0, len(u.Headers))
 	for k := range u.Headers {
-		kvs = append(kvs, append([]string{utils.LCase(k)}, u.Headers.Get(k)...))
+		kvs = append(kvs, append([]string{stringutils.LCase(k)}, u.Headers.Get(k)...))
 	}
-	slices.SortFunc(kvs, utils.CmpKVs)
+	slices.SortFunc(kvs, stringutils.CmpKVs)
 	if _, err := fmt.Fprint(w, "?"); err != nil {
 		return err
 	}
@@ -119,21 +116,21 @@ func (u *SIP) renderHeaders(w io.Writer) error {
 	return nil
 }
 
-func (u *SIP) RenderURI() string {
+func (u *SIP) Render() string {
 	if u == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	u.RenderURITo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = u.RenderTo(sb)
 	return sb.String()
 }
 
 func (u *SIP) String() string {
 	if u == nil {
-		return "<nil>"
+		return nilTag
 	}
-	return u.RenderURI()
+	return u.Render()
 }
 
 func (u *SIP) Equal(val any) bool {
@@ -161,30 +158,31 @@ func (u *SIP) Equal(val any) bool {
 }
 
 func (u *SIP) compareParams(params Values) bool {
-	if len(u.Params) == 0 && len(params) == 0 {
+	switch {
+	case len(u.Params) == 0 && len(params) == 0:
 		return true
-	} else if len(u.Params) == 0 {
+	case len(u.Params) == 0:
 		return !hasSIPURISpecParam(params)
-	} else if len(params) == 0 {
+	case len(params) == 0:
 		return !hasSIPURISpecParam(u.Params)
 	}
 
 	checked := map[string]bool{}
 	// Any non-special parameters appearing in only one list are ignored.
-	// First traverse over self-parameters, compare values appearing in both lists,
+	// First, traverse over self-parameters, compare values appearing in both lists,
 	// check on speciality and save checked param names.
 	for k := range u.Params {
 		if params.Has(k) {
 			// Any parameter appearing in both URIs must match.
-			v1, v2 := utils.LCase(u.Params.Last(k)), utils.LCase(params.Last(k))
+			v1, v2 := stringutils.LCase(u.Params.Last(k)), stringutils.LCase(params.Last(k))
 			if v1 != v2 {
 				return false
 			}
-		} else if sipURISpecParams[utils.LCase(k)] {
+		} else if sipURISpecParams[stringutils.LCase(k)] {
 			// Any special SIP URI parameter appearing in one URI must appear in the other.
 			return false
 		}
-		checked[utils.LCase(k)] = true
+		checked[stringutils.LCase(k)] = true
 	}
 	// Then need only check that there are no non-checked special parameters in the other list.
 	for k := range sipURISpecParams {
@@ -229,7 +227,7 @@ func (u *SIP) compareHeaders(hdrs Values) bool {
 		}
 		// very simplified comparison, but probably not worth to make it fully spec compatible
 		// take all header values as lower-cased string
-		v1, v2 := utils.LCase(strings.Join(u.Headers.Get(k), ", ")), utils.LCase(strings.Join(hdrs.Get(k), ", "))
+		v1, v2 := stringutils.LCase(strings.Join(u.Headers.Get(k), ", ")), stringutils.LCase(strings.Join(hdrs.Get(k), ", "))
 		if v1 != v2 {
 			return false
 		}
@@ -246,7 +244,7 @@ func ParseSIP[T constraints.Byteseq](src T) (*SIP, error) {
 		n   *abnf.Node
 		err error
 	)
-	if len(src) >= 4 && utils.LCase(string(src[:4])) == "sips" {
+	if len(src) >= 4 && stringutils.LCase(string(src[:4])) == "sips" {
 		n, err = grammar.ParseSIPSURI(src)
 	} else {
 		n, err = grammar.ParseSIPURI(src)
@@ -260,15 +258,15 @@ func ParseSIP[T constraints.Byteseq](src T) (*SIP, error) {
 func buildFromSIPURINode(node *abnf.Node) *SIP {
 	return &SIP{
 		User:    buildFromUserinfoNode(node.GetNode("userinfo")),
-		Addr:    buildFromHostportNode(utils.MustGetNode(node, "hostport")),
-		Params:  buildFromURIParamsNode(utils.MustGetNode(node, "uri-parameters")),
+		Addr:    buildFromHostportNode(abnfutils.MustGetNode(node, "hostport")),
+		Params:  buildFromURIParamsNode(abnfutils.MustGetNode(node, "uri-parameters")),
 		Headers: buildFromURIHeadersNode(node.GetNode("headers")),
 		Secured: node.Key == "SIPS-URI",
 	}
 }
 
 func buildFromHostportNode(node *abnf.Node) Addr {
-	host := utils.MustGetNode(node, "host").String()
+	host := abnfutils.MustGetNode(node, "host").String()
 	if portNode := node.GetNode("port"); portNode != nil {
 		port, _ := strconv.Atoi(portNode.String())
 		return HostPort(host, uint16(port))
@@ -280,7 +278,7 @@ func buildFromUserinfoNode(node *abnf.Node) UserInfo {
 	if node.IsEmpty() {
 		return UserInfo{}
 	}
-	usrname := grammar.Unescape(utils.MustGetNode(node, "user").String())
+	usrname := grammar.Unescape(abnfutils.MustGetNode(node, "user").String())
 	if passwdNode := node.GetNode("password"); passwdNode != nil {
 		return UserPassword(usrname, grammar.Unescape(passwdNode.String()))
 	}
@@ -329,8 +327,8 @@ func buildFromURIHeadersNode(node *abnf.Node) Values {
 	hdrs := make(Values, len(hdrNodes))
 	for _, n := range hdrNodes {
 		hdrs.Append(
-			grammar.Unescape(utils.MustGetNode(n, "hname").String()),
-			grammar.Unescape(utils.MustGetNode(n, "hvalue").String()),
+			grammar.Unescape(abnfutils.MustGetNode(n, "hname").String()),
+			grammar.Unescape(abnfutils.MustGetNode(n, "hvalue").String()),
 		)
 	}
 	return hdrs
@@ -355,7 +353,7 @@ func UserPassword(usrname, passwd string) UserInfo {
 
 func (ui UserInfo) Username() string { return ui.usrname }
 
-// Password returns the password, in case it is set, and bool flag indicating whether it is set.
+// Password returns the password, in case it is set, and a bool flag indicating whether it is set.
 func (ui UserInfo) Password() (string, bool) { return ui.passwd, ui.hasPasswd }
 
 func shouldEscapeUserChar(c byte) bool { return !grammar.IsURIUserCharUnreserved(c) }
@@ -363,8 +361,8 @@ func shouldEscapeUserChar(c byte) bool { return !grammar.IsURIUserCharUnreserved
 func shouldEscapePasswdChar(c byte) bool { return !grammar.IsURIPasswdCharUnreserved(c) }
 
 func (ui UserInfo) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
 	if ui.usrname != "" {
 		sb.WriteString(grammar.Escape(ui.usrname, shouldEscapeUserChar))
 	}

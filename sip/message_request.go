@@ -1,64 +1,49 @@
 package sip
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
+	"net/netip"
 	"slices"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/iterutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/internal/utils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/sip/internal/shared"
 )
 
+type RequestMethod = shared.RequestMethod
+
 const (
-	RequestMethodAck       = "ACK"
-	RequestMethodBye       = "BYE"
-	RequestMethodCancel    = "CANCEL"
-	RequestMethodInfo      = "INFO"
-	RequestMethodInvite    = "INVITE"
-	RequestMethodMessage   = "MESSAGE"
-	RequestMethodNotify    = "NOTIFY"
-	RequestMethodOptions   = "OPTIONS"
-	RequestMethodPrack     = "PRACK"
-	RequestMethodPublish   = "PUBLISH"
-	RequestMethodRefer     = "REFER"
-	RequestMethodRegister  = "REGISTER"
-	RequestMethodSubscribe = "SUBSCRIBE"
-	RequestMethodUpdate    = "UPDATE"
+	RequestMethodAck       = shared.RequestMethodAck
+	RequestMethodBye       = shared.RequestMethodBye
+	RequestMethodCancel    = shared.RequestMethodCancel
+	RequestMethodInfo      = shared.RequestMethodInfo
+	RequestMethodInvite    = shared.RequestMethodInvite
+	RequestMethodMessage   = shared.RequestMethodMessage
+	RequestMethodNotify    = shared.RequestMethodNotify
+	RequestMethodOptions   = shared.RequestMethodOptions
+	RequestMethodPrack     = shared.RequestMethodPrack
+	RequestMethodPublish   = shared.RequestMethodPublish
+	RequestMethodRefer     = shared.RequestMethodRefer
+	RequestMethodRegister  = shared.RequestMethodRegister
+	RequestMethodSubscribe = shared.RequestMethodSubscribe
+	RequestMethodUpdate    = shared.RequestMethodUpdate
 )
 
 type Request struct {
-	Method   string
+	Method   RequestMethod
 	URI      URI
-	Proto    Proto
+	Proto    ProtoInfo
 	Headers  Headers
 	Body     []byte
-	Metadata Metadata
+	Metadata MessageMetadata
 }
 
-func (req *Request) MessageHeaders() Headers { return req.Headers }
-
-func (req *Request) SetMessageHeaders(headers Headers) Message {
-	req.Headers = headers
-	return req
-}
-
-func (req *Request) MessageBody() []byte { return req.Body }
-
-func (req *Request) SetMessageBody(body []byte) Message {
-	req.Body = body
-	return req
-}
-
-func (req *Request) MessageMetadata() Metadata { return req.Metadata }
-
-func (req *Request) SetMessageMetadata(data Metadata) Message {
-	req.Metadata = data
-	return req
-}
-
-func (req *Request) RenderMessageTo(w io.Writer) error {
+func (req *Request) RenderTo(w io.Writer) error {
 	if req == nil {
 		return nil
 	}
@@ -66,7 +51,7 @@ func (req *Request) RenderMessageTo(w io.Writer) error {
 		return err
 	}
 	if req.URI != nil {
-		if err := utils.RenderTo(w, req.URI); err != nil {
+		if err := stringutils.RenderTo(w, req.URI); err != nil {
 			return err
 		}
 	}
@@ -85,14 +70,46 @@ func (req *Request) RenderMessageTo(w io.Writer) error {
 	return nil
 }
 
-func (req *Request) RenderMessage() string {
+func (req *Request) Render() string {
 	if req == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	req.RenderMessageTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = req.RenderTo(sb)
 	return sb.String()
+}
+
+func (req *Request) String() string {
+	if req == nil {
+		return "<nil>"
+	}
+	return req.Render()
+}
+
+func (req *Request) LogValue() slog.Value {
+	if req == nil {
+		return slog.Value{}
+	}
+	_, viaHop := iterutils.IterFirst2(req.Headers.ViaHops())
+	return slog.GroupValue(
+		slog.String("type", fmt.Sprintf("%T", req)),
+		slog.String("ptr", fmt.Sprintf("%p", req)),
+		slog.Any("method", req.Method),
+		slog.Any("uri", req.URI),
+		slog.Group("headers",
+			slog.Any("Via", utils.ValOrNil(viaHop)),
+			slog.Any("From", req.Headers.From()),
+			slog.Any("To", req.Headers.To()),
+			slog.Any("Call-ID", req.Headers.CallID()),
+			slog.Any("CSeq", req.Headers.CSeq()),
+		),
+		slog.Group("metadata",
+			slog.Any(LocalAddrField, req.Metadata[LocalAddrField]),
+			slog.Any(RemoteAddrField, req.Metadata[RemoteAddrField]),
+			slog.Any(RequestTstampField, req.Metadata[RequestTstampField]),
+		),
+	)
 }
 
 func (req *Request) Clone() Message {
@@ -124,7 +141,7 @@ func (req *Request) Equal(val any) bool {
 		return false
 	}
 
-	return utils.UCase(req.Method) == utils.UCase(other.Method) &&
+	return req.Method.Equal(other.Method) &&
 		req.Proto.Equal(other.Proto) &&
 		utils.IsEqual(req.URI, other.URI) &&
 		compareHeaders(req.Headers, other.Headers) &&
@@ -133,7 +150,7 @@ func (req *Request) Equal(val any) bool {
 
 func (req *Request) IsValid() bool {
 	return req != nil &&
-		grammar.IsToken(req.Method) &&
+		req.Method.IsValid() &&
 		utils.IsValid(req.URI) &&
 		req.Proto.IsValid() &&
 		validateHeaders(req.Headers) &&
@@ -145,7 +162,7 @@ func (req *Request) IsValid() bool {
 		req.Headers.Has("Via")
 }
 
-type InboundRequest interface {
-	Message
-	Respond(res *Response) error
+type RequestWriter interface {
+	RemoteAddr() netip.AddrPort
+	WriteRequest(ctx context.Context, req *Request, opts ...any) error
 }

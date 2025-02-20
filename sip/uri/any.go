@@ -9,15 +9,12 @@ import (
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/constraints"
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
 // Any implements any URI (usually not SIP or tel).
 type Any url.URL
-
-func (u *Any) URIScheme() string { return u.Scheme }
 
 func (u *Any) Clone() URI {
 	if u == nil {
@@ -34,7 +31,7 @@ func (u *Any) Clone() URI {
 	return &u2
 }
 
-func (u *Any) RenderURITo(w io.Writer) error {
+func (u *Any) RenderTo(w io.Writer) error {
 	if u == nil {
 		return nil
 	}
@@ -42,21 +39,21 @@ func (u *Any) RenderURITo(w io.Writer) error {
 	return err
 }
 
-func (u *Any) RenderURI() string {
+func (u *Any) Render() string {
 	if u == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	u.RenderURITo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = u.RenderTo(sb)
 	return sb.String()
 }
 
 func (u *Any) String() string {
 	if u == nil {
-		return "<nil>"
+		return nilTag
 	}
-	return u.RenderURI()
+	return u.Render()
 }
 
 func (u *Any) Equal(val any) bool {
@@ -76,15 +73,15 @@ func (u *Any) Equal(val any) bool {
 		return false
 	}
 	// FIXME compare by url.URL parts
-	return utils.LCase(u.RenderURI()) == utils.LCase(other.RenderURI())
+	return stringutils.LCase(u.Render()) == stringutils.LCase(other.Render())
 }
 
 func (u *Any) IsValid() bool {
 	return u != nil &&
-		(utils.TrimSP(u.Opaque) != "" ||
-			utils.TrimSP(u.Host) != "" ||
-			utils.TrimSP(u.Path) != "" ||
-			utils.TrimSP(u.RawPath) != "")
+		(stringutils.TrimSP(u.Opaque) != "" ||
+			stringutils.TrimSP(u.Host) != "" ||
+			stringutils.TrimSP(u.Path) != "" ||
+			stringutils.TrimSP(u.RawPath) != "")
 }
 
 func ParseAny[T constraints.Byteseq](src T) (*Any, error) {

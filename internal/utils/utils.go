@@ -1,6 +1,6 @@
 package utils
 
-import cmp2 "github.com/google/go-cmp/cmp"
+import "github.com/google/go-cmp/cmp"
 
 func IsValid(v any) bool {
 	vv, ok := v.(interface{ IsValid() bool })
@@ -8,12 +8,12 @@ func IsValid(v any) bool {
 }
 
 func IsEqual(v1, v2 any) bool {
-	if v1, ok := v1.(interface{ Equal(v2 any) bool }); ok {
-		return v1.Equal(v2)
-	} else if v2, ok := v2.(interface{ Equal(v1 any) bool }); ok {
-		return v2.Equal(v1)
+	if v, ok := v1.(interface{ Equal(v2 any) bool }); ok {
+		return v.Equal(v2)
+	} else if v, ok = v2.(interface{ Equal(v1 any) bool }); ok {
+		return v.Equal(v1)
 	}
-	return cmp2.Equal(v1, v2)
+	return cmp.Equal(v1, v2)
 }
 
 func Clone[T any](v any) T {
@@ -24,7 +24,8 @@ func Clone[T any](v any) T {
 		var zero T
 		return zero
 	}
-	return v.(T)
+	v1, _ := v.(T)
+	return v1
 }
 
 func IsTemporaryErr(err error) bool {
@@ -40,4 +41,12 @@ func IsTimeoutErr(err error) bool {
 func IsGrammarErr(err error) bool {
 	e, ok := err.(interface{ Grammar() bool })
 	return ok && e.Grammar()
+}
+
+func ValOrNil[T comparable](v T) any {
+	var z T
+	if v == z {
+		return nil
+	}
+	return v
 }

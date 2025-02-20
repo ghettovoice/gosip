@@ -5,7 +5,8 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/internal/utils"
 	"github.com/ghettovoice/gosip/sip/uri"
 )
@@ -17,14 +18,14 @@ type ResourceAddr struct {
 }
 
 func (addr ResourceAddr) String() string {
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	fmt.Fprint(sb, "<")
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_, _ = fmt.Fprint(sb, "<")
 	if addr.URI != nil {
-		utils.RenderTo(sb, addr.URI)
+		_ = stringutils.RenderTo(sb, addr.URI)
 	}
-	fmt.Fprint(sb, ">")
-	renderHeaderParams(sb, addr.Params, false)
+	_, _ = fmt.Fprint(sb, ">")
+	_ = renderHeaderParams(sb, addr.Params, false)
 	return sb.String()
 }
 
@@ -63,7 +64,7 @@ func buildFromInfoHeaderElemNode(node *abnf.Node) ResourceAddr {
 		psKey = "info-param"
 	}
 	return ResourceAddr{
-		URI:    uri.FromABNF(utils.MustGetNode(node, "absoluteURI")),
+		URI:    uri.FromABNF(abnfutils.MustGetNode(node, "absoluteURI")),
 		Params: buildFromHeaderParamNodes(node.GetNodes(psKey), nil),
 	}
 }

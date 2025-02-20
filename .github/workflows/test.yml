@@ -5,6 +5,7 @@ on:
         branches:
             - master
             - dev
+            - refactoring
     pull_request:
         branches:
             - master
@@ -42,7 +43,7 @@ jobs:
               run: make setup
 
             - name: Test
-              run: make test
+              run: sudo env "PATH=$PATH" make test
 
             - uses: actions/upload-artifact@v4
               with:

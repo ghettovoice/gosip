@@ -13,7 +13,7 @@ var txtProtoRdrPool = sync.Pool{
 }
 
 func getTxtProtoRdr(r *bufio.Reader) *textproto.Reader {
-	tr := txtProtoRdrPool.Get().(*textproto.Reader)
+	tr, _ := txtProtoRdrPool.Get().(*textproto.Reader)
 	tr.R = r
 	return tr
 }
@@ -23,26 +23,12 @@ func freeTxtProtoRdr(r *textproto.Reader) {
 	txtProtoRdrPool.Put(r)
 }
 
-var bytesBufPool = &sync.Pool{
-	New: func() any { return bytes.NewBuffer(make([]byte, 0, 1024)) },
-}
-
-func getBytesBuf() *bytes.Buffer { return bytesBufPool.Get().(*bytes.Buffer) }
-
-func freeBytesBuf(b *bytes.Buffer) {
-	b.Reset()
-	if b.Cap() > maxMsgSize {
-		return
-	}
-	bytesBufPool.Put(b)
-}
-
 var bytesRdrPool = sync.Pool{
 	New: func() any { return bytes.NewReader(nil) },
 }
 
 func getBytesRdr(b []byte) *bytes.Reader {
-	r := bytesRdrPool.Get().(*bytes.Reader)
+	r, _ := bytesRdrPool.Get().(*bytes.Reader)
 	r.Reset(b)
 	return r
 }
@@ -54,12 +40,12 @@ func freeBytesRdr(r *bytes.Reader) {
 
 var bufRdrPool = sync.Pool{
 	New: func() any {
-		return bufio.NewReaderSize(nil, maxMsgSize)
+		return bufio.NewReaderSize(nil, MaxMsgSize)
 	},
 }
 
 func getBufRdr(r io.Reader) *bufio.Reader {
-	br := bufRdrPool.Get().(*bufio.Reader)
+	br, _ := bufRdrPool.Get().(*bufio.Reader)
 	br.Reset(r)
 	return br
 }

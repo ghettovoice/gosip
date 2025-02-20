@@ -6,8 +6,8 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/pool"
-	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/internal/abnfutils"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip/internal/grammar"
 )
 
@@ -17,29 +17,29 @@ type Any struct {
 	Name, Value string
 }
 
-func (hdr *Any) HeaderName() string { return CanonicName(hdr.Name) }
+func (hdr *Any) CanonicName() Name { return CanonicName(hdr.Name) }
 
-func (hdr *Any) RenderHeaderTo(w io.Writer) error {
+func (hdr *Any) RenderTo(w io.Writer) error {
 	if hdr == nil {
 		return nil
 	}
-	_, err := fmt.Fprint(w, hdr.HeaderName(), ": ", hdr.Value)
+	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", hdr.Value)
 	return err
 }
 
-func (hdr *Any) RenderHeader() string {
+func (hdr *Any) Render() string {
 	if hdr == nil {
 		return ""
 	}
-	sb := pool.NewStrBldr()
-	defer pool.FreeStrBldr(sb)
-	hdr.RenderHeaderTo(sb)
+	sb := stringutils.NewStrBldr()
+	defer stringutils.FreeStrBldr(sb)
+	_ = hdr.RenderTo(sb)
 	return sb.String()
 }
 
 func (hdr *Any) String() string {
 	if hdr == nil {
-		return "<nil>"
+		return nilTag
 	}
 	return hdr.Value
 }
@@ -75,5 +75,5 @@ func (hdr *Any) Equal(val any) bool {
 func (hdr *Any) IsValid() bool { return hdr != nil && grammar.IsToken(hdr.Name) }
 
 func buildFromExtensionHeaderNode(node *abnf.Node) *Any {
-	return &Any{node.Children[0].String(), utils.MustGetNode(node, "header-value").String()}
+	return &Any{node.Children[0].String(), abnfutils.MustGetNode(node, "header-value").String()}
 }

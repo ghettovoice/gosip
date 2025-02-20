@@ -241,7 +241,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 
 				Expect(reflect.ValueOf(hdr2).Pointer()).
 					ToNot(Equal(reflect.ValueOf(hdr1).Pointer()))
-				for i := 0; i < len(hdr1); i++ {
+				for i := range hdr1 {
 					if hdr1[i].URI == nil {
 						Expect(hdr2[i].URI).To(BeNil())
 					} else {

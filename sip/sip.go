@@ -2,48 +2,87 @@
 package sip
 
 import (
-	"math"
+	"errors"
+	"regexp"
 	"time"
 
-	"github.com/ghettovoice/gosip/log"
-	"github.com/ghettovoice/gosip/sip/common"
-)
-
-const (
-	maxMsgSize = math.MaxUint16 // max read buffer size, max size of the IP packet
+	"github.com/gabriel-vasile/mimetype"
+	"github.com/ghettovoice/gosip/sip/internal/shared"
 )
 
 var (
-	Proto20 = Proto{Name: "SIP", Version: "2.0"}
-
-	T1    = 500 * time.Millisecond
-	TimeA = T1
-	TimeB = 64 * T1
-	TimeC = 600 * T1
+	ErrInvalidMessage  = errors.New("invalid message")
+	ErrMessageTooLarge = errors.New("message too large")
 )
 
-type Proto = common.ProtoInfo
+type ProtoInfo = shared.ProtoInfo
 
-type Values = common.Values
+var protoVer20 = ProtoInfo{Name: "SIP", Version: "2.0"}
 
-type Addr = common.Addr
+func ProtoVer20() ProtoInfo { return protoVer20 }
 
-func Host(host string) Addr { return common.Host(host) }
-
-func HostPort(host string, port uint16) Addr { return common.HostPort(host, port) }
-
-type Metadata map[string]any
-
+// SIP timers.
 var (
-	TransportField = "transport_proto"
-	// RemoteAddrField is the field name of the message remote address.
-	RemoteAddrField = "remote_addr"
-	// LocalAddrField is the field name of the message local address.
-	LocalAddrField = "local_addr"
-	// RequestTstampField is the field name of the timestamp when the request was received or sent.
-	RequestTstampField = "request_tstamp"
-	// ResponseTstampField is the field name of the timestamp when the response was received or sent.
-	ResponseTstampField = "response_tstamp"
+	// T1 is the message RTT estimate.
+	T1 = 500 * time.Millisecond
+	// T2 is the maximum retransmit interval for non-INVITE requests and INVITE responses.
+	T2 = 4 * time.Second
+	// T4 is the maximum duration a message will remain in the network.
+	T4 = 5 * time.Second
+
+	// TimeD is the wait duration for response retransmits via unreliable transport.
+	TimeD = 32 * time.Second
 )
 
-var noopLogger = &log.NoopLogger{}
+// Time100 is the timeout for automatic 100 Trying response on INVITE.
+const Time100 = 200 * time.Millisecond
+
+// TimeA returns initial INVITE request retransmit interval for unreliable transport.
+// It is equal to [T1].
+func TimeA() time.Duration { return T1 }
+
+// TimeB returns INVITE transaction timeout.
+// It is equal to 64*[T1].
+func TimeB() time.Duration { return 64 * T1 }
+
+// TimeC returns the INVITE transaction timeout on proxy.
+// It is equal to 600*[T1].
+func TimeC() time.Duration { return 600 * T1 }
+
+// TimeE returns initial non-INVITE request retransmit interval for unreliable transport.
+// It is equal to [T1].
+func TimeE() time.Duration { return T1 }
+
+// TimeF returns non-INVITE transaction timeout.
+// It is equal to 64*[T1].
+func TimeF() time.Duration { return 64 * T1 }
+
+// TimeG returns initial INVITE response retransmit interval for any transport.
+// It is equal to [T1].
+func TimeG() time.Duration { return T1 }
+
+// TimeH returns timeout for ACK request receipt.
+// It is equal to 64*[T1].
+func TimeH() time.Duration { return 64 * T1 }
+
+// TimeI returns wait duration for ACK request retransmits via unreliable transport.
+// It is equal to [T4].
+func TimeI() time.Duration { return T4 }
+
+// TimeJ returns wait duration for non-INVITE request retransmits via unreliable transport.
+// It is equal to 64*[T4].
+func TimeJ() time.Duration { return 64 * T4 }
+
+// TimeK returns wait duration for response retransmits via unreliable transport.
+// It is equal to [T4].
+func TimeK() time.Duration { return T4 }
+
+func TimeL() time.Duration { return 64 * T4 }
+
+func TimeM() time.Duration { return 64 * T4 }
+
+func init() {
+	sdpRegex := regexp.MustCompile(`v=0\r?\no=.*\r?\ns=.*\r?\n`)
+	mimetype.Extend(func(raw []byte, limit uint32) bool { return sdpRegex.Match(raw) }, "application/sdp", ".sdp")
+	// TODO add other common mime-type detectors (DTMF, etc)
+}
