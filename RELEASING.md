@@ -1,7 +1,18 @@
-1. Update `Version` constant in `gosip.go`.
+# Releasing a new version
+
+## Manual release
+
+1. Update `VERSION` in `gosip.go`.
 2. Commit, push, and release:
 
 ```bash
-git commit -m "Release vM.m.p"
-git push
+git commit -am "Release vM.m.p"
+git tag vM.m.p
+git push --follow-tags
+```
+
+## Automated release
+
+```bash
+make release VERSION=vM.m.p
 ```

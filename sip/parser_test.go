@@ -4,76 +4,57 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"strconv"
 	"sync"
-	"time"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	. "github.com/onsi/gomega/gstruct"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
+	"github.com/ghettovoice/gosip/header"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/ghettovoice/gosip/sip/header"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
-	"github.com/ghettovoice/gosip/sip/uri"
+	"github.com/ghettovoice/gosip/uri"
 )
 
-var _ = Describe("SIP", Label("sip", "parser"), func() {
-	Describe("StdParser", func() {
-		var p *sip.StdParser
-
-		BeforeEach(func() {
-			p = sip.DefaultParser()
-			p.HeaderParsers = map[string]sip.HeaderParser{
-				"p-custom-header": parseCustomHeader,
-			}
-		})
-
-		DescribeTable("parsing a single message packet", Label("parsing"),
-			// region
-			func(in []byte, expectMsg sip.Message, expectErr any) {
-				msg, err := p.ParsePacket(in)
-				if expectMsg == nil {
-					Expect(msg).To(BeNil(), "assert parsed message is nil")
-				} else {
-					Expect(msg).To(Equal(expectMsg), "assert parsed message is equal to the expected message")
-				}
-				if expectErr == nil {
-					Expect(err).ToNot(HaveOccurred(), "assert parse error is nil")
-				} else {
-					Expect(err).To(MatchError(expectErr.(error)), "assert parse error matches the expected error") //nolint:forcetypeassert
-				}
+func TestParsePacket(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   []byte
+		wantMsg sip.Message
+		wantErr error
+	}{
+		{"empty", []byte{}, nil, io.EOF},
+		{
+			"malformed start line 1",
+			[]byte("INVITE qwerty"),
+			nil,
+			&sip.ParseError{
+				Err:   grammar.ErrMalformedInput,
+				State: sip.ParseStateStart,
+				Data:  []byte("INVITE qwerty"),
 			},
-			EntryDescription("%[1]q"),
-			Entry(nil,
-				[]byte{},
-				nil,
-				&sip.ParseError{
-					Err:   io.EOF,
-					State: sip.ParseStateStart,
-				},
-			),
-			Entry(nil,
-				[]byte("INVITE qwerty"),
-				nil,
-				&sip.ParseError{
-					Err:   grammar.ErrMalformedInput,
-					State: sip.ParseStateStart,
-					Buf:   []byte("INVITE qwerty"),
-				},
-			),
-			Entry(nil,
-				[]byte("INVITE  \r\n\r\n"),
-				nil,
-				&sip.ParseError{
-					Err:   grammar.ErrMalformedInput,
-					State: sip.ParseStateStart,
-					Buf:   []byte("INVITE  "),
-				},
-			),
-			Entry(nil,
-				[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n"),
-				&sip.Request{
+		},
+		{
+			"malformed start line 2",
+			[]byte("INVITE  \r\n\r\n"),
+			nil,
+			&sip.ParseError{
+				Err:   grammar.ErrMalformedInput,
+				State: sip.ParseStateStart,
+				Data:  []byte("INVITE  "),
+			},
+		},
+		{
+			"malformed headers 1",
+			[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+				"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n"),
+			nil,
+			&sip.ParseError{
+				Err:   sip.NewInvalidMessageError("incomplete headers"),
+				State: sip.ParseStateHeaders,
+				Msg: &sip.Request{
 					Method: sip.RequestMethodInvite,
 					URI: &uri.SIP{
 						User: uri.User("bob"),
@@ -90,155 +71,163 @@ var _ = Describe("SIP", Label("sip", "parser"), func() {
 							},
 						}),
 				},
-				&sip.ParseError{
-					Err:   io.ErrUnexpectedEOF,
-					State: sip.ParseStateHeaders,
-					Buf:   nil,
+			},
+		},
+		{
+			"malformed headers 2",
+			[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+				"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +
+				"qwerty\r\n" +
+				"\r\n"),
+			nil,
+			&sip.ParseError{
+				Err:   grammar.ErrMalformedInput,
+				State: sip.ParseStateHeaders,
+				Data:  []byte("qwerty"),
+				Msg: &sip.Request{
+					Method: sip.RequestMethodInvite,
+					URI: &uri.SIP{
+						User: uri.User("bob"),
+						Addr: uri.Host("b.example.com"),
+					},
+					Proto: sip.ProtoVer20(),
+					Headers: make(sip.Headers).
+						Append(header.Via{
+							{
+								Proto:     sip.ProtoVer20(),
+								Transport: "UDP",
+								Addr:      header.Host("a.example.com"),
+								Params:    make(header.Values).Append("branch", "qwerty"),
+							},
+						}),
 				},
-			),
-			Entry(nil,
-				[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n"+
-					"qwerty\r\n"+
+			},
+		},
+		{
+			"valid request 1",
+			[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+				"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +
+				"\r\n" +
+				"hello\r\nworld"),
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("a.example.com"),
+							Params:    make(header.Values).Append("branch", "qwerty"),
+						},
+					}),
+				Body: []byte("hello\r\nworld"),
+			},
+			nil,
+		},
+		{
+			"valid request 2",
+			[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+				"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +
+				"Content-Length: 0\r\n" +
+				"\r\n" +
+				"hello\r\nworld"),
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("a.example.com"),
+							Params:    make(header.Values).Append("branch", "qwerty"),
+						},
+					}).
+					Append(header.ContentLength(0)),
+			},
+			nil,
+		},
+		{
+			"multiple messages 1",
+			[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+				"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +
+				"Content-Length: 0\r\n" +
+				"\r\n" +
+				"SIP/2.0 200 OK\r\n" +
+				"Content-Length: 0\r\n" +
+				"\r\n"),
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("a.example.com"),
+							Params:    make(header.Values).Append("branch", "qwerty"),
+						},
+					}).
+					Append(header.ContentLength(0)),
+			},
+			nil,
+		},
+		{
+			"multiple messages 2",
+			[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+				"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +
+				"\r\n" +
+				"SIP/2.0 200 OK\r\n" +
+				"Content-Length: 0\r\n" +
+				"\r\n"),
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("a.example.com"),
+							Params:    make(header.Values).Append("branch", "qwerty"),
+						},
+					}),
+				Body: []byte("SIP/2.0 200 OK\r\n" +
+					"Content-Length: 0\r\n" +
 					"\r\n"),
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-						}),
-				},
-				&sip.ParseError{
-					Err:   grammar.ErrMalformedInput,
-					State: sip.ParseStateHeaders,
-					Buf:   []byte("qwerty"),
-				},
-			),
-			Entry(nil,
-				[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n"+
-					"\r\n"+
-					"hello\r\nworld"),
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-						}),
-					Body: []byte("hello\r\nworld"),
-				},
-				nil,
-			),
-			Entry(nil,
-				[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n"+
-					"Content-Length: 0\r\n"+
-					"\r\n"+
-					"hello\r\nworld"),
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-						}).
-						Append(header.ContentLength(0)),
-				},
-				nil,
-			),
-			Entry(nil,
-				[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n"+
-					"Content-Length: 0\r\n"+
-					"\r\n"+
-					"SIP/2.0 200 OK\r\n"+
-					"Content-Length: 0\r\n"+
-					"\r\n"),
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-						}).
-						Append(header.ContentLength(0)),
-				},
-				nil,
-			),
-			Entry(nil,
-				[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n"+
-					"\r\n"+
-					"SIP/2.0 200 OK\r\n"+
-					"Content-Length: 0\r\n"+
-					"\r\n"),
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-						}),
-					Body: []byte("SIP/2.0 200 OK\r\n" +
-						"Content-Length: 0\r\n" +
-						"\r\n"),
-				},
-				nil,
-			),
-			Entry(nil,
-				[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n"+
-					"Content-Length: 20\r\n"+
-					"\r\n"+
-					"Hello world!"),
-				&sip.Request{
+			},
+			nil,
+		},
+		{
+			"incomplete body 1",
+			[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+				"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +
+				"Content-Length: 20\r\n" +
+				"\r\n" +
+				"Hello world!"),
+			nil,
+			&sip.ParseError{
+				Err:   sip.NewInvalidMessageError("incomplete body"),
+				State: sip.ParseStateBody,
+				Data:  []byte("Hello world!"),
+				Msg: &sip.Request{
 					Method: sip.RequestMethodInvite,
 					URI: &uri.SIP{
 						User: uri.User("bob"),
@@ -257,855 +246,356 @@ var _ = Describe("SIP", Label("sip", "parser"), func() {
 						Append(header.ContentLength(20)),
 					Body: append([]byte("Hello world!"), make([]byte, 8)...),
 				},
-				&sip.ParseError{
-					Err:   io.ErrUnexpectedEOF,
-					State: sip.ParseStateBody,
-					Buf:   []byte("Hello world!"),
+			},
+		},
+		{
+			"custom headers",
+			[]byte("SIP/2.0 200 OK\r\n" +
+				"Via: SIP/2.0/UDP a.example.com;branch=qwerty,\r\n" +
+				"\tSIP/2.0/UDP b.example.com;branch=asdf\r\n" +
+				"Via: SIP/2.0/UDP c.example.com;branch=zxcvb\r\n" +
+				"From: <sip:alice@a.example.com>;tag=abc\r\n" +
+				"To: <sip:bob@b.example.com>;tag=def\r\n" +
+				"CSeq: 1 INVITE\r\n" +
+				"Call-ID: zxc\r\n" +
+				"Max-Forwards: 70\r\n" +
+				"P-Custom-Header: 123 abc\r\n" +
+				"X-Generic-Header: qwe\r\n" +
+				"\r\n" +
+				"done\r\n"),
+			&sip.Response{
+				Status: 200,
+				Reason: "OK",
+				Proto:  sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("a.example.com"),
+							Params:    make(header.Values).Append("branch", "qwerty"),
+						},
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("b.example.com"),
+							Params:    make(header.Values).Append("branch", "asdf"),
+						},
+					}).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("c.example.com"),
+							Params:    make(header.Values).Append("branch", "zxcvb"),
+						},
+					}).
+					Append(&header.From{
+						URI: &uri.SIP{
+							User: uri.User("alice"),
+							Addr: uri.Host("a.example.com"),
+						},
+						Params: make(header.Values).Append("tag", "abc"),
+					}).
+					Append(&header.To{
+						URI: &uri.SIP{
+							User: uri.User("bob"),
+							Addr: uri.Host("b.example.com"),
+						},
+						Params: make(header.Values).Append("tag", "def"),
+					}).
+					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
+					Append(header.CallID("zxc")).
+					Append(header.MaxForwards(70)).
+					Append(&customHeader{"P-Custom-Header", 123, "abc"}).
+					Append(&header.Any{Name: "X-Generic-Header", Value: "qwe"}),
+				Body: []byte("done\r\n"),
+			},
+			nil,
+		},
+	}
+
+	header.RegisterParser("p-custom-header", parseCustomHeader)
+	defer header.UnregisterParser("p-custom-header")
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			msg, err := sip.ParsePacket(c.input)
+			input := util.Ellipsis(string(c.input), 35)
+			if c.wantErr == nil {
+				if diff := cmp.Diff(msg, c.wantMsg); diff != "" {
+					t.Errorf("sip.ParsePacket(%q) = %+v, want %+v\ndiff (-got +want):\n%v",
+						input, msg, c.wantMsg, diff,
+					)
+				}
+				if err != nil {
+					t.Errorf("sip.ParsePacket(%q) error = %v, want nil", input, err)
+				}
+			} else {
+				if got, want := err, c.wantErr; !cmpParseError(got, want) {
+					t.Errorf("sip.ParsePacket(%q) error = %v, want %v\ndiff (-got +want):\n%v",
+						input, got, want,
+						cmp.Diff(got, want, cmpopts.EquateErrors()),
+					)
+				}
+			}
+		})
+	}
+}
+
+func TestParsePacket_ContentLengthTooLarge(t *testing.T) {
+	contentLen := sip.MaxMsgSize + 1
+	input := []byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +
+		"Content-Length: " + strconv.Itoa(int(contentLen)) + "\r\n" +
+		"\r\n")
+
+	msg, err := sip.ParsePacket(input)
+	if msg != nil {
+		t.Fatalf("sip.ParsePacket(input) msg = %+v, want nil", msg)
+	}
+
+	want := &sip.ParseError{
+		Err:   sip.ErrMessageTooLarge,
+		State: sip.ParseStateHeaders,
+		Msg: &sip.Request{
+			Method: sip.RequestMethodInvite,
+			URI: &uri.SIP{
+				User: uri.User("bob"),
+				Addr: uri.Host("b.example.com"),
+			},
+			Proto: sip.ProtoVer20(),
+			Headers: make(sip.Headers).
+				Append(header.Via{
+					{
+						Proto:     sip.ProtoVer20(),
+						Transport: "UDP",
+						Addr:      header.Host("a.example.com"),
+						Params:    make(header.Values).Append("branch", "qwerty"),
+					},
+				}),
+		},
+	}
+	if !cmpParseError(err, want) {
+		t.Fatalf("sip.ParsePacket(input) error = %v, want %v\ndiff (-got +want):\n%v",
+			err, want,
+			cmp.Diff(err, want, cmpopts.EquateErrors()),
+		)
+	}
+}
+
+func TestParseStream(t *testing.T) {
+	inputs := [][]byte{
+		[]byte("INVITE "), []byte("qwerty 123"), []byte(" 321\r\n"),
+
+		[]byte("OPTIONS sip:bob"), []byte("@example.com SIP/2.0\r\n"),
+		[]byte("Content-Length: 37\r\n"),
+		[]byte("\r\n"),
+		[]byte("SIP/2.0 200 OK\r\nContent-Length: 0\r\n\r\n"),
+
+		[]byte("SIP/2.0 200 OK\r\nContent-Length: 0\r\n\r\ndone\r\n"),
+
+		[]byte("INVITE sip:alice@example.com SIP/2.0\r\n"),
+		[]byte("Via: SIP/2.0/UDP localhost:5060\r\n"),
+		[]byte("\r\n"),
+
+		[]byte("INVITE sip:alice@example.com SIP/2.0\r\n"),
+		[]byte("Via: SIP/2.0/UDP localhost:5060\r\n"),
+		[]byte("Content-Length: 5\r\n"),
+		[]byte("\r\n"),
+		[]byte("12345SIP/2.0 100 Trying\r\n"),
+		[]byte("Content-Length: 10\r\n\r\n"),
+		[]byte("123"),
+	}
+	type result struct {
+		msg sip.Message
+		err error
+	}
+	wantResults := []result{
+		{
+			err: &sip.ParseError{
+				State: sip.ParseStateStart,
+				Err:   grammar.ErrMalformedInput,
+				Data:  []byte("INVITE qwerty 123 321"),
+			},
+		},
+		{
+			msg: &sip.Request{
+				Method: "OPTIONS",
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("example.com"),
 				},
-			),
-			Entry(nil,
-				[]byte("INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty,\r\n"+
-					"\tSIP/2.0/UDP b.example.com;branch=asdf\r\n"+
-					"Via: SIP/2.0/UDP c.example.com;branch=zxcvb\r\n"+
-					"From: <sip:alice@a.example.com>;tag=abc\r\n"+
-					"To: sip:bob@b.example.com\r\n"+
-					"CSeq: 1 INVITE\r\n"+
-					"Call-ID: zxc\r\n"+
-					"Max-Forwards: 70\r\n"+
-					"Contact: <sip:alice@a.example.com:5060>;transport=tcp\r\n"+
-					"P-Custom-Header: 123 abc\r\n"+
-					"X-Generic-Header: qwe\r\n"+
-					"Content-Type: text/plain\r\n"+
-					"Content-Length: 12\r\n"+
-					"\r\n"+
-					"Hello world!\r\n"),
-				&sip.Request{
+				Proto:   sip.ProtoVer20(),
+				Headers: make(sip.Headers).Set(header.ContentLength(37)),
+				Body:    []byte("SIP/2.0 200 OK\r\nContent-Length: 0\r\n\r\n"),
+			},
+		},
+		{
+			msg: &sip.Response{
+				Status:  200,
+				Reason:  "OK",
+				Proto:   sip.ProtoVer20(),
+				Headers: make(sip.Headers).Set(header.ContentLength(0)),
+			},
+		},
+		{
+			err: &sip.ParseError{
+				State: sip.ParseStateStart,
+				Err:   grammar.ErrMalformedInput,
+				Data:  []byte("done"),
+			},
+		},
+		{
+			err: &sip.ParseError{
+				State: sip.ParseStateHeaders,
+				Err:   sip.NewInvalidMessageError("missing mandatory header \"Content-Length\""),
+				Msg: &sip.Request{
 					Method: "INVITE",
 					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
+						User: uri.User("alice"),
+						Addr: uri.Host("example.com"),
 					},
 					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("b.example.com"),
-								Params:    make(header.Values).Append("branch", "asdf"),
-							},
-						}).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")).
-						Append(header.MaxForwards(70)).
-						Append(header.Contact{
-							{
-								URI: &uri.SIP{
-									User: uri.User("alice"),
-									Addr: uri.HostPort("a.example.com", 5060),
-								},
-								Params: make(header.Values).Append("transport", "tcp"),
-							},
-						}).
-						Append(&customHeader{"P-Custom-Header", 123, "abc"}).
-						Append(&header.Any{Name: "X-Generic-Header", Value: "qwe"}).
-						Append(&header.ContentType{
-							Type:    "text",
-							Subtype: "plain",
-						}).
-						Append(header.ContentLength(12)),
-					Body: []byte("Hello world!"),
+					Headers: make(sip.Headers).Set(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      uri.HostPort("localhost", 5060),
+						},
+					}),
 				},
-				nil,
-			),
-			Entry(nil,
-				[]byte("SIP/2.0 200 OK\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty,\r\n"+
-					"\tSIP/2.0/UDP b.example.com;branch=asdf\r\n"+
-					"Via: SIP/2.0/UDP c.example.com;branch=zxcvb\r\n"+
-					"From: <sip:alice@a.example.com>;tag=abc\r\n"+
-					"To: <sip:bob@b.example.com>;tag=def\r\n"+
-					"CSeq: 1 INVITE\r\n"+
-					"Call-ID: zxc\r\n"+
-					"Max-Forwards: 70\r\n"+
-					"Contact: <sip:bob@b.example.com:5060>\r\n"+
-					"P-Custom-Header: 123 abc\r\n"+
-					"X-Generic-Header: qwe\r\n"+
-					"Content-Type: text/plain\r\n"+
-					"Content-Length: 6\r\n"+
-					"\r\n"+
-					"done\r\n"),
-				&sip.Response{
-					Status: 200,
-					Reason: "OK",
-					Proto:  sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("b.example.com"),
-								Params:    make(header.Values).Append("branch", "asdf"),
-							},
-						}).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "def"),
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")).
-						Append(header.MaxForwards(70)).
-						Append(header.Contact{
-							{
-								URI: &uri.SIP{
-									User: uri.User("bob"),
-									Addr: uri.HostPort("b.example.com", 5060),
-								},
-							},
-						}).
-						Append(&customHeader{"P-Custom-Header", 123, "abc"}).
-						Append(&header.Any{Name: "X-Generic-Header", Value: "qwe"}).
-						Append(&header.ContentType{
-							Type:    "text",
-							Subtype: "plain",
-						}).
-						Append(header.ContentLength(6)),
-					Body: []byte("done\r\n"),
+			},
+		},
+		{
+			msg: &sip.Request{
+				Method: "INVITE",
+				URI: &uri.SIP{
+					User: uri.User("alice"),
+					Addr: uri.Host("example.com"),
 				},
-				nil,
-			),
-			// endregion
-		)
-
-		Describe("parsing a stream of messages", Label("parsing"), func() {
-			var (
-				sp *sip.StdStreamParser
-				pw *io.PipeWriter
-				pr *io.PipeReader
-			)
-
-			BeforeEach(func() {
-				pr, pw = io.Pipe()
-				sp, _ = p.ParseStream(pr).(*sip.StdStreamParser)
-			})
-
-			When("parsing message start line", func() {
-				Context("on any read error", func() {
-					It("should yield error", func(ctx SpecContext) {
-						var wg sync.WaitGroup
-						wg.Add(2)
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							time.Sleep(time.Millisecond)
-
-							Expect(pw.CloseWithError(errors.New("test error"))).To(Succeed(), "close pipe should succeed")
-						}()
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							var results [][]any
-							for msg, err := range sp.Messages() {
-								results = append(results, []any{msg, err})
-								if err != nil {
-									break
-								}
-							}
-
-							Expect(results).To(MatchAllElementsWithIndex(IndexIdentity, Elements{
-								"0": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": BeNil(),
-									"1": MatchError(&sip.ParseError{Err: errors.New("test error"), State: sip.ParseStateStart}),
-								}),
-							}))
-						}()
-
-						done := make(chan struct{})
-						go func() {
-							wg.Wait()
-							close(done)
-						}()
-						Eventually(ctx, done).Should(BeClosed())
-					}, SpecTimeout(time.Second))
-				})
-
-				Context("on parse error", func() {
-					It("should yield error", func(ctx SpecContext) {
-						var wg sync.WaitGroup
-						wg.Add(2)
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							_, err := pw.Write(bytes.Repeat([]byte{'a'}, 64<<10))
-							Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-
-							Expect(pw.Close()).To(Succeed(), "close pipe should succeed")
-						}()
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							var results [][]any
-							for msg, err := range sp.Messages() {
-								results = append(results, []any{msg, err})
-								if err != nil {
-									break
-								}
-							}
-
-							Expect(results).To(MatchAllElementsWithIndex(IndexIdentity, Elements{
-								"0": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": BeNil(),
-									"1": MatchError(&sip.ParseError{
-										Err:   grammar.ErrMalformedInput,
-										State: sip.ParseStateStart,
-										Buf:   bytes.Repeat([]byte{'a'}, 64<<10),
-									}),
-								}),
-							}))
-						}()
-
-						done := make(chan struct{})
-						go func() {
-							wg.Wait()
-							close(done)
-						}()
-						Eventually(ctx, done).Should(BeClosed())
-					}, SpecTimeout(time.Minute))
-				})
-			})
-
-			When("parsing message headers", func() {
-				var preWrite func()
-
-				BeforeEach(func() {
-					preWrite = func() {
-						_, err := pw.Write([]byte(
-							"INVITE sip:bob@b.example.com SIP/2.0\r\n" +
-								"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n",
-						))
-						Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-					}
-				})
-
-				It("should yield message with Content-Length: 0", func(ctx SpecContext) {
-					var wg sync.WaitGroup
-					wg.Add(2)
-					go func() {
-						defer wg.Done()
-						defer GinkgoRecover()
-
-						preWrite()
-
-						_, err := pw.Write([]byte("Content-Length: 0\r\n\r\n"))
-						Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-
-						Expect(pw.Close()).To(Succeed(), "close pipe should succeed")
-					}()
-					go func() {
-						defer wg.Done()
-						defer GinkgoRecover()
-
-						for msg, err := range sp.Messages() {
-							Expect(msg).To(Equal(&sip.Request{
-								Method: sip.RequestMethodInvite,
-								URI: &uri.SIP{
-									User: uri.User("bob"),
-									Addr: uri.Host("b.example.com"),
-								},
-								Proto: sip.ProtoVer20(),
-								Headers: make(sip.Headers).
-									Append(header.Via{
-										{
-											Proto:     sip.ProtoVer20(),
-											Transport: "UDP",
-											Addr:      header.Host("a.example.com"),
-											Params:    make(header.Values).Append("branch", "qwerty"),
-										},
-									}).
-									Append(header.ContentLength(0)),
-							}))
-							Expect(err).ToNot(HaveOccurred())
-							break
-						}
-					}()
-
-					done := make(chan struct{})
-					go func() {
-						wg.Wait()
-						close(done)
-					}()
-					Eventually(ctx, done).Should(BeClosed())
-				}, SpecTimeout(time.Second))
-
-				Context("after unexpected close", func() {
-					BeforeEach(func() {
-						preWrite = func(base func()) func() {
-							return func() {
-								base()
-
-								Expect(pw.Close()).To(Succeed(), "close pipe should succeed")
-							}
-						}(preWrite)
-					})
-
-					It("should yield incomplete message and parse error", func(ctx SpecContext) {
-						var wg sync.WaitGroup
-						wg.Add(2)
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							preWrite()
-						}()
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							var results [][]any
-							for msg, err := range sp.Messages() {
-								results = append(results, []any{msg, err})
-								if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-									break
-								}
-							}
-							Expect(results).To(MatchAllElementsWithIndex(IndexIdentity, Elements{
-								"0": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": Equal(&sip.Request{
-										Method: sip.RequestMethodInvite,
-										URI: &uri.SIP{
-											User: uri.User("bob"),
-											Addr: uri.Host("b.example.com"),
-										},
-										Proto: sip.ProtoVer20(),
-										Headers: make(sip.Headers).
-											Append(header.Via{
-												{
-													Proto:     sip.ProtoVer20(),
-													Transport: "UDP",
-													Addr:      header.Host("a.example.com"),
-													Params:    make(header.Values).Set("branch", "qwerty"),
-												},
-											}),
-									}),
-									"1": MatchError(&sip.ParseError{
-										Err:   io.ErrUnexpectedEOF,
-										State: sip.ParseStateHeaders,
-										Buf:   nil,
-									}),
-								}),
-							}))
-						}()
-
-						done := make(chan struct{})
-						go func() {
-							wg.Wait()
-							close(done)
-						}()
-						Eventually(ctx, done).Should(BeClosed())
-					}, SpecTimeout(time.Second))
-				})
-
-				Context("after malformed header", func() {
-					BeforeEach(func() {
-						preWrite = func(base func()) func() {
-							return func() {
-								base()
-
-								_, err := pw.Write([]byte("qwerty\r\n\r\n"))
-								Expect(err).ToNot(HaveOccurred(), "write to pipe should not fail")
-							}
-						}(preWrite)
-					})
-
-					It("should yield incomplete message, parse error and reset to initial state", func(ctx SpecContext) {
-						var wg sync.WaitGroup
-						wg.Add(2)
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							preWrite()
-
-							_, err := pw.Write([]byte(
-								"SIP/2.0 200 OK\r\n" +
-									"Content-Length: 0\r\n" +
-									"\r\n",
-							))
-							Expect(err).ToNot(HaveOccurred(), "write to pipe should not fail")
-
-							Expect(pw.Close()).To(Succeed(), "close pipe should succeed")
-						}()
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							var results [][]any
-							for msg, err := range sp.Messages() {
-								results = append(results, []any{msg, err})
-								if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-									break
-								}
-							}
-							Expect(results).To(MatchAllElementsWithIndex(IndexIdentity, Elements{
-								// incomplete message + error
-								"0": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": Equal(&sip.Request{
-										Method: sip.RequestMethodInvite,
-										URI: &uri.SIP{
-											User: uri.User("bob"),
-											Addr: uri.Host("b.example.com"),
-										},
-										Proto: sip.ProtoVer20(),
-										Headers: make(sip.Headers).
-											Append(header.Via{
-												{
-													Proto:     sip.ProtoVer20(),
-													Transport: "UDP",
-													Addr:      header.Host("a.example.com"),
-													Params:    make(header.Values).Set("branch", "qwerty"),
-												},
-											}),
-									}),
-									"1": MatchError(&sip.ParseError{
-										Err:   grammar.ErrMalformedInput,
-										State: sip.ParseStateHeaders,
-										Buf:   []byte("qwerty"),
-									}),
-								}),
-								"1": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": BeNil(),
-									"1": MatchError(&sip.ParseError{
-										Err:   grammar.ErrEmptyInput,
-										State: 0,
-										Buf:   []byte(""),
-									}),
-								}),
-								// next message
-								"2": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": Equal(&sip.Response{
-										Status:  sip.ResponseStatusOK,
-										Reason:  sip.ResponseStatusReason(sip.ResponseStatusOK),
-										Proto:   sip.ProtoVer20(),
-										Headers: make(sip.Headers).Append(header.ContentLength(0)),
-									}),
-									"1": BeNil(),
-								}),
-								"3": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": BeNil(),
-									"1": MatchError(io.EOF),
-								}),
-							}))
-						}()
-
-						done := make(chan struct{})
-						go func() {
-							wg.Wait()
-							close(done)
-						}()
-						Eventually(ctx, done).Should(BeClosed())
-					}, SpecTimeout(time.Second))
-				})
-
-				Context("and Content-Length header isn't present", func() {
-					BeforeEach(func() {
-						preWrite = func(base func()) func() {
-							return func() {
-								base()
-
-								_, err := pw.Write([]byte("Content-Type: text/plain\r\n\r\n"))
-								Expect(err).ToNot(HaveOccurred(), "write to pipe should not fail")
-							}
-						}(preWrite)
-					})
-
-					It("should yield incomplete message, parse error and reset to initial state", func(ctx SpecContext) {
-						var wg sync.WaitGroup
-						wg.Add(2)
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							preWrite()
-
-							_, err := pw.Write([]byte(
-								"SIP/2.0 200 OK\r\n" +
-									"Content-Length: 0\r\n" +
-									"\r\n",
-							))
-							Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-
-							Expect(pw.Close()).To(Succeed(), "close pipe should succeed")
-						}()
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							var results [][]any
-							for msg, err := range sp.Messages() {
-								results = append(results, []any{msg, err})
-								if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-									break
-								}
-							}
-							Expect(results).To(MatchAllElementsWithIndex(IndexIdentity, Elements{
-								// incomplete message + error with invalid headers part
-								"0": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": Equal(&sip.Request{
-										Method: sip.RequestMethodInvite,
-										URI: &uri.SIP{
-											User: uri.User("bob"),
-											Addr: uri.Host("b.example.com"),
-										},
-										Proto: sip.ProtoVer20(),
-										Headers: make(sip.Headers).
-											Append(header.Via{
-												{
-													Proto:     sip.ProtoVer20(),
-													Transport: "UDP",
-													Addr:      header.Host("a.example.com"),
-													Params:    make(header.Values).Append("branch", "qwerty"),
-												},
-											}).
-											Append(&header.ContentType{
-												Type:    "text",
-												Subtype: "plain",
-											}),
-									}),
-									"1": PointTo(MatchAllFields(Fields{
-										"Err":   MatchError(`missing "Content-Length" header`),
-										"State": Equal(sip.ParseStateHeaders),
-										"Buf":   BeNil(),
-									})),
-								}),
-								// next message
-								"1": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": Equal(&sip.Response{
-										Status:  sip.ResponseStatusOK,
-										Reason:  sip.ResponseStatusReason(sip.ResponseStatusOK),
-										Proto:   sip.ProtoVer20(),
-										Headers: make(sip.Headers).Append(header.ContentLength(0)),
-									}),
-									"1": BeNil(),
-								}),
-								"2": MatchAllElementsWithIndex(IndexIdentity, Elements{
-									"0": BeNil(),
-									"1": MatchError(io.EOF),
-								}),
-							}))
-						}()
-
-						done := make(chan struct{})
-						go func() {
-							wg.Wait()
-							close(done)
-						}()
-						Eventually(ctx, done).Should(BeClosed())
-					}, SpecTimeout(time.Second))
-				})
-			})
-
-			When("parsing message body", func() {
-				var preWrite func()
-
-				BeforeEach(func() {
-					preWrite = func() {
-						_, err := pw.Write([]byte(
-							"INVITE sip:bob@b.example.com SIP/2.0\r\n" +
-								"Content-Length: 11\r\n" +
-								"\r\n",
-						))
-						Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-					}
-				})
-
-				It("should set body of length equal to the value of Content-Length and yield message", func(ctx SpecContext) {
-					var wg sync.WaitGroup
-					wg.Add(2)
-					go func() {
-						defer wg.Done()
-						defer GinkgoRecover()
-
-						preWrite()
-
-						_, err := pw.Write([]byte("hello world"))
-						Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-
-						_, err = pw.Write([]byte("SIP/2.0 200 OK\r\nContent-Length: 0\r\n\r\n"))
-						Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-
-						Expect(pw.Close()).To(Succeed(), "close pipe should succeed")
-					}()
-					go func() {
-						defer wg.Done()
-						defer GinkgoRecover()
-
-						for msg, err := range sp.Messages() {
-							Expect(err).ToNot(HaveOccurred(), "parse message should succeed")
-							Expect(msg).To(Equal(&sip.Request{
-								Method: sip.RequestMethodInvite,
-								Proto:  sip.ProtoVer20(),
-								URI: &uri.SIP{
-									User: uri.User("bob"),
-									Addr: uri.Host("b.example.com"),
-								},
-								Headers: make(sip.Headers).Append(header.ContentLength(11)),
-								Body:    []byte("hello world"),
-							}))
-							break
-						}
-
-						// drain pipe
-						for _, err := range sp.Messages() {
-							if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-								break
-							}
-						}
-					}()
-
-					done := make(chan struct{})
-					go func() {
-						wg.Wait()
-						close(done)
-					}()
-					Eventually(done).Should(BeClosed())
-				}, SpecTimeout(time.Second))
-
-				Context("after unexpected close", func() {
-					BeforeEach(func() {
-						preWrite = func(base func()) func() {
-							return func() {
-								base()
-
-								_, err := pw.Write([]byte("hello"))
-								Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-
-								Expect(pw.Close()).To(Succeed(), "close pipe should succeed")
-							}
-						}(preWrite)
-					})
-
-					It("should yield incomplete message and parse error", func(ctx SpecContext) {
-						var wg sync.WaitGroup
-						wg.Add(2)
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							preWrite()
-						}()
-						go func() {
-							defer wg.Done()
-							defer GinkgoRecover()
-
-							for msg, err := range sp.Messages() {
-								Expect(msg).To(Equal(&sip.Request{
-									Method: sip.RequestMethodInvite,
-									URI: &uri.SIP{
-										User: uri.User("bob"),
-										Addr: uri.Host("b.example.com"),
-									},
-									Proto:   sip.ProtoVer20(),
-									Headers: make(sip.Headers).Append(header.ContentLength(11)),
-									Body:    append([]byte("hello"), make([]byte, 6)...),
-								}))
-								Expect(err).To(MatchError(&sip.ParseError{
-									Err:   io.ErrUnexpectedEOF,
-									State: sip.ParseStateBody,
-									Buf:   []byte("hello"),
-								}))
-								break
-							}
-						}()
-
-						done := make(chan struct{})
-						go func() {
-							wg.Wait()
-							close(done)
-						}()
-						Eventually(ctx, done).Should(BeClosed())
-					}, SpecTimeout(time.Second))
-				})
-			})
-
-			It("should build messages from bytes stream and yield them until loop break", func(ctx SpecContext) {
-				var wg sync.WaitGroup
-				wg.Add(2)
-				go func() {
-					defer wg.Done()
-					defer GinkgoRecover()
-
-					// a bit of trash
-					_, err := pw.Write([]byte("\r\nqwerty\r\n"))
-					Expect(err).ToNot(HaveOccurred(), "write to pipe should not fail")
-
-					time.Sleep(10 * time.Millisecond)
-
-					// the first message started
-					_, err = pw.Write([]byte(
-						"INVITE sip:bob@b.example.com SIP/2.0\r\n" +
-							"Via: SIP/2.0/UDP ",
-					))
-					Expect(err).ToNot(HaveOccurred(), "write to pipe should not fail")
-
-					time.Sleep(10 * time.Millisecond)
-
-					_, err = pw.Write([]byte(
-						"a.example.com;branch=qwerty\r\n" +
-							"P-Custom-Header: 123 abc\r\n" +
-							"Content-Length: 5\r\n",
-					))
-					Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-
-					time.Sleep(10 * time.Millisecond)
-
-					_, err = pw.Write([]byte("\r\nhello"))
-					Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-
-					// the second message started
-					_, err = pw.Write([]byte(
-						"SIP/2.0 200 OK\r\n" +
-							"Content-Length: 0\r\n" +
-							"\r\n",
-					))
-					Expect(err).ToNot(HaveOccurred(), "write to pipe should succeed")
-
-					Expect(pw.Close()).To(Succeed(), "close pipe should succeed")
-				}()
-				go func() {
-					defer wg.Done()
-					defer GinkgoRecover()
-
-					var results [][]any
-					for msg, err := range sp.Messages() {
-						results = append(results, []any{msg, err})
-						if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-							break
-						}
-					}
-					Expect(results).To(MatchAllElementsWithIndex(IndexIdentity, Elements{
-						"0": MatchAllElementsWithIndex(IndexIdentity, Elements{
-							"0": BeNil(),
-							"1": MatchError(&sip.ParseError{
-								Err:   grammar.ErrEmptyInput,
-								State: sip.ParseStateStart,
-								Buf:   []byte(""),
-							}),
-						}),
-						"1": MatchAllElementsWithIndex(IndexIdentity, Elements{
-							"0": BeNil(),
-							"1": MatchError(&sip.ParseError{
-								Err:   grammar.ErrMalformedInput,
-								State: sip.ParseStateStart,
-								Buf:   []byte("qwerty"),
-							}),
-						}),
-						"2": MatchAllElementsWithIndex(IndexIdentity, Elements{
-							"0": Equal(&sip.Request{
-								Method: sip.RequestMethodInvite,
-								URI: &uri.SIP{
-									User: uri.User("bob"),
-									Addr: uri.Host("b.example.com"),
-								},
-								Proto: sip.ProtoVer20(),
-								Headers: make(sip.Headers).
-									Append(header.Via{
-										{
-											Proto:     sip.ProtoVer20(),
-											Transport: "UDP",
-											Addr:      header.Host("a.example.com"),
-											Params:    make(header.Values).Append("branch", "qwerty"),
-										},
-									}).
-									Append(&customHeader{
-										name: "P-Custom-Header",
-										num:  123,
-										str:  "abc",
-									}).
-									Append(header.ContentLength(5)),
-								Body: []byte("hello"),
-							}),
-							"1": BeNil(),
-						}),
-						"3": MatchAllElementsWithIndex(IndexIdentity, Elements{
-							"0": Equal(&sip.Response{
-								Status: sip.ResponseStatusOK,
-								Reason: sip.ResponseStatusReason(sip.ResponseStatusOK),
-								Proto:  sip.ProtoVer20(),
-								Headers: make(sip.Headers).
-									Append(header.ContentLength(0)),
-							}),
-							"1": BeNil(),
-						}),
-						"4": MatchAllElementsWithIndex(IndexIdentity, Elements{
-							"0": BeNil(),
-							"1": MatchError(io.EOF),
-						}),
-					}))
-				}()
-
-				done := make(chan struct{})
-				go func() {
-					wg.Wait()
-					close(done)
-				}()
-				Eventually(ctx, done).Should(BeClosed())
-			}, SpecTimeout(time.Second))
-		})
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Set(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      uri.HostPort("localhost", 5060),
+						},
+					}).
+					Set(header.ContentLength(5)),
+				Body: []byte("12345"),
+			},
+		},
+		{
+			err: &sip.ParseError{
+				State: sip.ParseStateBody,
+				Err:   sip.NewInvalidMessageError("incomplete body"),
+				Data:  []byte("123"),
+				Msg: &sip.Response{
+					Status:  100,
+					Reason:  "Trying",
+					Proto:   sip.ProtoVer20(),
+					Headers: make(sip.Headers).Set(header.ContentLength(10)),
+					Body:    append([]byte("123"), 0, 0, 0, 0, 0, 0, 0),
+				},
+			},
+		},
+		{
+			err: io.EOF,
+		},
+	}
+
+	pr, pw := io.Pipe()
+	wg := sync.WaitGroup{}
+	wg.Go(func() {
+		for _, in := range inputs {
+			if _, err := pw.Write(in); err != nil {
+				t.Errorf("pw.Write(buf) error = %v, want nil", err)
+			}
+		}
+		pw.Close()
 	})
-})
+
+	gotResults := make([]result, 0)
+	for msg, err := range sip.ParseStream(pr) {
+		gotResults = append(gotResults, result{msg, err})
+		if errors.Is(err, io.EOF) {
+			break
+		}
+	}
+
+	wg.Wait()
+
+	cmpOpts := []cmp.Option{
+		cmp.AllowUnexported(result{}),
+		cmp.Comparer(cmpParseError),
+	}
+	if diff := cmp.Diff(gotResults, wantResults, cmpOpts...); diff != "" {
+		t.Errorf("sip.ParseStream() = %+v, want %+v\ndiff (-got +want):\n%v", gotResults, wantResults, diff)
+	}
+}
+
+func TestParseStream_ContentLengthTooLarge(t *testing.T) {
+	contentLen := sip.MaxMsgSize + 1
+	input := []byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +
+		"Content-Length: " + strconv.Itoa(int(contentLen)) + "\r\n" +
+		"\r\n")
+
+	var msg sip.Message
+	var err error
+	for m, e := range sip.ParseStream(bytes.NewReader(input)) {
+		msg = m
+		err = e
+		break
+	}
+
+	if msg != nil {
+		t.Fatalf("sip.ParseStream(input) first msg = %+v, want nil", msg)
+	}
+
+	want := &sip.ParseError{
+		Err:   sip.ErrMessageTooLarge,
+		State: sip.ParseStateHeaders,
+		Msg: &sip.Request{
+			Method: sip.RequestMethodInvite,
+			URI: &uri.SIP{
+				User: uri.User("bob"),
+				Addr: uri.Host("b.example.com"),
+			},
+			Proto: sip.ProtoVer20(),
+			Headers: make(sip.Headers).
+				Append(header.Via{
+					{
+						Proto:     sip.ProtoVer20(),
+						Transport: "UDP",
+						Addr:      header.Host("a.example.com"),
+						Params:    make(header.Values).Append("branch", "qwerty"),
+					},
+				}),
+		},
+	}
+	if !cmpParseError(err, want) {
+		t.Fatalf("sip.ParseStream(input) first error = %v, want %v\ndiff (-got +want):\n%v",
+			err, want,
+			cmp.Diff(err, want, cmpopts.EquateErrors()),
+		)
+	}
+}
+
+func cmpParseError(e1, e2 error) bool {
+	//nolint:errorlint
+	if e1 == e2 || errors.Is(e1, e2) || errors.Is(e2, e1) {
+		return true
+	}
+
+	var pe1, pe2 *sip.ParseError
+	if !errors.As(e1, &pe1) || !errors.As(e2, &pe2) {
+		return false
+	}
+	return pe1.State == pe2.State &&
+		(errors.Is(pe1.Err, pe2.Err) || errors.Is(pe2.Err, pe1.Err) || pe1.Err.Error() == pe2.Err.Error()) &&
+		bytes.Equal(pe1.Data, pe2.Data) &&
+		cmp.Equal(pe1.Msg, pe2.Msg)
+}

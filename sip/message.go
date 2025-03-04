@@ -1,84 +1,91 @@
 package sip
 
 import (
-	"fmt"
-	"io"
-	"iter"
+	"encoding/json"
+	"log/slog"
+	"maps"
 	"net/netip"
 	"slices"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
 
+	"braces.dev/errtrace"
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/abnfutils"
-	"github.com/ghettovoice/gosip/internal/constraints"
-	"github.com/ghettovoice/gosip/internal/utils"
-	"github.com/ghettovoice/gosip/sip/header"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
-	"github.com/ghettovoice/gosip/sip/uri"
+	"github.com/ghettovoice/gosip/header"
+	"github.com/ghettovoice/gosip/internal/errorutil"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/syncutil"
+	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/uri"
+)
+
+// Message common errors.
+const (
+	ErrInvalidMessage   Error = "invalid message"
+	ErrMessageTooLarge  Error = "message too large"
+	ErrMethodNotAllowed Error = "request method not allowed"
 )
 
 // Message represents a SIP message.
 type Message interface {
-	// Render renders the SIP message to a string.
-	Render() string
-	// RenderTo renders the SIP message to a writer.
-	RenderTo(w io.Writer) error
-	// Clone returns a clone of the message.
-	Clone() Message
+	types.Renderer
+	types.Cloneable[Message]
+	types.Validatable
+	types.ValidFlag
+	types.Equalable
 }
 
 // ParseMessage parses a SIP message from a byte sequence.
-func ParseMessage[T constraints.Byteseq](s T, hdrPrs map[string]HeaderParser) (Message, error) {
+func ParseMessage[T ~string | ~[]byte](s T) (Message, error) {
 	node, err := grammar.ParseMessage(s)
 	if err != nil {
-		return nil, err
+		return nil, errtrace.Wrap(err)
 	}
-	return buildFromMessageNode(node, hdrPrs), nil
+	return buildFromMessageNode(node), nil
 }
 
-func buildFromMessageNode(node *abnf.Node, hdrPrs map[string]HeaderParser) Message {
-	if n := node.GetNode("Request"); n != nil {
-		return buildFromRequestNode(n, hdrPrs)
+func buildFromMessageNode(node *abnf.Node) Message {
+	if n, ok := node.GetNode("Request"); ok {
+		return buildFromRequestNode(n)
 	}
-	if n := node.GetNode("Response"); n != nil {
-		return buildFromResponseNode(n, hdrPrs)
+	if n, ok := node.GetNode("Response"); ok {
+		return buildFromResponseNode(n)
 	}
-	panic("invalid message node")
+	panic(grammar.ErrUnexpectNode)
 }
 
-func buildFromRequestNode(node *abnf.Node, hdrPrs map[string]HeaderParser) *Request {
+func buildFromRequestNode(node *abnf.Node) *Request {
 	var body []byte
-	if n := node.GetNode("message-body"); n != nil {
+	if n, ok := node.GetNode("message-body"); ok {
 		body = n.Value
 	}
 	return &Request{
-		Method:  RequestMethod(abnfutils.MustGetNode(node, "Method").String()),
-		URI:     uri.FromABNF(abnfutils.MustGetNode(node, "Request-URI").Children[0]),
-		Proto:   buildFromSIPVerNode(abnfutils.MustGetNode(node, "SIP-Version")),
-		Headers: buildFromMessageHeaderNodes(node.GetNodes("message-header"), hdrPrs),
+		Method:  RequestMethod(grammar.MustGetNode(node, "Method").String()),
+		URI:     uri.FromABNF(grammar.MustGetNode(node, "Request-URI").Children[0]),
+		Proto:   buildFromSIPVersionNode(grammar.MustGetNode(node, "SIP-Version")),
+		Headers: buildFromMessageHeaderNodes(node.GetNodes("message-header")),
 		Body:    body,
 	}
 }
 
-func buildFromResponseNode(node *abnf.Node, hdrPrs map[string]HeaderParser) *Response {
-	code, _ := strconv.ParseUint(abnfutils.MustGetNode(node, "Status-Code").String(), 10, 16)
+func buildFromResponseNode(node *abnf.Node) *Response {
+	code, _ := strconv.ParseUint(grammar.MustGetNode(node, "Status-Code").String(), 10, 16)
 	var body []byte
-	if n := node.GetNode("message-body"); n != nil {
+	if n, ok := node.GetNode("message-body"); ok {
 		body = n.Value
 	}
 	return &Response{
 		Status:  ResponseStatus(code),
-		Reason:  abnfutils.MustGetNode(node, "Reason-Phrase").String(),
-		Proto:   buildFromSIPVerNode(abnfutils.MustGetNode(node, "SIP-Version")),
-		Headers: buildFromMessageHeaderNodes(node.GetNodes("message-header"), hdrPrs),
+		Reason:  ResponseReason(grammar.MustGetNode(node, "Reason-Phrase").String()),
+		Proto:   buildFromSIPVersionNode(grammar.MustGetNode(node, "SIP-Version")),
+		Headers: buildFromMessageHeaderNodes(node.GetNodes("message-header")),
 		Body:    body,
 	}
 }
 
-func buildFromSIPVerNode(node *abnf.Node) ProtoInfo {
+func buildFromSIPVersionNode(node *abnf.Node) ProtoInfo {
 	var version string
 	for _, n := range node.Children[2:] {
 		version += n.String()
@@ -86,392 +93,401 @@ func buildFromSIPVerNode(node *abnf.Node) ProtoInfo {
 	return ProtoInfo{Name: node.Children[0].String(), Version: version}
 }
 
-func buildFromMessageHeaderNodes(nodes abnf.Nodes, hdrPrs map[string]HeaderParser) Headers {
+func buildFromMessageHeaderNodes(nodes abnf.Nodes) Headers {
 	if len(nodes) == 0 {
 		return nil
 	}
 
 	hdrs := make(Headers)
 	for _, node := range nodes {
-		hdrs.Append(header.FromABNF(node.Children[0].Children[0], hdrPrs))
+		hdrs.Append(header.FromABNF(node.Children[0].Children[0]))
 	}
 	return hdrs
 }
 
-func parseMessageStart[T constraints.Byteseq](src T) (Message, error) {
+func parseMsgStart[T ~string | ~[]byte](src T) (Message, error) {
 	node, err := grammar.ParseMessageStart(src)
 	if err != nil {
-		return nil, err
+		return nil, errtrace.Wrap(err)
 	}
-	if n := node.GetNode("Request-Line"); n != nil {
-		return buildFromRequestNode(n, nil), nil
+	if n, ok := node.GetNode("Request-Line"); ok {
+		return buildFromRequestNode(n), nil
 	}
-	if n := node.GetNode("Status-Line"); n != nil {
-		return buildFromResponseNode(n, nil), nil
+	if n, ok := node.GetNode("Status-Line"); ok {
+		return buildFromResponseNode(n), nil
 	}
-	panic("invalid message start node")
+	panic(grammar.ErrUnexpectNode)
 }
 
-// Headers maps string header name to a list of headers.
-// The keys in the map are canonical header names.
-type Headers map[header.Name][]Header
-
-func (hdrs Headers) Get(n HeaderName) []Header {
-	return hdrs[n.ToCanonic()]
-}
-
-func (hdrs Headers) Set(hdr Header) Headers {
-	hdrs[hdr.CanonicName()] = []Header{hdr}
-	return hdrs
-}
-
-func (hdrs Headers) Append(hdr Header) Headers {
-	n := hdr.CanonicName()
-	hdrs[n] = append(hdrs[n], hdr)
-	return hdrs
-}
-
-func (hdrs Headers) Prepend(hdr Header) Headers {
-	n := hdr.CanonicName()
-	hdrs[n] = append([]Header{hdr}, hdrs[n]...)
-	return hdrs
-}
-
-func (hdrs Headers) Del(n HeaderName) Headers {
-	delete(hdrs, n.ToCanonic())
-	return hdrs
-}
-
-func (hdrs Headers) Has(n HeaderName) bool {
-	_, ok := hdrs[n.ToCanonic()]
-	return ok
-}
-
-func (hdrs Headers) Clear() Headers {
-	clear(hdrs)
-	return hdrs
-}
-
-func (hdrs Headers) Clone() Headers {
-	var hdrs2 Headers
-	for n, hs := range hdrs {
-		if hdrs2 == nil {
-			hdrs2 = make(Headers, len(hdrs))
-		}
-		hdrs2[n] = make([]Header, len(hs))
-		for i := range hs {
-			hdrs2[n][i] = utils.Clone[Header](hs[i])
-		}
-	}
-	return hdrs2
-}
-
-func (hdrs Headers) ViaHops() iter.Seq2[int, *header.ViaHop] {
-	return func(yield func(int, *header.ViaHop) bool) {
-		var i int
-		for _, hdr := range hdrs.Get("Via") {
-			if via, ok := hdr.(header.Via); ok {
-				for j := range via {
-					if !yield(i, &via[j]) {
-						return
-					}
-					i++
-				}
-			}
-		}
-	}
-}
-
-func (hdrs Headers) From() *header.From {
-	for _, hdr := range hdrs.Get("From") {
-		if from, ok := hdr.(*header.From); ok {
-			return from
-		}
-	}
-	return nil
-}
-
-func (hdrs Headers) To() *header.To {
-	for _, hdr := range hdrs.Get("To") {
-		if to, ok := hdr.(*header.To); ok {
-			return to
-		}
-	}
-	return nil
-}
-
-func (hdrs Headers) CallID() header.CallID {
-	for _, hdr := range hdrs.Get("Call-ID") {
-		if callID, ok := hdr.(header.CallID); ok {
-			return callID
-		}
-	}
-	return ""
-}
-
-func (hdrs Headers) CSeq() *header.CSeq {
-	for _, hdr := range hdrs.Get("CSeq") {
-		if cseq, ok := hdr.(*header.CSeq); ok {
-			return cseq
-		}
-	}
-	return nil
-}
-
-func (hdrs Headers) MaxForwards() header.MaxForwards {
-	for _, hdr := range hdrs.Get("Max-Forwards") {
-		if maxFwd, ok := hdr.(header.MaxForwards); ok {
-			return maxFwd
-		}
-	}
-	return 0
-}
-
-func (hdrs Headers) Contacts() iter.Seq2[int, *header.EntityAddr] {
-	return func(yield func(int, *header.EntityAddr) bool) {
-		var i int
-		for _, hdr := range hdrs.Get("Contact") {
-			if cnt, ok := hdr.(header.Contact); ok {
-				for j := range cnt {
-					if !yield(i, &cnt[j]) {
-						return
-					}
-					i++
-				}
-			}
-		}
-	}
-}
-
-func (hdrs Headers) CopyFrom(other Headers, name HeaderName, names ...HeaderName) Headers {
-	copyMessageHeader(hdrs, other, name)
-	for _, n := range names {
-		copyMessageHeader(hdrs, other, n)
-	}
-	return hdrs
-}
-
-func copyMessageHeader(dst, src Headers, name HeaderName) {
-	for _, hdr := range src.Get(name) {
-		dst.Append(utils.Clone[Header](hdr))
-	}
-}
-
-func validateHeaders(hdrs Headers) bool {
-	if len(hdrs) == 0 {
-		return false
-	}
-	for _, hs := range hdrs {
-		for i := range hs {
-			if !utils.IsValid(hs[i]) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func compareHeaders(hdrs, other Headers) bool {
-	if len(hdrs) != len(other) {
-		return false
-	}
-	for k, hs1 := range hdrs {
-		if !other.Has(k) {
-			return false
-		}
-		hs2 := other.Get(k)
-		if len(hs1) != len(hs2) {
-			return false
-		}
-		for i := range hs1 {
-			if !utils.IsEqual(hs1[i], hs2[i]) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-var headersOrder = []HeaderName{
-	"Route",
-	"Record-Route",
-	"Via",
-	"From",
-	"To",
-	"Call-ID",
-	"CSeq",
-	"Contact",
-	"Max-Forwards",
-	"Authorization",
-	"Proxy-Authorization",
-	"WWW-Authenticate",
-	"Proxy-Authenticate",
-	"Expires",
-	"Allow",
-	"Accept",
-	"Accept-Encoding",
-	"Accept-Language",
-	"Require",
-	"Proxy-Require",
-	"Supported",
-	"Unsupported",
-	"Timestamp",
-	"Date",
-	"Subject",
-	"Min-SE",
-	"Session-Expires",
-	"Refer-To",
-	"In-Reply-To",
-	"User-Agent",
-	"Server",
-	"Content-Type",
-	"Content-Length",
-}
-
-func renderHeaders(w io.Writer, hdrs Headers) error {
-	if len(hdrs) == 0 {
-		return nil
-	}
-
-	var elems [][]Header
-	for _, hs := range hdrs {
-		if len(hs) > 0 {
-			elems = append(elems, hs)
-		}
-	}
-	slices.SortStableFunc(elems, func(hs1, hs2 []Header) int {
-		n1, n2 := hs1[0].CanonicName(), hs2[0].CanonicName()
-		i1, i2 := slices.Index(headersOrder, n1), slices.Index(headersOrder, n2)
-		if i1 == -1 && i2 == -1 {
-			return strings.Compare(string(n1), string(n2))
-		}
-		if i1 == -1 {
-			return 1
-		}
-		if i2 == -1 {
-			return -1
-		}
-		return i1 - i2
-	})
-	for _, hs := range elems {
-		for i := range hs {
-			if err := hs[i].RenderTo(w); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(w, "\r\n"); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-type MessageMetadata map[string]any
-
-const (
-	// TransportField is the metadata field name of the message transport protocol.
-	TransportField = "transport"
-	// RemoteAddrField is the metadata field name of the message remote address.
-	RemoteAddrField = "remote_addr"
-	// LocalAddrField is the metadata field name of the message local address.
-	LocalAddrField = "local_addr"
-	// RequestTstampField is the metadata field name of the timestamp when the request was sent/received.
-	RequestTstampField = "request_tstamp"
-	// ResponseTstampField is the metadata field name of the timestamp when the response was sent/received.
-	ResponseTstampField = "response_tstamp"
-)
-
-func (md MessageMetadata) Transport() TransportProto {
-	v, _ := md[TransportField].(TransportProto)
-	return v
-}
-
-func (md MessageMetadata) RemoteAddr() netip.AddrPort {
-	v, _ := md[RemoteAddrField].(netip.AddrPort)
-	return v
-}
-
-func (md MessageMetadata) LocalAddr() netip.AddrPort {
-	v, _ := md[LocalAddrField].(netip.AddrPort)
-	return v
-}
-
-func (md MessageMetadata) RequestTstamp() time.Time {
-	v, _ := md[RequestTstampField].(time.Time)
-	return v
-}
-
-func (md MessageMetadata) ResponseTstamp() time.Time {
-	v, _ := md[ResponseTstampField].(time.Time)
-	return v
-}
-
-func unexpectMsgTypeError(msg any) error {
-	return fmt.Errorf("unexpected message type %T", msg)
-}
-
+// GetMessageHeaders returns the headers of the given message.
+// It panics if the message is not a [Request] or [Response].
 func GetMessageHeaders(msg Message) Headers {
 	switch m := msg.(type) {
 	case *Request:
 		return m.Headers
 	case *Response:
 		return m.Headers
+	case interface{ Headers() Headers }:
+		return m.Headers()
 	default:
-		panic(unexpectMsgTypeError(msg))
+		panic(newUnexpectMsgTypeErr(msg))
 	}
 }
 
+// SetMessageHeaders sets the headers of the given message.
+// It panics if the message is not a [Request] or [Response].
 func SetMessageHeaders(msg Message, hdrs Headers) {
 	switch m := msg.(type) {
 	case *Request:
 		m.Headers = hdrs
 	case *Response:
 		m.Headers = hdrs
+	case interface{ UpdateMessage(u func(*Request)) }:
+		m.UpdateMessage(func(r *Request) { r.Headers = hdrs })
+	case interface{ UpdateMessage(u func(*Response)) }:
+		m.UpdateMessage(func(r *Response) { r.Headers = hdrs })
 	default:
-		panic(unexpectMsgTypeError(msg))
+		panic(newUnexpectMsgTypeErr(msg))
 	}
 }
 
+// GetMessageBody returns the body of the given message.
+// It panics if the message is not a [Request] or [Response].
 func GetMessageBody(msg Message) []byte {
 	switch m := msg.(type) {
 	case *Request:
 		return m.Body
 	case *Response:
 		return m.Body
+	case interface{ Body() []byte }:
+		return m.Body()
 	default:
-		panic(unexpectMsgTypeError(msg))
+		panic(newUnexpectMsgTypeErr(msg))
 	}
 }
 
+// SetMessageBody sets the body of the given message.
+// It panics if the message is not a [Request] or [Response].
 func SetMessageBody(msg Message, body []byte) {
 	switch m := msg.(type) {
 	case *Request:
 		m.Body = body
 	case *Response:
 		m.Body = body
+	case interface{ UpdateMessage(u func(*Request)) }:
+		m.UpdateMessage(func(r *Request) { r.Body = body })
+	case interface{ UpdateMessage(u func(*Response)) }:
+		m.UpdateMessage(func(r *Response) { r.Body = body })
 	default:
-		panic(unexpectMsgTypeError(msg))
+		panic(newUnexpectMsgTypeErr(msg))
 	}
 }
 
-func GetMessageMetadata(msg Message) MessageMetadata {
-	switch m := msg.(type) {
-	case *Request:
-		return m.Metadata
-	case *Response:
-		return m.Metadata
-	default:
-		panic(unexpectMsgTypeError(msg))
+const errMissHdrs Error = "missing mandatory headers"
+
+func newMissHdrErr(name HeaderName) error {
+	if name == "" {
+		return errMissHdrs //errtrace:skip
 	}
+	return errorutil.Errorf("missing mandatory header %q", name) //errtrace:skip
 }
 
-func SetMessageMetadata(msg Message, md MessageMetadata) {
-	switch m := msg.(type) {
-	case *Request:
-		m.Metadata = md
-	case *Response:
-		m.Metadata = md
-	default:
-		panic(unexpectMsgTypeError(msg))
+func NewInvalidMessageError(args ...any) error {
+	return errorutil.NewWrapperError(ErrInvalidMessage, args...) //errtrace:skip
+}
+
+func newUnexpectMsgTypeErr(msg Message) error {
+	return errorutil.Errorf("unexpected message type %T", msg) //errtrace:skip
+}
+
+// MessageMetadata is a thread-safe key-value store for arbitrary data.
+// It wraps [syncutil.RWMap] with JSON serialization support.
+type MessageMetadata struct {
+	syncutil.RWMap[string, any]
+}
+
+func (m *MessageMetadata) MarshalJSON() ([]byte, error) {
+	if m == nil {
+		return jsonNull, nil
 	}
+	return errtrace.Wrap2(json.Marshal(maps.Collect(m.All())))
+}
+
+func (m *MessageMetadata) UnmarshalJSON(data []byte) error {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return errtrace.Wrap(err)
+	}
+	for k, v := range raw {
+		m.Set(k, v)
+	}
+	return nil
+}
+
+// Clone returns a deep copy of the MessageMetadata.
+func (m *MessageMetadata) Clone() *MessageMetadata {
+	if m == nil {
+		return nil
+	}
+	clone := &MessageMetadata{}
+	m.CopyTo(&clone.RWMap)
+	return clone
+}
+
+type message[T Message] struct {
+	msg     T
+	msgTime time.Time
+	locAddr,
+	rmtAddr netip.AddrPort
+	data *MessageMetadata
+}
+
+func (m *message[T]) Message() T {
+	if m == nil {
+		var zero T
+		return zero
+	}
+	return m.msg.Clone().(T) //nolint:forcetypeassert
+}
+
+func (m *message[T]) Headers() Headers {
+	if m == nil {
+		return nil
+	}
+	return GetMessageHeaders(m.msg).Clone()
+}
+
+func (m *message[T]) Body() []byte {
+	if m == nil {
+		return nil
+	}
+	return slices.Clone(GetMessageBody(m.msg))
+}
+
+func (m *message[T]) Transport() TransportProto {
+	if m == nil {
+		return ""
+	}
+	via, ok := GetMessageHeaders(m.msg).FirstVia()
+	if !ok {
+		return ""
+	}
+	return via.Transport
+}
+
+func (m *message[T]) LocalAddr() netip.AddrPort {
+	if m == nil {
+		return zeroAddrPort
+	}
+	return m.locAddr
+}
+
+func (m *message[T]) RemoteAddr() netip.AddrPort {
+	if m == nil {
+		return zeroAddrPort
+	}
+	return m.rmtAddr
+}
+
+func (m *message[T]) MessageTime() time.Time {
+	if m == nil {
+		return zeroTime
+	}
+	return m.msgTime
+}
+
+func (m *message[T]) Metadata() *MessageMetadata {
+	if m == nil {
+		return nil
+	}
+	return m.data
+}
+
+type messageSnapshot[T Message] struct {
+	Message     T                `json:"message"`
+	Transport   TransportProto   `json:"transport"`
+	LocalAddr   netip.AddrPort   `json:"local_addr"`
+	RemoteAddr  netip.AddrPort   `json:"remote_addr"`
+	MessageTime time.Time        `json:"message_time"`
+	Metadata    *MessageMetadata `json:"metadata"`
+}
+
+func (m *message[T]) MarshalJSON() ([]byte, error) {
+	if m == nil {
+		return jsonNull, nil
+	}
+	return errtrace.Wrap2(json.Marshal(messageSnapshot[T]{
+		Message:     m.msg,
+		LocalAddr:   m.locAddr,
+		RemoteAddr:  m.rmtAddr,
+		MessageTime: m.msgTime,
+		Metadata:    m.data,
+	}))
+}
+
+func (m *message[T]) UnmarshalJSON(data []byte) error {
+	var snap messageSnapshot[T]
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return errtrace.Wrap(err)
+	}
+	m.msg = snap.Message
+	m.locAddr = snap.LocalAddr
+	m.rmtAddr = snap.RemoteAddr
+	m.msgTime = snap.MessageTime
+	m.data = snap.Metadata
+	return nil
+}
+
+func (m *message[T]) LogValue() slog.Value {
+	if m == nil {
+		return slog.Value{}
+	}
+	return slog.GroupValue(
+		slog.Any("message", m.msg.Clone()),
+		slog.Any("local_addr", m.locAddr),
+		slog.Any("remote_addr", m.rmtAddr),
+		slog.Any("message_time", m.msgTime),
+	)
+}
+
+type inboundMessage[T Message] = message[T]
+
+type outboundMessage[T Message] struct {
+	message[T]
+	mu sync.RWMutex
+}
+
+func (m *outboundMessage[T]) Message() T {
+	if m == nil {
+		var zero T
+		return zero
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.message.Message()
+}
+
+func (m *outboundMessage[T]) SetMessage(msg T) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.msg = msg
+}
+
+func (m *outboundMessage[T]) UpdateMessage(update func(T)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	update(m.msg)
+}
+
+func (m *outboundMessage[T]) Headers() Headers {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.message.Headers()
+}
+
+func (m *outboundMessage[T]) Body() []byte {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.message.Body()
+}
+
+func (m *outboundMessage[T]) Transport() TransportProto {
+	if m == nil {
+		return ""
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.message.Transport()
+}
+
+func (m *outboundMessage[T]) LocalAddr() netip.AddrPort {
+	if m == nil {
+		return zeroAddrPort
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.locAddr
+}
+
+func (m *outboundMessage[T]) SetLocalAddr(addr netip.AddrPort) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.locAddr = addr
+}
+
+func (m *outboundMessage[T]) RemoteAddr() netip.AddrPort {
+	if m == nil {
+		return zeroAddrPort
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.rmtAddr
+}
+
+func (m *outboundMessage[T]) SetRemoteAddr(addr netip.AddrPort) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rmtAddr = addr
+}
+
+func (m *outboundMessage[T]) MessageTime() time.Time {
+	if m == nil {
+		return zeroTime
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.msgTime
+}
+
+func (m *outboundMessage[T]) Metadata() *MessageMetadata {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.message.Metadata()
+}
+
+func (m *outboundMessage[T]) MarshalJSON() ([]byte, error) {
+	if m == nil {
+		return jsonNull, nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return errtrace.Wrap2(m.message.MarshalJSON())
+}
+
+func (m *outboundMessage[T]) UnmarshalJSON(data []byte) error {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return errtrace.Wrap(m.message.UnmarshalJSON(data))
+}
+
+func (m *outboundMessage[T]) LogValue() slog.Value {
+	if m == nil {
+		return slog.Value{}
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.message.LogValue()
 }

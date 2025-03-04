@@ -1,5 +1,5 @@
-# Created by https://www.toptal.com/developers/gitignore/api/windows,linux,macos,jetbrains,vim,visualstudiocode,go
-# Edit at https://www.toptal.com/developers/gitignore?templates=windows,linux,macos,jetbrains,vim,visualstudiocode,go
+# Created by https://www.toptal.com/developers/gitignore/api/go,vim,linux,macos,windows,jetbrains+iml,visualstudiocode
+# Edit at https://www.toptal.com/developers/gitignore?templates=go,vim,linux,macos,windows,jetbrains+iml,visualstudiocode
 
 ### Go ###
 # If you prefer the allow list template instead of the deny list, see community template:
@@ -24,7 +24,7 @@
 # Go workspace file
 go.work
 
-### JetBrains ###
+### JetBrains+iml ###
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider
 # Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839
 
@@ -102,6 +102,14 @@ fabric.properties
 
 # Android studio 3.1+ serialized cache file
 .idea/caches/build_file_checksums.ser
+
+### JetBrains+iml Patch ###
+# Reason: https://github.com/joeblau/gitignore.io/issues/186#issuecomment-249601023
+
+*.iml
+modules.xml
+.idea/misc.xml
+*.ipr
 
 ### Linux ###
 *~
@@ -216,7 +224,7 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
-# End of https://www.toptal.com/developers/gitignore/api/windows,linux,macos,jetbrains,vim,visualstudiocode,go
+# End of https://www.toptal.com/developers/gitignore/api/go,vim,linux,macos,windows,jetbrains+iml,visualstudiocode
 
 ### App ###
 *.prof
@@ -228,3 +236,5 @@ $RECYCLE.BIN/
 
 coverage/
 *.report
+
+__debug*

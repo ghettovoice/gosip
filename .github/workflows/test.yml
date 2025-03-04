@@ -20,7 +20,7 @@ jobs:
             - name: Set up Go
               uses: actions/setup-go@v5
               with:
-                  go-version: '^1.23'
+                  go-version: '^1.25'
 
             - name: Set up project
               run: make setup
@@ -37,7 +37,7 @@ jobs:
             - name: Set up Go
               uses: actions/setup-go@v5
               with:
-                  go-version: '^1.23'
+                  go-version: '^1.25'
 
             - name: Set up project
               run: make setup
@@ -47,8 +47,8 @@ jobs:
 
             - uses: actions/upload-artifact@v4
               with:
-                  name: coverage_profile
-                  path: ./cover.profile
+                  name: coverage_out
+                  path: ./cover.out
 
     report:
         name: Report
@@ -60,16 +60,16 @@ jobs:
             - name: Set up Go
               uses: actions/setup-go@v5
               with:
-                  go-version: '^1.23'
+                  go-version: '^1.25'
 
             - name: Install
               run: go install github.com/mattn/goveralls@latest
 
             - uses: actions/download-artifact@v4
               with:
-                  name: coverage_profile
+                  name: coverage_out
 
             - name: Send coverage
               env:
                   COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: goveralls -coverprofile=./cover.profile -service=github
+              run: goveralls -coverprofile=./cover.out -service=github

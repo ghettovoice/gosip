@@ -1,889 +1,32 @@
 package sip_test
 
 import (
-	"fmt"
-	"reflect"
+	"encoding/json"
+	"strings"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
+	"github.com/ghettovoice/gosip/header"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/ghettovoice/gosip/sip/header"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
-	"github.com/ghettovoice/gosip/sip/uri"
+	"github.com/ghettovoice/gosip/uri"
 )
 
-var _ = Describe("SIP", Label("sip", "message"), func() {
-	Describe("Request", func() {
-		DescribeTable("parsing", Label("parsing"),
-			// region
-			func(in string, hdrPrs map[string]sip.HeaderParser, expectReq *sip.Request, expectErr any) {
-				msg, err := sip.ParseMessage(in, hdrPrs)
-				if expectErr == nil {
-					Expect(msg).ToNot(BeNil(), "assert parsed message isn't nil")
-					req, ok := msg.(*sip.Request)
-					Expect(ok).To(BeTrue(), "assert parsed message is of type *sip.Request")
-					Expect(req).To(Equal(expectReq), "assert parsed request is equal to the expected request")
-					Expect(err).ToNot(HaveOccurred(), "assert parsed error is nil")
-				} else {
-					Expect(msg).To(BeNil(), "assert parsed message is nil")
-					Expect(err).To(MatchError(expectErr.(error)), "assert parse error matches the expected error") //nolint:forcetypeassert
-				}
-			},
-			EntryDescription("%[1]q"),
-			Entry(nil, "", nil, nil, grammar.ErrEmptyInput),
-			Entry(nil, "INVITE  \r\n\r\n", nil, nil, grammar.ErrMalformedInput),
-			Entry(nil, "INVITE qwerty \r\n\r\n", nil, nil, grammar.ErrMalformedInput),
-			Entry(nil, "INVITE sip:bob@b.example.com \r\n\r\n", nil, nil, grammar.ErrMalformedInput),
-			Entry(nil, "INVITE sip:bob@b.example.com SIP/2.0\r\n\r\n",
-				nil,
-				&sip.Request{
-					Method: "INVITE",
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-				},
-				nil,
-			),
-			Entry(nil,
-				"INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty,\r\n"+
-					"\tSIP/2.0/UDP b.example.com;branch=asdf\r\n"+
-					"Via: SIP/2.0/UDP c.example.com;branch=zxcvb\r\n"+
-					"From: <sip:alice@a.example.com>;tag=abc\r\n"+
-					"To: sip:bob@b.example.com\r\n"+
-					"CSeq: 1 INVITE\r\n"+
-					"Call-ID: zxc\r\n"+
-					"Max-Forwards: 70\r\n"+
-					"Contact: <sip:alice@a.example.com:5060>;transport=tcp\r\n"+
-					"X-Custom-Header: 123\r\n"+
-					"Content-Type: text/plain\r\n"+
-					"Content-Length: 14\r\n"+
-					"\r\n"+
-					"Hello world!\r\n",
-				nil,
-				&sip.Request{
-					Method: "INVITE",
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("b.example.com"),
-								Params:    make(header.Values).Append("branch", "asdf"),
-							},
-						}).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")).
-						Append(header.MaxForwards(70)).
-						Append(header.Contact{
-							{
-								URI: &uri.SIP{
-									User: uri.User("alice"),
-									Addr: uri.HostPort("a.example.com", 5060),
-								},
-								Params: make(header.Values).Append("transport", "tcp"),
-							},
-						}).
-						Append(&header.Any{Name: "X-Custom-Header", Value: "123"}).
-						Append(&header.ContentType{
-							Type:    "text",
-							Subtype: "plain",
-						}).
-						Append(header.ContentLength(14)),
-					Body: []byte("Hello world!\r\n"),
-				},
-				nil,
-			),
-			Entry(nil,
-				"INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP c.example.com;branch=zxcvb\r\n"+
-					"P-Custom-Header: 123 abc\r\n"+
-					"X-Generic-Header: qwe\r\n"+
-					"Content-Length: 0\r\n"+
-					"\r\n",
-				map[string]sip.HeaderParser{
-					"p-custom-header": parseCustomHeader,
-				},
-				&sip.Request{
-					Method: "INVITE",
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&customHeader{"P-Custom-Header", 123, "abc"}).
-						Append(&header.Any{Name: "X-Generic-Header", Value: "qwe"}).
-						Append(header.ContentLength(0)),
-				},
-				nil,
-			),
-			// endregion
-		)
+func TestRequest_Render(t *testing.T) {
+	t.Parallel()
 
-		DescribeTable("rendering", Label("rendering"),
-			// region
-			func(req *sip.Request, expect string) {
-				Expect(req.Render()).To(Equal(expect))
-			},
-			EntryDescription("%#[1]v"),
-			Entry(nil, (*sip.Request)(nil), ""),
-			Entry(nil, &sip.Request{}, "  /\r\n\r\n"),
-			Entry(nil,
-				&sip.Request{
-					Method: "INVITE",
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("b.example.com"),
-								Params:    make(header.Values).Append("branch", "asdf"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-				},
-				"INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty, SIP/2.0/UDP b.example.com;branch=asdf\r\n"+
-					"From: <sip:alice@a.example.com>;tag=abc\r\n"+
-					"To: <sip:bob@b.example.com>\r\n"+
-					"Call-ID: zxc\r\n"+
-					"CSeq: 1 INVITE\r\n"+
-					"\r\n",
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: "INVITE",
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
-								Params:    make(header.Values).Append("branch", "qwerty"),
-							},
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("b.example.com"),
-								Params:    make(header.Values).Append("branch", "asdf"),
-							},
-						}).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")).
-						Append(header.MaxForwards(70)).
-						Append(header.Contact{
-							{
-								URI: &uri.SIP{
-									User: uri.User("alice"),
-									Addr: uri.HostPort("a.example.com", 5060),
-								},
-							},
-						}).
-						Append(&header.Any{Name: "X-Custom-Header", Value: "123"}).
-						Append(&header.ContentType{
-							Type:    "text",
-							Subtype: "plain",
-						}).
-						Append(header.ContentLength(14)).
-						Append(&header.Any{Name: "P-Custom-Header", Value: "123"}),
-					Body: []byte("Hello world!\r\n"),
-				},
-				"INVITE sip:bob@b.example.com SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP a.example.com;branch=qwerty, SIP/2.0/UDP b.example.com;branch=asdf\r\n"+
-					"Via: SIP/2.0/UDP c.example.com;branch=zxcvb\r\n"+
-					"From: <sip:alice@a.example.com>;tag=abc\r\n"+
-					"To: <sip:bob@b.example.com>\r\n"+
-					"Call-ID: zxc\r\n"+
-					"CSeq: 1 INVITE\r\n"+
-					"Contact: <sip:alice@a.example.com:5060>\r\n"+
-					"Max-Forwards: 70\r\n"+
-					"Content-Type: text/plain\r\n"+
-					"Content-Length: 14\r\n"+
-					"P-Custom-Header: 123\r\n"+
-					"X-Custom-Header: 123\r\n"+
-					"\r\n"+
-					"Hello world!\r\n",
-			),
-			// endregion
-		)
-
-		DescribeTable("comparing", Label("comparing"),
-			// region
-			func(req *sip.Request, val any, expect bool) {
-				Expect(req.Equal(val)).To(Equal(expect))
-			},
-			EntryDescription("%#[1]v with value = %#[2]v"),
-			Entry(nil, (*sip.Request)(nil), nil, false),
-			Entry(nil, (*sip.Request)(nil), (*sip.Request)(nil), true),
-			Entry(nil, &sip.Request{}, (*sip.Request)(nil), false),
-			Entry(nil, &sip.Request{}, &sip.Request{}, true),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				&sip.Request{
-					Method: sip.RequestMethodBye,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				false,
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("alice"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				false,
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoInfo{Name: "SIP", Version: "3.0"},
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				false,
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("john"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				false,
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Goodbye world!\r\n"),
-				},
-				false,
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")),
-					Body: []byte("Hello world!\r\n"),
-				},
-				true,
-			),
-			// endregion
-		)
-
-		DescribeTable("validating", Label("validating"),
-			// region
-			func(req *sip.Request, expect bool) {
-				Expect(req.IsValid()).To(Equal(expect))
-			},
-			EntryDescription("%[1]q"),
-			Entry(nil, (*sip.Request)(nil), false),
-			Entry(nil, &sip.Request{}, false),
-			Entry(nil, &sip.Request{Method: sip.RequestMethodInvite}, false),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-				},
-				false,
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-				},
-				false,
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(&header.From{
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}),
-				},
-				false,
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")).
-						Append(header.MaxForwards(70)),
-				},
-				true,
-			),
-			Entry(nil,
-				&sip.Request{
-					Method: sip.RequestMethodInvite,
-					URI: &uri.SIP{
-						User: uri.User("bob"),
-						Addr: uri.Host("b.example.com"),
-					},
-					Proto: sip.ProtoVer20(),
-					Headers: make(sip.Headers).
-						Append(header.Via{
-							{
-								Proto:     sip.ProtoVer20(),
-								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
-							},
-						}).
-						Append(&header.From{
-							URI: &uri.SIP{
-								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
-							},
-							Params: make(header.Values).Append("tag", "abc"),
-						}).
-						Append(&header.To{
-							URI: &uri.SIP{
-								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
-							},
-						}).
-						Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
-						Append(header.CallID("zxc")).
-						Append(header.MaxForwards(70)),
-					Body: []byte("Hello world!\r\n"),
-				},
-				true,
-			),
-			// endregion
-		)
-
-		DescribeTable("cloning", Label("cloning"),
-			// region
-			func(req1 *sip.Request) {
-				req2 := req1.Clone()
-				if req1 == nil {
-					Expect(req2).To(BeNil(), "assert cloned request is nil")
-				} else {
-					req2, ok := req2.(*sip.Request)
-					Expect(ok).To(BeTrue(), fmt.Sprintf("assert cloned request is of type %T", req1))
-					Expect(req1).To(Equal(req2), "assert cloned request is equal to the original request")
-					Expect(reflect.ValueOf(req2).Pointer()).ToNot(Equal(reflect.ValueOf(req1).Pointer()), "assert cloned request pointer is different than the original")
-					if req1.URI != nil {
-						Expect(reflect.ValueOf(req2.URI).Pointer()).ToNot(Equal(reflect.ValueOf(req1.URI).Pointer()), "assert cloned URI pointer is different than the original")
-					}
-					if req2.Headers != nil {
-						Expect(reflect.ValueOf(req2.Headers).Pointer()).ToNot(Equal(reflect.ValueOf(req1.Headers).Pointer()), "assert cloned headers pointer is different than the original")
-					}
-					if req2.Body != nil {
-						Expect(reflect.ValueOf(req2.Body).Pointer()).ToNot(Equal(reflect.ValueOf(req1.Body).Pointer()), "assert cloned body pointer is different than the original")
-					}
-					if req2.Metadata != nil {
-						Expect(reflect.ValueOf(req2.Metadata).Pointer()).ToNot(Equal(reflect.ValueOf(req1.Metadata).Pointer()), "assert cloned metadata pointer is different than the original")
-					}
-				}
-			},
-			EntryDescription("%#v"),
-			Entry(nil, (*sip.Request)(nil)),
-			Entry(nil, &sip.Request{
+	cases := []struct {
+		name string
+		req  *sip.Request
+		opts *sip.RenderOptions
+		want string
+	}{
+		{"nil", (*sip.Request)(nil), nil, ""},
+		{"zero", &sip.Request{}, nil, "  /\r\n\r\n"},
+		{
+			"full",
+			&sip.Request{
 				Method: "INVITE",
 				URI: &uri.SIP{
 					User: uri.User("bob"),
@@ -942,14 +85,709 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 						Type:    "text",
 						Subtype: "plain",
 					}).
+					Append(header.ContentLength(14)).
+					Append(&header.Any{Name: "P-Custom-Header", Value: "123"}),
+				Body: []byte("Hello world!\r\n"),
+			},
+			&sip.RenderOptions{Compact: true},
+			"INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+				"v: SIP/2.0/UDP a.example.com;branch=qwerty, SIP/2.0/UDP b.example.com;branch=asdf\r\n" +
+				"v: SIP/2.0/UDP c.example.com;branch=zxcvb\r\n" +
+				"f: <sip:alice@a.example.com>;tag=abc\r\n" +
+				"t: <sip:bob@b.example.com>\r\n" +
+				"i: zxc\r\n" +
+				"CSeq: 1 INVITE\r\n" +
+				"m: <sip:alice@a.example.com:5060>\r\n" +
+				"Max-Forwards: 70\r\n" +
+				"c: text/plain\r\n" +
+				"l: 14\r\n" +
+				"P-Custom-Header: 123\r\n" +
+				"X-Custom-Header: 123\r\n" +
+				"\r\n" +
+				"Hello world!\r\n",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := c.req.Render(c.opts)
+			if diff := cmp.Diff(got, c.want); diff != "" {
+				t.Errorf("req.Render(opts) = %q, want %q\ndiff (-got +want):\n%v", got, c.want, diff)
+			}
+		})
+	}
+}
+
+func TestRequest_RenderTo(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		req     *sip.Request
+		wantRes string
+		wantErr error
+	}{
+		{"nil", (*sip.Request)(nil), "", nil},
+		{"zero", &sip.Request{}, "  /\r\n\r\n", nil},
+		{
+			"full",
+			&sip.Request{
+				Method: "INVITE",
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
 					Append(header.ContentLength(14)),
 				Body: []byte("Hello world!\r\n"),
-				Metadata: sip.MessageMetadata{
-					"foo": "bar",
-					"bar": "foo",
+			},
+			"INVITE sip:bob@b.example.com SIP/2.0\r\n" +
+				"Content-Length: 14\r\n" +
+				"\r\n" +
+				"Hello world!\r\n",
+			nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sb strings.Builder
+			_, err := c.req.RenderTo(&sb, nil)
+			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("req.RenderTo(sb, nil) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			}
+
+			got := sb.String()
+			if diff := cmp.Diff(got, c.wantRes); diff != "" {
+				t.Fatalf("sb.String() = %q, want %q\ndiff (-got +want):\n%v", got, c.wantRes, diff)
+			}
+		})
+	}
+}
+
+func TestRequest_String(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		req  *sip.Request
+		want string
+	}{
+		{"nil", (*sip.Request)(nil), "<nil>"},
+		{"zero", &sip.Request{}, "  /"},
+		{
+			"full",
+			&sip.Request{
+				Method: "INVITE",
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
 				},
-			}),
-			// endregion
-		)
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.CallID("zxc")),
+			},
+			"INVITE sip:bob@b.example.com SIP/2.0",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := c.req.String()
+			if diff := cmp.Diff(got, c.want); diff != "" {
+				t.Errorf("req.String() = %q, want %q\ndiff (-got +want):\n%v", got, c.want, diff)
+			}
+		})
+	}
+}
+
+func TestRequest_Equal(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		req  *sip.Request
+		val  any
+		want bool
+	}{
+		{"nil ptr to nil", (*sip.Request)(nil), nil, false},
+		{"nil ptr to nil ptr", (*sip.Request)(nil), (*sip.Request)(nil), true},
+		{"zero ptr to nil ptr", &sip.Request{}, (*sip.Request)(nil), false},
+		{"nil ptr to zero ptr", (*sip.Request)(nil), &sip.Request{}, false},
+		{"zero ptr to zero ptr", &sip.Request{}, &sip.Request{}, true},
+		{"zero ptr to zero val", &sip.Request{}, sip.Request{}, true},
+		{
+			"not match 1",
+			&sip.Request{Method: sip.RequestMethodInvite},
+			&sip.Request{Method: sip.RequestMethodBye},
+			false,
+		},
+		{
+			"not match 2",
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("alice"),
+					Addr: uri.Host("example.com"),
+				},
+			},
+			&sip.Request{
+				Method: sip.RequestMethodBye,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("example.com"),
+				},
+			},
+			false,
+		},
+		{
+			"not match 3",
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("alice"),
+					Addr: uri.Host("example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+			},
+			&sip.Request{
+				Method: sip.RequestMethodBye,
+				URI: &uri.SIP{
+					User: uri.User("alice"),
+					Addr: uri.Host("example.com"),
+				},
+				Proto: sip.ProtoInfo{Name: "Qwe", Version: "1.0"},
+			},
+			false,
+		},
+		{
+			"not match 4",
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("alice"),
+					Addr: uri.Host("example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Set(&header.From{
+						URI: &uri.SIP{
+							User: uri.User("alice"),
+							Addr: uri.Host("example.com"),
+						},
+						Params: make(header.Values).Append("tag", "abc"),
+					}),
+			},
+			&sip.Request{
+				Method: sip.RequestMethodBye,
+				URI: &uri.SIP{
+					User: uri.User("alice"),
+					Addr: uri.Host("example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Set(&header.From{
+						URI: &uri.SIP{
+							User: uri.User("bob"),
+							Addr: uri.Host("localhost"),
+						},
+						Params: make(header.Values).Append("tag", "abc"),
+					}),
+			},
+			false,
+		},
+		{
+			"not match 5",
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("alice"),
+					Addr: uri.Host("example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Body:  []byte("Hello world!\r\n"),
+			},
+			&sip.Request{
+				Method: sip.RequestMethodBye,
+				URI: &uri.SIP{
+					User: uri.User("alice"),
+					Addr: uri.Host("example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Body:  []byte("Hello world!"),
+			},
+			false,
+		},
+		{
+			"match",
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("c.example.com"),
+							Params:    make(header.Values).Append("branch", "zxcvb"),
+						},
+					}).
+					Append(&header.From{
+						URI: &uri.SIP{
+							User: uri.User("alice"),
+							Addr: uri.Host("a.example.com"),
+						},
+						Params: make(header.Values).Append("tag", "abc"),
+					}).
+					Append(&header.To{
+						URI: &uri.SIP{
+							User: uri.User("bob"),
+							Addr: uri.Host("b.example.com"),
+						},
+					}).
+					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
+					Append(header.CallID("zxc")),
+				Body: []byte("Hello world!\r\n"),
+			},
+			sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("c.example.com"),
+							Params:    make(header.Values).Append("branch", "zxcvb"),
+						},
+					}).
+					Append(&header.From{
+						URI: &uri.SIP{
+							User: uri.User("alice"),
+							Addr: uri.Host("a.example.com"),
+						},
+						Params: make(header.Values).Append("tag", "abc"),
+					}).
+					Append(&header.To{
+						URI: &uri.SIP{
+							User: uri.User("bob"),
+							Addr: uri.Host("b.example.com"),
+						},
+					}).
+					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
+					Append(header.CallID("zxc")),
+				Body: []byte("Hello world!\r\n"),
+			},
+			true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.req.Equal(c.val); got != c.want {
+				t.Errorf("req.Equal(val) = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestRequest_IsValid(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		req  *sip.Request
+		want bool
+	}{
+		{"nil", (*sip.Request)(nil), false},
+		{"zero", &sip.Request{}, false},
+		{"invalid 1", &sip.Request{Method: sip.RequestMethodInvite}, false},
+		{
+			"invalid 2",
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI:    &uri.SIP{Addr: uri.HostPort("example.com", 5060)},
+			},
+			false,
+		},
+		{
+			"invalid 3",
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+			},
+			false,
+		},
+		{
+			"valid",
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("c.example.com"),
+							Params:    make(header.Values).Append("branch", "zxcvb"),
+						},
+					}).
+					Append(&header.From{
+						URI: &uri.SIP{
+							User: uri.User("alice"),
+							Addr: uri.Host("a.example.com"),
+						},
+						Params: make(header.Values).Append("tag", "abc"),
+					}).
+					Append(&header.To{
+						URI: &uri.SIP{
+							User: uri.User("bob"),
+							Addr: uri.Host("b.example.com"),
+						},
+					}).
+					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
+					Append(header.CallID("zxc")).
+					Append(header.MaxForwards(70)),
+			},
+			true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.req.IsValid(); got != c.want {
+				t.Errorf("req.IsValid() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestRequest_Clone(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		req  *sip.Request
+	}{
+		{"nil", nil},
+		{"zero", &sip.Request{}},
+		{
+			"full",
+			&sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("bob"),
+					Addr: uri.Host("b.example.com"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("c.example.com"),
+							Params:    make(header.Values).Append("branch", "zxcvb"),
+						},
+					}).
+					Append(&header.From{
+						URI: &uri.SIP{
+							User: uri.User("alice"),
+							Addr: uri.Host("a.example.com"),
+						},
+						Params: make(header.Values).Append("tag", "abc"),
+					}).
+					Append(&header.To{
+						URI: &uri.SIP{
+							User: uri.User("bob"),
+							Addr: uri.Host("b.example.com"),
+						},
+					}).
+					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
+					Append(header.CallID("zxc")).
+					Append(header.MaxForwards(70)),
+				Body: []byte("Hello world!\r\n"),
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := c.req.Clone()
+			if c.req == nil {
+				if got != nil {
+					t.Errorf("req.Clone() = %+v, want nil", got)
+				}
+				return
+			}
+			if diff := cmp.Diff(got, c.req); diff != "" {
+				t.Errorf("req.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.req, diff)
+			}
+		})
+	}
+}
+
+func TestRequest_RoundTripJSON(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		req  *sip.Request
+	}{
+		{
+			name: "nil",
+			req:  (*sip.Request)(nil),
+		},
+		{
+			name: "zero",
+			req:  &sip.Request{},
+		},
+		{
+			name: "with_uri_headers_body",
+			req: &sip.Request{
+				Method: sip.RequestMethodInvite,
+				URI: &uri.SIP{
+					User: uri.User("alice"),
+					Addr: uri.Host("example.com"),
+					Params: make(uri.Values).
+						Append("transport", "tcp").
+						Append("ttl", "10"),
+					Headers: make(uri.Values).
+						Append("subject", "test"),
+				},
+				Proto: sip.ProtoVer20(),
+				Headers: make(sip.Headers).
+					Set(
+						&header.From{
+							URI: &uri.SIP{
+								User: uri.User("alice"),
+								Addr: uri.Host("example.com"),
+							},
+							Params: make(header.Values).Set("tag", "abc"),
+						},
+						&header.To{
+							URI: &uri.SIP{
+								User: uri.User("bob"),
+								Addr: uri.Host("example.net"),
+							},
+						},
+						&header.CSeq{SeqNum: 42, Method: sip.RequestMethodInvite},
+						header.CallID("call-42"),
+						header.MaxForwards(70),
+					).
+					Append(header.Via{
+						{
+							Proto:     sip.ProtoVer20(),
+							Transport: "UDP",
+							Addr:      header.Host("proxy.example.com"),
+							Params:    make(header.Values).Set("branch", "z9hG4bK-4321"),
+						},
+					}).
+					Append(&header.ContentType{Type: "application", Subtype: "sdp"}).
+					Append(header.ContentLength(4)),
+				Body: []byte("body"),
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := json.Marshal(c.req)
+			if err != nil {
+				t.Fatalf("json.Marshal(req) error = %v, want nil", err)
+			}
+
+			var got sip.Request
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
+			}
+
+			var want *sip.Request
+			switch c.req {
+			case nil:
+				want = &sip.Request{}
+			default:
+				want = c.req
+			}
+
+			if diff := cmp.Diff(&got, want); diff != "" {
+				t.Errorf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, want, diff)
+			}
+		})
+	}
+}
+
+//nolint:gocognit
+func TestRequest_NewResponse(t *testing.T) {
+	t.Parallel()
+
+	buildBaseHeaders := func(to *header.To) sip.Headers {
+		hdrs := make(sip.Headers).
+			Append(header.Via{
+				{
+					Proto:     sip.ProtoVer20(),
+					Transport: "UDP",
+					Addr:      header.Host("proxy.example.com"),
+					Params:    make(header.Values).Set("branch", "z9hG4bK-req"),
+				},
+			}).
+			Append(&header.From{
+				URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.Host("example.com")},
+				Params: make(header.Values).Set("tag", "from-tag"),
+			}).
+			Append(to).
+			Append(&header.CSeq{SeqNum: 42, Method: "INVITE"}).
+			Append(header.CallID("call-123"))
+		return hdrs
+	}
+
+	t.Run("applies options and copies request data", func(t *testing.T) {
+		t.Parallel()
+
+		to := &header.To{
+			URI: &uri.SIP{User: uri.User("bob"), Addr: uri.Host("example.net")},
+		}
+		req := &sip.Request{
+			Proto:   sip.ProtoVer20(),
+			Headers: buildBaseHeaders(to),
+		}
+
+		hdrs := make(sip.Headers).
+			Append(header.Via{{Proto: sip.ProtoVer20(), Transport: "UDP", Addr: header.Host("extra.example.com")}}).
+			Append(&header.Any{Name: "X-Trace-Id", Value: "42"}).
+			Append(&header.Any{Name: "X-Extra", Value: "first"}).
+			Append(&header.Any{Name: "X-Extra", Value: "second"})
+		body := []byte("payload")
+		reason := sip.ResponseReason("Accepted")
+		locTag := "local-tag"
+
+		res, err := req.NewResponse(sip.ResponseStatusOK, &sip.ResponseOptions{
+			Reason:   reason,
+			Headers:  hdrs,
+			Body:     body,
+			LocalTag: locTag,
+		})
+		if err != nil {
+			t.Fatalf("req.NewResponse(200, opts) error = %v, want = nil", err)
+		}
+
+		if got, want := res.Status, sip.ResponseStatusOK; got != want {
+			t.Fatalf("res.Status = %v, want %v", got, want)
+		}
+		if got, want := res.Reason, reason; got != want {
+			t.Fatalf("res.Reason = %v, want %v", got, want)
+		}
+		if got, want := res.Proto, req.Proto; got != want {
+			t.Fatalf("res.Proto = %#v, want %#v", got, want)
+		}
+		if diff := cmp.Diff(res.Body, body); diff != "" {
+			t.Fatalf("res.Body mismatch (-got +want):\n%v", diff)
+		}
+
+		if viaCount := len(res.Headers.Get("Via")); viaCount != len(req.Headers.Get("Via")) {
+			t.Fatalf("unexpected Via count: got %d, want %d", viaCount, len(req.Headers.Get("Via")))
+		}
+		if foo := res.Headers.Get("X-Trace-Id"); len(foo) != 1 {
+			t.Fatalf("expected 1 X-Trace-Id, got %d", len(foo))
+		} else if v, ok := foo[0].(*header.Any); !ok || v.Value != "42" {
+			t.Fatalf("X-Trace-Id value = %q, want %q", v.Value, "42")
+		}
+		if extras := res.Headers.Get("X-Extra"); len(extras) != 2 {
+			t.Fatalf("expected 2 X-Extra headers, got %d", len(extras))
+		}
+
+		toHdr, _ := res.Headers.To()
+		if toTag, _ := toHdr.Tag(); toTag != locTag {
+			t.Fatalf("To tag = %q, want %q", toTag, locTag)
+		}
+
+		res.Headers.Append(&header.Any{Name: "X-New", Value: "value"})
+		if req.Headers.Has("X-New") {
+			t.Fatal("request headers mutated by response")
+		}
 	})
-})
+
+	t.Run("preserves existing to tag", func(t *testing.T) {
+		t.Parallel()
+
+		to := &header.To{
+			URI:    &uri.SIP{User: uri.User("bob"), Addr: uri.Host("example.net")},
+			Params: make(header.Values).Set("tag", "existing"),
+		}
+		req := &sip.Request{
+			Proto:   sip.ProtoVer20(),
+			Headers: buildBaseHeaders(to),
+		}
+
+		res, err := req.NewResponse(sip.ResponseStatusOK, &sip.ResponseOptions{
+			LocalTag: "ignored-tag",
+		})
+		if err != nil {
+			t.Fatalf("req.NewResponse(200, opts) error = %v, want nil", err)
+		}
+
+		toHdr, _ := res.Headers.To()
+		if toTag, _ := toHdr.Tag(); toTag != "existing" {
+			t.Fatalf("To tag = %q, want %q", toTag, "existing")
+		}
+	})
+
+	t.Run("trying response leaves tag unset", func(t *testing.T) {
+		t.Parallel()
+
+		to := &header.To{
+			URI: &uri.SIP{User: uri.User("bob"), Addr: uri.Host("example.net")},
+		}
+		req := &sip.Request{
+			Proto:   sip.ProtoVer20(),
+			Headers: buildBaseHeaders(to),
+		}
+
+		reason := sip.ResponseReason("Trying")
+		res, err := req.NewResponse(sip.ResponseStatusTrying, &sip.ResponseOptions{
+			Reason: reason,
+		})
+		if err != nil {
+			t.Fatalf("req.NewResponse(486, opts) error = %v, want nil", err)
+		}
+
+		if got, want := res.Reason, reason; got != want {
+			t.Fatalf("Reason = %v, want %v", got, want)
+		}
+
+		toHdr, _ := res.Headers.To()
+		if toTag, _ := toHdr.Tag(); toTag != "" {
+			t.Fatalf("To tag unexpectedly set: %q", toTag)
+		}
+	})
+}
