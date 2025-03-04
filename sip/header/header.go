@@ -344,8 +344,18 @@ func buildFromHeaderParamNodes(nodes abnf.Nodes, params Values) Values {
 			continue
 		}
 
+		if n := node.GetNode("response-port"); n != nil {
+			digits := ""
+			if d := n.GetNode("1*DIGIT"); d != nil {
+				digits = d.String()
+			}
+			params.Append(n.Children[0].String(), digits)
+			continue
+		}
+
 		node = node.Children[0]
 		var val []byte
+
 		for _, n := range node.Children[2:] {
 			if n.IsEmpty() {
 				continue

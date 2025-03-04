@@ -39,7 +39,7 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 				"SIP/2.0 200 OK\r\n"+
 					"Via: SIP/2.0/UDP a.example.com;branch=qwerty,\r\n"+
 					"\tSIP/2.0/UDP b.example.com;branch=asdf\r\n"+
-					"Via: SIP/2.0/UDP c.example.com;branch=zxcvb\r\n"+
+					"Via: SIP/2.0/UDP c.example.com;branch=zxcvb;rport=98761\r\n"+
 					"From: <sip:alice@a.example.com>;tag=abc\r\n"+
 					"To: <sip:bob@b.example.com>;tag=def\r\n"+
 					"CSeq: 1 INVITE\r\n"+
@@ -76,7 +76,9 @@ var _ = Describe("SIP", Label("sip", "message"), func() {
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
 								Addr:      header.Host("c.example.com"),
-								Params:    make(header.Values).Append("branch", "zxcvb"),
+								Params: make(header.Values).
+									Append("branch", "zxcvb").
+									Append("rport", "98761"),
 							},
 						}).
 						Append(&header.From{
