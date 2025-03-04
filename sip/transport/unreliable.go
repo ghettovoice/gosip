@@ -356,11 +356,7 @@ func newUnreliableResponseWriter(tp *unreliableBase, c *unreliableConn, req *sip
 // If sending fails due to network error, it resolves new destinations
 // according to RFC 3261 Section 18.2.2, RFC 3263 Section 5.
 func (w *unreliableResponseWriter) Write(ctx context.Context, sts sip.ResponseStatus, opts ...any) error {
-	res, err := w.buildResponse(sts, opts...)
-	if err != nil {
-		return err
-	}
-
+	res := w.buildResponse(sts, opts...)
 	var errs []error //nolint:prealloc
 	for addr := range w.addrResolver.ResponseRemoteAddrs(res) {
 		err := w.conn.Load().WriteMessage(ctx, res, addr, opts...)

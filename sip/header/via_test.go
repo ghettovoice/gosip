@@ -41,6 +41,34 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				},
 				nil,
 			),
+			Entry(nil,
+				"Via: SIP/2.0/UDP erlang.bell-telephone.com:5060;branch=z9hG4bK87asdks7;rport",
+				header.Via{
+					{
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
+						Transport: "UDP",
+						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
+						Params: make(header.Values).
+							Set("branch", "z9hG4bK87asdks7").
+							Set("rport", ""),
+					},
+				},
+				nil,
+			),
+			Entry(nil,
+				"Via: SIP/2.0/UDP erlang.bell-telephone.com:5060;branch=z9hG4bK87asdks7;rport=123",
+				header.Via{
+					{
+						Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
+						Transport: "UDP",
+						Addr:      header.HostPort("erlang.bell-telephone.com", 5060),
+						Params: make(header.Values).
+							Set("branch", "z9hG4bK87asdks7").
+							Set("rport", "123"),
+					},
+				},
+				nil,
+			),
 			// endregion
 		)
 

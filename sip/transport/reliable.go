@@ -369,13 +369,10 @@ func newReliableResponseWriter(tp *reliableBase, c *reliableConn, req *sip.Reque
 // If sending fails due to network error, it resolves new destinations
 // according to RFC 3261 Section 18.2.2, RFC 3263 Section 5.
 func (w *reliableResponseWriter) Write(ctx context.Context, sts sip.ResponseStatus, opts ...any) error {
-	res, err := w.buildResponse(sts, opts...)
-	if err != nil {
-		return err
-	}
-
+	res := w.buildResponse(sts, opts...)
 	// First, try to send the response via opened connection.
-	if err = w.conn.Load().WriteMessage(ctx, res, opts); err == nil {
+	err := w.conn.Load().WriteMessage(ctx, res, opts)
+	if err == nil {
 		return nil
 	}
 

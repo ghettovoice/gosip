@@ -34,11 +34,9 @@ type Transport interface {
 
 // TransportReport provides statistics about the transport.
 type TransportReport struct {
-	Proto TransportProto `json:"proto"       yaml:"proto"`
-	// Number of running listeners.
-	Listeners uint32 `json:"listeners"   yaml:"listeners"`
-	// Number of running connections.
-	Connections uint32 `json:"connections" yaml:"connections"`
+	Proto       TransportProto `json:"proto"       yaml:"proto"`
+	Listeners   uint32         `json:"listeners"   yaml:"listeners"`
+	Connections uint32         `json:"connections" yaml:"connections"`
 
 	InboundRequests          uint64 `json:"inbound_requests"           yaml:"inbound_requests"`
 	InboundRequestsRejected  uint64 `json:"inbound_requests_rejected"  yaml:"inbound_requests_rejected"`
@@ -50,10 +48,8 @@ type TransportReport struct {
 	OutboundResponses         uint64 `json:"outbound_responses"          yaml:"outbound_responses"`
 	OutboundResponsesRejected uint64 `json:"outbound_responses_rejected" yaml:"outbound_responses_rejected"`
 
-	// Average round trip time over network.
-	MessageRTT time.Duration `json:"message_rtt"              yaml:"message_rtt"`
-	// Number of measurements of the RTT.
-	MessageRTTMeasurements uint64 `json:"message_rtt_measurements" yaml:"message_rtt_measurements"`
+	MessageRTT             time.Duration `json:"message_rtt"              yaml:"message_rtt"`
+	MessageRTTMeasurements uint64        `json:"message_rtt_measurements" yaml:"message_rtt_measurements"`
 }
 
 // TransportFactory creates a new transport.

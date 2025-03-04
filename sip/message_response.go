@@ -251,7 +251,7 @@ func NewResponse(req *Request, status ResponseStatus, reason string) *Response {
 //	w.Write(ctx, sip.ResponseStatusRinging)
 //	w.Write(ctx, sip.ResponseStatusOk, "OK", []byte("v=0\r\n...")/*, header.MIMEType{Type: "application", Subtype: "sdp"} */)
 type ResponseWriter interface {
-	// Headers returns a map for configuring addtional response headers.
+	// Headers returns a map for configuring additional response headers.
 	Headers() Headers
 	// SetTag sets a local tag to the To header for all responses generated with Write.
 	SetTag(tag string)

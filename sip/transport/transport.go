@@ -34,7 +34,6 @@ var (
 	dfltNetLsCfg net.ListenConfig
 	dfltNetDial  net.Dialer
 
-	zeroAddrPort   netip.AddrPort
 	unspecAddrPort = netip.AddrPortFrom(netip.IPv4Unspecified(), 0)
 )
 

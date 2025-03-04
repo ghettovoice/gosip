@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
+
 	"github.com/ghettovoice/gosip/internal/iterutils"
 	"github.com/ghettovoice/gosip/internal/log"
 	"github.com/ghettovoice/gosip/internal/stringutils"
@@ -716,7 +717,7 @@ func (b *responseBuilder) Headers() sip.Headers { return b.hdrs }
 
 func (b *responseBuilder) SetTag(tag string) { b.tag = tag }
 
-func (b *responseBuilder) buildResponse(sts sip.ResponseStatus, opts ...any) (*sip.Response, error) {
+func (b *responseBuilder) buildResponse(sts sip.ResponseStatus, opts ...any) *sip.Response {
 	var (
 		reason  string
 		body    []byte
@@ -758,5 +759,5 @@ func (b *responseBuilder) buildResponse(sts sip.ResponseStatus, opts ...any) (*s
 		res.Headers.Set(cntType)
 	}
 
-	return res, nil
+	return res
 }

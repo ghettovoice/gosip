@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
+
 	"github.com/ghettovoice/gosip/sip/internal/shared"
 )
 
