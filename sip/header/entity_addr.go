@@ -2,6 +2,7 @@ package header
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/ghettovoice/abnf"
@@ -73,6 +74,22 @@ func buildFromHeaderAddrNode(node *abnf.Node, psNodeKey string) EntityAddr {
 	addr := EntityAddr{
 		URI:    uri.FromABNF(abnfutils.MustGetNode(node, "addr-spec").Children[0]),
 		Params: buildFromHeaderParamNodes(node.GetNodes(psNodeKey), nil),
+	}
+
+	// https://datatracker.ietf.org/doc/rfc8217/
+	if !node.Contains("name-addr") && strings.ContainsAny(node.String(), ",;?") {
+		switch v := addr.URI.(type) {
+		case *uri.SIP:
+			addr.Params = v.Params
+			v.Params = nil
+		case *uri.Tel:
+			addr.Params = v.Params
+			v.Params = nil
+		case *uri.Any:
+			p, _ := url.ParseQuery(v.RawQuery)
+			v.RawQuery = ""
+			addr.Params = Values(p)
+		}
 	}
 	if dnameNode := node.GetNode("display-name"); dnameNode != nil {
 		addr.DisplayName = grammar.Unquote(strings.TrimSpace(dnameNode.String()))
