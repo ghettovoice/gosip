@@ -72,8 +72,6 @@ var _ = Describe("Transport", Label("sip", "transport"), func() {
 			return dc.DialContext(ctx, "tcp", addr)
 		}
 
-		specRelConnMng(&itp, 21000, 21500, listen, dial)
-
 		specRelSendReq(&itp, 21600, listen)
 
 		specRelSendRes(&itp, 21100, dial)

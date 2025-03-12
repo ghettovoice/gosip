@@ -3,7 +3,6 @@ package sip
 import (
 	"fmt"
 	"io"
-	"iter"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -71,7 +70,7 @@ func buildFromResponseNode(node *abnf.Node, hdrPrs map[string]HeaderParser) *Res
 	}
 	return &Response{
 		Status:  ResponseStatus(code),
-		Reason:  abnfutils.MustGetNode(node, "Reason-Phrase").String(),
+		Reason:  ResponseReason(abnfutils.MustGetNode(node, "Reason-Phrase").String()),
 		Proto:   buildFromSIPVerNode(abnfutils.MustGetNode(node, "SIP-Version")),
 		Headers: buildFromMessageHeaderNodes(node.GetNodes("message-header"), hdrPrs),
 		Body:    body,
@@ -116,34 +115,48 @@ func parseMessageStart[T constraints.Byteseq](src T) (Message, error) {
 // The keys in the map are canonical header names.
 type Headers map[header.Name][]Header
 
-func (hdrs Headers) Get(n HeaderName) []Header {
-	return hdrs[n.ToCanonic()]
-}
+func (hdrs Headers) All() []Header { return sortHeaders(hdrs) }
 
-func (hdrs Headers) Set(hdr Header) Headers {
+func (hdrs Headers) Get(name HeaderName) []Header { return hdrs[name.ToCanonic()] }
+
+func (hdrs Headers) Set(hdr Header, hds ...Header) Headers {
 	hdrs[hdr.CanonicName()] = []Header{hdr}
+	for _, h := range hds {
+		hdrs[hdr.CanonicName()] = []Header{h}
+	}
 	return hdrs
 }
 
-func (hdrs Headers) Append(hdr Header) Headers {
+func (hdrs Headers) Append(hdr Header, hds ...Header) Headers {
 	n := hdr.CanonicName()
 	hdrs[n] = append(hdrs[n], hdr)
+	for _, h := range hds {
+		n = h.CanonicName()
+		hdrs[n] = append(hdrs[n], h)
+	}
 	return hdrs
 }
 
-func (hdrs Headers) Prepend(hdr Header) Headers {
+func (hdrs Headers) Prepend(hdr Header, hds ...Header) Headers {
 	n := hdr.CanonicName()
 	hdrs[n] = append([]Header{hdr}, hdrs[n]...)
+	for _, h := range hds {
+		n = h.CanonicName()
+		hdrs[n] = append([]Header{h}, hdrs[n]...)
+	}
 	return hdrs
 }
 
-func (hdrs Headers) Del(n HeaderName) Headers {
-	delete(hdrs, n.ToCanonic())
+func (hdrs Headers) Del(name HeaderName, names ...HeaderName) Headers {
+	delete(hdrs, name.ToCanonic())
+	for _, n := range names {
+		delete(hdrs, n.ToCanonic())
+	}
 	return hdrs
 }
 
-func (hdrs Headers) Has(n HeaderName) bool {
-	_, ok := hdrs[n.ToCanonic()]
+func (hdrs Headers) Has(name HeaderName) bool {
+	_, ok := hdrs[name.ToCanonic()]
 	return ok
 }
 
@@ -164,83 +177,6 @@ func (hdrs Headers) Clone() Headers {
 		}
 	}
 	return hdrs2
-}
-
-func (hdrs Headers) ViaHops() iter.Seq2[int, *header.ViaHop] {
-	return func(yield func(int, *header.ViaHop) bool) {
-		var i int
-		for _, hdr := range hdrs.Get("Via") {
-			if via, ok := hdr.(header.Via); ok {
-				for j := range via {
-					if !yield(i, &via[j]) {
-						return
-					}
-					i++
-				}
-			}
-		}
-	}
-}
-
-func (hdrs Headers) From() *header.From {
-	for _, hdr := range hdrs.Get("From") {
-		if from, ok := hdr.(*header.From); ok {
-			return from
-		}
-	}
-	return nil
-}
-
-func (hdrs Headers) To() *header.To {
-	for _, hdr := range hdrs.Get("To") {
-		if to, ok := hdr.(*header.To); ok {
-			return to
-		}
-	}
-	return nil
-}
-
-func (hdrs Headers) CallID() header.CallID {
-	for _, hdr := range hdrs.Get("Call-ID") {
-		if callID, ok := hdr.(header.CallID); ok {
-			return callID
-		}
-	}
-	return ""
-}
-
-func (hdrs Headers) CSeq() *header.CSeq {
-	for _, hdr := range hdrs.Get("CSeq") {
-		if cseq, ok := hdr.(*header.CSeq); ok {
-			return cseq
-		}
-	}
-	return nil
-}
-
-func (hdrs Headers) MaxForwards() header.MaxForwards {
-	for _, hdr := range hdrs.Get("Max-Forwards") {
-		if maxFwd, ok := hdr.(header.MaxForwards); ok {
-			return maxFwd
-		}
-	}
-	return 0
-}
-
-func (hdrs Headers) Contacts() iter.Seq2[int, *header.EntityAddr] {
-	return func(yield func(int, *header.EntityAddr) bool) {
-		var i int
-		for _, hdr := range hdrs.Get("Contact") {
-			if cnt, ok := hdr.(header.Contact); ok {
-				for j := range cnt {
-					if !yield(i, &cnt[j]) {
-						return
-					}
-					i++
-				}
-			}
-		}
-	}
 }
 
 func (hdrs Headers) CopyFrom(other Headers, name HeaderName, names ...HeaderName) Headers {
@@ -333,37 +269,109 @@ func renderHeaders(w io.Writer, hdrs Headers) error {
 		return nil
 	}
 
-	var elems [][]Header
-	for _, hs := range hdrs {
-		if len(hs) > 0 {
-			elems = append(elems, hs)
+	for _, h := range sortHeaders(hdrs) {
+		if err := h.RenderTo(w); err != nil {
+			return err
 		}
-	}
-	slices.SortStableFunc(elems, func(hs1, hs2 []Header) int {
-		n1, n2 := hs1[0].CanonicName(), hs2[0].CanonicName()
-		i1, i2 := slices.Index(headersOrder, n1), slices.Index(headersOrder, n2)
-		if i1 == -1 && i2 == -1 {
-			return strings.Compare(string(n1), string(n2))
-		}
-		if i1 == -1 {
-			return 1
-		}
-		if i2 == -1 {
-			return -1
-		}
-		return i1 - i2
-	})
-	for _, hs := range elems {
-		for i := range hs {
-			if err := hs[i].RenderTo(w); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprint(w, "\r\n"); err != nil {
-				return err
-			}
+		if _, err := fmt.Fprint(w, "\r\n"); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func sortHeaders(hdrs Headers) []Header {
+	var hds []Header
+	for _, hs := range hdrs {
+		hds = append(hds, hs...)
+	}
+	slices.SortStableFunc(hds, func(h1, h2 Header) int {
+		n1, n2 := h1.CanonicName(), h2.CanonicName()
+		i1, i2 := slices.Index(headersOrder, n1), slices.Index(headersOrder, n2)
+		switch {
+		case i1 == -1 && i2 == -1:
+			return strings.Compare(string(n1), string(n2))
+		case i1 == -1:
+			return 1
+		case i2 == -1:
+			return -1
+		default:
+			return i1 - i2
+		}
+	})
+	return hds
+}
+
+func FirstHeader[H Header](hdrs Headers, name HeaderName) (hdr H) {
+	hs := hdrs.Get(name)
+	if len(hs) == 0 {
+		return hdr
+	}
+	return hs[0].(H) //nolint:forcetypeassert
+}
+
+func FirstHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E) {
+	es, _ := FirstHeader[Header](hdrs, name).(H)
+	if len(es) == 0 {
+		return nil
+	}
+	return &es[0]
+}
+
+func LastHeader[H Header](hdrs Headers, name HeaderName) (hdr H) {
+	hs := hdrs.Get(name)
+	if len(hs) == 0 {
+		return hdr
+	}
+	return hs[len(hs)-1].(H) //nolint:forcetypeassert
+}
+
+func LastHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E) {
+	es, _ := LastHeader[Header](hdrs, name).(H)
+	if len(es) == 0 {
+		return nil
+	}
+	return &es[len(es)-1]
+}
+
+func AllHeaderElems[H ~[]E, E any](hdrs Headers, name HeaderName) (es []E) {
+	for _, hdr := range hdrs.Get(name) {
+		es = append(es, hdr.(H)...) //nolint:forcetypeassert
+	}
+	return es
+}
+
+func PopFirstHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E) {
+	es, _ := FirstHeader[Header](hdrs, name).(H)
+	if len(es) == 0 {
+		return nil
+	}
+	el = &es[0]
+	es = es[1:]
+	if len(es) == 0 {
+		hdrs[name] = hdrs[name][1:]
+		if len(hdrs[name]) == 0 {
+			delete(hdrs, name)
+		}
+	} else {
+		hdrs[name][0] = any(es).(Header) //nolint:forcetypeassert
+	}
+	return el
+}
+
+func PopLastHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E) {
+	es, _ := LastHeader[Header](hdrs, name).(H)
+	if len(es) == 0 {
+		return nil
+	}
+	el = &es[len(es)-1]
+	es = es[:len(es)-1]
+	if len(es) == 0 {
+		hdrs[name] = hdrs[name][:len(hdrs[name])-1]
+	} else {
+		hdrs[name][len(hdrs[name])-1] = any(es).(Header) //nolint:forcetypeassert
+	}
+	return el
 }
 
 type MessageMetadata map[string]any

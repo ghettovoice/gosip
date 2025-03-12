@@ -10,16 +10,11 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
-	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/gabriel-vasile/mimetype"
-
-	"github.com/ghettovoice/gosip/internal/iterutils"
 	"github.com/ghettovoice/gosip/internal/log"
 	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/internal/utils"
@@ -129,19 +124,15 @@ func (t *connTracker) closeAll() error {
 	return errors.Join(errs...)
 }
 
-type connReader struct{}
-
 type rmtAddrKey struct{}
 
 type loggerKey struct{}
 
 type parseErrKey struct{}
 
-type responderKey struct{}
-
-func (*connReader) servePacket(ac any, p sip.Parser, onMsgFn func(context.Context, sip.Message) error, logger *slog.Logger) error {
-	pc, isPktConn := ac.(net.PacketConn)
-	c, isConn := ac.(net.Conn)
+func servePacket(anyConn any, prs sip.Parser, onMsgFn func(context.Context, sip.Message) error, logger *slog.Logger) error {
+	pc, isPktConn := anyConn.(net.PacketConn)
+	c, isConn := anyConn.(net.Conn)
 	if !isPktConn && !isConn {
 		return unexpectConnTypeError(c)
 	}
@@ -169,7 +160,7 @@ func (*connReader) servePacket(ac any, p sip.Parser, onMsgFn func(context.Contex
 		}
 		msgLogger := logger.With("remote_addr", raddr)
 
-		msg, err := p.ParsePacket(buf[:num])
+		msg, err := prs.ParsePacket(buf[:num])
 		if err != nil {
 			// All errors from parser are considered continuable.
 			if msg == nil {
@@ -193,16 +184,16 @@ func (*connReader) servePacket(ac any, p sip.Parser, onMsgFn func(context.Contex
 	}
 }
 
-func (*connReader) serveStream(c net.Conn, p sip.Parser, onMsgFn func(context.Context, sip.Message) error, logger *slog.Logger) error {
+func serveStream(conn net.Conn, prs sip.Parser, onMsgFn func(context.Context, sip.Message) error, logger *slog.Logger) error {
 	ctx := context.Background()
-	r := &io.LimitedReader{R: c, N: int64(sip.MaxMsgSize)}
-	sp := p.ParseStream(r)
+	rd := &io.LimitedReader{R: conn, N: int64(sip.MaxMsgSize)}
+	sp := prs.ParseStream(rd)
 	for msg, err := range sp.Messages() {
 		msgCtx := ctx
 		msgLogger := logger
 
 		if err != nil {
-			isTooLong := (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) && r.N <= 0
+			isTooLong := (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) && rd.N <= 0
 			isGramErr := utils.IsGrammarErr(err)
 			if !(isTooLong || isGramErr) {
 				return err
@@ -210,7 +201,7 @@ func (*connReader) serveStream(c net.Conn, p sip.Parser, onMsgFn func(context.Co
 
 			// If the error is due to exceeding the message size limit, we should continue parsing the connection.
 			// Also, any grammar errors should not break the parsing loop.
-			r.N = int64(sip.MaxMsgSize)
+			rd.N = int64(sip.MaxMsgSize)
 			if msg == nil {
 				continue
 			}
@@ -244,7 +235,7 @@ func (*connReader) serveStream(c net.Conn, p sip.Parser, onMsgFn func(context.Co
 			}
 		}
 
-		r.N = int64(sip.MaxMsgSize)
+		rd.N = int64(sip.MaxMsgSize)
 
 		msgLogger.Info("message received", "message", msg, "dump", log.CalcValue(func() any { return msg.Render() }))
 
@@ -256,34 +247,34 @@ func (*connReader) serveStream(c net.Conn, p sip.Parser, onMsgFn func(context.Co
 	return io.EOF
 }
 
-type connIdleTracker struct {
-	conn io.Closer
-	tmr  atomic.Pointer[time.Timer]
+type idleTracker struct {
+	expired func()
+	tmr     atomic.Pointer[time.Timer]
 }
 
-func (c *connIdleTracker) updateIdleTTL(ttl time.Duration, logger *slog.Logger) {
+func (t *idleTracker) updateIdleTTL(ttl time.Duration, logger *slog.Logger) {
 	if ttl <= 0 {
 		return
 	}
-	if tmr := c.tmr.Load(); tmr == nil {
-		c.tmr.Store(time.AfterFunc(ttl, func() { c.conn.Close() }))
+	if tmr := t.tmr.Load(); tmr == nil {
+		t.tmr.Store(time.AfterFunc(ttl, t.expired))
 	} else if !tmr.Reset(ttl) {
 		tmr.Stop()
 	}
 	logger.Debug("connection TTL updated", "ttl", ttl)
 }
 
-func (c *connIdleTracker) stopIdleTTL() {
-	if tmr := c.tmr.Load(); tmr != nil {
+func (t *idleTracker) stopIdleTTL() {
+	if tmr := t.tmr.Load(); tmr != nil {
 		tmr.Stop()
 	}
 }
 
 type messageHandler struct {
-	onInReqFn  atomic.Value // func(context.Context, *Request, ResponseWriter) error
-	onInResFn  atomic.Value // func(context.Context, *Response) error
-	onOutReqFn atomic.Value // func(context.Context, *Request) error
-	onOutResFn atomic.Value // func(context.Context, *Response) error
+	inReqHdlr  atomic.Value // sip.RequestHandler
+	inResHdlr  atomic.Value // sip.ResponseHandler
+	outReqHdlr atomic.Value // sip.RequestHandler
+	outResHdlr atomic.Value // sip.ResponseHandler
 
 	inReqNum,
 	inReqRejectNum,
@@ -298,25 +289,18 @@ type messageHandler struct {
 	rttMeas atomic.Uint64
 }
 
-func (mh *messageHandler) OnInboundRequest(fn func(context.Context, *sip.Request, sip.ResponseWriter) error) {
-	mh.onInReqFn.Store(fn)
-}
+func (h *messageHandler) OnInboundRequest(hdlr sip.RequestHandler) { h.inReqHdlr.Store(hdlr) }
 
-func (mh *messageHandler) OnInboundResponse(fn func(context.Context, *sip.Response) error) {
-	mh.onInResFn.Store(fn)
-}
+func (h *messageHandler) OnInboundResponse(hdlr sip.ResponseHandler) { h.inResHdlr.Store(hdlr) }
 
-func (mh *messageHandler) OnOutboundRequest(fn func(context.Context, *sip.Request) error) {
-	mh.onOutReqFn.Store(fn)
-}
+func (h *messageHandler) OnOutboundRequest(hdlr sip.RequestHandler) { h.outReqHdlr.Store(hdlr) }
 
-func (mh *messageHandler) OnOutboundResponse(fn func(context.Context, *sip.Response) error) {
-	mh.onOutResFn.Store(fn)
-}
+func (h *messageHandler) OnOutboundResponse(hdlr sip.ResponseHandler) { h.outResHdlr.Store(hdlr) }
 
 type baseTransp interface {
 	Proto() sip.TransportProto
 	Streamed() bool
+	SendResponse(ctx context.Context, res *sip.Response, laddr netip.AddrPort, opts ...any) error
 	options() *Options
 	listenPorts(prepend []uint16) iter.Seq[uint16]
 }
@@ -327,7 +311,7 @@ type baseConn interface {
 }
 
 //nolint:gocognit
-func (mh *messageHandler) onInMsg(ctx context.Context, tp baseTransp, c baseConn, msg sip.Message) (accepted bool) {
+func (h *messageHandler) onInMsg(ctx context.Context, tp baseTransp, conn baseConn, msg sip.Message) (accepted bool) {
 	var logger *slog.Logger
 	if l, k := ctx.Value(loggerKey{}).(*slog.Logger); k && l != nil {
 		logger = l
@@ -335,9 +319,9 @@ func (mh *messageHandler) onInMsg(ctx context.Context, tp baseTransp, c baseConn
 		logger = log.Noop
 	}
 
-	laddr := c.locAddrPort()
+	laddr := conn.locAddrPort()
 	var raddr netip.AddrPort
-	if rc, k := c.(interface{ rmtAddrPort() netip.AddrPort }); k {
+	if rc, k := conn.(interface{ rmtAddrPort() netip.AddrPort }); k {
 		// reliable transport is connection-oriented, so the connection always has a remote address
 		raddr = rc.rmtAddrPort()
 	} else {
@@ -354,22 +338,17 @@ func (mh *messageHandler) onInMsg(ctx context.Context, tp baseTransp, c baseConn
 		sip.RemoteAddrField, raddr,
 	)
 
-	_, viaHop := iterutils.IterFirst2(sip.GetMessageHeaders(msg).ViaHops())
+	viaHop := sip.FirstHeaderElem[header.Via](sip.GetMessageHeaders(msg), "Via")
 	now := time.Now().UTC()
 
 	switch m := msg.(type) {
 	case *sip.Request:
-		mh.inReqNum.Add(1)
+		h.inReqNum.Add(1)
 		defer func() {
 			if !accepted {
-				mh.inReqRejectNum.Add(1)
+				h.inReqRejectNum.Add(1)
 			}
 		}()
-
-		rspd, ok := ctx.Value(responderKey{}).(sip.ResponseWriter)
-		if !ok {
-			panic(errMissResWrt)
-		}
 
 		m.Metadata[sip.RequestTstampField] = now
 
@@ -403,17 +382,17 @@ func (mh *messageHandler) onInMsg(ctx context.Context, tp baseTransp, c baseConn
 			}
 			resCtx, cancel := context.WithTimeout(ctx, time.Minute)
 			defer cancel()
-			if err := rspd.Write(resCtx, sts); err != nil {
+			if err := tp.SendResponse(resCtx, sip.NewResponse(m, sts), laddr); err != nil {
 				logger.Warn(
-					fmt.Sprintf(`failed to respond "%d %s" to invalid inbound request`, sts, sip.ResponseStatusReason(sts)),
+					fmt.Sprintf(`failed to respond "%d %s" to invalid inbound request`, sts, sts.Reason()),
 					"error", err,
 				)
 			}
 			return false
 		}
 
-		if fn, ok := mh.onInReqFn.Load().(func(context.Context, *sip.Request, sip.ResponseWriter) error); ok && fn != nil {
-			if err := fn(ctx, m, rspd); err != nil {
+		if hdlr, ok := h.inReqHdlr.Load().(sip.RequestHandler); ok && hdlr != nil {
+			if err := hdlr.HandleRequest(ctx, m); err != nil {
 				logger.Warn("failed to accept inbound request", "error", err)
 				return false
 			}
@@ -422,10 +401,10 @@ func (mh *messageHandler) onInMsg(ctx context.Context, tp baseTransp, c baseConn
 			logger.Warn("discarding inbound request, because no inbound request handler is set")
 		}
 	case *sip.Response:
-		mh.inResNum.Add(1)
+		h.inResNum.Add(1)
 		defer func() {
 			if !accepted {
-				mh.inResRejectNum.Add(1)
+				h.inResRejectNum.Add(1)
 			}
 		}()
 
@@ -449,30 +428,30 @@ func (mh *messageHandler) onInMsg(ctx context.Context, tp baseTransp, c baseConn
 
 		if hdrs := m.Headers.Get("Timestamp"); len(hdrs) > 0 {
 			if ts, ok := hdrs[0].(*header.Timestamp); ok && !ts.ReqTime.IsZero() && now.After(ts.ReqTime) {
-				n := mh.rttMeas.Add(1)
+				n := h.rttMeas.Add(1)
 				rtt := uint64(now.Sub(ts.ReqTime) - ts.ResDelay)
-				mh.rtt.Store((mh.rtt.Load()*(n-1) + rtt) / n)
+				h.rtt.Store((h.rtt.Load()*(n-1) + rtt) / n)
 			}
 		}
 
-		if fn, ok := mh.onInResFn.Load().(func(context.Context, *sip.Response) error); ok && fn != nil {
-			if err := fn(ctx, m); err != nil {
+		if hdlr, ok := h.inResHdlr.Load().(sip.ResponseHandler); ok && hdlr != nil {
+			if err := hdlr.HandleResponse(ctx, m); err != nil {
 				logger.Warn("failed to accept inbound message", "error", err)
 				return false
 			}
 			logger.Debug("inbound message accepted")
 		} else {
-			logger.Warn("discarding inbound message, because no inbound message handler is set")
+			logger.Warn("discarding inbound message, because no inbound response handler is set")
 		}
 	}
 	return true
 }
 
 //nolint:gocognit
-func (mh *messageHandler) onOutMsg(ctx context.Context, tp baseTransp, c baseConn, msg sip.Message) (bb *bytes.Buffer, err error) {
-	laddr := c.locAddrPort()
+func (h *messageHandler) onOutMsg(ctx context.Context, tp baseTransp, conn baseConn, msg sip.Message) (bb *bytes.Buffer, err error) {
+	laddr := conn.locAddrPort()
 	var raddr netip.AddrPort
-	if rc, ok := c.(interface{ rmtAddrPort() netip.AddrPort }); ok {
+	if rc, ok := conn.(interface{ rmtAddrPort() netip.AddrPort }); ok {
 		// reliable transport is connection-oriented, so the connection always has a remote address
 		raddr = rc.rmtAddrPort()
 	} else {
@@ -492,29 +471,33 @@ func (mh *messageHandler) onOutMsg(ctx context.Context, tp baseTransp, c baseCon
 
 	switch m := msg.(type) {
 	case *sip.Request:
-		mh.outReqNum.Add(1)
+		h.outReqNum.Add(1)
 		defer func() {
 			if err != nil {
-				mh.outReqRejectNum.Add(1)
+				h.outReqRejectNum.Add(1)
 			}
 		}()
 
 		m.Metadata[sip.RequestTstampField] = now
 
 		// RFC 3261 Section 18.1.1.
-		// the transport user must prepend Via with zero Addr and fill other fields by itself
-		_, viaHop := iterutils.IterFirst2(m.Headers.ViaHops())
-		if viaHop == nil || !viaHop.Addr.IsZero() {
+		// the transport user must prepend Via by itself
+		viaHop := sip.FirstHeaderElem[header.Via](m.Headers, "Via")
+		if viaHop == nil {
 			return nil, sip.ErrInvalidMessage
 		}
 
 		viaHop.Transport = tp.Proto()
 
 		var locPorts []uint16
-		if c.fromListener() {
+		if conn.fromListener() {
 			locPorts = []uint16{laddr.Port()}
 		}
 		viaHop.Addr = tp.options().sentByBuild(tp.options().sentByHost(), tp.listenPorts(locPorts))
+
+		if raddr.Addr().IsMulticast() {
+			viaHop.Params.Set("maddr", raddr.String()).Set("ttl", "1")
+		}
 
 		var ts *header.Timestamp
 		if hdrs := m.Headers.Get("Timestamp"); len(hdrs) > 0 {
@@ -530,16 +513,16 @@ func (mh *messageHandler) onOutMsg(ctx context.Context, tp baseTransp, c baseCon
 		}
 		m.Headers.Set(ts)
 
-		if fn, ok := mh.onOutReqFn.Load().(func(context.Context, *sip.Request) error); ok && fn != nil {
-			if err = fn(ctx, m); err != nil {
+		if hdlr, ok := h.outReqHdlr.Load().(sip.RequestHandler); ok && hdlr != nil {
+			if err = hdlr.HandleRequest(ctx, m); err != nil {
 				return nil, err
 			}
 		}
 	case *sip.Response:
-		mh.outResNum.Add(1)
+		h.outResNum.Add(1)
 		defer func() {
 			if err != nil {
-				mh.outResRejectNum.Add(1)
+				h.outResRejectNum.Add(1)
 			}
 		}()
 
@@ -554,8 +537,8 @@ func (mh *messageHandler) onOutMsg(ctx context.Context, tp baseTransp, c baseCon
 			}
 		}
 
-		if fn, ok := mh.onOutResFn.Load().(func(context.Context, *sip.Response) error); ok && fn != nil {
-			if err = fn(ctx, m); err != nil {
+		if hdlr, ok := h.outResHdlr.Load().(sip.ResponseHandler); ok && hdlr != nil {
+			if err = hdlr.HandleResponse(ctx, m); err != nil {
 				return nil, err
 			}
 		}
@@ -585,179 +568,4 @@ func (mh *messageHandler) onOutMsg(ctx context.Context, tp baseTransp, c baseCon
 		return bb, sip.ErrMessageTooLarge
 	}
 	return bb, nil
-}
-
-type remoteAddrResolver struct {
-	dns *net.Resolver
-}
-
-// ResponseRemoteAddrs returns a list of remote addresses resolving them step by step,
-// according to RFC 3261 Section 18.2.2, RFC 3263 Section 5 and RFC 3581 Section 4.
-//
-//nolint:gocognit
-func (ar *remoteAddrResolver) ResponseRemoteAddrs(res *sip.Response) iter.Seq[netip.AddrPort] {
-	return func(yield func(netip.AddrPort) bool) {
-		_, viaHop := iterutils.IterFirst2(res.Headers.ViaHops())
-		if viaHop == nil || !viaHop.IsValid() {
-			return
-		}
-
-		if !IsReliable(viaHop.Transport) {
-			// RFC 3261 Section 18.2.2, bullet 2.
-			if maddr := viaHop.Params.Last("maddr"); maddr != "" {
-				if addr, err := netip.ParseAddr(maddr); err == nil {
-					var port uint16
-					if p, ok := viaHop.Addr.Port(); ok && p > 0 {
-						port = p
-					} else {
-						port = DefaultPort(viaHop.Transport)
-					}
-					yield(netip.AddrPortFrom(addr, port))
-					// no fallback to RFC 3263 Section 5 is defined for "maddr" case,
-					// so we stop here.
-					return
-				}
-			}
-		}
-
-		// RFC 3261 Section 18.2.2, bullet 1 and 3.
-		if recv := viaHop.Params.Last("received"); recv != "" {
-			if addr, err := netip.ParseAddr(recv); err == nil {
-				var port uint16
-				if !IsReliable(viaHop.Transport) {
-					// RFC 3581 Section 4.
-					if rport := viaHop.Params.Last("rport"); rport != "" {
-						if p, err := strconv.ParseUint(rport, 10, 16); err == nil {
-							port = uint16(p)
-						}
-					}
-				}
-				if port == 0 {
-					if p, ok := viaHop.Addr.Port(); ok && p > 0 {
-						port = p
-					} else {
-						port = DefaultPort(viaHop.Transport)
-					}
-				}
-				if !yield(netip.AddrPortFrom(addr, port)) {
-					return
-				}
-			}
-		}
-
-		// RFC 3261 Section 18.2.2, bullet 4, i.e. fallback to RFC 3263 Section 5.
-		if viaHop.Addr.IP() != nil {
-			if addr, ok := netip.AddrFromSlice(viaHop.Addr.IP()); ok {
-				var port uint16
-				if p, ok := viaHop.Addr.Port(); ok && p > 0 {
-					port = p
-				} else {
-					port = DefaultPort(viaHop.Transport)
-				}
-				if !yield(netip.AddrPortFrom(addr, port)) {
-					return
-				}
-			}
-		} else {
-			if port, ok := viaHop.Addr.Port(); ok && port > 0 {
-				if ips, err := ar.dns.LookupIP(context.TODO(), "ip", viaHop.Addr.Host()); err == nil {
-					for _, ip := range ips {
-						if addr, ok := netip.AddrFromSlice(ip); ok {
-							if !yield(netip.AddrPortFrom(addr, port)) {
-								return
-							}
-						}
-					}
-				}
-			} else {
-				serv := "sip"
-				if IsSecured(viaHop.Transport) {
-					serv = "sips"
-				}
-
-				if _, srvs, err := ar.dns.LookupSRV(context.TODO(), serv, Network(viaHop.Transport), viaHop.Addr.Host()); err == nil {
-					srvs = slices.SortedFunc(slices.Values(srvs), func(e1, e2 *net.SRV) int {
-						switch {
-						case e1.Priority < e2.Priority:
-							return -1
-						case e1.Priority > e2.Priority:
-							return 1
-						case e1.Weight > e2.Weight:
-							return -1
-						case e1.Weight < e2.Weight:
-							return 1
-						default:
-							return strings.Compare(e1.Target, e2.Target)
-						}
-					})
-					for _, srv := range srvs {
-						if ips, err := ar.dns.LookupIP(context.TODO(), "ip", srv.Target); err == nil {
-							for _, ip := range ips {
-								if addr, ok := netip.AddrFromSlice(ip); ok {
-									if !yield(netip.AddrPortFrom(addr, srv.Port)) {
-										return
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-type responseBuilder struct {
-	req  *sip.Request
-	hdrs sip.Headers
-	tag  string
-}
-
-func (b *responseBuilder) Headers() sip.Headers { return b.hdrs }
-
-func (b *responseBuilder) SetTag(tag string) { b.tag = tag }
-
-func (b *responseBuilder) buildResponse(sts sip.ResponseStatus, opts ...any) *sip.Response {
-	var (
-		reason  string
-		body    []byte
-		cntType *header.ContentType
-	)
-	for _, opt := range opts {
-		switch v := opt.(type) {
-		case string:
-			reason = v
-		case []byte:
-			body = v
-		case header.MIMEType:
-			ct := header.ContentType(v)
-			cntType = &ct
-		}
-	}
-
-	res := sip.NewResponse(b.req, sts, reason)
-	if to := res.Headers.To(); to != nil && b.tag != "" {
-		to.Params.Set("tag", b.tag)
-	}
-	for n, hs := range res.Headers {
-		switch n.ToCanonic() {
-		case "Via", "From", "To", "Call-ID", "CSeq", "Timestamp":
-			continue
-		default:
-			for _, h := range hs {
-				res.Headers.Append(h)
-			}
-		}
-	}
-	if body != nil {
-		res.Body = body
-		if !cntType.IsValid() {
-			mt := mimetype.Detect(body)
-			ct, _ := header.Parse("Content-Type: "+mt.String(), nil)
-			cntType, _ = ct.(*header.ContentType)
-		}
-		res.Headers.Set(cntType)
-	}
-
-	return res
 }

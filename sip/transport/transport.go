@@ -27,13 +27,14 @@ import (
 )
 
 var (
-	ErrTransportClosed = errors.New("transport closed")
+	ErrNoAddrResolved = errors.New("no address resolved")
 
 	noDeadline time.Time
 
-	dfltNetLsCfg net.ListenConfig
-	dfltNetDial  net.Dialer
+	defNetLsCfg net.ListenConfig
+	defNetDial  net.Dialer
 
+	zeroAddrPort   netip.AddrPort
 	unspecAddrPort = netip.AddrPortFrom(netip.IPv4Unspecified(), 0)
 )
 
@@ -48,12 +49,12 @@ type Options struct {
 	// Idle timer resets every time a new message is received or sent successfully.
 	// If the TTL is to -1, then no idle timer is used. Connections will stay open until transport shutdown.
 	// Usually the value should be at least 3 minutes or Time C - the timeout of INVITE transaction on proxy.
-	ConnIdleTTL time.Duration
+	ConnIdleTTL          time.Duration
+	ResponseAddrResolver sip.ResponseAddrResolver
 
 	NetListen       NetListenFunc
 	NetListenPacket NetListenPacketFunc
 	NetDial         NetDialFunc
-	NetResolver     *net.Resolver
 
 	// TLSConfigSrv is a server-side TLS configuration.
 	// Must be set for any secure transport such as TLS, WSS.
@@ -65,15 +66,15 @@ type Options struct {
 	WSConfig *WSConfig
 }
 
-type NetListenFunc = func(ctx context.Context, network string, addr netip.AddrPort) (net.Listener, error)
+type NetListenFunc = func(ctx context.Context, network string, laddr netip.AddrPort) (net.Listener, error)
 
-type NetListenPacketFunc = func(ctx context.Context, network string, addr netip.AddrPort) (net.PacketConn, error)
+type NetListenPacketFunc = func(ctx context.Context, network string, laddr netip.AddrPort) (net.PacketConn, error)
 
-type NetDialFunc = func(ctx context.Context, network string, addr netip.AddrPort) (net.Conn, error)
+type NetDialFunc = func(ctx context.Context, network string, laddr, raddr netip.AddrPort) (net.Conn, error)
 
 func (tp *Options) parser() sip.Parser {
 	if tp.Parser == nil {
-		return sip.DefaultParser()
+		return sip.DefaultParser
 	}
 	return tp.Parser
 }
@@ -110,44 +111,48 @@ func (tp *Options) connIdleTTL() time.Duration {
 	return tp.ConnIdleTTL
 }
 
-func (tp *Options) netListen(ctx context.Context, network string, addr netip.AddrPort) (net.Listener, error) {
+func (tp *Options) respAddrResolver() sip.ResponseAddrResolver {
+	if tp.ResponseAddrResolver == nil {
+		return DefaultAddrResolver
+	}
+	return tp.ResponseAddrResolver
+}
+
+func (tp *Options) netListen(ctx context.Context, network string, laddr netip.AddrPort) (net.Listener, error) {
 	if tp.NetListen != nil {
-		return tp.NetListen(ctx, network, addr)
+		return tp.NetListen(ctx, network, laddr)
 	}
-	return netListen(ctx, network, addr)
+	return netListen(ctx, network, laddr)
 }
 
-func netListen(ctx context.Context, network string, addr netip.AddrPort) (net.Listener, error) {
-	return dfltNetLsCfg.Listen(ctx, network, addr.String())
+func netListen(ctx context.Context, network string, laddr netip.AddrPort) (net.Listener, error) {
+	return defNetLsCfg.Listen(ctx, network, laddr.String())
 }
 
-func (tp *Options) netListenPacket(ctx context.Context, network string, addr netip.AddrPort) (net.PacketConn, error) {
+func (tp *Options) netListenPacket(ctx context.Context, network string, laddr netip.AddrPort) (net.PacketConn, error) {
 	if tp.NetListenPacket != nil {
-		return tp.NetListenPacket(ctx, network, addr)
+		return tp.NetListenPacket(ctx, network, laddr)
 	}
-	return netListenPacket(ctx, network, addr)
+	return netListenPacket(ctx, network, laddr)
 }
 
-func netListenPacket(ctx context.Context, network string, addr netip.AddrPort) (net.PacketConn, error) {
-	return dfltNetLsCfg.ListenPacket(ctx, network, addr.String())
+func netListenPacket(ctx context.Context, network string, laddr netip.AddrPort) (net.PacketConn, error) {
+	return defNetLsCfg.ListenPacket(ctx, network, laddr.String())
 }
 
-func (tp *Options) netDial(ctx context.Context, network string, addr netip.AddrPort) (net.Conn, error) {
+func (tp *Options) netDial(ctx context.Context, network string, laddr, raddr netip.AddrPort) (net.Conn, error) {
 	if tp.NetDial != nil {
-		return tp.NetDial(ctx, network, addr)
+		return tp.NetDial(ctx, network, laddr, raddr)
 	}
-	return netDial(ctx, network, addr)
+	return netDial(ctx, network, laddr, raddr)
 }
 
-func netDial(ctx context.Context, network string, addr netip.AddrPort) (net.Conn, error) {
-	return dfltNetDial.DialContext(ctx, network, addr.String())
-}
-
-func (tp *Options) netResolver() *net.Resolver {
-	if tp.NetResolver == nil {
-		return net.DefaultResolver
+func netDial(ctx context.Context, network string, laddr, raddr netip.AddrPort) (net.Conn, error) {
+	d := defNetDial
+	if laddr.IsValid() {
+		d = net.Dialer{LocalAddr: addrPortToNetAddr(network, laddr)}
 	}
-	return tp.NetResolver
+	return d.DialContext(ctx, network, raddr.String())
 }
 
 type Factory struct {
@@ -183,8 +188,6 @@ func invalidRemoteAddrError(addr netip.AddrPort) error {
 func unknownProtoError(proto sip.TransportProto) error {
 	return fmt.Errorf("unknown transport protocol %q", proto)
 }
-
-var errMissResWrt = errors.New("missing response writer")
 
 func DefaultPort(p sip.TransportProto) uint16 {
 	switch p.ToUpper() {

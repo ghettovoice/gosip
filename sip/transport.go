@@ -2,6 +2,8 @@ package sip
 
 import (
 	"context"
+	"errors"
+	"iter"
 	"math"
 	"net/netip"
 	"time"
@@ -12,6 +14,8 @@ import (
 var (
 	MTU        = 1500 // Maximum Transport Unit.
 	MaxMsgSize = math.MaxUint16
+
+	ErrTransportClosed = errors.New("transport closed")
 )
 
 type TransportProto = shared.TransportProto
@@ -21,15 +25,28 @@ type TransportProto = shared.TransportProto
 // RFC 3261 Section 18.
 type Transport interface {
 	Proto() TransportProto
+	// ListenAndServe starts listener on the address addr.
+	// The listener is closed on context done or Shutdown call.
+	// If context closes the listener, the error will be context.Err().
+	// If Shutdown closes the listener, the error will be ErrTransportClosed.
+	// Inbound messages, if they are valid, are passed to the OnInboundRequest and OnInboundResponse handlers.
 	ListenAndServe(ctx context.Context, addr netip.AddrPort, opts ...any) error
-	GetOrDial(ctx context.Context, addr netip.AddrPort, opts ...any) (RequestWriter, error)
+	// SendRequest sends the request req to the remote address raddr.
+	// The transport user must prepend the top header.ViaHop by itself.
+	// The transport will fill Transport and Addr fields automatically before sending.
+	SendRequest(ctx context.Context, req *Request, raddr netip.AddrPort, opts ...any) error
+	// SendResponse sends the response res from the local address laddr.
+	// The destination address is resolved according to RFC 3261 Section 18.2.2, RFC 3263 Section 5.
+	SendResponse(ctx context.Context, res *Response, laddr netip.AddrPort, opts ...any) error
+	// Shutdown gracefully stops all listeners and connections.
+	// Every running call to ListenAndServe will return ErrTransportClosed immediately.
 	Shutdown() error
 	Stats() TransportReport
 
-	OnInboundRequest(fn func(context.Context, *Request, ResponseWriter) error)
-	OnInboundResponse(fn func(context.Context, *Response) error)
-	OnOutboundRequest(fn func(context.Context, *Request) error)
-	OnOutboundResponse(fn func(context.Context, *Response) error)
+	OnInboundRequest(hdlr RequestHandler)
+	OnInboundResponse(hdlr ResponseHandler)
+	OnOutboundRequest(hdlr RequestHandler)
+	OnOutboundResponse(hdlr ResponseHandler)
 }
 
 // TransportReport provides statistics about the transport.
@@ -57,8 +74,8 @@ type TransportFactory interface {
 	NewTransport() (Transport, error)
 }
 
-// TransportMetadata describes a transport.
-// It is used to register a transports in the library registry.
+// TransportMetadata describes transport.
+// It is used to register transport in the library registry.
 type TransportMetadata struct {
 	Proto       TransportProto
 	Network     string
@@ -70,7 +87,7 @@ type TransportMetadata struct {
 
 var transportRegistry = make(map[TransportProto]TransportMetadata)
 
-// RegisterTransport registers a transport in the library registry.
+// RegisterTransport registers transport in the library registry.
 func RegisterTransport(md TransportMetadata) {
 	transportRegistry[md.Proto.ToUpper()] = md
 }
@@ -101,4 +118,16 @@ func TransportNetwork(proto TransportProto) string {
 		return md.Network
 	}
 	return ""
+}
+
+// RequestAddrResolver resolves request addresses and transports.
+// RFC 3261 Section 8.1.2., RFC 3263 Section 4.
+type RequestAddrResolver interface {
+	RequestAddrs(req *Request) iter.Seq2[TransportProto, netip.AddrPort]
+}
+
+// ResponseAddrResolver resolves response addresses.
+// RFC 3261 Section 18.2.2., RFC 3263 Section 5.
+type ResponseAddrResolver interface {
+	ResponseAddrs(res *Response) iter.Seq[netip.AddrPort]
 }

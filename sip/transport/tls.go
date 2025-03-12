@@ -35,16 +35,16 @@ func NewTLS(opts *Options) *TLS {
 	return tp
 }
 
-func (tp *TLS) listenTLS(ctx context.Context, addr netip.AddrPort, opts ...any) (net.Listener, error) {
-	ls, err := tp.listenTCP(ctx, addr, opts...)
+func (tp *TLS) listenTLS(ctx context.Context, laddr netip.AddrPort, opts ...any) (net.Listener, error) {
+	ls, err := tp.listenTCP(ctx, laddr, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return tls.NewListener(ls, tp.opts.TLSConfigSrv), nil
 }
 
-func (tp *TLS) dialTLS(ctx context.Context, addr netip.AddrPort, opts ...any) (net.Conn, error) {
-	c, err := tp.dialTCP(ctx, addr, opts...)
+func (tp *TLS) dialTLS(ctx context.Context, laddr, raddr netip.AddrPort, opts ...any) (net.Conn, error) {
+	c, err := tp.dialTCP(ctx, laddr, raddr, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (tp *TLS) LogValue() slog.Value {
 	)
 }
 
-var tlsMetadata sip.TransportMetadata = sip.TransportMetadata{
+var tlsMetadata = sip.TransportMetadata{
 	Proto:      tlsProto,
 	IsReliable: true,
 	IsSecured:  true,

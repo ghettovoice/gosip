@@ -61,8 +61,6 @@ var _ = Describe("Transport", Label("sip", "transport", "unreliable"), func() {
 			Eventually(Goroutines).Within(time.Second).ShouldNot(HaveLeaked(), "no leaked goroutines")
 		})
 
-		specUnrelConnMng(&itp, 20000, 20500)
-
 		specUnrelSendReq(&itp, 20600)
 
 		specUnrelSendRes(&itp, 20100)

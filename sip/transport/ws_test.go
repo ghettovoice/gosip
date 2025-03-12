@@ -91,8 +91,6 @@ var _ = Describe("Transport", Label("sip", "transport"), func() {
 				Upgrade(c, &url.URL{Scheme: "ws", Host: addr})
 		}
 
-		specRelConnMng(&itp, 23000, 23500, listen, dial)
-
 		specRelSendReq(&itp, 23600, listen)
 
 		specRelSendRes(&itp, 23100, dial)

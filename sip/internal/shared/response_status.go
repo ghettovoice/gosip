@@ -1,5 +1,7 @@
 package shared
 
+import "strings"
+
 const (
 	ResponseStatusTrying               ResponseStatus = 100
 	ResponseStatusRinging              ResponseStatus = 180
@@ -99,7 +101,29 @@ func (s ResponseStatus) Equal(val any) bool {
 	return s == other
 }
 
-var responseReasons = map[ResponseStatus]string{
+func (s ResponseStatus) Reason() ResponseReason { return responseReasons[s] }
+
+type ResponseReason string
+
+func (ResponseReason) IsValid() bool { return true }
+
+func (r ResponseReason) Equal(val any) bool {
+	var other ResponseReason
+	switch v := val.(type) {
+	case ResponseReason:
+		other = v
+	case *ResponseReason:
+		if v == nil {
+			return false
+		}
+		other = *v
+	default:
+		return false
+	}
+	return strings.EqualFold(string(r), string(other))
+}
+
+var responseReasons = map[ResponseStatus]ResponseReason{
 	ResponseStatusTrying:               "Trying",
 	ResponseStatusRinging:              "Ringing",
 	ResponseStatusCallIsBeingForwarded: "Call Is Being Forwarded",
@@ -176,9 +200,3 @@ var responseReasons = map[ResponseStatus]string{
 	ResponseStatusNotAcceptable606:     "Not Acceptable",
 	ResponseStatusDialogTerminated:     "Dialog Terminated",
 }
-
-func ResponseStatusReason(status ResponseStatus) string {
-	return responseReasons[status]
-}
-
-func (s ResponseStatus) Reason() string { return ResponseStatusReason(s) }

@@ -23,7 +23,7 @@ type reliableBase struct {
 	streamed,
 	secured bool
 	listen func(context.Context, netip.AddrPort, ...any) (net.Listener, error)
-	dial   func(context.Context, netip.AddrPort, ...any) (net.Conn, error)
+	dial   func(context.Context, netip.AddrPort, netip.AddrPort, ...any) (net.Conn, error)
 
 	listenerTracker
 	connTracker
@@ -53,12 +53,13 @@ func (tp *reliableBase) Shutdown() error {
 	return errors.Join(errs...)
 }
 
-func (tp *reliableBase) ListenAndServe(ctx context.Context, addr netip.AddrPort, opts ...any) error {
+func (tp *reliableBase) ListenAndServe(ctx context.Context, laddr netip.AddrPort, opts ...any) (err error) {
 	if tp.closing.Load() {
-		return ErrTransportClosed
+		return sip.ErrTransportClosed
 	}
 
-	ls, err := tp.listen(ctx, addr, opts...)
+	var ls net.Listener
+	ls, err = tp.listen(ctx, laddr, opts...)
 	if err != nil {
 		return err
 	}
@@ -72,6 +73,13 @@ func (tp *reliableBase) ListenAndServe(ctx context.Context, addr netip.AddrPort,
 		<-ctx.Done()
 		ls.Close()
 	}()
+	defer func() {
+		if !errors.Is(err, sip.ErrTransportClosed) {
+			if e := ctx.Err(); e != nil {
+				err = ctx.Err()
+			}
+		}
+	}()
 
 	return tp.Serve(ls)
 }
@@ -81,7 +89,7 @@ func (tp *reliableBase) Serve(ls net.Listener) error {
 	defer ls.Close()
 
 	if tp.closing.Load() {
-		return ErrTransportClosed
+		return sip.ErrTransportClosed
 	}
 
 	tp.trackListener(ls)
@@ -93,7 +101,7 @@ func (tp *reliableBase) Serve(ls net.Listener) error {
 		c, err := ls.Accept()
 		if err != nil {
 			if tp.closing.Load() {
-				return ErrTransportClosed
+				return sip.ErrTransportClosed
 			}
 			if utils.IsTemporaryErr(err) {
 				if tempDelay == 0 {
@@ -117,7 +125,7 @@ func (tp *reliableBase) Serve(ls net.Listener) error {
 
 		rc := tp.newConn(c)
 		rc.fromLs = true
-		tp.trackConn(rc, rc.rmtAddrPort())
+		tp.trackConn(rc, rc.locAddrPort(), rc.rmtAddrPort())
 		go rc.serve() //nolint:errcheck
 	}
 }
@@ -129,39 +137,88 @@ func (tp *reliableBase) newConn(c net.Conn) *reliableConn {
 		tp:   tp,
 	}
 	rc.opts.Log = rc.opts.log().With("connection", rc)
-	rc.connIdleTracker.conn = rc
+	rc.idleTracker.expired = func() { rc.Close() }
 	return rc
 }
 
-func (tp *reliableBase) GetOrDial(ctx context.Context, addr netip.AddrPort, opts ...any) (sip.RequestWriter, error) {
-	c, err := tp.getOrDial(ctx, addr, opts...)
+func (tp *reliableBase) SendRequest(ctx context.Context, req *sip.Request, raddr netip.AddrPort, opts ...any) error {
+	c, err := tp.getOrDial(ctx, zeroAddrPort, raddr, opts...)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return newReliableRequestWriter(tp, c), nil
+	return c.WriteMessage(ctx, req, opts...)
 }
 
-func (tp *reliableBase) getOrDial(ctx context.Context, addr netip.AddrPort, opts ...any) (*reliableConn, error) {
+func (tp *reliableBase) SendResponse(ctx context.Context, res *sip.Response, laddr netip.AddrPort, opts ...any) error {
 	if tp.closing.Load() {
-		return nil, ErrTransportClosed
+		return sip.ErrTransportClosed
 	}
 
-	if addr.Port() == 0 {
-		addr = netip.AddrPortFrom(addr.Addr(), DefaultPort(tp.proto))
+	// First, try to send the response via opened connection matching local address.
+	for v := range tp.conns.AllKey(laddr) {
+		c := v.(*reliableConn) //nolint:forcetypeassert
+		if err := c.WriteMessage(ctx, res, opts...); err == nil {
+			return nil
+		} else if !isNetError(err) {
+			// If it fails due to network error,
+			// then resolve a list of alternative addresses each one until success or all fail.
+			return err
+		}
+		break
 	}
 
-	// first, try to get by remote address
-	for c := range tp.conns.AllKey(addr) {
+	// fallback to dial a new connection
+	var errs []error
+	for raddr := range tp.opts.respAddrResolver().ResponseAddrs(res) {
+		c, err := tp.getOrDial(ctx, laddr, raddr, opts...)
+		if err != nil {
+			errs = append(errs, err)
+			if errors.Is(err, sip.ErrTransportClosed) {
+				break
+			}
+			continue
+		}
+
+		if err = c.WriteMessage(ctx, res, opts...); err == nil {
+			return nil
+		} else if !isNetError(err) {
+			errs = append(errs, err)
+			break
+		}
+	}
+	if len(errs) == 0 {
+		return ErrNoAddrResolved
+	}
+	return errors.Join(errs...)
+}
+
+func (tp *reliableBase) getOrDial(ctx context.Context, laddr, raddr netip.AddrPort, opts ...any) (*reliableConn, error) {
+	if tp.closing.Load() {
+		return nil, sip.ErrTransportClosed
+	}
+
+	if raddr.IsValid() && raddr.Port() == 0 {
+		raddr = netip.AddrPortFrom(raddr.Addr(), DefaultPort(tp.proto))
+	}
+
+	// first, try to get by local address
+	if laddr.IsValid() {
+		for c := range tp.conns.AllKey(laddr) {
+			return c.(*reliableConn), nil //nolint:forcetypeassert
+		}
+	}
+	// or try to get by remote address
+	for c := range tp.conns.AllKey(raddr) {
 		return c.(*reliableConn), nil //nolint:forcetypeassert
 	}
 
 	// or dial new
-	c, err := tp.dial(ctx, addr, opts...)
+	c, err := tp.dial(ctx, laddr, raddr, opts...)
 	if err != nil {
 		return nil, err
 	}
 	rc := tp.newConn(c)
-	tp.trackConn(rc, rc.rmtAddrPort())
+	tp.trackConn(rc, rc.locAddrPort(), rc.rmtAddrPort())
 	go rc.serve() //nolint:errcheck
 	return rc, nil
 }
@@ -223,8 +280,7 @@ type reliableConn struct {
 	// fromLs is true if the connection local addr is the same as the listener
 	fromLs bool
 
-	connReader
-	connIdleTracker
+	idleTracker
 }
 
 func (c *reliableConn) fromListener() bool { return c.fromLs }
@@ -253,15 +309,12 @@ func (c *reliableConn) serve() error {
 
 	c.updateTTL()
 	if c.tp.streamed {
-		return c.serveStream(c, c.opts.parser(), c.onInMsg, c.opts.log())
+		return serveStream(c, c.opts.parser(), c.onInMsg, c.opts.log())
 	}
-	return c.servePacket(c, c.opts.parser(), c.onInMsg, c.opts.log())
+	return servePacket(c, c.opts.parser(), c.onInMsg, c.opts.log())
 }
 
 func (c *reliableConn) onInMsg(ctx context.Context, msg sip.Message) error {
-	if req, ok := msg.(*sip.Request); ok {
-		ctx = context.WithValue(ctx, responderKey{}, newReliableResponseWriter(c.tp, c, req))
-	}
 	if c.tp.onInMsg(ctx, c.tp, c, msg) {
 		c.updateTTL()
 	}
@@ -290,7 +343,7 @@ func (c *reliableConn) WriteMessage(ctx context.Context, msg sip.Message, _ ...a
 		return err
 	}
 
-	c.opts.log().Info("message sent", "message", msg, "dump", bb)
+	c.opts.log().Info("message sent", "message", msg)
 
 	c.updateTTL()
 	return nil
@@ -303,7 +356,6 @@ func (c *reliableConn) writeMsg(ctx context.Context, bb *bytes.Buffer) error {
 		}
 		defer c.SetWriteDeadline(noDeadline)
 	}
-
 	_, err := c.Write(bb.Bytes())
 	return err
 }
@@ -314,7 +366,7 @@ func (c *reliableConn) onOutMsg(ctx context.Context, msg sip.Message) (*bytes.Bu
 }
 
 func (c *reliableConn) updateTTL() {
-	c.connIdleTracker.updateIdleTTL(c.opts.connIdleTTL(), c.opts.log())
+	c.idleTracker.updateIdleTTL(c.opts.connIdleTTL(), c.opts.log())
 }
 
 func (c *reliableConn) LogValue() slog.Value {
@@ -324,84 +376,4 @@ func (c *reliableConn) LogValue() slog.Value {
 		slog.Any("local_addr", c.LocalAddr()),
 		slog.Any("remote_addr", c.RemoteAddr()),
 	)
-}
-
-type reliableRequestWriter struct {
-	tp   *reliableBase
-	conn atomic.Pointer[reliableConn]
-}
-
-func newReliableRequestWriter(tp *reliableBase, c *reliableConn) *reliableRequestWriter {
-	w := &reliableRequestWriter{
-		tp: tp,
-	}
-	w.conn.Store(c)
-	return w
-}
-
-func (w *reliableRequestWriter) RemoteAddr() netip.AddrPort { return w.conn.Load().rmtAddrPort() }
-
-func (w *reliableRequestWriter) WriteRequest(ctx context.Context, req *sip.Request, opts ...any) error {
-	c := w.conn.Load()
-	if c == nil {
-		panic(errors.New("connection is nil"))
-	}
-	return c.WriteMessage(ctx, req, opts...)
-}
-
-type reliableResponseWriter struct {
-	tp           *reliableBase
-	conn         atomic.Pointer[reliableConn]
-	addrResolver remoteAddrResolver
-	responseBuilder
-}
-
-func newReliableResponseWriter(tp *reliableBase, c *reliableConn, req *sip.Request) *reliableResponseWriter {
-	w := new(reliableResponseWriter)
-	w.conn.Store(c)
-	w.addrResolver.dns = tp.opts.netResolver()
-	w.req = req
-	w.hdrs = make(sip.Headers)
-	return w
-}
-
-// Write sends the response via opened connection.
-// If sending fails due to network error, it resolves new destinations
-// according to RFC 3261 Section 18.2.2, RFC 3263 Section 5.
-func (w *reliableResponseWriter) Write(ctx context.Context, sts sip.ResponseStatus, opts ...any) error {
-	res := w.buildResponse(sts, opts...)
-	// First, try to send the response via opened connection.
-	err := w.conn.Load().WriteMessage(ctx, res, opts)
-	if err == nil {
-		return nil
-	}
-
-	// If it fails due to network error,
-	// then resolve a list of alternative addresses each one until success or all fail.
-	if !isNetError(err) {
-		return err
-	}
-
-	errs := []error{err}
-	for addr := range w.addrResolver.ResponseRemoteAddrs(res) {
-		c, err := w.tp.getOrDial(ctx, addr)
-		if err != nil {
-			errs = append(errs, err)
-			if errors.Is(err, ErrTransportClosed) {
-				break
-			}
-			continue
-		}
-		w.conn.Swap(c).Close()
-
-		if err = c.WriteMessage(ctx, res, opts...); err == nil {
-			return nil
-		}
-
-		errs = append(errs, err)
-		if !isNetError(err) {
-			break
-		}
-	}
-	return errors.Join(errs...)
 }

@@ -34,12 +34,12 @@ func NewTCP(opts *Options) *TCP {
 	return tp
 }
 
-func (tp *TCP) listenTCP(ctx context.Context, addr netip.AddrPort, _ ...any) (net.Listener, error) {
-	return tp.opts.netListen(ctx, tcpNetwork, addr)
+func (tp *TCP) listenTCP(ctx context.Context, laddr netip.AddrPort, _ ...any) (net.Listener, error) {
+	return tp.opts.netListen(ctx, tcpNetwork, laddr)
 }
 
-func (tp *TCP) dialTCP(ctx context.Context, addr netip.AddrPort, _ ...any) (net.Conn, error) {
-	return tp.opts.netDial(ctx, tcpNetwork, addr)
+func (tp *TCP) dialTCP(ctx context.Context, laddr, raddr netip.AddrPort, _ ...any) (net.Conn, error) {
+	return tp.opts.netDial(ctx, tcpNetwork, laddr, raddr)
 }
 
 func (tp *TCP) LogValue() slog.Value {

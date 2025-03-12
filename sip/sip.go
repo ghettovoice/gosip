@@ -3,10 +3,7 @@ package sip
 
 import (
 	"errors"
-	"regexp"
 	"time"
-
-	"github.com/gabriel-vasile/mimetype"
 
 	"github.com/ghettovoice/gosip/sip/internal/shared"
 )
@@ -81,9 +78,3 @@ func TimeK() time.Duration { return T4 }
 func TimeL() time.Duration { return 64 * T4 }
 
 func TimeM() time.Duration { return 64 * T4 }
-
-func init() {
-	sdpRegex := regexp.MustCompile(`v=0\r?\no=.*\r?\ns=.*\r?\n`)
-	mimetype.Extend(func(raw []byte, limit uint32) bool { return sdpRegex.Match(raw) }, "application/sdp", ".sdp")
-	// TODO add other common mime-type detectors (DTMF, etc)
-}

@@ -22,7 +22,7 @@ var _ = Describe("SIP", Label("sip", "parser"), func() {
 		var p *sip.StdParser
 
 		BeforeEach(func() {
-			p = sip.DefaultParser()
+			p = sip.DefaultParser
 			p.HeaderParsers = map[string]sip.HeaderParser{
 				"p-custom-header": parseCustomHeader,
 			}
@@ -740,7 +740,7 @@ var _ = Describe("SIP", Label("sip", "parser"), func() {
 								"2": MatchAllElementsWithIndex(IndexIdentity, Elements{
 									"0": Equal(&sip.Response{
 										Status:  sip.ResponseStatusOK,
-										Reason:  sip.ResponseStatusReason(sip.ResponseStatusOK),
+										Reason:  sip.ResponseStatusOK.Reason(),
 										Proto:   sip.ProtoVer20(),
 										Headers: make(sip.Headers).Append(header.ContentLength(0)),
 									}),
@@ -837,7 +837,7 @@ var _ = Describe("SIP", Label("sip", "parser"), func() {
 								"1": MatchAllElementsWithIndex(IndexIdentity, Elements{
 									"0": Equal(&sip.Response{
 										Status:  sip.ResponseStatusOK,
-										Reason:  sip.ResponseStatusReason(sip.ResponseStatusOK),
+										Reason:  sip.ResponseStatusOK.Reason(),
 										Proto:   sip.ProtoVer20(),
 										Headers: make(sip.Headers).Append(header.ContentLength(0)),
 									}),
@@ -1085,7 +1085,7 @@ var _ = Describe("SIP", Label("sip", "parser"), func() {
 						"3": MatchAllElementsWithIndex(IndexIdentity, Elements{
 							"0": Equal(&sip.Response{
 								Status: sip.ResponseStatusOK,
-								Reason: sip.ResponseStatusReason(sip.ResponseStatusOK),
+								Reason: sip.ResponseStatusOK.Reason(),
 								Proto:  sip.ProtoVer20(),
 								Headers: make(sip.Headers).
 									Append(header.ContentLength(0)),

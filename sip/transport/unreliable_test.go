@@ -10,83 +10,14 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	. "github.com/onsi/gomega/gstruct"
 
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/transport"
 )
 
-func specUnrelConnMng(tpPtr *sip.Transport, locPort, rmtPort uint16) {
-	Describe("connections management", func() {
-		When("no listeners is running", func() {
-			specBaseConnMngNoLs(tpPtr, &rmtPort)
-
-			It("should dial a new connection to default port if no port provided", func(ctx SpecContext) {
-				tp := *tpPtr
-
-				w, err := tp.GetOrDial(ctx, netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 0))
-				Expect(err).ToNot(HaveOccurred())
-				Expect(w).ToNot(BeNil())
-				Expect(tp.Stats()).To(MatchFields(IgnoreExtras, Fields{
-					"Listeners":   BeEquivalentTo(0),
-					"Connections": BeEquivalentTo(1),
-				}), "connection added")
-			})
-		})
-
-		When("a listener is running", func() {
-			BeforeEach(OncePerOrdered, func(ctx SpecContext) {
-				tp := *tpPtr
-				locPort += uint16(GinkgoParallelProcess())
-
-				go func() {
-					defer GinkgoRecover()
-
-					Expect(tp.ListenAndServe(context.Background(), netip.AddrPortFrom(netip.IPv4Unspecified(), locPort))).
-						To(MatchError(transport.ErrTransportClosed))
-				}()
-				Eventually(ctx, func(g Gomega) {
-					g.Expect(tp.Stats()).To(MatchFields(IgnoreExtras, Fields{
-						"Listeners":   BeEquivalentTo(1),
-						"Connections": BeEquivalentTo(0),
-					}))
-				}).Within(time.Second).Should(Succeed(), "local listener started")
-			})
-
-			specBaseConnMngLs(tpPtr, &locPort)
-
-			It("should re-use listener connection", func(ctx SpecContext) {
-				tp := *tpPtr
-
-				w, err := tp.GetOrDial(ctx, netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), rmtPort))
-				Expect(err).ToNot(HaveOccurred())
-				Expect(w).ToNot(BeNil())
-				Expect(tp.Stats()).To(MatchFields(IgnoreExtras, Fields{
-					"Listeners":   BeEquivalentTo(1),
-					"Connections": BeEquivalentTo(0),
-				}), "listener connection re-used")
-			})
-
-			It("should ignore idle TTL for listen connections", func() {
-				tp := *tpPtr
-
-				time.Sleep(1100 * time.Millisecond)
-
-				Expect(tp.Stats()).To(MatchFields(IgnoreExtras, Fields{
-					"Listeners":   BeEquivalentTo(1),
-					"Connections": BeEquivalentTo(0),
-				}), "idle listen connection not closed")
-			})
-		})
-	})
-}
-
 func specUnrelSendReq(tpPtr *sip.Transport, rmtPort uint16) {
 	Describe("sending requests", func() {
-		var (
-			wrt        sip.RequestWriter
-			rmtPktConn net.PacketConn
-		)
+		var rmtPktConn net.PacketConn
 
 		BeforeEach(OncePerOrdered, func(ctx SpecContext) {
 			tp := *tpPtr
@@ -99,14 +30,7 @@ func specUnrelSendReq(tpPtr *sip.Transport, rmtPort uint16) {
 			rmtPktConn, err = lsCfg.ListenPacket(ctx, transport.Network(tp.Proto()), fmt.Sprintf("0.0.0.0:%d", rmtPort))
 			Expect(err).ToNot(HaveOccurred(), "remote listener initialized")
 
-			time.Sleep(10 * time.Millisecond)
-
-			wrt, err = tp.GetOrDial(ctx, netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), rmtPort))
-			Expect(err).ToNot(HaveOccurred(), "connection established")
-			Expect(tp.Stats()).To(MatchFields(IgnoreExtras, Fields{
-				"Listeners":   BeEquivalentTo(0),
-				"Connections": BeEquivalentTo(1),
-			}), "connection established")
+			time.Sleep(100 * time.Millisecond)
 		})
 
 		AfterEach(OncePerOrdered, func() {
@@ -114,11 +38,13 @@ func specUnrelSendReq(tpPtr *sip.Transport, rmtPort uint16) {
 			time.Sleep(100 * time.Millisecond)
 		})
 
-		specBaseSendReq(tpPtr, &wrt, &rmtPort, func() ([]byte, error) {
-			buf := make([]byte, sip.MaxMsgSize)
-			n, _, err := rmtPktConn.ReadFrom(buf)
-			return buf[:n], err
-		})
+		specBaseSendReq(tpPtr, &rmtPort,
+			func() ([]byte, error) {
+				buf := make([]byte, sip.MaxMsgSize)
+				n, _, err := rmtPktConn.ReadFrom(buf)
+				return buf[:n], err
+			},
+		)
 	})
 }
 
@@ -132,11 +58,8 @@ func specUnrelSendRes(tpPtr *sip.Transport, locPort uint16) {
 			rmtConn net.Conn
 			rmtPort uint16
 
-			reqs chan struct {
-				req  *sip.Request
-				rspd sip.ResponseWriter
-			}
-			rspd sip.ResponseWriter
+			reqs chan *sip.Request
+			req  *sip.Request
 		)
 
 		BeforeEach(OncePerOrdered, func(ctx SpecContext) {
@@ -151,13 +74,13 @@ func specUnrelSendRes(tpPtr *sip.Transport, locPort uint16) {
 				defer close(lsDone)
 
 				Expect(tp.ListenAndServe(lsCtx, netip.AddrPortFrom(netip.IPv4Unspecified(), locPort))).
-					To(MatchError(net.ErrClosed))
+					To(MatchError(context.Canceled))
 			}()
 			Eventually(ctx, func(g Gomega) {
 				g.Expect(tp.Stats().Listeners).To(BeEquivalentTo(1))
 			}).Within(time.Second).Should(Succeed(), "listener started")
 
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 
 			// setup connection on remote side
 			var (
@@ -172,20 +95,14 @@ func specUnrelSendRes(tpPtr *sip.Transport, locPort uint16) {
 			Expect(err).ToNot(HaveOccurred())
 			rmtPort = uint16(iport)
 
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 
 			// remote sends the request
-			reqs = make(chan struct {
-				req  *sip.Request
-				rspd sip.ResponseWriter
-			}, 1)
-			tp.OnInboundRequest(func(ctx context.Context, r *sip.Request, rd sip.ResponseWriter) error {
-				reqs <- struct {
-					req  *sip.Request
-					rspd sip.ResponseWriter
-				}{r, rd}
+			reqs = make(chan *sip.Request, 1)
+			tp.OnInboundRequest(sip.RequestHandlerFunc(func(ctx context.Context, req *sip.Request) error {
+				reqs <- req
 				return nil
-			})
+			}))
 			_, err = rmtConn.Write([]byte(fmt.Sprintf(
 				"INVITE sip:alice@127.0.0.1:%d SIP/2.0\r\n"+
 					"Via: SIP/2.0/%s example.com:%d;branch=%s.qwerty;rport\r\n"+
@@ -208,12 +125,7 @@ func specUnrelSendRes(tpPtr *sip.Transport, locPort uint16) {
 			Expect(err).ToNot(HaveOccurred(), "remote sent the request")
 
 			// we receive the request
-			var ir struct {
-				req  *sip.Request
-				rspd sip.ResponseWriter
-			}
-			Eventually(ctx, reqs).Within(time.Second).Should(Receive(&ir), "message received")
-			rspd = ir.rspd
+			Eventually(ctx, reqs).Within(time.Second).Should(Receive(&req), "message received")
 		})
 
 		AfterEach(OncePerOrdered, func(ctx SpecContext) {
@@ -223,7 +135,7 @@ func specUnrelSendRes(tpPtr *sip.Transport, locPort uint16) {
 			time.Sleep(100 * time.Millisecond)
 		})
 
-		specBaseSendRes(tpPtr, &rspd,
+		specBaseSendRes(tpPtr, &req,
 			func() ([]byte, error) {
 				buf := make([]byte, sip.MaxMsgSize)
 				n, err := rmtConn.Read(buf)
@@ -236,10 +148,6 @@ func specUnrelSendRes(tpPtr *sip.Transport, locPort uint16) {
 func specUnrelRecvReq(tpPtr *sip.Transport, locPort uint16) {
 	Describe("receiving requests", func() {
 		var (
-			lsCtx    context.Context
-			cncLsCtx context.CancelFunc
-			lsDone   chan struct{}
-
 			rmtConn net.Conn
 			rmtPort uint16
 		)
@@ -249,14 +157,11 @@ func specUnrelRecvReq(tpPtr *sip.Transport, locPort uint16) {
 			locPort += uint16(GinkgoParallelProcess())
 
 			// setup our listener
-			lsCtx, cncLsCtx = context.WithCancel(context.Background()) //nolint:fatcontext
-			lsDone = make(chan struct{})
 			go func() {
 				defer GinkgoRecover()
-				defer close(lsDone)
-
-				Expect(tp.ListenAndServe(lsCtx, netip.AddrPortFrom(netip.IPv4Unspecified(), locPort))).
-					To(MatchError(net.ErrClosed))
+				// this goroutine should be closed by tp.Shutdown in caller's topmost AfterEach
+				Expect(tp.ListenAndServe(context.Background(), netip.AddrPortFrom(netip.IPv4Unspecified(), locPort))).
+					To(MatchError(sip.ErrTransportClosed))
 			}()
 			Eventually(ctx, func(g Gomega) {
 				g.Expect(tp.Stats().Listeners).To(BeEquivalentTo(1))
@@ -277,13 +182,11 @@ func specUnrelRecvReq(tpPtr *sip.Transport, locPort uint16) {
 			Expect(err).ToNot(HaveOccurred())
 			rmtPort = uint16(iport)
 
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		})
 
 		AfterEach(OncePerOrdered, func(ctx SpecContext) {
 			rmtConn.Close()
-			cncLsCtx()
-			Eventually(ctx, lsDone).Within(time.Second).Should(BeClosed(), "listener stopped")
 			time.Sleep(100 * time.Millisecond)
 		})
 
@@ -322,7 +225,7 @@ func specUnrelRecvRes(tpPtr *sip.Transport, locPort uint16) {
 				defer GinkgoRecover()
 
 				Expect(tp.ListenAndServe(lsCtx, netip.AddrPortFrom(netip.IPv4Unspecified(), locPort))).
-					To(MatchError(net.ErrClosed))
+					To(MatchError(context.Canceled))
 
 				close(lsDone)
 			}()

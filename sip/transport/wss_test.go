@@ -124,8 +124,6 @@ var _ = Describe("Transport", Label("sip", "transport"), func() {
 				)
 		}
 
-		specRelConnMng(&itp, 24000, 24500, listen, dial)
-
 		specRelSendReq(&itp, 24600, listen)
 
 		specRelSendRes(&itp, 24100, dial)

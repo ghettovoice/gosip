@@ -6,12 +6,25 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"sync"
 	"syscall"
 
 	"github.com/ghettovoice/gosip/internal/log"
+	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/sip"
 )
+
+func addrPortToNetAddr(network string, addr netip.AddrPort) net.Addr {
+	switch stringutils.LCase(network) {
+	case "udp", "udp4", "udp6":
+		return &net.UDPAddr{IP: addr.Addr().AsSlice(), Port: int(addr.Port())}
+	case "tcp", "tcp4", "tcp6":
+		return &net.TCPAddr{IP: addr.Addr().AsSlice(), Port: int(addr.Port())}
+	default:
+		panic(fmt.Errorf("unsupported network %q", network))
+	}
+}
 
 var bytesBufPool = &sync.Pool{
 	New: func() any { return bytes.NewBuffer(make([]byte, 0, 1024)) },

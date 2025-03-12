@@ -1,5 +1,5 @@
 GINKGO_FLAGS=
-GINKGO_BASE_FLAGS=-r -p --randomize-all --trace --race --vet="" --covermode=atomic --coverprofile=cover.profile
+GINKGO_BASE_FLAGS=-r -p --randomize-all --trace --race --vet="" --covermode=atomic --coverprofile=cover.profile --coverpkg=./...
 GINKGO_TEST_FLAGS=${GINKGO_BASE_FLAGS} --randomize-suites
 GINKGO_WATCH_FLAGS=${GINKGO_BASE_FLAGS}
 

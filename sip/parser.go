@@ -192,14 +192,13 @@ func parseMessage(rdr *bufio.Reader, hdrParsers map[string]HeaderParser, packetM
 			}
 
 			var size int
-			if hdrs := hdrs.Get("Content-Length"); len(hdrs) > 0 {
-				if cl, ok := hdrs[0].(header.ContentLength); ok {
-					size = int(cl)
-				}
-			} else if packetMode {
+			switch {
+			case hdrs.Has("Content-Length"):
+				size = int(FirstHeader[header.ContentLength](hdrs, "Content-Length"))
+			case packetMode:
 				size = rdr.Buffered()
-			} else {
-				return msg, &ParseError{&missingHeaderError{"Content-Length"}, state, nil}
+			default:
+				return msg, &ParseError{&MissingHeaderError{"Content-Length"}, state, nil}
 			}
 			if size == 0 {
 				return msg, nil
@@ -225,15 +224,12 @@ func parseMessage(rdr *bufio.Reader, hdrParsers map[string]HeaderParser, packetM
 	}
 }
 
-var defaultParser = &StdParser{}
-
-// DefaultParser returns the default parser that can be used for parsing SIP messages.
-func DefaultParser() *StdParser { return defaultParser }
+var DefaultParser = &StdParser{}
 
 // ParsePacket parses a single SIP message from the given buffer b using the default parser.
-func ParsePacket(b []byte) (Message, error) { return defaultParser.ParsePacket(b) }
+func ParsePacket(b []byte) (Message, error) { return DefaultParser.ParsePacket(b) }
 
 // ParseStream creates a new [StdStreamParser] for parsing SIP messages from the given [io.Reader].
 func ParseStream(r io.Reader) *StdStreamParser {
-	return defaultParser.ParseStream(r).(*StdStreamParser) //nolint:forcetypeassert
+	return DefaultParser.ParseStream(r).(*StdStreamParser) //nolint:forcetypeassert
 }

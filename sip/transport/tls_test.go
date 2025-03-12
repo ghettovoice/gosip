@@ -45,8 +45,8 @@ var _ = Describe("Transport", Label("sip", "transport"), func() {
 			}
 
 			tp = transport.NewTLS(&transport.Options{
-				Log:         logger,
-				ConnIdleTTL: time.Second,
+				Log: logger,
+				// ConnIdleTTL: time.Second,
 				//nolint:gosec
 				TLSConfigSrv: &tls.Config{
 					Certificates: []tls.Certificate{loadCert()},
@@ -105,8 +105,6 @@ var _ = Describe("Transport", Label("sip", "transport"), func() {
 				InsecureSkipVerify: true,
 			}), nil
 		}
-
-		specRelConnMng(&itp, 22000, 22500, listen, dial)
 
 		specRelSendReq(&itp, 22600, listen)
 

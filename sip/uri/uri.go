@@ -3,6 +3,7 @@ package uri
 
 import (
 	"io"
+	"net/url"
 
 	"github.com/ghettovoice/abnf"
 
@@ -72,3 +73,43 @@ func HostPort(host string, port uint16) Addr { return shared.HostPort(host, port
 type Values = shared.Values
 
 var nilTag = "<nil>"
+
+func GetScheme(u URI) string {
+	switch u := u.(type) {
+	case *SIP:
+		return u.scheme()
+	case *Tel:
+		return "tel"
+	case *Any:
+		return u.Scheme
+	default:
+		return ""
+	}
+}
+
+func GetAddr(u URI) string {
+	switch u := u.(type) {
+	case *SIP:
+		return u.Addr.String()
+	case *Tel:
+		return u.Number
+	case *Any:
+		return u.Host + u.Path
+	default:
+		return ""
+	}
+}
+
+func GetParams(u URI) Values {
+	switch u := u.(type) {
+	case *SIP:
+		return u.Params
+	case *Tel:
+		return u.Params
+	case *Any:
+		p, _ := url.ParseQuery(u.RawQuery)
+		return Values(p)
+	default:
+		return nil
+	}
+}

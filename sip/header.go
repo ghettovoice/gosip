@@ -27,12 +27,12 @@ func ParseHeader[T constraints.Byteseq](s T, hdrPrs map[string]HeaderParser) (He
 // See [header.CanonicName].
 func CanonicHeaderName[T ~string](name T) HeaderName { return header.CanonicName(name) }
 
-type missingHeaderError struct {
-	Header string
+type MissingHeaderError struct {
+	Header HeaderName
 }
 
-func (err *missingHeaderError) Error() string {
-	return fmt.Sprintf("missing %q header", CanonicHeaderName(err.Header))
+func (err *MissingHeaderError) Error() string {
+	return fmt.Sprintf("missing %q header", err.Header.ToCanonic())
 }
 
-func (*missingHeaderError) Grammar() bool { return true }
+func (*MissingHeaderError) Grammar() bool { return true }

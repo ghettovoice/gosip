@@ -8,7 +8,6 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/ghettovoice/gosip/internal/iterutils"
 	"github.com/ghettovoice/gosip/internal/randutils"
 	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/internal/utils"
@@ -97,11 +96,11 @@ const (
 	ResponseStatusDialogTerminated     = shared.ResponseStatusDialogTerminated
 )
 
-func ResponseStatusReason(status ResponseStatus) string { return shared.ResponseStatusReason(status) }
+type ResponseReason = shared.ResponseReason
 
 type Response struct {
 	Status  ResponseStatus
-	Reason  string
+	Reason  ResponseReason
 	Proto   ProtoInfo
 	Headers Headers
 	Body    []byte
@@ -149,18 +148,18 @@ func (res *Response) LogValue() slog.Value {
 	if res == nil {
 		return slog.Value{}
 	}
-	_, viaHop := iterutils.IterFirst2(res.Headers.ViaHops())
+
 	return slog.GroupValue(
 		slog.String("type", fmt.Sprintf("%T", res)),
 		slog.String("ptr", fmt.Sprintf("%p", res)),
 		slog.Any("status", res.Status),
-		slog.String("reason", res.Reason),
+		slog.Any("reason", res.Reason),
 		slog.Group("headers",
-			slog.Any("Via", utils.ValOrNil(viaHop)),
-			slog.Any("From", res.Headers.From()),
-			slog.Any("To", res.Headers.To()),
-			slog.Any("Call-ID", res.Headers.CallID()),
-			slog.Any("CSeq", res.Headers.CSeq()),
+			slog.Any("Via", utils.ValOrNil(FirstHeaderElem[header.Via](res.Headers, "Via"))),
+			slog.Any("From", FirstHeader[*header.From](res.Headers, "From")),
+			slog.Any("To", FirstHeader[*header.To](res.Headers, "To")),
+			slog.Any("Call-ID", FirstHeader[header.CallID](res.Headers, "Call-ID")),
+			slog.Any("CSeq", FirstHeader[*header.CSeq](res.Headers, "CSeq")),
 		),
 		slog.Group("metadata",
 			slog.Any(LocalAddrField, res.Metadata[LocalAddrField]),
@@ -185,6 +184,7 @@ func (res *Response) Clone() Message {
 func (res *Response) IsValid() bool {
 	return res != nil &&
 		res.Status.IsValid() &&
+		res.Reason.IsValid() &&
 		res.Proto.IsValid() &&
 		validateHeaders(res.Headers) &&
 		res.Headers.Has("Via") &&
@@ -211,54 +211,94 @@ func (res *Response) Equal(val any) bool {
 		return false
 	}
 
-	return res.Status.Equal(other.Status) &&
-		stringutils.LCase(res.Reason) == stringutils.LCase(other.Reason) &&
+	return res.Status.Equal(other.Status) && res.Reason.Equal(other.Reason) &&
 		res.Proto.Equal(other.Proto) &&
 		compareHeaders(res.Headers, other.Headers) &&
 		slices.Equal(res.Body, other.Body)
 }
 
 // NewResponse generates a SIP response from a SIP request as described in RFC 3261 Section 8.2.6.
-func NewResponse(req *Request, status ResponseStatus, reason string) *Response {
-	if reason == "" {
-		reason = ResponseStatusReason(status)
+//
+// Optional arguments:
+//   - reason as [ResponseReason];
+//   - additional headers as [Headers], [][Header] or [Header];
+//   - local tag as string;
+//   - body as []byte.
+func NewResponse(req *Request, status ResponseStatus, opts ...any) *Response {
+	var (
+		reason    ResponseReason
+		otherHdrs Headers
+		locTag    string
+		body      []byte
+	)
+	for _, opt := range opts {
+		switch v := opt.(type) {
+		case ResponseReason:
+			reason = v
+		case Headers:
+			if otherHdrs == nil {
+				otherHdrs = make(Headers, len(v))
+			}
+			maps.Copy(v, otherHdrs)
+		case header.Header:
+			if otherHdrs == nil {
+				otherHdrs = make(Headers)
+			}
+			otherHdrs.Append(v)
+		case []header.Header:
+			if otherHdrs == nil {
+				otherHdrs = make(Headers)
+			}
+			for _, h := range v {
+				otherHdrs.Append(h)
+			}
+		case []byte:
+			body = v
+		case string:
+			locTag = v
+		}
 	}
+	if reason == "" {
+		reason = status.Reason()
+	}
+	if locTag == "" {
+		locTag = randutils.RandString(16)
+	}
+
+	stdHdrNames := []HeaderName{"Via", "From", "To", "Call-ID", "CSeq", "Timestamp"}
 	res := &Response{
 		Status:   status,
 		Reason:   reason,
 		Proto:    req.Proto,
-		Headers:  make(Headers, 6).CopyFrom(req.Headers, "Via", "From", "To", "Call-ID", "CSeq", "Timestamp"),
+		Headers:  make(Headers, 6).CopyFrom(req.Headers, stdHdrNames[0], stdHdrNames[1:]...),
 		Metadata: maps.Clone(req.Metadata),
+		Body:     body,
 	}
-	if status != ResponseStatusTrying && res.Headers.To() != nil {
-		if res.Headers.To().Params == nil || !res.Headers.To().Params.Has("tag") {
-			if res.Headers.To().Params == nil {
-				res.Headers.To().Params = make(header.Values)
+	// local tag for all responses except Trying
+	if to := FirstHeader[*header.To](res.Headers, "To"); status != ResponseStatusTrying && to != nil {
+		if to.Params == nil || !to.Params.Has("tag") {
+			if to.Params == nil {
+				to.Params = make(header.Values)
 			}
-			res.Headers.To().Params.Set("tag", randutils.RandString(16))
+			to.Params.Set("tag", locTag)
+		}
+	}
+	// append additional headers
+	otherHdrs.Del(stdHdrNames[0], stdHdrNames[1:]...)
+	for _, hs := range otherHdrs {
+		for _, h := range hs {
+			res.Headers.Append(h)
 		}
 	}
 	return res
 }
 
-// ResponseWriter is used to generate a SIP response on inbound request and send it to the remote peer
-// using the procedure defined in RFC 3261 Section 18.2.2.
-//
-// Example of responding on inbound INVITE request:
-//
-//	w.Headers().Set(header.Contact{{URI: &uri.SIP{User: uri.User("bob"), Addr: uri.HostPort("192.0.2.4", 5060)}}})
-//	w.SetTag("1234")
-//	w.Write(ctx, sip.ResponseStatusRinging)
-//	w.Write(ctx, sip.ResponseStatusOk, "OK", []byte("v=0\r\n...")/*, header.MIMEType{Type: "application", Subtype: "sdp"} */)
-type ResponseWriter interface {
-	// Headers returns a map for configuring additional response headers.
-	Headers() Headers
-	// SetTag sets a local tag to the To header for all responses generated with Write.
-	SetTag(tag string)
-	// Write generates a SIP response and sends to the remote peer.
-	// Implementations should support at least following optional arguments:
-	//  - reason as string
-	//  - body as []byte
-	//  - MIME type as [header.MIMEType]
-	Write(ctx context.Context, status ResponseStatus, opts ...any) error
+type ResponseHandler interface {
+	HandleResponse(ctx context.Context, res *Response) error
+}
+
+type ResponseHandlerFunc func(ctx context.Context, res *Response) error
+
+func (f ResponseHandlerFunc) HandleResponse(ctx context.Context, res *Response) error {
+	return f(ctx, res)
 }

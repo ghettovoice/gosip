@@ -6,12 +6,11 @@ import (
 	"io"
 	"log/slog"
 	"maps"
-	"net/netip"
 	"slices"
 
-	"github.com/ghettovoice/gosip/internal/iterutils"
 	"github.com/ghettovoice/gosip/internal/stringutils"
 	"github.com/ghettovoice/gosip/internal/utils"
+	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/sip/internal/shared"
 )
 
@@ -91,18 +90,18 @@ func (req *Request) LogValue() slog.Value {
 	if req == nil {
 		return slog.Value{}
 	}
-	_, viaHop := iterutils.IterFirst2(req.Headers.ViaHops())
+
 	return slog.GroupValue(
 		slog.String("type", fmt.Sprintf("%T", req)),
 		slog.String("ptr", fmt.Sprintf("%p", req)),
 		slog.Any("method", req.Method),
 		slog.Any("uri", req.URI),
 		slog.Group("headers",
-			slog.Any("Via", utils.ValOrNil(viaHop)),
-			slog.Any("From", req.Headers.From()),
-			slog.Any("To", req.Headers.To()),
-			slog.Any("Call-ID", req.Headers.CallID()),
-			slog.Any("CSeq", req.Headers.CSeq()),
+			slog.Any("Via", utils.ValOrNil(FirstHeaderElem[header.Via](req.Headers, "Via"))),
+			slog.Any("From", FirstHeader[*header.From](req.Headers, "From")),
+			slog.Any("To", FirstHeader[*header.To](req.Headers, "To")),
+			slog.Any("Call-ID", FirstHeader[header.CallID](req.Headers, "Call-ID")),
+			slog.Any("CSeq", FirstHeader[*header.CSeq](req.Headers, "CSeq")),
 		),
 		slog.Group("metadata",
 			slog.Any(LocalAddrField, req.Metadata[LocalAddrField]),
@@ -162,7 +161,12 @@ func (req *Request) IsValid() bool {
 		req.Headers.Has("Via")
 }
 
-type RequestWriter interface {
-	RemoteAddr() netip.AddrPort
-	WriteRequest(ctx context.Context, req *Request, opts ...any) error
+type RequestHandler interface {
+	HandleRequest(ctx context.Context, req *Request) error
+}
+
+type RequestHandlerFunc func(ctx context.Context, req *Request) error
+
+func (f RequestHandlerFunc) HandleRequest(ctx context.Context, req *Request) error {
+	return f(ctx, req)
 }

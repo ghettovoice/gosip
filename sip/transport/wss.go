@@ -38,16 +38,16 @@ func NewWSS(opts *Options) *WSS {
 	return tp
 }
 
-func (tp *WSS) listenWSS(ctx context.Context, addr netip.AddrPort, opts ...any) (net.Listener, error) {
-	ls, err := tp.listenTLS(ctx, addr, opts...)
+func (tp *WSS) listenWSS(ctx context.Context, laddr netip.AddrPort, opts ...any) (net.Listener, error) {
+	ls, err := tp.listenTLS(ctx, laddr, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return ws.NewListener(ls, tp.opts.WSConfig), nil
 }
 
-func (tp *WSS) dialWSS(ctx context.Context, addr netip.AddrPort, opts ...any) (c net.Conn, err error) {
-	c, err = tp.dialTLS(ctx, addr, opts...)
+func (tp *WSS) dialWSS(ctx context.Context, laddr, raddr netip.AddrPort, opts ...any) (c net.Conn, err error) {
+	c, err = tp.dialTLS(ctx, laddr, raddr, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (tp *WSS) dialWSS(ctx context.Context, addr netip.AddrPort, opts ...any) (c
 			c.Close()
 		}
 	}()
-	return tp.wsDlr.Upgrade(c, &url.URL{Scheme: "wss", Host: addr.String()})
+	return tp.wsDlr.Upgrade(c, &url.URL{Scheme: "wss", Host: laddr.String()})
 }
 
 func (tp *WSS) LogValue() slog.Value {
