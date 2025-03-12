@@ -17,6 +17,31 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			Entry(nil, "Contact:", &header.Any{Name: "Contact"}, nil),
 			Entry(nil, "Contact: *", header.Contact{}, nil),
 			Entry(nil,
+				"Contact: sips:alice@127.0.0.1;tag=a48s",
+				header.Contact{{
+					URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.Host("127.0.0.1"), Secured: true},
+					Params: make(header.Values).Set("tag", "a48s"),
+				}},
+				nil,
+			),
+			Entry(nil,
+				"Contact: https://example.org/username?tag=a48s",
+				header.Contact{{
+					URI:    &uri.Any{Scheme: "https", Host: "example.org", Path: "/username"},
+					Params: make(header.Values).Set("tag", "a48s"),
+				}},
+				nil,
+			),
+			Entry(nil,
+				"Contact: \"A. G. Bell\" <sip:agb@bell-telephone.com>\r\n\t;tag=a48s",
+				header.Contact{{
+					DisplayName: "A. G. Bell",
+					URI:         &uri.SIP{User: uri.User("agb"), Addr: uri.Host("bell-telephone.com")},
+					Params:      make(header.Values).Set("tag", "a48s"),
+				}},
+				nil,
+			),
+			Entry(nil,
 				"Contact: \"Mr. Watson\" <sip:watson@worcester.bell-telephone.com>\r\n"+
 					"\t;q=0.7; expires=3600,\r\n"+
 					"\t\"Mr. Watson\" <mailto:watson@bell-telephone.com> ;q=0.1",
