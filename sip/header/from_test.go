@@ -16,6 +16,30 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 			// region
 			Entry(nil, "From: ", &header.Any{Name: "From"}, nil),
 			Entry(nil,
+				"From: sip:alice@127.0.0.1;tag=a48s",
+				&header.From{
+					URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.Host("127.0.0.1")},
+					Params: make(header.Values).Set("tag", "a48s"),
+				},
+				nil,
+			),
+			Entry(nil,
+				"From: sips:alice@127.0.0.1;tag=a48s",
+				&header.From{
+					URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.Host("127.0.0.1"), Secured: true},
+					Params: make(header.Values).Set("tag", "a48s"),
+				},
+				nil,
+			),
+			Entry(nil,
+				"From: https://example.org/username?tag=a48s",
+				&header.From{
+					URI:    &uri.Any{Scheme: "https", Host: "example.org", Path: "/username"},
+					Params: make(header.Values).Set("tag", "a48s"),
+				},
+				nil,
+			),
+			Entry(nil,
 				"From: \"A. G. Bell\" <sip:agb@bell-telephone.com>\r\n\t;tag=a48s",
 				&header.From{
 					DisplayName: "A. G. Bell",

@@ -14,8 +14,8 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 	Describe("To", func() {
 		assertHeaderParsing(
 			// region
-			PEntry(nil, "To: ", &header.Any{Name: "To"}, nil),
-			Entry("ambiguous sip header RFC 8217",
+			Entry(nil, "To: ", &header.Any{Name: "To"}, nil),
+			Entry(nil,
 				"To: sip:alice@127.0.0.1;tag=a48s",
 				&header.To{
 					URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.Host("127.0.0.1")},
@@ -23,7 +23,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				},
 				nil,
 			),
-			Entry("ambiguous sips header RFC 8217",
+			Entry(nil,
 				"To: sips:alice@127.0.0.1;tag=a48s",
 				&header.To{
 					URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.Host("127.0.0.1"), Secured: true},
@@ -31,7 +31,7 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				},
 				nil,
 			),
-			Entry("ambiguous header RFC 8217",
+			Entry(nil,
 				"To: https://example.org/username?tag=a48s",
 				&header.To{
 					URI:    &uri.Any{Scheme: "https", Host: "example.org", Path: "/username"},
