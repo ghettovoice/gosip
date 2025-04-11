@@ -33,11 +33,15 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 				nil,
 			),
 			Entry(nil,
-				"Contact: \"A. G. Bell\" <sip:agb@bell-telephone.com>\r\n\t;tag=a48s",
+				"Contact: \"A. G. Bell\" <sip:agb@bell-telephone.com;param=val>\r\n\t;tag=a48s",
 				header.Contact{{
 					DisplayName: "A. G. Bell",
-					URI:         &uri.SIP{User: uri.User("agb"), Addr: uri.Host("bell-telephone.com")},
-					Params:      make(header.Values).Set("tag", "a48s"),
+					URI: &uri.SIP{
+						User:   uri.User("agb"),
+						Addr:   uri.Host("bell-telephone.com"),
+						Params: make(header.Values).Set("param", "val"),
+					},
+					Params: make(header.Values).Set("tag", "a48s"),
 				}},
 				nil,
 			),

@@ -91,6 +91,7 @@ func buildFromHeaderAddrNode(node *abnf.Node, psNodeKey string) EntityAddr {
 			addr.Params = Values(p)
 		}
 	}
+
 	if dnameNode := node.GetNode("display-name"); dnameNode != nil {
 		addr.DisplayName = grammar.Unquote(strings.TrimSpace(dnameNode.String()))
 	}
