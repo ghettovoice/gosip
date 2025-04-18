@@ -104,6 +104,7 @@ func (req *Request) LogValue() slog.Value {
 			slog.Any("CSeq", FirstHeader[*header.CSeq](req.Headers, "CSeq")),
 		),
 		slog.Group("metadata",
+			slog.Any(TransportField, req.Metadata[TransportField]),
 			slog.Any(LocalAddrField, req.Metadata[LocalAddrField]),
 			slog.Any(RemoteAddrField, req.Metadata[RemoteAddrField]),
 			slog.Any(RequestTstampField, req.Metadata[RequestTstampField]),

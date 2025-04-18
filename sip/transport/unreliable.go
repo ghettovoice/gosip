@@ -317,7 +317,12 @@ func (c *unreliableConn) WriteMessage(ctx context.Context, msg sip.Message, radd
 		return err
 	}
 
-	c.opts.log().Info("message sent", "message", msg, "remote_addr", raddr)
+	switch msg.(type) {
+	case *sip.Request:
+		c.opts.log().Info("outbound request sent", "request", msg, "remote_addr", raddr)
+	case *sip.Response:
+		c.opts.log().Info("outbound response sent", "response", msg, "remote_addr", raddr)
+	}
 
 	c.updateTTL()
 	return nil

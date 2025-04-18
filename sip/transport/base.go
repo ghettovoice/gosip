@@ -171,11 +171,11 @@ func servePacket(anyConn any, prs sip.Parser, onMsgFn func(context.Context, sip.
 			}
 			// If a message was partially read, log a warning.
 			// It will be rejected later in onInMsg method.
-			msgLogger.Warn("inbound message parsing error", "data", log.StringValue(buf[:num]), "message", msg, "error", err)
+			msgLogger.Warn("inbound message parsing error", "message", msg, "error", err)
 			msgCtx = context.WithValue(msgCtx, parseErrKey{}, err)
 		}
 
-		msgLogger.Info("message received", "message", msg, "dump", log.CalcValue(func() any { return msg.Render() }))
+		msgLogger.Debug("message received", "message", msg)
 
 		msgCtx = context.WithValue(msgCtx, loggerKey{}, msgLogger)
 		if err = onMsgFn(msgCtx, msg); err != nil {
@@ -222,14 +222,7 @@ func serveStream(conn net.Conn, prs sip.Parser, onMsgFn func(context.Context, si
 				msgCtx = context.WithValue(msgCtx, parseErrKey{}, err)
 			} else {
 				if msgLogger.Enabled(msgCtx, slog.LevelWarn) {
-					var (
-						perr *sip.ParseError
-						data []byte
-					)
-					if errors.As(err, &perr) {
-						data = perr.Buf
-					}
-					msgLogger.Warn("inbound message parsing error", "data", log.StringValue(data), "message", msg, "error", err)
+					msgLogger.Warn("inbound message parsing error", "message", msg, "error", err)
 				}
 				msgCtx = context.WithValue(msgCtx, parseErrKey{}, err)
 			}
@@ -237,7 +230,7 @@ func serveStream(conn net.Conn, prs sip.Parser, onMsgFn func(context.Context, si
 
 		rd.N = int64(sip.MaxMsgSize)
 
-		msgLogger.Info("message received", "message", msg, "dump", log.CalcValue(func() any { return msg.Render() }))
+		msgLogger.Debug("message received", "message", msg)
 
 		msgCtx = context.WithValue(msgCtx, loggerKey{}, msgLogger)
 		if err = onMsgFn(msgCtx, msg); err != nil {
@@ -367,14 +360,14 @@ func (h *messageHandler) onInMsg(ctx context.Context, tp baseTransp, conn baseCo
 
 		if !m.IsValid() {
 			// If the request is invalid, i.e., missing mandatory headers, we can't respond.
-			logger.Info("discarding invalid inbound request")
+			logger.Warn("discarding invalid inbound request")
 			return false
 		}
 
 		if prsErr, ok := ctx.Value(parseErrKey{}).(error); ok {
 			// We faced some errors during parsing of the request, but the parsed request contains mandatory headers,
 			// then we can respond to it.
-			logger.Info("discarding inbound request due to parsing error")
+			logger.Warn("discarding inbound request due to parsing error")
 
 			sts := sip.ResponseStatusBadRequest
 			if errors.Is(prsErr, sip.ErrMessageTooLarge) {
@@ -384,7 +377,11 @@ func (h *messageHandler) onInMsg(ctx context.Context, tp baseTransp, conn baseCo
 			defer cancel()
 			if err := tp.SendResponse(resCtx, sip.NewResponse(m, sts), laddr); err != nil {
 				logger.Warn(
-					fmt.Sprintf(`failed to respond "%d %s" to invalid inbound request`, sts, sts.Reason()),
+					fmt.Sprintf(
+						`failed to respond "%d %s" to invalid inbound request`,
+						sts,
+						sts.Reason(),
+					),
 					"error", err,
 				)
 			}
@@ -396,7 +393,7 @@ func (h *messageHandler) onInMsg(ctx context.Context, tp baseTransp, conn baseCo
 				logger.Warn("failed to accept inbound request", "error", err)
 				return false
 			}
-			logger.Debug("inbound request accepted")
+			logger.Info("inbound request accepted")
 		} else {
 			logger.Warn("discarding inbound request, because no inbound request handler is set")
 		}
@@ -413,16 +410,16 @@ func (h *messageHandler) onInMsg(ctx context.Context, tp baseTransp, conn baseCo
 		logger = logger.With("response", m)
 
 		if !m.IsValid() {
-			logger.Info("discarding invalid inbound response")
+			logger.Warn("discarding invalid inbound response")
 			return false
 		}
 		if _, ok := ctx.Value(parseErrKey{}).(error); ok {
-			logger.Info("discarding inbound response due to parsing error")
+			logger.Warn("discarding inbound response due to parsing error")
 			return false
 		}
 		// RFC 3261 Section 18.1.2.
 		if stringutils.LCase(viaHop.Addr.Host()) != stringutils.LCase(tp.options().sentByHost()) {
-			logger.Info(fmt.Sprintf(`discarding inbound response due to Via's "sent-by" mismatch with transport's host = %q`, tp.options().sentByHost()))
+			logger.Warn(fmt.Sprintf(`discarding inbound response due to Via's "sent-by" mismatch with transport's host = %q`, tp.options().sentByHost()))
 			return false
 		}
 
@@ -439,7 +436,7 @@ func (h *messageHandler) onInMsg(ctx context.Context, tp baseTransp, conn baseCo
 				logger.Warn("failed to accept inbound message", "error", err)
 				return false
 			}
-			logger.Debug("inbound message accepted")
+			logger.Info("inbound response accepted")
 		} else {
 			logger.Warn("discarding inbound message, because no inbound response handler is set")
 		}
