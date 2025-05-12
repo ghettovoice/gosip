@@ -478,13 +478,14 @@ func (tx *clientTx) initNonInviteFSM() {
 	client_state_def_completed := fsm.State{
 		Index: client_state_completed,
 		Outcomes: map[fsm.Input]fsm.Outcome{
-			client_input_1xx:      {client_state_completed, fsm.NO_ACTION},
-			client_input_2xx:      {client_state_completed, fsm.NO_ACTION},
-			client_input_300_plus: {client_state_completed, fsm.NO_ACTION},
-			client_input_timer_a:  {client_state_completed, fsm.NO_ACTION},
-			client_input_timer_b:  {client_state_completed, fsm.NO_ACTION},
-			client_input_timer_d:  {client_state_terminated, tx.act_delete},
-			client_input_cancel:   {client_state_completed, fsm.NO_ACTION},
+			client_input_1xx:           {client_state_completed, fsm.NO_ACTION},
+			client_input_2xx:           {client_state_completed, fsm.NO_ACTION},
+			client_input_300_plus:      {client_state_completed, fsm.NO_ACTION},
+			client_input_timer_a:       {client_state_completed, fsm.NO_ACTION},
+			client_input_timer_b:       {client_state_completed, fsm.NO_ACTION},
+			client_input_timer_d:       {client_state_terminated, tx.act_delete},
+			client_input_cancel:        {client_state_completed, fsm.NO_ACTION},
+			client_input_transport_err: {client_state_completed, fsm.NO_ACTION},
 		},
 	}
 
@@ -492,14 +493,15 @@ func (tx *clientTx) initNonInviteFSM() {
 	client_state_def_terminated := fsm.State{
 		Index: client_state_terminated,
 		Outcomes: map[fsm.Input]fsm.Outcome{
-			client_input_1xx:      {client_state_terminated, fsm.NO_ACTION},
-			client_input_2xx:      {client_state_terminated, fsm.NO_ACTION},
-			client_input_300_plus: {client_state_terminated, fsm.NO_ACTION},
-			client_input_timer_a:  {client_state_terminated, fsm.NO_ACTION},
-			client_input_timer_b:  {client_state_terminated, fsm.NO_ACTION},
-			client_input_timer_d:  {client_state_terminated, fsm.NO_ACTION},
-			client_input_delete:   {client_state_terminated, tx.act_delete},
-			client_input_cancel:   {client_state_terminated, fsm.NO_ACTION},
+			client_input_1xx:           {client_state_terminated, fsm.NO_ACTION},
+			client_input_2xx:           {client_state_terminated, fsm.NO_ACTION},
+			client_input_300_plus:      {client_state_terminated, fsm.NO_ACTION},
+			client_input_timer_a:       {client_state_terminated, fsm.NO_ACTION},
+			client_input_timer_b:       {client_state_terminated, fsm.NO_ACTION},
+			client_input_timer_d:       {client_state_terminated, fsm.NO_ACTION},
+			client_input_delete:        {client_state_terminated, tx.act_delete},
+			client_input_cancel:        {client_state_terminated, fsm.NO_ACTION},
+			client_input_transport_err: {client_state_terminated, fsm.NO_ACTION},
 		},
 	}
 
