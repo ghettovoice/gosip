@@ -286,7 +286,9 @@ func (txl *layer) handleRequest(req sip.Request, logger log.Logger) {
 
 	tx, err = NewServerTx(req, txl.tpl, txl.Log())
 	if err != nil {
-		logger.Error(err)
+		logger.Warn(err)
+
+		txl.tpl.Send(sip.NewResponseFromRequest("", req, 400, "Bad Request", ""))
 
 		return
 	}
@@ -295,7 +297,9 @@ func (txl *layer) handleRequest(req sip.Request, logger log.Logger) {
 	logger.Debug("new server transaction created")
 
 	if err := tx.Init(); err != nil {
-		logger.Error(err)
+		logger.Warn(err)
+
+		txl.tpl.Send(sip.NewResponseFromRequest("", req, 500, "Bad Request", ""))
 
 		return
 	}
