@@ -257,7 +257,7 @@ func (srv *server) handleRequest(req sip.Request, tx sip.ServerTransaction) {
 		if !req.IsAck() {
 			res := sip.NewResponseFromRequest("", req, 405, "Method Not Allowed", "")
 			if _, err := srv.Respond(res); err != nil {
-				logger.Errorf("respond '405 Method Not Allowed' failed: %s", err)
+				logger.Warnf("respond '405 Method Not Allowed' failed: %s", err)
 			}
 		}
 
@@ -321,7 +321,7 @@ func (srv *server) requestWithContext(
 		case <-done:
 		case <-ctx.Done():
 			if err := tx.Cancel(); err != nil {
-				srv.Log().Error("cancel transaction failed", log.Fields{
+				srv.Log().Warn("cancel transaction failed", log.Fields{
 					"transaction_key": tx.Key(),
 				})
 			}

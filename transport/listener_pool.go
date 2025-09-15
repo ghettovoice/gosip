@@ -150,7 +150,7 @@ func (pool *listenerPool) DropAll() error {
 	pool.mu.Lock()
 	for key := range pool.store {
 		if err := pool.drop(key); err != nil {
-			pool.Log().Errorf("drop listener %s failed: %s", key, err)
+			pool.Log().Warnf("drop listener %s failed: %s", key, err)
 		}
 	}
 	pool.mu.Unlock()
@@ -234,7 +234,7 @@ func (pool *listenerPool) serveHandlers() {
 						logger.Debugf("listener network error: %s; drop it and go further", lerr)
 
 						if err := pool.Drop(handler.Key()); err != nil {
-							logger.Error(err)
+							logger.Warn(err)
 						}
 					} else {
 						// other

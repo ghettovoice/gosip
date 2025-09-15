@@ -183,7 +183,7 @@ func (p *parser) parse(done chan<- struct{}) {
 				skip := msgLen - len(startLine) - 2
 				p.Log().Tracef("skip %d - %d - 2 = %d bytes", p, msgLen, len(startLine), skip)
 				if _, err := p.input.NextChunk(skip); err != nil {
-					p.Log().Errorf("skip failed: %s", err)
+					p.Log().Warnf("skip failed: %s", err)
 				}
 
 				p.errs <- termErr

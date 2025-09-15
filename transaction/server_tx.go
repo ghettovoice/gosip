@@ -107,7 +107,7 @@ func (tx *serverTx) Init() error {
 					"",
 				),
 			); err != nil {
-				tx.Log().Errorf("send '100 Trying' response failed: %s", err)
+				tx.Log().Warnf("send '100 Trying' response failed: %s", err)
 			}
 		})
 		tx.mu.Unlock()

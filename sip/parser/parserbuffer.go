@@ -116,7 +116,7 @@ func (pb *parserBuffer) NextChunk(n int) (response string, err error) {
 func (pb *parserBuffer) Stop() {
 	pb.mu.RLock()
 	if err := pb.pipeReader.Close(); err != nil {
-		pb.Log().Errorf("parser pipe reader close failed: %s", err)
+		pb.Log().Warnf("parser pipe reader close failed: %s", err)
 	}
 	pb.mu.RUnlock()
 

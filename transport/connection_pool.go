@@ -167,7 +167,7 @@ func (pool *connectionPool) DropAll() error {
 	pool.mu.Lock()
 	for key := range pool.store {
 		if err := pool.drop(key); err != nil {
-			pool.Log().Errorf("drop connection %s failed: %s", key, err)
+			pool.Log().Warnf("drop connection %s failed: %s", key, err)
 		}
 	}
 	pool.mu.Unlock()
@@ -277,7 +277,7 @@ func (pool *connectionPool) serveHandlers() {
 					logger.Debug("connection expired, drop it and go further")
 
 					if err := pool.Drop(handler.Key()); err != nil {
-						logger.Error(err)
+						logger.Warn(err)
 					}
 				} else {
 					// Due to a race condition, the socket has been updated since this expiry happened.
@@ -297,7 +297,7 @@ func (pool *connectionPool) serveHandlers() {
 				logger.Debugf("connection EOF: %s; drop it and go further", herr)
 
 				if err := pool.Drop(handler.Key()); err != nil {
-					logger.Error(err)
+					logger.Warn(err)
 				}
 
 				var connErr *ConnectionError
@@ -311,7 +311,7 @@ func (pool *connectionPool) serveHandlers() {
 				logger.Debugf("connection network error: %s; drop it and pass the error up", herr)
 
 				if err := pool.Drop(handler.Key()); err != nil {
-					logger.Error(err)
+					logger.Warn(err)
 				}
 			} else {
 				// syntax errors, malformed message errors and other

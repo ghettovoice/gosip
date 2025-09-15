@@ -90,7 +90,7 @@ func (p *tcpProtocol) pipePools() {
 
 			if err := p.connections.Put(conn, sockTTL); err != nil {
 				// TODO should it be passed up to UA?
-				logger.Errorf("put %s connection to the pool failed: %s", conn.Key(), err)
+				logger.Warnf("put %s connection to the pool failed: %s", conn.Key(), err)
 
 				conn.Close()
 

@@ -254,7 +254,7 @@ func (tx *clientTx) cancel() {
 			"invite_request":  tx.Origin().Short(),
 			"invite_response": lastRespStr,
 			"cancel_request":  cancelRequest.Short(),
-		}).Errorf("send CANCEL request failed: %s", err)
+		}).Warnf("send CANCEL request failed: %s", err)
 
 		tx.mu.Lock()
 		tx.lastErr = err
@@ -288,7 +288,7 @@ func (tx *clientTx) ack() {
 			"invite_request":  tx.Origin().Short(),
 			"invite_response": lastResp.Short(),
 			"ack_request":     ack.Short(),
-		}).Errorf("send ACK request failed: %s", err)
+		}).Warnf("send ACK request failed: %s", err)
 
 		tx.mu.Lock()
 		tx.lastErr = err
