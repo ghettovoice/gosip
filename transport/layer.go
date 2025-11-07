@@ -226,7 +226,11 @@ func (tpl *layer) Send(msg sip.Message) error {
 		network := msg.Transport()
 		// rewrite sent-by transport
 		viaHop.Transport = strings.ToUpper(network)
-		viaHop.Host = tpl.ip.String()
+		hostStr := tpl.ip.String()
+		if strings.Contains(hostStr, ":") && !strings.Contains(hostStr, "[") {
+			hostStr = fmt.Sprintf("[%s]", hostStr)
+		}
+		viaHop.Host = hostStr
 
 		protocol, err := tpl.getProtocol(network)
 		if err != nil {
