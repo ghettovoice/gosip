@@ -49,7 +49,7 @@ func (trg *Target) Addr() string {
 		port = *trg.Port
 	}
 
-	return fmt.Sprintf("%v:%v", host, port)
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }
 
 func (trg *Target) String() string {
@@ -341,7 +341,7 @@ func (err UnsupportedProtocolError) Error() string {
 	return "transport.UnsupportedProtocolError: " + string(err)
 }
 
-//TLSConfig for TLS and WSS only
+// TLSConfig for TLS and WSS only
 type TLSConfig struct {
 	Domain string
 	Cert   string

@@ -103,7 +103,7 @@ func (p *udpProtocol) Send(target *Target, msg sip.Message) error {
 		}
 	}
 
-	_, port, err := net.SplitHostPort(msg.Source())
+	_, port, err := SafeSplitHostPort(msg.Source())
 	if err != nil {
 		return &ProtocolError{
 			Err:      err,
@@ -135,4 +135,43 @@ func (p *udpProtocol) Send(target *Target, msg sip.Message) error {
 		"search connection",
 		fmt.Sprintf("%p", p),
 	}
+}
+
+// SafeSplitHostPort attempts to parse the host and port from various non-standard address formats,
+// including raw IPv6 addresses without brackets and formats starting with '::' or ':::'.
+func SafeSplitHostPort(source string) (host, port string, err error) {
+	// 1. Try standard library parsing (Works for IPv4:port, [IPv6]:port, or valid domain:port)
+	host, port, err = net.SplitHostPort(source)
+	if err == nil {
+		return host, port, nil
+	}
+	// 2. Special handling for malformed IPv6 wildcard formats (e.g., :::8088 or ::8088)
+	if strings.HasPrefix(source, "::") {
+		lastColonIndex := strings.LastIndex(source, ":")
+		if lastColonIndex != -1 && lastColonIndex < len(source)-1 {
+			portStr := source[lastColonIndex+1:]
+			ipv6AddrCandidate := source[:lastColonIndex]
+			if strings.HasSuffix(ipv6AddrCandidate, ":") {
+				ipv6AddrCandidate = ipv6AddrCandidate[:len(ipv6AddrCandidate)-1]
+			}
+			if ipv6AddrCandidate == "::" {
+				hostportWithBrackets := fmt.Sprintf("[%s]:%s", ipv6AddrCandidate, portStr)
+				return net.SplitHostPort(hostportWithBrackets)
+			}
+		}
+	}
+
+	// 3. Handle raw IPv6 addresses without mandatory brackets (e.g., 240e:..:f50b:8088)
+	lastColonIndex := strings.LastIndex(source, ":")
+	if strings.Count(source, ":") > 1 && !strings.Contains(source, "]") {
+		if lastColonIndex != -1 && lastColonIndex < len(source)-1 {
+			ipv6Addr := source[:lastColonIndex]
+			portStr := source[lastColonIndex+1:]
+			hostPortWithBrackets := fmt.Sprintf("[%s]:%s", ipv6Addr, portStr)
+			return net.SplitHostPort(hostPortWithBrackets)
+		}
+	}
+
+	// If all attempts fail, return the original error from net.SplitHostPort.
+	return "", "", err
 }

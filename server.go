@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/ghettovoice/gosip/log"
@@ -101,10 +102,11 @@ func NewServer(
 	var ip net.IP
 	if config.Host != "" {
 		host = config.Host
-		if addr, err := net.ResolveIPAddr("ip", host); err == nil {
-			ip = addr.IP
-		} else {
-			logger.Panicf("resolve host IP failed: %s", err)
+		trimmedHost := strings.Trim(host, "[]")
+		ip = net.ParseIP(trimmedHost)
+
+		if ip == nil {
+			logger.Panicf("resolve host IP failed: invalid address configured: %s", host)
 		}
 	} else {
 		if v, err := util.ResolveSelfIP(); err == nil {
