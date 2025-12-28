@@ -27,8 +27,10 @@ type ClientTransaction interface {
 	// RecvResponse is called on each inbound response received by the transport layer.
 	RecvResponse(ctx context.Context, res *InboundResponse) error
 	// OnResponse registers a callback to be called when the transaction receives a response.
-	OnResponse(fn ResponseHandler) (cancel func())
+	OnResponse(fn TransactionResponseHandler) (cancel func())
 }
+
+type TransactionResponseHandler = func(ctx context.Context, tx ClientTransaction, res *InboundResponse)
 
 type ClientTransactionStore = TransactionStore[ClientTransactionKey, ClientTransaction]
 
@@ -123,7 +125,7 @@ type clientTransact struct {
 	sendOpts *SendRequestOptions
 	lastRes  atomic.Pointer[InboundResponse]
 
-	onRes       types.CallbackManager[ResponseHandler]
+	onRes       types.CallbackManager[TransactionResponseHandler]
 	pendingRess types.Deque[*InboundResponse]
 }
 
@@ -289,9 +291,9 @@ func (tx *clientTransact) deliverPendingRess() {
 		return
 	}
 
-	tx.onRes.Range(func(fn ResponseHandler) {
+	tx.onRes.Range(func(fn TransactionResponseHandler) {
 		for _, res := range resps {
-			fn(tx.ctx, res)
+			fn(tx.ctx, tx.impl.(ClientTransaction), res)
 		}
 	})
 }
@@ -316,7 +318,7 @@ func (tx *clientTransact) actCompleted(ctx context.Context, _ ...any) error {
 //
 // The callback can be canceled by calling the returned cancel function.
 // Multiple callbacks can be registered.
-func (tx *clientTransact) OnResponse(fn ResponseHandler) (cancel func()) {
+func (tx *clientTransact) OnResponse(fn TransactionResponseHandler) (cancel func()) {
 	cancel = tx.onRes.Add(fn)
 	tx.deliverPendingRess()
 	return cancel

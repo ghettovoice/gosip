@@ -45,7 +45,7 @@ func TestInviteClientTransaction_Accepted(t *testing.T) {
 	ctx := t.Context()
 
 	resCh := make(chan *sip.InboundResponse, 3)
-	tx.OnResponse(func(_ context.Context, res *sip.InboundResponse) {
+	tx.OnResponse(func(_ context.Context, _ sip.ClientTransaction, res *sip.InboundResponse) {
 		resCh <- res
 	})
 
@@ -111,7 +111,7 @@ func TestInviteClientTransaction_Rejected(t *testing.T) {
 	ctx := t.Context()
 
 	resCh := make(chan *sip.InboundResponse, 2)
-	tx.OnResponse(func(_ context.Context, res *sip.InboundResponse) {
+	tx.OnResponse(func(_ context.Context, _ sip.ClientTransaction, res *sip.InboundResponse) {
 		resCh <- res
 	})
 
@@ -175,7 +175,7 @@ func TestInviteClientTransaction_Timeout(t *testing.T) {
 	}
 
 	resCh := make(chan *sip.InboundResponse, 1)
-	tx.OnResponse(func(_ context.Context, res *sip.InboundResponse) {
+	tx.OnResponse(func(_ context.Context, _ sip.ClientTransaction, res *sip.InboundResponse) {
 		resCh <- res
 	})
 
@@ -295,7 +295,7 @@ func TestInviteClientTransaction_Terminate_FromCalling(t *testing.T) {
 	}
 
 	stateCh := make(chan sip.TransactionState, 1)
-	tx.OnStateChanged(func(_ context.Context, _, to sip.TransactionState) {
+	tx.OnStateChanged(func(_ context.Context, _ sip.Transaction, _, to sip.TransactionState) {
 		if to == sip.TransactionStateTerminated {
 			stateCh <- to
 		}

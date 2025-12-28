@@ -24,6 +24,7 @@ import (
 // Message common errors.
 const (
 	ErrInvalidMessage   Error = "invalid message"
+	ErrEntityTooLarge   Error = "entity too large"
 	ErrMessageTooLarge  Error = "message too large"
 	ErrMethodNotAllowed Error = "request method not allowed"
 )
@@ -305,7 +306,6 @@ func (m *message[T]) Metadata() *MessageMetadata {
 
 type messageSnapshot[T Message] struct {
 	Message     T                `json:"message"`
-	Transport   TransportProto   `json:"transport"`
 	LocalAddr   netip.AddrPort   `json:"local_addr"`
 	RemoteAddr  netip.AddrPort   `json:"remote_addr"`
 	MessageTime time.Time        `json:"message_time"`

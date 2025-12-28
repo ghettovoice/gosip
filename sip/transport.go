@@ -2,6 +2,8 @@ package sip
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"iter"
 	"log/slog"
@@ -9,13 +11,16 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"braces.dev/errtrace"
 
+	"github.com/ghettovoice/gosip/dns"
 	"github.com/ghettovoice/gosip/header"
 	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/log"
 )
 
@@ -38,15 +43,17 @@ type ClientTransport interface {
 	// SendRequest sends a request to the remote address.
 	SendRequest(ctx context.Context, req *OutboundRequest, opts *SendRequestOptions) error
 	// OnResponse registers a response callback.
-	OnResponse(fn ResponseHandler) (cancel func())
+	OnResponse(fn TransportResponseHandler) (cancel func())
 }
 
 // SendRequestOptions are options for sending a request.
 type SendRequestOptions struct {
 	// Timeout is the timeout for the request sending process.
 	// If zero, the default timeout 1m is used.
-	Timeout       time.Duration `json:"timeout,omitempty"`
-	RenderCompact bool          `json:"render_compact,omitempty"`
+	Timeout time.Duration `json:"timeout,omitempty"`
+	// RenderCompact is the flag that indicates whether the message should be rendered in compact form.
+	// See [RenderOptions] for more details.
+	RenderCompact bool `json:"render_compact,omitempty"`
 	// TODO: options for multicast
 }
 
@@ -74,6 +81,8 @@ func cloneSendReqOpts(opts *SendRequestOptions) *SendRequestOptions {
 	return &newOpts
 }
 
+type TransportResponseHandler = func(ctx context.Context, tp ClientTransport, res *InboundResponse)
+
 const clnTranspCtxKey types.ContextKey = "client_transport"
 
 // ClientTransportFromContext returns the [ClientTransport] from the given context.
@@ -89,15 +98,17 @@ type ServerTransport interface {
 	// defined in RFC 3261 Section 18.2.2. and RFC 3263 Section 5.
 	SendResponse(ctx context.Context, res *OutboundResponse, opts *SendResponseOptions) error
 	// OnRequest registers a request callback.
-	OnRequest(fn RequestHandler) (cancel func())
+	OnRequest(fn TransportRequestHandler) (cancel func())
 }
 
 // SendResponseOptions are options for sending a response.
 type SendResponseOptions struct {
 	// Timeout is the timeout for the response sending process.
 	// If zero, the default timeout 1m is used.
-	Timeout       time.Duration `json:"timeout,omitempty"`
-	RenderCompact bool          `json:"render_compact,omitempty"`
+	Timeout time.Duration `json:"timeout,omitempty"`
+	// RenderCompact is the flag that indicates whether the message should be rendered in compact form.
+	// See [RenderOptions] for more details.
+	RenderCompact bool `json:"render_compact,omitempty"`
 }
 
 func (o *SendResponseOptions) timeout() time.Duration {
@@ -124,6 +135,8 @@ func cloneSendResOpts(opts *SendResponseOptions) *SendResponseOptions {
 	return &newOpts
 }
 
+type TransportRequestHandler = func(ctx context.Context, tp ServerTransport, req *InboundRequest)
+
 const srvTranspCtxKey types.ContextKey = "server_transport"
 
 // ServerTransportFromContext returns the [ServerTransport] from the given context.
@@ -145,10 +158,6 @@ type Transport interface {
 	Close() error
 }
 
-type RequestHandler = func(ctx context.Context, req *InboundRequest)
-
-type ResponseHandler = func(ctx context.Context, res *InboundResponse)
-
 // ConnDialer is used to dial connections for reliable transports.
 type ConnDialer interface {
 	// DialConn dials a connection to the remote address.
@@ -167,9 +176,9 @@ type DNSResolver interface {
 	// LookupIP looks up the IP address for the given host.
 	LookupIP(ctx context.Context, network, host string) ([]net.IP, error)
 	// LookupSRV looks up the SRV record for the given service and protocol.
-	LookupSRV(ctx context.Context, service, proto, host string) (string, []*net.SRV, error)
+	LookupSRV(ctx context.Context, service, proto, host string) ([]*dns.SRV, error)
 	// LookupNAPTR looks up the NAPTR record for the given host.
-	LookupNAPTR(ctx context.Context, host string) ([]any, error)
+	LookupNAPTR(ctx context.Context, host string) ([]*dns.NAPTR, error)
 }
 
 func GetTransportProto(tp any) (TransportProto, bool) {
@@ -240,7 +249,7 @@ func ResponseAddrs(
 	ctx context.Context,
 	via header.ViaHop,
 	tpMeta TransportMetadata,
-	dns DNSResolver,
+	dnsRslvr DNSResolver,
 ) iter.Seq2[TransportProto, netip.AddrPort] {
 	return func(yield func(TransportProto, netip.AddrPort) bool) {
 		if !via.IsValid() || !via.Transport.Equal(tpMeta.Proto) {
@@ -251,7 +260,7 @@ func ResponseAddrs(
 			// RFC 3261 Section 18.2.2, bullet 2.
 			if maddr, ok := via.MAddr(); ok {
 				// maddr can be host name or IP address, need to lookup IP addresses
-				if ips, err := dns.LookupIP(ctx, "ip", maddr); err == nil {
+				if ips, err := dnsRslvr.LookupIP(ctx, "ip", maddr); err == nil {
 					for _, ip := range ips {
 						if addr, ok := netip.AddrFromSlice(ip); ok {
 							addr = addr.Unmap()
@@ -317,7 +326,7 @@ func ResponseAddrs(
 		}
 
 		if port, ok := via.Addr.Port(); ok {
-			if ips, err := dns.LookupIP(ctx, "ip", via.Addr.Host()); err == nil {
+			if ips, err := dnsRslvr.LookupIP(ctx, "ip", via.Addr.Host()); err == nil {
 				for _, ip := range ips {
 					if addr, ok := netip.AddrFromSlice(ip); ok {
 						addr = addr.Unmap()
@@ -337,8 +346,8 @@ func ResponseAddrs(
 			serv = "sips"
 		}
 
-		if _, srvs, err := dns.LookupSRV(ctx, serv, tpMeta.Network, via.Addr.Host()); err == nil {
-			srvs = slices.SortedFunc(slices.Values(srvs), func(e1, e2 *net.SRV) int {
+		if srvs, err := dnsRslvr.LookupSRV(ctx, serv, tpMeta.Network, via.Addr.Host()); err == nil {
+			srvs = slices.SortedFunc(slices.Values(srvs), func(e1, e2 *dns.SRV) int {
 				switch {
 				case e1.Priority < e2.Priority:
 					return -1
@@ -354,7 +363,7 @@ func ResponseAddrs(
 			})
 
 			for _, srv := range srvs {
-				if ips, err := dns.LookupIP(ctx, "ip", srv.Target); err == nil {
+				if ips, err := dnsRslvr.LookupIP(ctx, "ip", srv.Target); err == nil {
 					for _, ip := range ips {
 						if addr, ok := netip.AddrFromSlice(ip); ok {
 							addr = addr.Unmap()
@@ -398,7 +407,10 @@ func respondStateless(ctx context.Context, tp ServerTransport, req *InboundReque
 	if sts == ResponseStatusServerInternalError || sts == ResponseStatusServiceUnavailable {
 		hdrs = make(Headers).Append(&header.RetryAfter{Delay: time.Minute})
 	}
-	res, err := req.NewResponse(sts, &ResponseOptions{Headers: hdrs})
+	res, err := req.NewResponse(sts, &ResponseOptions{
+		Headers:  hdrs,
+		LocalTag: stableStatelessToTag(req),
+	})
 	if err != nil {
 		logger.LogAttrs(ctx, slog.LevelError, "failed to build response on inbound request",
 			slog.Any("request", req),
@@ -424,4 +436,58 @@ func respondStateless(ctx context.Context, tp ServerTransport, req *InboundReque
 		)
 		return
 	}
+}
+
+func stableStatelessToTag(req *InboundRequest) string {
+	if req == nil {
+		return ""
+	}
+
+	hdrs := req.Headers()
+	if hdrs == nil {
+		return ""
+	}
+
+	var reqURI string
+	if uri := req.URI(); uri != nil {
+		reqURI = util.LCase(uri.Render(nil))
+	}
+
+	var topVia string
+	if via, ok := hdrs.FirstVia(); ok && via != nil {
+		topVia = util.LCase(via.String())
+	}
+
+	callID, _ := hdrs.CallID()
+
+	var fromTag string
+	if from, ok := hdrs.From(); ok && from != nil {
+		if t, ok := from.Tag(); ok {
+			fromTag = t
+		}
+	}
+
+	var cseqNum uint
+	var cseqMethod RequestMethod
+	if cseq, ok := hdrs.CSeq(); ok && cseq != nil {
+		cseqNum = cseq.SeqNum
+		cseqMethod = util.UCase(cseq.Method)
+	}
+
+	key := make([]byte, 0, 96)
+	key = append(key, "uri="...)
+	key = append(key, reqURI...)
+	key = append(key, "|via="...)
+	key = append(key, topVia...)
+	key = append(key, "|callid="...)
+	key = append(key, callID...)
+	key = append(key, "|fromtag="...)
+	key = append(key, fromTag...)
+	key = append(key, "|cseq="...)
+	key = strconv.AppendUint(key, uint64(cseqNum), 10)
+	key = append(key, "|cseqm="...)
+	key = append(key, cseqMethod...)
+
+	sum := sha256.Sum256(key)
+	return hex.EncodeToString(sum[:8])
 }

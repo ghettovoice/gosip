@@ -52,7 +52,7 @@ type statsServerTransp struct {
 	ServerTransport
 	*statsServerValues
 	cancOnReq func()
-	onReq     types.CallbackManager[RequestHandler]
+	onReq     types.CallbackManager[TransportRequestHandler]
 }
 
 type statsServerValues struct {
@@ -64,7 +64,7 @@ type statsClientTransp struct {
 	ClientTransport
 	*statsClientValues
 	cancOnRes func()
-	onRes     types.CallbackManager[ResponseHandler]
+	onRes     types.CallbackManager[TransportResponseHandler]
 }
 
 type statsClientValues struct {
@@ -114,50 +114,56 @@ func NewStatsTransport(tp Transport) Transport {
 	return stp
 }
 
-func (stp *statsServerTransp) recvReq(ctx context.Context, req *InboundRequest) {
+func (stp *statsServerTransp) recvReq(ctx context.Context, tp ServerTransport, req *InboundRequest) {
 	stp.inReqs.Add(1)
 
-	srvTp, ok := ServerTransportFromContext(ctx)
-	if ok {
-		if _, ok := srvTp.(*statsServerTransp); !ok {
+	if tp, ok := ServerTransportFromContext(ctx); ok {
+		if _, ok := tp.(*statsServerTransp); !ok {
 			ctx = context.WithValue(ctx, srvTranspCtxKey, &statsServerTransp{
-				ServerTransport:   srvTp,
+				ServerTransport:   tp,
 				statsServerValues: stp.statsServerValues,
 			})
 		}
-	} else {
-		srvTp = stp.ServerTransport
+	}
+	if _, ok := tp.(*statsServerTransp); !ok {
+		tp = &statsServerTransp{
+			ServerTransport:   tp,
+			statsServerValues: stp.statsServerValues,
+		}
 	}
 
 	var handled bool
-	stp.onReq.Range(func(fn RequestHandler) {
+	stp.onReq.Range(func(fn TransportRequestHandler) {
 		handled = true
-		fn(ctx, req)
+		fn(ctx, tp, req)
 	})
 	if handled {
 		return
 	}
 
-	log.LoggerFromValues(ctx, srvTp).LogAttrs(ctx, slog.LevelWarn,
+	log.LoggerFromValues(ctx, tp).LogAttrs(ctx, slog.LevelWarn,
 		"discarding inbound request due to missing request handlers",
 		slog.Any("request", req),
 	)
-	respondStateless(ctx, srvTp, req, ResponseStatusServiceUnavailable)
+	respondStateless(ctx, tp, req, ResponseStatusServiceUnavailable)
 }
 
-func (stp *statsClientTransp) recvRes(ctx context.Context, res *InboundResponse) {
+func (stp *statsClientTransp) recvRes(ctx context.Context, tp ClientTransport, res *InboundResponse) {
 	stp.inRess.Add(1)
 
-	clnTp, ok := ClientTransportFromContext(ctx)
-	if ok {
-		if _, ok := clnTp.(*statsClientTransp); !ok {
+	if tp, ok := ClientTransportFromContext(ctx); ok {
+		if _, ok := tp.(*statsClientTransp); !ok {
 			ctx = context.WithValue(ctx, clnTranspCtxKey, &statsClientTransp{
-				ClientTransport:   clnTp,
+				ClientTransport:   tp,
 				statsClientValues: stp.statsClientValues,
 			})
 		}
-	} else {
-		clnTp = stp.ClientTransport
+	}
+	if _, ok := tp.(*statsClientTransp); !ok {
+		tp = &statsClientTransp{
+			ClientTransport:   tp,
+			statsClientValues: stp.statsClientValues,
+		}
 	}
 
 	if hdr, ok := res.Headers().Timestamp(); ok && !hdr.RequestTime.IsZero() {
@@ -169,15 +175,15 @@ func (stp *statsClientTransp) recvRes(ctx context.Context, res *InboundResponse)
 	}
 
 	var handled bool
-	stp.onRes.Range(func(fn ResponseHandler) {
+	stp.onRes.Range(func(fn TransportResponseHandler) {
 		handled = true
-		fn(ctx, res)
+		fn(ctx, tp, res)
 	})
 	if handled {
 		return
 	}
 
-	log.LoggerFromValues(ctx, clnTp).LogAttrs(ctx, slog.LevelWarn,
+	log.LoggerFromValues(ctx, tp).LogAttrs(ctx, slog.LevelWarn,
 		"discarding inbound response due to missing response handlers",
 		slog.Any("response", res),
 	)
@@ -217,11 +223,11 @@ func (stp *statsServerTransp) SendResponse(ctx context.Context, res *OutboundRes
 	return nil
 }
 
-func (stp *statsServerTransp) OnRequest(fn RequestHandler) (cancel func()) {
+func (stp *statsServerTransp) OnRequest(fn TransportRequestHandler) (cancel func()) {
 	return stp.onReq.Add(fn)
 }
 
-func (stp *statsClientTransp) OnResponse(fn ResponseHandler) (cancel func()) {
+func (stp *statsClientTransp) OnResponse(fn TransportResponseHandler) (cancel func()) {
 	return stp.onRes.Add(fn)
 }
 
@@ -281,7 +287,7 @@ type logMsgServerTransp struct {
 	log       *slog.Logger
 	lvl       slog.Level
 	cancOnReq func()
-	onReq     types.CallbackManager[RequestHandler]
+	onReq     types.CallbackManager[TransportRequestHandler]
 }
 
 type logMsgClientTransp struct {
@@ -289,7 +295,7 @@ type logMsgClientTransp struct {
 	log       *slog.Logger
 	lvl       slog.Level
 	cancOnRes func()
-	onRes     types.CallbackManager[ResponseHandler]
+	onRes     types.CallbackManager[TransportResponseHandler]
 }
 
 // NewLogMessageTransport decorates a transport with message logging.
@@ -323,64 +329,72 @@ func NewLogMessageTransport(tp Transport, logger *slog.Logger, lvl slog.Level) T
 	return ltp
 }
 
-func (ltp *logMsgServerTransp) recvReq(ctx context.Context, req *InboundRequest) {
+func (ltp *logMsgServerTransp) recvReq(ctx context.Context, tp ServerTransport, req *InboundRequest) {
 	ltp.log.LogAttrs(ctx, ltp.lvl, "received the request", slog.Any("request", req))
 
-	srvTp, ok := ServerTransportFromContext(ctx)
-	if ok {
-		if _, ok := srvTp.(*logMsgServerTransp); !ok {
+	if tp, ok := ServerTransportFromContext(ctx); ok {
+		if _, ok := tp.(*logMsgServerTransp); !ok {
 			ctx = context.WithValue(ctx, srvTranspCtxKey, &logMsgServerTransp{
-				ServerTransport: srvTp,
+				ServerTransport: tp,
 				log:             ltp.log,
 				lvl:             ltp.lvl,
 			})
 		}
-	} else {
-		srvTp = ltp.ServerTransport
+	}
+	if _, ok := tp.(*logMsgServerTransp); !ok {
+		tp = &logMsgServerTransp{
+			ServerTransport: tp,
+			log:             ltp.log,
+			lvl:             ltp.lvl,
+		}
 	}
 
 	var handled bool
-	ltp.onReq.Range(func(fn RequestHandler) {
+	ltp.onReq.Range(func(fn TransportRequestHandler) {
 		handled = true
-		fn(ctx, req)
+		fn(ctx, tp, req)
 	})
 	if handled {
 		return
 	}
 
-	log.LoggerFromValues(ctx, srvTp).LogAttrs(ctx, slog.LevelWarn,
+	log.LoggerFromValues(ctx, tp).LogAttrs(ctx, slog.LevelWarn,
 		"discarding inbound request due to missing request handlers",
 		slog.Any("request", req),
 	)
-	respondStateless(ctx, srvTp, req, ResponseStatusServiceUnavailable)
+	respondStateless(ctx, tp, req, ResponseStatusServiceUnavailable)
 }
 
-func (ltp *logMsgClientTransp) recvRes(ctx context.Context, res *InboundResponse) {
+func (ltp *logMsgClientTransp) recvRes(ctx context.Context, tp ClientTransport, res *InboundResponse) {
 	ltp.log.LogAttrs(ctx, ltp.lvl, "received the response", slog.Any("response", res))
 
-	clnTp, ok := ClientTransportFromContext(ctx)
-	if ok {
-		if _, ok := clnTp.(*logMsgClientTransp); !ok {
+	if tp, ok := ClientTransportFromContext(ctx); ok {
+		if _, ok := tp.(*logMsgClientTransp); !ok {
 			ctx = context.WithValue(ctx, clnTranspCtxKey, &logMsgClientTransp{
-				ClientTransport: clnTp,
+				ClientTransport: tp,
 				log:             ltp.log,
 				lvl:             ltp.lvl,
 			})
 		}
-	} else {
-		clnTp = ltp.ClientTransport
+	}
+	if _, ok := tp.(*logMsgClientTransp); !ok {
+		tp = &logMsgClientTransp{
+			ClientTransport: tp,
+			log:             ltp.log,
+			lvl:             ltp.lvl,
+		}
 	}
 
 	var handled bool
-	ltp.onRes.Range(func(fn ResponseHandler) {
+	ltp.onRes.Range(func(fn TransportResponseHandler) {
 		handled = true
-		fn(ctx, res)
+		fn(ctx, tp, res)
 	})
 	if handled {
 		return
 	}
 
-	log.LoggerFromValues(ctx, clnTp).LogAttrs(ctx, slog.LevelWarn,
+	log.LoggerFromValues(ctx, tp).LogAttrs(ctx, slog.LevelWarn,
 		"discarding inbound response due to missing response handlers",
 		slog.Any("response", res),
 	)
@@ -406,11 +420,11 @@ func (ltp *logMsgServerTransp) SendResponse(ctx context.Context, res *OutboundRe
 	return nil
 }
 
-func (ltp *logMsgServerTransp) OnRequest(fn RequestHandler) (cancel func()) {
+func (ltp *logMsgServerTransp) OnRequest(fn TransportRequestHandler) (cancel func()) {
 	return ltp.onReq.Add(fn)
 }
 
-func (ltp *logMsgClientTransp) OnResponse(fn ResponseHandler) (cancel func()) {
+func (ltp *logMsgClientTransp) OnResponse(fn TransportResponseHandler) (cancel func()) {
 	return ltp.onRes.Add(fn)
 }
 

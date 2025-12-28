@@ -356,7 +356,7 @@ func TestParsePacket_ContentLengthTooLarge(t *testing.T) {
 	}
 
 	want := &sip.ParseError{
-		Err:   sip.ErrMessageTooLarge,
+		Err:   sip.ErrEntityTooLarge,
 		State: sip.ParseStateHeaders,
 		Msg: &sip.Request{
 			Method: sip.RequestMethodInvite,
@@ -373,7 +373,8 @@ func TestParsePacket_ContentLengthTooLarge(t *testing.T) {
 						Addr:      header.Host("a.example.com"),
 						Params:    make(header.Values).Append("branch", "qwerty"),
 					},
-				}),
+				}).
+				Append(header.ContentLength(contentLen)),
 		},
 	}
 	if !cmpParseError(err, want) {
@@ -556,7 +557,7 @@ func TestParseStream_ContentLengthTooLarge(t *testing.T) {
 	}
 
 	want := &sip.ParseError{
-		Err:   sip.ErrMessageTooLarge,
+		Err:   sip.ErrEntityTooLarge,
 		State: sip.ParseStateHeaders,
 		Msg: &sip.Request{
 			Method: sip.RequestMethodInvite,
@@ -573,7 +574,8 @@ func TestParseStream_ContentLengthTooLarge(t *testing.T) {
 						Addr:      header.Host("a.example.com"),
 						Params:    make(header.Values).Append("branch", "qwerty"),
 					},
-				}),
+				}).
+				Append(header.ContentLength(contentLen)),
 		},
 	}
 	if !cmpParseError(err, want) {

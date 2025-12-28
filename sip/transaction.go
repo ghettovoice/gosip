@@ -56,9 +56,9 @@ type Transaction interface {
 	Terminate(ctx context.Context) error
 }
 
-type TransactionStateHandler = func(ctx context.Context, from, to TransactionState)
+type TransactionStateHandler = func(ctx context.Context, tx Transaction, from, to TransactionState)
 
-type TransactionErrorHandler = func(ctx context.Context, err error)
+type TransactionErrorHandler = func(ctx context.Context, tx Transaction, err error)
 
 type baseTransact struct {
 	ctx       context.Context
@@ -127,7 +127,7 @@ func (tx *baseTransact) deliverPendingStates() {
 
 	tx.onStateChanged.Range(func(fn TransactionStateHandler) {
 		for _, tr := range transitions {
-			fn(tx.ctx, tr.Source.(TransactionState), tr.Destination.(TransactionState)) //nolint:forcetypeassert
+			fn(tx.ctx, tx.impl.(Transaction), tr.Source.(TransactionState), tr.Destination.(TransactionState))
 		}
 	})
 }
@@ -162,7 +162,7 @@ func (tx *baseTransact) deliverPendingErrs() {
 
 	tx.onErr.Range(func(fn TransactionErrorHandler) {
 		for _, err := range errs {
-			fn(tx.ctx, errtrace.Wrap(err))
+			fn(tx.ctx, tx.impl.(Transaction), errtrace.Wrap(err))
 		}
 	})
 }

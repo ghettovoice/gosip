@@ -25,7 +25,7 @@ type InviteServerTransaction struct {
 	tmrI   atomic.Pointer[timeutil.SerializableTimer]
 	tmrL   atomic.Pointer[timeutil.SerializableTimer]
 
-	onAck       types.CallbackManager[RequestHandler]
+	onAck       types.CallbackManager[TransactionRequestHandler]
 	pendingAcks types.Deque[*InboundRequest]
 }
 
@@ -160,9 +160,9 @@ func (tx *InviteServerTransaction) deliverPendingAcks() {
 		return
 	}
 
-	tx.onAck.Range(func(fn RequestHandler) {
+	tx.onAck.Range(func(fn TransactionRequestHandler) {
 		for _, ack := range acks {
-			fn(tx.ctx, ack)
+			fn(tx.ctx, tx, ack)
 		}
 	})
 }
@@ -379,7 +379,7 @@ func (tx *InviteServerTransaction) recvReq(ctx context.Context, req *InboundRequ
 //
 // The callback can be canceled by calling the returned cancel function.
 // Multiple callbacks can be registered.
-func (tx *InviteServerTransaction) OnAck(fn RequestHandler) (cancel func()) {
+func (tx *InviteServerTransaction) OnAck(fn TransactionRequestHandler) (cancel func()) {
 	cancel = tx.onAck.Add(fn)
 	tx.deliverPendingAcks()
 	return cancel

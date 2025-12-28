@@ -97,12 +97,12 @@ func TestNewReliableTransport(t *testing.T) {
 }
 
 func setupRelTransp(
-	t *testing.T,
+	tb testing.TB,
 	ctrl *gomock.Controller,
 	onLsClose func(),
 	getConn func() net.Conn,
 ) (*sip.ReliableTransport, *netmock.MockListener) {
-	t.Helper()
+	tb.Helper()
 
 	ls := netmock.NewMockListener(ctrl)
 	ls.EXPECT().
@@ -126,13 +126,13 @@ func setupRelTransp(
 		ConnDialer: sip.ConnDialerFunc(func(context.Context, string, netip.AddrPort) (net.Conn, error) {
 			return getConn(), nil
 		}),
-		// Log: sip.ConsoleLogger(),
+		// Log: log.Console(),
 	})
 	if err != nil {
-		t.Fatalf("sip.NewReliableTransport(\"TCP\", ls, opts) error = %v, want nil", err)
+		tb.Fatalf("sip.NewReliableTransport(\"TCP\", ls, opts) error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		tp.Close()
 	})
 
@@ -507,7 +507,7 @@ func TestReliableTransport_SendResponse(t *testing.T) {
 			Times(2)
 
 		reqRecv := make(chan struct{})
-		unbind := tp.OnRequest(func(context.Context, *sip.InboundRequest) {
+		unbind := tp.OnRequest(func(context.Context, sip.ServerTransport, *sip.InboundRequest) {
 			close(reqRecv)
 		})
 		defer unbind()
@@ -653,8 +653,6 @@ func TestReliableTransport_ReceiveRequests(t *testing.T) {
 		Close().
 		Do(func() error {
 			close(connClosed)
-			close(readPackets)
-			close(writePackets)
 			return nil
 		}).
 		Return(nil).
@@ -663,15 +661,16 @@ func TestReliableTransport_ReceiveRequests(t *testing.T) {
 	conn.EXPECT().
 		Read(gomock.AssignableToTypeOf([]byte(nil))).
 		DoAndReturn(func(b []byte) (int, error) {
-			p, ok := <-readPackets
-			if !ok {
+			select {
+			case <-connClosed:
 				return 0, errtrace.Wrap(net.ErrClosed)
+			case p := <-readPackets:
+				if p.err != nil {
+					return 0, errtrace.Wrap(p.err)
+				}
+				n := copy(b, p.buf)
+				return n, nil
 			}
-			if p.err != nil {
-				return 0, errtrace.Wrap(p.err)
-			}
-			n := copy(b, p.buf)
-			return n, nil
 		}).
 		AnyTimes()
 	conn.EXPECT().
@@ -708,27 +707,33 @@ func TestReliableTransport_ReceiveRequests(t *testing.T) {
 	rmtDone := make(chan struct{})
 	go func() {
 		// remote side
+		defer close(rmtDone)
 
-		// send some trash
-		readPackets <- readPacket{
-			buf: []byte("hello!"),
-		}
-		readPackets <- readPacket{
-			buf: []byte("qwerty"),
+		send := func(p readPacket) bool {
+			select {
+			case <-connClosed:
+				return false
+			case readPackets <- p:
+				return true
+			}
 		}
 
 		// ping must be skipped
-		readPackets <- readPacket{
+		if !send(readPacket{
 			buf: []byte("\r\n\r\n"),
+		}) {
+			return
 		}
 
 		// temp conn error must be skipped
-		readPackets <- readPacket{
+		if !send(readPacket{
 			err: os.ErrDeadlineExceeded,
+		}) {
+			return
 		}
 
 		// valid request must be received
-		readPackets <- readPacket{
+		if !send(readPacket{
 			buf: []byte(
 				"INVITE sip:127.0.0.1:5060 SIP/2.0\r\n" +
 					"Via: SIP/2.0/TCP example.com:5060;branch=" + sip.MagicCookie + ".qwerty\r\n" +
@@ -739,12 +744,14 @@ func TestReliableTransport_ReceiveRequests(t *testing.T) {
 					"Max-Forwards: 70\r\n" +
 					"Content-Length: 12\r\n" +
 					"\r\n" +
-					"hello world!this is will be skipped\r\n",
+					"hello world!",
 			),
+		}) {
+			return
 		}
 
-		// too big request must be discarded with 513 response
-		readPackets <- readPacket{
+		// too big request must be discarded with 413 response
+		if !send(readPacket{
 			buf: []byte(
 				"OPTIONS sip:127.0.0.1:5060 SIP/2.0\r\n" +
 					"Via: SIP/2.0/TCP example.com:5060;branch=" + sip.MagicCookie + ".qwerty\r\n" +
@@ -753,31 +760,16 @@ func TestReliableTransport_ReceiveRequests(t *testing.T) {
 					"Call-ID: 123-abc-xyz@example.com\r\n" +
 					"CSeq: 1 INVITE\r\n" +
 					"Max-Forwards: 70\r\n" +
-					"Content-Length: " + strconv.Itoa(int(sip.MaxMsgSize)) + "\r\n" +
-					"\r\n" +
-					strings.Repeat("x", int(sip.MaxMsgSize)),
-			),
-		}
-
-		// request with Content-Length
-		readPackets <- readPacket{
-			buf: []byte(
-				"INFO sip:127.0.0.1:5060 SIP/2.0\r\n" +
-					"Via: SIP/2.0/TCP example.com:5060;branch=" + sip.MagicCookie + ".qwerty\r\n" +
-					"From: Bob <sip:bob@example.com>;tag=abc\r\n" +
-					"To: Alice <sip:alice@127.0.0.1>\r\n" +
-					"Call-ID: 123-abc-xyz@example.com\r\n" +
-					"CSeq: 1 INVITE\r\n" +
-					"Max-Forwards: 70\r\n" +
+					"Content-Length: " + strconv.Itoa(int(sip.MaxMsgSize+1)) + "\r\n" +
 					"\r\n",
 			),
+		}) {
+			return
 		}
-
-		close(rmtDone)
 	}()
 
 	reqs := make(chan *sip.InboundRequest)
-	unbind := tp.OnRequest(func(_ context.Context, req *sip.InboundRequest) {
+	unbind := tp.OnRequest(func(_ context.Context, _ sip.ServerTransport, req *sip.InboundRequest) {
 		reqs <- req
 	})
 	defer unbind()
@@ -800,12 +792,12 @@ func TestReliableTransport_ReceiveRequests(t *testing.T) {
 		t.Errorf("unexpected request received\ndiff (-got +want)\n%v", diff)
 	}
 
-	// got too big request and must send 513 response
+	// got too big request and must send 413 response
 	pkt, ok := <-writePackets
 	if !ok {
 		t.Fatal("unexpected end of outbound packets")
 	}
-	wantMsg = "SIP/2.0 513 Message Too Large\r\n" +
+	wantMsg = "SIP/2.0 413 Request Entity Too Large\r\n" +
 		"Via: SIP/2.0/TCP example.com:5060;branch=" + sip.MagicCookie + ".qwerty;received=123.123.123.123\r\n" +
 		"From: \"Bob\" <sip:bob@example.com>;tag=abc\r\n" +
 		"To: \"Alice\" <sip:alice@127.0.0.1>;tag=[a-zA-Z0-9]+\r\n" +
@@ -820,25 +812,135 @@ func TestReliableTransport_ReceiveRequests(t *testing.T) {
 		t.Errorf("unexpected response sent\ndiff (-got +want)\n%v", cmp.Diff(gotMsg, wantMsg))
 	}
 
-	// got request without Content-Length and must answer 400 response
-	pkt, ok = <-writePackets
-	if !ok {
-		t.Fatal("unexpected end of outbound packets")
+	<-rmtDone
+}
+
+func TestReliableTransport_ReceiveRequests_PanicInHandler(t *testing.T) {
+	t.Parallel()
+
+	type readPacket struct {
+		buf []byte
+		err error
 	}
-	wantMsg = "SIP/2.0 400 Bad Request\r\n" +
-		"Via: SIP/2.0/TCP example.com:5060;branch=" + sip.MagicCookie + ".qwerty;received=123.123.123.123\r\n" +
-		"From: \"Bob\" <sip:bob@example.com>;tag=abc\r\n" +
-		"To: \"Alice\" <sip:alice@127.0.0.1>;tag=[a-zA-Z0-9]+\r\n" +
-		"Call-ID: 123-abc-xyz@example.com\r\n" +
-		"CSeq: 1 INVITE\r\n" +
-		"Content-Length: 0\r\n" +
-		"\r\n"
-	gotMsg = string(pkt.buf)
-	if match, err := regexp.MatchString(wantMsg, gotMsg); err != nil {
-		t.Errorf("compile regexp failed: %v", err)
-	} else if !match {
-		t.Errorf("unexpected response sent\ndiff (-got +want)\n%v", cmp.Diff(gotMsg, wantMsg))
+	readPackets := make(chan readPacket)
+
+	type writePacket struct {
+		buf []byte
+	}
+	writePackets := make(chan writePacket)
+
+	ctrl := gomock.NewController(t)
+	lsClosed := make(chan struct{})
+	tp, ls := setupRelTransp(t, ctrl, func() { close(lsClosed) }, nil)
+
+	conn := netmock.NewMockConn(ctrl)
+	conn.EXPECT().
+		LocalAddr().
+		Return(&net.TCPAddr{IP: net.IPv4zero, Port: 5060}).
+		MinTimes(1)
+	conn.EXPECT().
+		RemoteAddr().
+		Return(&net.TCPAddr{IP: net.ParseIP("123.123.123.123").To4(), Port: 12345}).
+		MinTimes(1)
+	conn.EXPECT().
+		SetReadDeadline(gomock.AssignableToTypeOf(time.Time{})).
+		Return(nil).
+		AnyTimes()
+	conn.EXPECT().
+		SetWriteDeadline(gomock.AssignableToTypeOf(time.Time{})).
+		Return(nil).
+		AnyTimes()
+
+	connClosed := make(chan struct{})
+	conn.EXPECT().
+		Close().
+		Do(func() error {
+			select {
+			case <-connClosed:
+			default:
+				close(connClosed)
+			}
+			return nil
+		}).
+		Return(nil).
+		Times(1)
+
+	conn.EXPECT().
+		Read(gomock.AssignableToTypeOf([]byte(nil))).
+		DoAndReturn(func(b []byte) (int, error) {
+			select {
+			case <-connClosed:
+				return 0, errtrace.Wrap(net.ErrClosed)
+			case p := <-readPackets:
+				if p.err != nil {
+					return 0, errtrace.Wrap(p.err)
+				}
+				n := copy(b, p.buf)
+				return n, nil
+			}
+		}).
+		AnyTimes()
+
+	conn.EXPECT().
+		Write(gomock.AssignableToTypeOf([]byte(nil))).
+		DoAndReturn(func(b []byte) (int, error) {
+			select {
+			case <-connClosed:
+				return 0, errtrace.Wrap(net.ErrClosed)
+			default:
+				writePackets <- writePacket{buf: slices.Clone(b)}
+				return len(b), nil
+			}
+		}).
+		AnyTimes()
+
+	var connAccepted atomic.Bool
+	ls.EXPECT().
+		Accept().
+		DoAndReturn(func() (net.Conn, error) {
+			if connAccepted.CompareAndSwap(false, true) {
+				return conn, nil
+			}
+			<-lsClosed
+			return nil, errtrace.Wrap(net.ErrClosed)
+		}).
+		Times(2)
+
+	unbind := tp.OnRequest(func(context.Context, sip.ServerTransport, *sip.InboundRequest) {
+		panic("boom")
+	})
+	defer unbind()
+
+	go tp.Serve() //nolint:errcheck
+
+	readPackets <- readPacket{buf: []byte(
+		"INVITE sip:127.0.0.1:5060 SIP/2.0\r\n" +
+			"Via: SIP/2.0/TCP example.com:5060;branch=" + sip.MagicCookie + ".panic\r\n" +
+			"From: Bob <sip:bob@example.com>;tag=abc\r\n" +
+			"To: Alice <sip:alice@127.0.0.1>\r\n" +
+			"Call-ID: 123-abc-xyz@example.com\r\n" +
+			"CSeq: 1 INVITE\r\n" +
+			"Max-Forwards: 70\r\n" +
+			"Content-Length: 0\r\n" +
+			"\r\n",
+	)}
+
+	select {
+	case pkt := <-writePackets:
+		gotMsg := string(pkt.buf)
+		if !strings.HasPrefix(gotMsg, "SIP/2.0 500 Server Internal Error\r\n") {
+			t.Fatalf("unexpected response sent: %q", gotMsg)
+		}
+		if !strings.Contains(gotMsg, "\r\nRetry-After: 60\r\n") {
+			t.Fatalf("missing Retry-After header in response: %q", gotMsg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for 500 response")
 	}
 
-	<-rmtDone
+	select {
+	case <-connClosed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for connection close")
+	}
 }

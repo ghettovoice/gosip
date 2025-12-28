@@ -141,7 +141,7 @@ func TestNonInviteServerTransaction_ProceedingTranspErr(t *testing.T) {
 	}
 
 	errCh := make(chan error, 1)
-	tx.OnError(func(ctx context.Context, err error) {
+	tx.OnError(func(ctx context.Context, _ sip.Transaction, err error) {
 		select {
 		case errCh <- err:
 		default:
@@ -243,7 +243,7 @@ func TestNonInviteServerTransaction_Terminate_FromTrying(t *testing.T) {
 	}
 
 	stateCh := make(chan sip.TransactionState, 1)
-	tx.OnStateChanged(func(_ context.Context, _, to sip.TransactionState) {
+	tx.OnStateChanged(func(_ context.Context, _ sip.Transaction, _, to sip.TransactionState) {
 		if to == sip.TransactionStateTerminated {
 			stateCh <- to
 		}

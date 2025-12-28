@@ -30,24 +30,7 @@ type ServerTransaction interface {
 	Respond(ctx context.Context, sts ResponseStatus, opts *RespondOptions) error
 }
 
-type RespondOptions struct {
-	ResponseOptions *ResponseOptions
-	SendOptions     *SendResponseOptions
-}
-
-func (o *RespondOptions) resOpts() *ResponseOptions {
-	if o == nil {
-		return nil
-	}
-	return o.ResponseOptions
-}
-
-func (o *RespondOptions) sendOpts() *SendResponseOptions {
-	if o == nil {
-		return nil
-	}
-	return o.SendOptions
-}
+type TransactionRequestHandler = func(ctx context.Context, tx ServerTransaction, req *InboundRequest)
 
 type ServerTransactionStore = TransactionStore[ServerTransactionKey, ServerTransaction]
 
@@ -506,8 +489,8 @@ func (k *ServerTransactionKey) FillFromMessage(msg Message) error {
 
 func (k *ServerTransactionKey) fillFromRequestRFC2543(rmtd RequestMethod, ruri URI, hdrs Headers) error {
 	via, _ := hdrs.FirstVia()
-	k.Via = via.String()
-	k.URI = ruri.Render(nil)
+	k.Via = util.LCase(via.String())
+	k.URI = util.LCase(ruri.Render(nil))
 
 	from, _ := hdrs.From()
 	k.FromTag, _ = from.Tag()

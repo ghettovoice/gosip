@@ -159,7 +159,6 @@ func parseMsg(rdr *bufio.Reader, packetMode bool) (Message, error) {
 					Err:   err,
 					State: state,
 					Data:  line,
-					Msg:   msg,
 				})
 			}
 
@@ -199,13 +198,8 @@ func parseMsg(rdr *bufio.Reader, packetMode bool) (Message, error) {
 			case hdrs.Has("Content-Length"):
 				if ct, ok := hdrs.ContentLength(); ok {
 					if uint64(ct) > uint64(MaxMsgSize) {
-						hdrs.Del("Content-Length")
 						return nil, errtrace.Wrap(&ParseError{
-							Err: fmt.Errorf(
-								"%w: %w",
-								ErrMessageTooLarge,
-								NewInvalidMessageError("content length %d exceeds max %d", ct, MaxMsgSize),
-							),
+							Err:   fmt.Errorf("%w: Content-Length exceeds max size %d", ErrEntityTooLarge, MaxMsgSize),
 							State: state,
 							Msg:   msg,
 						})

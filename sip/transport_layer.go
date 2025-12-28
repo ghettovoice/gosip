@@ -29,8 +29,8 @@ type TransportLayer struct {
 	serving bool
 	srvErrs []error
 
-	onReq types.CallbackManager[RequestHandler]
-	onRes types.CallbackManager[ResponseHandler]
+	onReq types.CallbackManager[TransportRequestHandler]
+	onRes types.CallbackManager[TransportResponseHandler]
 
 	closeOnce sync.Once
 	closeErr  error
@@ -95,50 +95,36 @@ func (tpl *TransportLayer) TrackTransport(tp Transport, isDef bool) error {
 	return nil
 }
 
-func (tpl *TransportLayer) recvReq(ctx context.Context, req *InboundRequest) {
+func (tpl *TransportLayer) recvReq(ctx context.Context, tp ServerTransport, req *InboundRequest) {
 	// ctx = context.WithValue(ctx, transpLayerCtxKey, tpl)
 	var handled bool
-	tpl.onReq.Range(func(fn RequestHandler) {
+	tpl.onReq.Range(func(fn TransportRequestHandler) {
 		handled = true
-		fn(ctx, req)
+		fn(ctx, tp, req)
 	})
 	if handled {
 		return
 	}
 
-	var srvTp ServerTransport
-	if tp, ok := ServerTransportFromContext(ctx); ok {
-		srvTp = tp
-	} else {
-		srvTp = tpl
-	}
-
-	log.LoggerFromValues(ctx, srvTp).LogAttrs(ctx, slog.LevelWarn,
+	log.LoggerFromValues(ctx, tp).LogAttrs(ctx, slog.LevelWarn,
 		"discarding inbound request due to missing transport layer request handlers",
 		slog.Any("request", req),
 	)
-	respondStateless(ctx, srvTp, req, ResponseStatusServiceUnavailable)
+	respondStateless(ctx, tp, req, ResponseStatusServiceUnavailable)
 }
 
-func (tpl *TransportLayer) recvRes(ctx context.Context, res *InboundResponse) {
+func (tpl *TransportLayer) recvRes(ctx context.Context, tp ClientTransport, res *InboundResponse) {
 	// ctx = context.WithValue(ctx, transpLayerCtxKey, tpl)
 	var handled bool
-	tpl.onRes.Range(func(fn ResponseHandler) {
+	tpl.onRes.Range(func(fn TransportResponseHandler) {
 		handled = true
-		fn(ctx, res)
+		fn(ctx, tp, res)
 	})
 	if handled {
 		return
 	}
 
-	var clnTp ClientTransport
-	if tp, ok := ClientTransportFromContext(ctx); ok {
-		clnTp = tp
-	} else {
-		clnTp = tpl
-	}
-
-	log.LoggerFromValues(ctx, clnTp).LogAttrs(ctx, slog.LevelWarn,
+	log.LoggerFromValues(ctx, tp).LogAttrs(ctx, slog.LevelWarn,
 		"discarding inbound response due to missing transport layer response handlers",
 		slog.Any("response", res),
 	)
@@ -285,11 +271,11 @@ func (tpl *TransportLayer) SendResponse(ctx context.Context, res *OutboundRespon
 	return errtrace.Wrap(tp.SendResponse(ctx, res, opts))
 }
 
-func (tpl *TransportLayer) OnRequest(fn RequestHandler) (cancel func()) {
+func (tpl *TransportLayer) OnRequest(fn TransportRequestHandler) (cancel func()) {
 	return tpl.onReq.Add(fn)
 }
 
-func (tpl *TransportLayer) OnResponse(fn ResponseHandler) (cancel func()) {
+func (tpl *TransportLayer) OnResponse(fn TransportResponseHandler) (cancel func()) {
 	return tpl.onRes.Add(fn)
 }
 

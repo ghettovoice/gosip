@@ -14,19 +14,20 @@ SIP transactions in `gosip` support serialization and restoration through a **sn
 
 - ✅ INVITE server transactions
 - ✅ Non-INVITE server transactions
-- ❌ Client transactions (not yet supported)
+- ✅ INVITE client transactions
+- ✅ Non-INVITE client transactions
 
 ## Key Concepts
 
 ### Snapshot
 
-`ServerTransactionSnapshot` is a serializable structure that contains all the data needed to restore a transaction:
+`ServerTransactionSnapshot` and `ClientTransactionSnapshot` are serializable structures that contain all the data needed to restore a transaction:
 
-- Transaction state (Proceeding, Accepted, Completed, etc.)
+- Transaction state (Trying, Proceeding, Accepted, Completed, etc.)
 - Transaction key
 - Original request and last response
 - Timer states (automatically managed by `SerializableTimer`)
-- Send options used for the last response
+- Send options used for the request/response
 
 > **Note**: The snapshot creates deep copies of the request, last response, and send options. This ensures that the snapshot is independent of the original transaction and can be safely serialized and stored without worrying about concurrent modifications.
 
@@ -82,6 +83,41 @@ snapshot := tx.Snapshot()
 restoredTx, _ := sip.RestoreNonInviteServerTransaction(snapshot, transport, opts)
 ```
 
+### INVITE Client Transaction Example
+
+```go
+// Create INVITE client transaction
+tx, _ := sip.NewInviteClientTransaction(req, transport, &sip.ClientTransactionOptions{
+    Log: logger,
+})
+
+// Take snapshot
+snapshot := tx.Snapshot()
+
+// Serialize to JSON
+data, _ := json.Marshal(snapshot)
+
+// Restore INVITE client transaction
+var snapCopy sip.ClientTransactionSnapshot
+json.Unmarshal(data, &snapCopy)
+restoredTx, _ := sip.RestoreInviteClientTransaction(&snapCopy, transport, &sip.ClientTransactionOptions{
+    Log: logger,
+})
+```
+
+### Non-INVITE Client Transaction Example
+
+```go
+// Create non-INVITE client transaction
+tx, _ := sip.NewNonInviteClientTransaction(req, transport, opts)
+
+// Take snapshot
+snapshot := tx.Snapshot()
+
+// Restore non-INVITE client transaction
+restoredTx, _ := sip.RestoreNonInviteClientTransaction(snapshot, transport, opts)
+```
+
 ### Automatic Persistence on State Changes
 
 The recommended approach is to use `OnStateChanged` callback to automatically persist transactions:
@@ -126,7 +162,8 @@ Thanks to `SerializableTimer`, you don't need to manually manage timer state.
 ❌ Context (a new context is created)  
 ❌ State change callbacks (need to be re-registered)  
 ❌ Error callbacks (`OnError`) (need to be re-registered)  
-❌ ACK callbacks (`OnAck`) for INVITE transactions (need to be re-registered)  
+❌ ACK callbacks (`OnAck`) for INVITE server transactions (need to be re-registered)
+❌ Response callbacks (`OnResponse`) for client transactions (need to be re-registered)  
 
 ### FSM State Restoration
 
@@ -197,14 +234,35 @@ tx.OnStateChanged(func(ctx context.Context, from, to sip.TransactionState) {
 Non-INVITE transactions work the same way but use different functions:
 
 ```go
-// Create non-INVITE transaction
+// Create non-INVITE server transaction
 tx, _ := sip.NewNonInviteServerTransaction(req, transport, opts)
 
 // Restore from snapshot
 restoredTx, _ := sip.RestoreNonInviteServerTransaction(snapshot, transport, opts)
 ```
 
-### 6. Version Check on Restore
+### 6. Client Transaction Persistence
+
+Client transactions support the same snapshot/restore pattern:
+
+```go
+// INVITE client transaction
+inviteTx, _ := sip.NewInviteClientTransaction(req, transport, opts)
+snapshot := inviteTx.Snapshot()
+restoredInvite, _ := sip.RestoreInviteClientTransaction(snapshot, transport, opts)
+
+// Non-INVITE client transaction
+nonInviteTx, _ := sip.NewNonInviteClientTransaction(req, transport, opts)
+snapshot := nonInviteTx.Snapshot()
+restoredNonInvite, _ := sip.RestoreNonInviteClientTransaction(snapshot, transport, opts)
+```
+
+**Client transaction timers restored:**
+
+- INVITE: TimerA (retransmit), TimerB (timeout), TimerD (wait for retransmits), TimerM (wait for 2xx retransmits)
+- Non-INVITE: TimerE (retransmit), TimerF (timeout), TimerK (wait for retransmits)
+
+### 7. Version Check on Restore
 
 ```go
 var snapshot sip.ServerTransactionSnapshot
@@ -298,7 +356,12 @@ See `examples/transaction_persistence/main.go` for a complete working example.
 
 ## Testing
 
-The snapshot/restore functionality is integrated into the main transaction tests in `transaction_server_invite_test.go` and `transaction_server_non_invite_test.go`.
+The snapshot/restore functionality is integrated into the main transaction tests:
+
+- `transaction_server_invite_test.go` - INVITE server transaction snapshots
+- `transaction_server_non_invite_test.go` - Non-INVITE server transaction snapshots
+- `transaction_client_invite_test.go` - INVITE client transaction snapshots
+- `transaction_client_non_invite_test.go` - Non-INVITE client transaction snapshots
 
 Run tests:
 
@@ -308,6 +371,12 @@ go test -v -run TestInviteServerTransaction
 
 # Test Non-INVITE server transactions (includes snapshot functionality)
 go test -v -run TestNonInviteServerTransaction
+
+# Test INVITE client transactions (includes snapshot functionality)
+go test -v -run TestInviteClientTransaction
+
+# Test Non-INVITE client transactions (includes snapshot functionality)
+go test -v -run TestNonInviteClientTransaction
 
 # Test all transaction functionality
 go test -v ./...

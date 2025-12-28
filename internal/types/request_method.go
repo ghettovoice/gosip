@@ -9,17 +9,17 @@ const (
 	RequestMethodAck       RequestMethod = "ACK"
 	RequestMethodBye       RequestMethod = "BYE"
 	RequestMethodCancel    RequestMethod = "CANCEL"
-	RequestMethodInfo      RequestMethod = "INFO"
+	RequestMethodInfo      RequestMethod = "INFO" // RFC 6086
 	RequestMethodInvite    RequestMethod = "INVITE"
-	RequestMethodMessage   RequestMethod = "MESSAGE"
-	RequestMethodNotify    RequestMethod = "NOTIFY"
+	RequestMethodMessage   RequestMethod = "MESSAGE" // RFC 3428
+	RequestMethodNotify    RequestMethod = "NOTIFY"  // RFC 6665
 	RequestMethodOptions   RequestMethod = "OPTIONS"
-	RequestMethodPrack     RequestMethod = "PRACK"
-	RequestMethodPublish   RequestMethod = "PUBLISH"
-	RequestMethodRefer     RequestMethod = "REFER"
+	RequestMethodPrack     RequestMethod = "PRACK"   // RFC 3262
+	RequestMethodPublish   RequestMethod = "PUBLISH" // RFC 3903
+	RequestMethodRefer     RequestMethod = "REFER"   // RFC 3515
 	RequestMethodRegister  RequestMethod = "REGISTER"
-	RequestMethodSubscribe RequestMethod = "SUBSCRIBE"
-	RequestMethodUpdate    RequestMethod = "UPDATE"
+	RequestMethodSubscribe RequestMethod = "SUBSCRIBE" // RFC 6665
+	RequestMethodUpdate    RequestMethod = "UPDATE"    // RFC 3311
 )
 
 type RequestMethod string
@@ -44,4 +44,25 @@ func (m RequestMethod) Equal(val any) bool {
 		return false
 	}
 	return util.EqFold(m, other)
+}
+
+func IsKnownRequestMethod[T ~string](mtd T) bool {
+	switch util.UCase(RequestMethod(mtd)) {
+	case RequestMethodAck,
+		RequestMethodBye,
+		RequestMethodCancel,
+		RequestMethodInfo,
+		RequestMethodInvite,
+		RequestMethodMessage,
+		RequestMethodNotify,
+		RequestMethodOptions,
+		RequestMethodPrack,
+		RequestMethodPublish,
+		RequestMethodRefer,
+		RequestMethodRegister,
+		RequestMethodSubscribe,
+		RequestMethodUpdate:
+		return true
+	}
+	return false
 }

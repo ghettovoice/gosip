@@ -37,8 +37,8 @@ type stubTransport struct {
 	mu          sync.Mutex
 	serveErr    error
 	closed      bool
-	reqHandlers []sip.RequestHandler
-	resHandlers []sip.ResponseHandler
+	reqHandlers []sip.TransportRequestHandler
+	resHandlers []sip.TransportResponseHandler
 	serveCh     chan struct{}
 
 	// Request tracking
@@ -110,7 +110,7 @@ func (st *stubTransport) Close() error {
 	return nil
 }
 
-func (st *stubTransport) OnRequest(fn sip.RequestHandler) (cancel func()) {
+func (st *stubTransport) OnRequest(fn sip.TransportRequestHandler) (cancel func()) {
 	st.mu.Lock()
 	idx := len(st.reqHandlers)
 	st.reqHandlers = append(st.reqHandlers, fn)
@@ -124,7 +124,7 @@ func (st *stubTransport) OnRequest(fn sip.RequestHandler) (cancel func()) {
 	}
 }
 
-func (st *stubTransport) OnResponse(fn sip.ResponseHandler) (cancel func()) {
+func (st *stubTransport) OnResponse(fn sip.TransportResponseHandler) (cancel func()) {
 	st.mu.Lock()
 	idx := len(st.resHandlers)
 	st.resHandlers = append(st.resHandlers, fn)
@@ -212,22 +212,22 @@ func (st *stubTransport) responseCount() int {
 
 func (st *stubTransport) triggerRequest(ctx context.Context, req *sip.InboundRequest) {
 	st.mu.Lock()
-	handlers := append([]sip.RequestHandler(nil), st.reqHandlers...)
+	handlers := append([]sip.TransportRequestHandler(nil), st.reqHandlers...)
 	st.mu.Unlock()
 	for _, fn := range handlers {
 		if fn != nil {
-			fn(ctx, req)
+			fn(ctx, st, req)
 		}
 	}
 }
 
 func (st *stubTransport) triggerResponse(ctx context.Context, res *sip.InboundResponse) {
 	st.mu.Lock()
-	handlers := append([]sip.ResponseHandler(nil), st.resHandlers...)
+	handlers := append([]sip.TransportResponseHandler(nil), st.resHandlers...)
 	st.mu.Unlock()
 	for _, fn := range handlers {
 		if fn != nil {
-			fn(ctx, res)
+			fn(ctx, st, res)
 		}
 	}
 }

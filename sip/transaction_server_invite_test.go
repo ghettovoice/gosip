@@ -84,7 +84,7 @@ func TestInviteServerTransaction_CompletedTimedOut(t *testing.T) {
 	}
 
 	errCh := make(chan error, 1)
-	tx.OnError(func(ctx context.Context, err error) {
+	tx.OnError(func(ctx context.Context, _ sip.Transaction, err error) {
 		select {
 		case errCh <- err:
 		default:
@@ -379,7 +379,7 @@ func TestInviteServerTransaction_AcceptedRFC2543(t *testing.T) {
 	}
 
 	ackCh := make(chan *sip.InboundRequest, 1)
-	tx.OnAck(func(ctx context.Context, ack *sip.InboundRequest) {
+	tx.OnAck(func(ctx context.Context, _ sip.ServerTransaction, ack *sip.InboundRequest) {
 		select {
 		case ackCh <- ack:
 		default:
@@ -446,7 +446,7 @@ func TestInviteServerTransaction_AcceptedTranspErr(t *testing.T) {
 	}
 
 	errCh := make(chan error, 1)
-	tx.OnError(func(ctx context.Context, err error) {
+	tx.OnError(func(ctx context.Context, _ sip.Transaction, err error) {
 		select {
 		case errCh <- err:
 		default:
@@ -558,7 +558,7 @@ func TestInviteServerTransaction_Terminate_FromProceeding(t *testing.T) {
 	}
 
 	stateCh := make(chan sip.TransactionState, 1)
-	tx.OnStateChanged(func(_ context.Context, _, to sip.TransactionState) {
+	tx.OnStateChanged(func(_ context.Context, _ sip.Transaction, _, to sip.TransactionState) {
 		if to == sip.TransactionStateTerminated {
 			stateCh <- to
 		}

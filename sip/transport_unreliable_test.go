@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,10 +91,10 @@ func TestNewUnreliableTransport(t *testing.T) {
 	})
 }
 
-func setupUnrelTransp(t *testing.T, onConnClose func()) (*sip.UnreliableTransport, *netmock.MockPacketConn) {
-	t.Helper()
+func setupUnrelTransp(tb testing.TB, onConnClose func()) (*sip.UnreliableTransport, *netmock.MockPacketConn) {
+	tb.Helper()
 
-	ctrl := gomock.NewController(t)
+	ctrl := gomock.NewController(tb)
 	conn := netmock.NewMockPacketConn(ctrl)
 
 	conn.EXPECT().
@@ -118,10 +120,10 @@ func setupUnrelTransp(t *testing.T, onConnClose func()) (*sip.UnreliableTranspor
 		// Log:         sip.ConsoleLogger(),
 	})
 	if err != nil {
-		t.Fatalf("sip.NewUnreliableTransport(\"UDP\", conn, opts) error = %v, want nil", err)
+		tb.Fatalf("sip.NewUnreliableTransport(\"UDP\", conn, opts) error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		tp.Close()
 	})
 
@@ -698,7 +700,7 @@ func TestUnreliableTransport_ReceiveRequests(t *testing.T) {
 	}()
 
 	reqs := make(chan *sip.InboundRequest)
-	unbind := tp.OnRequest(func(ctx context.Context, req *sip.InboundRequest) {
+	unbind := tp.OnRequest(func(_ context.Context, _ sip.ServerTransport, req *sip.InboundRequest) {
 		reqs <- req
 	})
 	defer unbind()
@@ -750,6 +752,137 @@ func TestUnreliableTransport_ReceiveRequests(t *testing.T) {
 	}
 	if got, want := pkt.addr, netip.MustParseAddrPort("123.123.123.123:555"); got != want {
 		t.Errorf("unexpected response remote address %v, want %v", got, want)
+	}
+
+	<-rmtDone
+}
+
+func TestUnreliableTransport_ReceiveRequests_PanicInHandler(t *testing.T) {
+	t.Parallel()
+
+	type readPacket struct {
+		buf  []byte
+		addr netip.AddrPort
+		err  error
+	}
+	readPackets := make(chan readPacket)
+
+	type writePacket struct {
+		buf  []byte
+		addr netip.AddrPort
+	}
+	writePackets := make(chan writePacket)
+
+	connClosed := make(chan struct{})
+
+	tp, conn := setupUnrelTransp(t, func() {
+		close(connClosed)
+		close(readPackets)
+		close(writePackets)
+	})
+
+	conn.EXPECT().
+		ReadFrom(gomock.AssignableToTypeOf([]byte(nil))).
+		DoAndReturn(func(b []byte) (int, net.Addr, error) {
+			p, ok := <-readPackets
+			if !ok {
+				return 0, nil, errtrace.Wrap(net.ErrClosed)
+			}
+			if p.err != nil {
+				return 0, nil, errtrace.Wrap(p.err)
+			}
+			n := copy(b, p.buf)
+			addr := &net.UDPAddr{IP: p.addr.Addr().AsSlice(), Port: int(p.addr.Port())}
+			return n, addr, nil
+		}).
+		AnyTimes()
+	conn.EXPECT().
+		SetWriteDeadline(gomock.AssignableToTypeOf(time.Time{})).
+		Return(nil).
+		AnyTimes()
+	conn.EXPECT().
+		WriteTo(gomock.AssignableToTypeOf([]byte(nil)), gomock.AssignableToTypeOf((*net.UDPAddr)(nil))).
+		DoAndReturn(func(b []byte, addr net.Addr) (int, error) {
+			select {
+			case <-connClosed:
+				return 0, errtrace.Wrap(net.ErrClosed)
+			default:
+				writePackets <- writePacket{
+					buf:  slices.Clone(b),
+					addr: netip.MustParseAddrPort(addr.String()),
+				}
+				return len(b), nil
+			}
+		}).
+		AnyTimes()
+
+	reqs := make(chan *sip.InboundRequest, 1)
+	var calls atomic.Uint32
+	unbind := tp.OnRequest(func(_ context.Context, _ sip.ServerTransport, req *sip.InboundRequest) {
+		if calls.Add(1) == 1 {
+			panic("boom")
+		}
+		reqs <- req
+	})
+	defer unbind()
+
+	go tp.Serve() //nolint:errcheck
+
+	rmtDone := make(chan struct{})
+	go func() {
+		defer close(rmtDone)
+
+		readPackets <- readPacket{
+			buf: []byte(
+				"INVITE sip:127.0.0.1:5060 SIP/2.0\r\n" +
+					"Via: SIP/2.0/UDP example.com:5060;branch=" + sip.MagicCookie + ".panic;rport\r\n" +
+					"From: Bob <sip:bob@example.com>;tag=abc\r\n" +
+					"To: Alice <sip:alice@127.0.0.1>\r\n" +
+					"Call-ID: 123-abc-xyz@example.com\r\n" +
+					"CSeq: 1 INVITE\r\n" +
+					"Max-Forwards: 70\r\n" +
+					"Content-Length: 0\r\n" +
+					"\r\n",
+			),
+			addr: netip.MustParseAddrPort("123.123.123.123:5060"),
+		}
+
+		readPackets <- readPacket{
+			buf: []byte(
+				"INVITE sip:127.0.0.1:5060 SIP/2.0\r\n" +
+					"Via: SIP/2.0/UDP example.com:5060;branch=" + sip.MagicCookie + ".ok;rport\r\n" +
+					"From: Bob <sip:bob@example.com>;tag=abc\r\n" +
+					"To: Alice <sip:alice@127.0.0.1>\r\n" +
+					"Call-ID: 124-abc-xyz@example.com\r\n" +
+					"CSeq: 1 INVITE\r\n" +
+					"Max-Forwards: 70\r\n" +
+					"Content-Length: 0\r\n" +
+					"\r\n",
+			),
+			addr: netip.MustParseAddrPort("123.123.123.123:5060"),
+		}
+	}()
+
+	select {
+	case pkt := <-writePackets:
+		gotMsg := string(pkt.buf)
+		if !strings.HasPrefix(gotMsg, "SIP/2.0 500 Server Internal Error\r\n") {
+			t.Fatalf("unexpected response sent: %q", gotMsg)
+		}
+		if !strings.Contains(gotMsg, "\r\nRetry-After: 60\r\n") {
+			t.Fatalf("missing Retry-After header in response: %q", gotMsg)
+		}
+		if got, want := pkt.addr, netip.MustParseAddrPort("123.123.123.123:5060"); got != want {
+			t.Fatalf("unexpected response remote address %v, want %v", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for 500 response")
+	}
+
+	select {
+	case <-reqs:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for next request after panic")
 	}
 
 	<-rmtDone
@@ -816,7 +949,7 @@ func TestUnreliableTransport_ReceiveRequests_ContentLengthTooLarge(t *testing.T)
 		AnyTimes()
 
 	reqRecv := make(chan struct{})
-	unbind := tp.OnRequest(func(context.Context, *sip.InboundRequest) {
+	unbind := tp.OnRequest(func(context.Context, sip.ServerTransport, *sip.InboundRequest) {
 		close(reqRecv)
 	})
 	defer unbind()
@@ -843,7 +976,7 @@ func TestUnreliableTransport_ReceiveRequests_ContentLengthTooLarge(t *testing.T)
 
 	go tp.Serve() //nolint:errcheck
 
-	// got 513 response and must not call request handler
+	// got 413 response and must not call request handler
 	var pkt writePacket
 	var ok bool
 	select {
@@ -854,7 +987,7 @@ func TestUnreliableTransport_ReceiveRequests_ContentLengthTooLarge(t *testing.T)
 	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for response")
 	}
-	wantMsg := "SIP/2.0 513 Message Too Large\r\n" +
+	wantMsg := "SIP/2.0 413 Request Entity Too Large\r\n" +
 		"Via: SIP/2.0/UDP example.com:5060;branch=" + sip.MagicCookie + ".qwerty;received=123.123.123.123;rport=555\r\n" +
 		"From: \"Bob\" <sip:bob@example.com>;tag=abc\r\n" +
 		"To: \"Alice\" <sip:alice@127.0.0.1>;tag=[a-zA-Z0-9]+\r\n" +
@@ -1022,7 +1155,7 @@ func TestUnreliableTransport_ReceiveResponses(t *testing.T) {
 	}()
 
 	ress := make(chan *sip.InboundResponse)
-	unbind := tp.OnResponse(func(_ context.Context, res *sip.InboundResponse) {
+	unbind := tp.OnResponse(func(_ context.Context, _ sip.ClientTransport, res *sip.InboundResponse) {
 		ress <- res
 	})
 	defer unbind()
@@ -1070,13 +1203,13 @@ func BenchmarkUnreliableTransport_ReceiveMessages(b *testing.B) {
 	defer tp.Close()
 
 	reqs := make(chan *sip.InboundRequest, 1)
-	cncOnReq := tp.OnRequest(func(_ context.Context, req *sip.InboundRequest) {
+	cncOnReq := tp.OnRequest(func(_ context.Context, _ sip.ServerTransport, req *sip.InboundRequest) {
 		reqs <- req
 	})
 	defer cncOnReq()
 
 	ress := make(chan *sip.InboundResponse, 1)
-	cncOnRes := tp.OnResponse(func(_ context.Context, res *sip.InboundResponse) {
+	cncOnRes := tp.OnResponse(func(_ context.Context, _ sip.ClientTransport, res *sip.InboundResponse) {
 		ress <- res
 	})
 	defer cncOnRes()

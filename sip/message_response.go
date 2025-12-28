@@ -25,11 +25,12 @@ type ResponseStatus = types.ResponseStatus
 // Response status constants.
 // See [types.ResponseStatus].
 const (
-	ResponseStatusTrying               = types.ResponseStatusTrying
-	ResponseStatusRinging              = types.ResponseStatusRinging
-	ResponseStatusCallIsBeingForwarded = types.ResponseStatusCallIsBeingForwarded
-	ResponseStatusQueued               = types.ResponseStatusQueued
-	ResponseStatusSessionProgress      = types.ResponseStatusSessionProgress
+	ResponseStatusTrying                = types.ResponseStatusTrying
+	ResponseStatusRinging               = types.ResponseStatusRinging
+	ResponseStatusCallIsBeingForwarded  = types.ResponseStatusCallIsBeingForwarded
+	ResponseStatusQueued                = types.ResponseStatusQueued
+	ResponseStatusSessionProgress       = types.ResponseStatusSessionProgress
+	ResponseStatusEarlyDialogTerminated = types.ResponseStatusEarlyDialogTerminated
 
 	ResponseStatusOK             = types.ResponseStatusOK
 	ResponseStatusAccepted       = types.ResponseStatusAccepted
@@ -50,7 +51,6 @@ const (
 	ResponseStatusNotAcceptable                = types.ResponseStatusNotAcceptable
 	ResponseStatusProxyAuthenticationRequired  = types.ResponseStatusProxyAuthenticationRequired
 	ResponseStatusRequestTimeout               = types.ResponseStatusRequestTimeout
-	ResponseStatusConflict                     = types.ResponseStatusConflict
 	ResponseStatusGone                         = types.ResponseStatusGone
 	ResponseStatusLengthRequired               = types.ResponseStatusLengthRequired
 	ResponseStatusConditionalRequestFailed     = types.ResponseStatusConditionalRequestFailed
@@ -63,15 +63,18 @@ const (
 	ResponseStatusExtensionRequired            = types.ResponseStatusExtensionRequired
 	ResponseStatusSessionIntervalTooSmall      = types.ResponseStatusSessionIntervalTooSmall
 	ResponseStatusIntervalTooBrief             = types.ResponseStatusIntervalTooBrief
+	ResponseStatusBadLocationInformation       = types.ResponseStatusBadLocationInformation
+	ResponseStatusBadAlertMessage              = types.ResponseStatusBadAlertMessage
 	ResponseStatusUseIdentityHeader            = types.ResponseStatusUseIdentityHeader
 	ResponseStatusProvideReferrerIdentity      = types.ResponseStatusProvideReferrerIdentity
 	ResponseStatusFlowFailed                   = types.ResponseStatusFlowFailed
 	ResponseStatusAnonymityDisallowed          = types.ResponseStatusAnonymityDisallowed
 	ResponseStatusBadIdentityInfo              = types.ResponseStatusBadIdentityInfo
-	ResponseStatusUnsupportedCertificate       = types.ResponseStatusUnsupportedCertificate
+	ResponseStatusUnsupportedCredential        = types.ResponseStatusUnsupportedCredential
 	ResponseStatusInvalidIdentityHeader        = types.ResponseStatusInvalidIdentityHeader
 	ResponseStatusFirstHopLacksOutboundSupport = types.ResponseStatusFirstHopLacksOutboundSupport
 	ResponseStatusMaxBreadthExceeded           = types.ResponseStatusMaxBreadthExceeded
+	ResponseStatusBadInfoPackage               = types.ResponseStatusBadInfoPackage
 	ResponseStatusConsentNeeded                = types.ResponseStatusConsentNeeded
 	ResponseStatusTemporarilyUnavailable       = types.ResponseStatusTemporarilyUnavailable
 	ResponseStatusCallTransactionDoesNotExist  = types.ResponseStatusCallTransactionDoesNotExist
@@ -87,20 +90,22 @@ const (
 	ResponseStatusUndecipherable               = types.ResponseStatusUndecipherable
 	ResponseStatusSecurityAgreementRequired    = types.ResponseStatusSecurityAgreementRequired
 
-	ResponseStatusServerInternalError = types.ResponseStatusServerInternalError
-	ResponseStatusNotImplemented      = types.ResponseStatusNotImplemented
-	ResponseStatusBadGateway          = types.ResponseStatusBadGateway
-	ResponseStatusServiceUnavailable  = types.ResponseStatusServiceUnavailable
-	ResponseStatusGatewayTimeout      = types.ResponseStatusGatewayTimeout
-	ResponseStatusVersionNotSupported = types.ResponseStatusVersionNotSupported
-	ResponseStatusMessageTooLarge     = types.ResponseStatusMessageTooLarge
-	ResponseStatusPreconditionFailure = types.ResponseStatusPreconditionFailure
+	ResponseStatusServerInternalError                 = types.ResponseStatusServerInternalError
+	ResponseStatusNotImplemented                      = types.ResponseStatusNotImplemented
+	ResponseStatusBadGateway                          = types.ResponseStatusBadGateway
+	ResponseStatusServiceUnavailable                  = types.ResponseStatusServiceUnavailable
+	ResponseStatusGatewayTimeout                      = types.ResponseStatusGatewayTimeout
+	ResponseStatusVersionNotSupported                 = types.ResponseStatusVersionNotSupported
+	ResponseStatusMessageTooLarge                     = types.ResponseStatusMessageTooLarge
+	ResponseStatusPushNotificationServiceNotSupported = types.ResponseStatusPushNotificationServiceNotSupported
+	ResponseStatusPreconditionFailure                 = types.ResponseStatusPreconditionFailure
 
 	ResponseStatusBusyEverywhere       = types.ResponseStatusBusyEverywhere
 	ResponseStatusDecline              = types.ResponseStatusDecline
 	ResponseStatusDoesNotExistAnywhere = types.ResponseStatusDoesNotExistAnywhere
 	ResponseStatusNotAcceptable606     = types.ResponseStatusNotAcceptable606
-	ResponseStatusDialogTerminated     = types.ResponseStatusDialogTerminated
+	ResponseStatusUnwanted             = types.ResponseStatusUnwanted
+	ResponseStatusRejected             = types.ResponseStatusRejected
 )
 
 // ResponseReason represents a SIP response reason.

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
@@ -20,7 +21,6 @@ import (
 	"github.com/ghettovoice/gosip/internal/errorutil"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
-	"github.com/ghettovoice/gosip/log"
 )
 
 const msgSendTimeout = time.Minute
@@ -42,8 +42,8 @@ type baseTransp struct {
 
 	srvOnce sync.Once
 	srvErr  error
-	onReq   types.CallbackManager[RequestHandler]
-	onRes   types.CallbackManager[ResponseHandler]
+	onReq   types.CallbackManager[TransportRequestHandler]
+	onRes   types.CallbackManager[TransportResponseHandler]
 }
 
 type transpImpl interface {
@@ -308,7 +308,7 @@ func (tp *baseTransp) resolveWriteErr(ctx context.Context, err error) error {
 //
 // Context passed to the callback is canceled when the transport is closed.
 // Transport can be retrieved from the context using [TransportFromContext].
-func (tp *baseTransp) OnRequest(fn RequestHandler) (cancel func()) {
+func (tp *baseTransp) OnRequest(fn TransportRequestHandler) (cancel func()) {
 	return tp.onReq.Add(fn)
 }
 
@@ -319,7 +319,7 @@ func (tp *baseTransp) OnRequest(fn RequestHandler) (cancel func()) {
 //
 // Context passed to the callback is canceled when the transport is closed.
 // Transport can be retrieved from the context using [TransportFromContext].
-func (tp *baseTransp) OnResponse(fn ResponseHandler) (cancel func()) {
+func (tp *baseTransp) OnResponse(fn TransportResponseHandler) (cancel func()) {
 	return tp.onRes.Add(fn)
 }
 
@@ -348,8 +348,10 @@ func (tp *baseTransp) isClosed() bool {
 	}
 }
 
+//nolint:gocognit
 func (tp *baseTransp) readMsgs(msgs iter.Seq2[Message, error]) error {
-	ctx := log.ContextWithLogger(tp.ctx, tp.log)
+	// ctx := log.ContextWithLogger(tp.ctx, tp.log)
+	ctx := tp.ctx
 
 	var tempDelay time.Duration
 	for msg, err := range msgs {
@@ -391,25 +393,67 @@ func (tp *baseTransp) readMsgs(msgs iter.Seq2[Message, error]) error {
 			msg = perr.Msg
 		}
 
-		switch msg := msg.(type) {
-		case *InboundRequest:
-			tp.recvReq(ctx, msg, err)
-		case *InboundResponse:
-			tp.recvRes(ctx, msg, err)
-		default:
-			tp.log.LogAttrs(ctx, slog.LevelWarn,
-				"silently discard inbound message due to unsupported message type",
-				slog.Any("error", newUnexpectMsgTypeErr(msg)),
-				slog.Any("message", msg),
-			)
+		if msg != nil {
+			switch msg := msg.(type) {
+			case *InboundRequest:
+				if tp.recvReqSafe(ctx, msg, err) {
+					return nil
+				}
+			case *InboundResponse:
+				if tp.recvResSafe(ctx, msg, err) {
+					return nil
+				}
+			default:
+				tp.log.LogAttrs(ctx, slog.LevelWarn,
+					"silently discard inbound message due to unsupported message type",
+					slog.Any("error", newUnexpectMsgTypeErr(msg)),
+					slog.Any("message", msg),
+				)
+			}
+		}
+
+		if tp.shouldStopReadMsgs(err) {
+			return errtrace.Wrap(err)
 		}
 	}
 	return nil
 }
 
+func (tp *baseTransp) recvReqSafe(ctx context.Context, req *InboundRequest, err error) (stop bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			tp.log.LogAttrs(ctx, slog.LevelError, "panic in inbound request handler",
+				slog.Any("panic", r),
+				slog.String("stack", string(debug.Stack())),
+				slog.Any("request", req),
+			)
+
+			func() {
+				defer func() {
+					if r2 := recover(); r2 != nil {
+						tp.log.LogAttrs(ctx, slog.LevelError, "panic while responding to inbound request handler panic",
+							slog.Any("panic", r2),
+							slog.String("stack", string(debug.Stack())),
+							slog.Any("request", req),
+						)
+					}
+				}()
+
+				respondStateless(ctx, tp.impl.(ServerTransport), req, ResponseStatusServerInternalError)
+			}()
+
+			stop = tp.meta.Reliable
+		}
+	}()
+
+	tp.recvReq(ctx, req, err)
+	return false
+}
+
 func (tp *baseTransp) recvReq(ctx context.Context, req *InboundRequest, err error) {
 	ctx = context.WithValue(ctx, srvTranspCtxKey, tp.impl)
 
+	// try to setup Via params even first to allow correct response routing in case of any failure
 	if via, ok := req.msg.Headers.FirstVia(); ok && via != nil && via.IsValid() {
 		// RFC 3261 Section 18.2.1.
 		if via.Addr.IP() == nil || !via.Addr.IP().Equal(req.rmtAddr.Addr().AsSlice()) {
@@ -424,21 +468,14 @@ func (tp *baseTransp) recvReq(ctx context.Context, req *InboundRequest, err erro
 		}
 	}
 
-	if err := req.Validate(); err != nil {
-		tp.log.LogAttrs(ctx, slog.LevelDebug, "discarding inbound request due to validation error",
-			slog.Any("error", err),
-			slog.Any("request", req),
-		)
-		respondStateless(ctx, tp, req, ResponseStatusBadRequest)
-		return
-	}
-
 	if err != nil {
-		// We faced some errors during parsing of the request,
+		// we faced some errors during parsing of the request,
 		// but if the parsed request contains mandatory headers,
-		// then we can respond to it.
+		// then we can respond to it with a proper error response.
 		var sts ResponseStatus
 		switch {
+		case errors.Is(err, ErrEntityTooLarge):
+			sts = ResponseStatusRequestEntityTooLarge
 		case errors.Is(err, ErrMessageTooLarge):
 			sts = ResponseStatusMessageTooLarge
 		case errors.Is(err, ErrInvalidMessage) || errorutil.IsGrammarErr(err):
@@ -451,7 +488,16 @@ func (tp *baseTransp) recvReq(ctx context.Context, req *InboundRequest, err erro
 			slog.Any("error", err),
 			slog.Any("request", req),
 		)
-		respondStateless(ctx, tp, req, sts)
+		respondStateless(ctx, tp.impl.(ServerTransport), req, sts)
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		tp.log.LogAttrs(ctx, slog.LevelDebug, "discarding inbound request due to validation error",
+			slog.Any("error", err),
+			slog.Any("request", req),
+		)
+		respondStateless(ctx, tp.impl.(ServerTransport), req, ResponseStatusBadRequest)
 		return
 	}
 
@@ -463,9 +509,9 @@ func (tp *baseTransp) recvReq(ctx context.Context, req *InboundRequest, err erro
 	}
 
 	var handled bool
-	tp.onReq.Range(func(fn RequestHandler) {
+	tp.onReq.Range(func(fn TransportRequestHandler) {
 		handled = true
-		fn(ctx, req)
+		fn(ctx, tp.impl.(ServerTransport), req)
 	})
 	if handled {
 		return
@@ -474,22 +520,38 @@ func (tp *baseTransp) recvReq(ctx context.Context, req *InboundRequest, err erro
 	tp.log.LogAttrs(ctx, slog.LevelWarn, "discarding inbound request due to missing request handlers",
 		slog.Any("request", req),
 	)
-	respondStateless(ctx, tp, req, ResponseStatusServiceUnavailable)
+	respondStateless(ctx, tp.impl.(ServerTransport), req, ResponseStatusServiceUnavailable)
+}
+
+func (tp *baseTransp) recvResSafe(ctx context.Context, res *InboundResponse, err error) (stop bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			tp.log.LogAttrs(ctx, slog.LevelError, "panic in inbound response handler",
+				slog.Any("panic", r),
+				slog.String("stack", string(debug.Stack())),
+				slog.Any("response", res),
+			)
+			stop = tp.meta.Reliable
+		}
+	}()
+
+	tp.recvRes(ctx, res, err)
+	return false
 }
 
 func (tp *baseTransp) recvRes(ctx context.Context, res *InboundResponse, err error) {
 	ctx = context.WithValue(ctx, clnTranspCtxKey, tp.impl)
 
-	if err := res.Validate(); err != nil {
-		tp.log.LogAttrs(ctx, slog.LevelDebug, "silently discard inbound response due to validation error",
+	if err != nil {
+		tp.log.LogAttrs(ctx, slog.LevelDebug, "silently discard inbound response due to parse error",
 			slog.Any("error", err),
 			slog.Any("response", res),
 		)
 		return
 	}
 
-	if err != nil {
-		tp.log.LogAttrs(ctx, slog.LevelDebug, "silently discard inbound response due to parse error",
+	if err := res.Validate(); err != nil {
+		tp.log.LogAttrs(ctx, slog.LevelDebug, "silently discard inbound response due to validation error",
 			slog.Any("error", err),
 			slog.Any("response", res),
 		)
@@ -515,9 +577,9 @@ func (tp *baseTransp) recvRes(ctx context.Context, res *InboundResponse, err err
 	}
 
 	var handled bool
-	tp.onRes.Range(func(fn ResponseHandler) {
+	tp.onRes.Range(func(fn TransportResponseHandler) {
 		handled = true
-		fn(ctx, res)
+		fn(ctx, tp.impl.(ClientTransport), res)
 	})
 	if handled {
 		return
@@ -526,6 +588,25 @@ func (tp *baseTransp) recvRes(ctx context.Context, res *InboundResponse, err err
 	tp.log.LogAttrs(ctx, slog.LevelWarn, "silently discard inbound response due to missing response handlers",
 		slog.Any("response", res),
 	)
+}
+
+func (tp *baseTransp) shouldStopReadMsgs(err error) bool {
+	if err == nil || !tp.meta.Streamed {
+		return false
+	}
+	if errors.Is(err, ErrMessageTooLarge) || errors.Is(err, ErrEntityTooLarge) {
+		return true
+	}
+
+	var perr *ParseError
+	if !errors.As(err, &perr) {
+		return false
+	}
+	if perr.State == ParseStateStart && len(perr.Data) == 0 {
+		// don't stop on keep-alive CRLF (empty start line)
+		return false
+	}
+	return errors.Is(err, ErrInvalidMessage) || errorutil.IsGrammarErr(err)
 }
 
 func wrapInMsg(msg Message, laddr, raddr netip.AddrPort) Message {
@@ -596,8 +677,9 @@ func streamMsgs(conn net.Conn, prs Parser, readTimeout time.Duration) iter.Seq2[
 
 				var perr *ParseError
 				if !errors.As(err, &perr) {
+					// failed on reading of message start line
 					if isTooLong {
-						continue
+						err = ErrMessageTooLarge
 					}
 					if yield(nil, errtrace.Wrap(err)) {
 						continue
@@ -606,9 +688,14 @@ func streamMsgs(conn net.Conn, prs Parser, readTimeout time.Duration) iter.Seq2[
 				}
 
 				if perr.Msg == nil {
-					continue
+					// failed on parsing of message start line
+					if yield(nil, errtrace.Wrap(err)) {
+						continue
+					}
+					return
 				}
 
+				// failed at reading/parsing of message headers or body
 				if isTooLong {
 					err = fmt.Errorf("%w: %w", err, ErrMessageTooLarge)
 				}
@@ -617,7 +704,7 @@ func streamMsgs(conn net.Conn, prs Parser, readTimeout time.Duration) iter.Seq2[
 			}
 
 			if !yield(msg, errtrace.Wrap(err)) {
-				break
+				return
 			}
 		}
 	}

@@ -13,13 +13,7 @@ import (
 func TestTransactionLayer_Close_Idempotent(t *testing.T) {
 	t.Parallel()
 
-	tp := newStubTransport(sip.TransportProto("UDP"), 5060)
-
-	txl, err := sip.NewTransactionLayer(tp, nil)
-	if err != nil {
-		t.Fatalf("NewTransactionLayer() error = %v", err)
-	}
-
+	txl := sip.NewTransactionLayer(nil)
 	ctx := t.Context()
 
 	// First close should succeed
@@ -36,15 +30,7 @@ func TestTransactionLayer_Close_Idempotent(t *testing.T) {
 func TestTransactionLayer_Close_RejectsNewClientTransaction(t *testing.T) {
 	t.Parallel()
 
-	raddr := netip.MustParseAddrPort("192.168.1.100:5060")
-	tp := newStubTransport(sip.TransportProto("UDP"), 5060)
-	laddr := tp.LocalAddr()
-
-	txl, err := sip.NewTransactionLayer(tp, nil)
-	if err != nil {
-		t.Fatalf("NewTransactionLayer() error = %v", err)
-	}
-
+	txl := sip.NewTransactionLayer(nil)
 	ctx := t.Context()
 
 	// Close the layer
@@ -53,8 +39,12 @@ func TestTransactionLayer_Close_RejectsNewClientTransaction(t *testing.T) {
 	}
 
 	// Attempt to create new client transaction should fail
+	raddr := netip.MustParseAddrPort("192.168.1.100:5060")
+	tp := newStubTransport(sip.TransportProto("UDP"), 5060)
+	laddr := tp.LocalAddr()
 	req := newOutInviteReq(t, sip.TransportProto("UDP"), "", laddr, raddr)
-	_, err = txl.NewClientTransaction(ctx, req, tp, nil)
+
+	_, err := txl.NewClientTransaction(ctx, req, tp, nil)
 	if !errors.Is(err, sip.ErrTransactionLayerClosed) {
 		t.Fatalf("NewClientTransaction() error = %v, want %v", err, sip.ErrTransactionLayerClosed)
 	}
@@ -63,15 +53,7 @@ func TestTransactionLayer_Close_RejectsNewClientTransaction(t *testing.T) {
 func TestTransactionLayer_Close_RejectsNewServerTransaction(t *testing.T) {
 	t.Parallel()
 
-	raddr := netip.MustParseAddrPort("192.168.1.100:5060")
-	tp := newStubTransport(sip.TransportProto("UDP"), 5060)
-	laddr := tp.LocalAddr()
-
-	txl, err := sip.NewTransactionLayer(tp, nil)
-	if err != nil {
-		t.Fatalf("NewTransactionLayer() error = %v", err)
-	}
-
+	txl := sip.NewTransactionLayer(nil)
 	ctx := t.Context()
 
 	// Close the layer
@@ -80,8 +62,12 @@ func TestTransactionLayer_Close_RejectsNewServerTransaction(t *testing.T) {
 	}
 
 	// Attempt to create new server transaction should fail
+	raddr := netip.MustParseAddrPort("192.168.1.100:5060")
+	tp := newStubTransport(sip.TransportProto("UDP"), 5060)
+	laddr := tp.LocalAddr()
 	req := newInInviteReq(t, sip.TransportProto("UDP"), "", laddr, raddr)
-	_, err = txl.NewServerTransaction(ctx, req, tp, nil)
+
+	_, err := txl.NewServerTransaction(ctx, req, tp, nil)
 	if !errors.Is(err, sip.ErrTransactionLayerClosed) {
 		t.Fatalf("NewServerTransaction() error = %v, want %v", err, sip.ErrTransactionLayerClosed)
 	}
@@ -90,16 +76,11 @@ func TestTransactionLayer_Close_RejectsNewServerTransaction(t *testing.T) {
 func TestTransactionLayer_Close_TerminatesActiveTransactions(t *testing.T) {
 	t.Parallel()
 
+	txl := sip.NewTransactionLayer(nil)
+	ctx := t.Context()
 	raddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	tp := newStubTransport(sip.TransportProto("UDP"), 5060)
 	laddr := tp.LocalAddr()
-
-	txl, err := sip.NewTransactionLayer(tp, nil)
-	if err != nil {
-		t.Fatalf("NewTransactionLayer() error = %v", err)
-	}
-
-	ctx := t.Context()
 
 	// Create a client transaction
 	clnReq := newOutInviteReq(t, sip.TransportProto("UDP"), "", laddr, raddr)
@@ -128,16 +109,11 @@ func TestTransactionLayer_Close_TerminatesActiveTransactions(t *testing.T) {
 func TestTransactionLayer_Close_UnmatchedACKSilentlyDiscarded(t *testing.T) {
 	t.Parallel()
 
+	txl := sip.NewTransactionLayer(nil)
+	ctx := t.Context()
 	raddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	tp := newStubTransport(sip.TransportProto("UDP"), 5060)
 	laddr := tp.LocalAddr()
-
-	txl, err := sip.NewTransactionLayer(tp, nil)
-	if err != nil {
-		t.Fatalf("NewTransactionLayer() error = %v", err)
-	}
-
-	ctx := t.Context()
 
 	// Close the layer
 	if err := txl.Close(ctx); err != nil {
@@ -164,16 +140,11 @@ func TestTransactionLayer_Close_UnmatchedACKSilentlyDiscarded(t *testing.T) {
 func TestTransactionLayer_Close_UnmatchedResponseSilentlyDiscarded(t *testing.T) {
 	t.Parallel()
 
+	txl := sip.NewTransactionLayer(nil)
+	ctx := t.Context()
 	raddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	tp := newStubTransport(sip.TransportProto("UDP"), 5060)
 	laddr := tp.LocalAddr()
-
-	txl, err := sip.NewTransactionLayer(tp, nil)
-	if err != nil {
-		t.Fatalf("NewTransactionLayer() error = %v", err)
-	}
-
-	ctx := t.Context()
 
 	// Close the layer
 	if err := txl.Close(ctx); err != nil {
@@ -196,13 +167,7 @@ func TestTransactionLayer_Close_UnmatchedResponseSilentlyDiscarded(t *testing.T)
 func TestTransactionLayer_Close_WithContextTimeout(t *testing.T) {
 	t.Parallel()
 
-	tp := newStubTransport(sip.TransportProto("UDP"), 5060)
-
-	txl, err := sip.NewTransactionLayer(tp, nil)
-	if err != nil {
-		t.Fatalf("NewTransactionLayer() error = %v", err)
-	}
-
+	txl := sip.NewTransactionLayer(nil)
 	// Close with timeout context
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

@@ -43,6 +43,11 @@ const (
 	RequestMethodUpdate    = types.RequestMethodUpdate
 )
 
+// IsKnownRequestMethod returns whether the method is a known SIP request method.
+func IsKnownRequestMethod(method RequestMethod) bool {
+	return types.IsKnownRequestMethod(method)
+}
+
 // Request represents a SIP request message.
 type Request struct {
 	Method  RequestMethod `json:"method"`
