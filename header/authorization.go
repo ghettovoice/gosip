@@ -256,7 +256,7 @@ func (crd *DigestCredentials) RenderTo(w io.Writer, opts *RenderOptions) (num in
 	defer ioutil.FreeCountingWriter(cw)
 	cw.Fprint("Digest ")
 
-	var kvs [][]string //nolint:prealloc
+	var kvs [][]string
 	// resolve and write all non-empty std scalar parameters in alphabet order
 	for k, v := range map[string]string{
 		"username":  crd.Username,

@@ -41,7 +41,7 @@ func (hdr *AuthenticationInfo) RenderTo(w io.Writer, _ *RenderOptions) (num int,
 }
 
 func (hdr *AuthenticationInfo) renderValueTo(w io.Writer) (num int, err error) {
-	var kvs [][]string //nolint:prealloc
+	var kvs [][]string
 	for k, v := range map[string]string{
 		"nextnonce": hdr.NextNonce,
 		"qop":       hdr.QOP,

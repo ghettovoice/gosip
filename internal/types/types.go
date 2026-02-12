@@ -1,7 +1,7 @@
 // Package types contains common types used across the sip package.
 package types
 
-//go:generate go tool errtrace -w .
+//go:generate errtrace -w .
 
 import (
 	"io"

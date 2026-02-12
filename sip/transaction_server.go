@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"log/slog"
 	"reflect"
 	"strconv"
@@ -13,63 +14,76 @@ import (
 
 	"braces.dev/errtrace"
 
+	"github.com/ghettovoice/gosip/header"
+	"github.com/ghettovoice/gosip/internal/syncutil"
 	"github.com/ghettovoice/gosip/internal/timeutil"
-	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/log"
 )
 
 // ServerTransaction represents a SIP server transaction.
+// RFC 3261 Section 17.2.
 type ServerTransaction interface {
 	Transaction
-	// MatchRequest checks whether the request matches the server transaction.
-	MatchRequest(req *InboundRequest) error
-	// RecvRequest receives a request from the transport layer.
-	RecvRequest(ctx context.Context, req *InboundRequest) error
-	// Respond sends a response to the remote address with specified options.
-	Respond(ctx context.Context, sts ResponseStatus, opts *RespondOptions) error
+	RequestReceiver
+	ResponseSender
+	// Key returns the server transaction key.
+	Key() ServerTransactionKey
+	// Request returns the initial request that started this transaction.
+	Request() *InboundRequestEnvelope
+	// LastResponse returns the last response sent by the transaction.
+	LastResponse() *OutboundResponseEnvelope
+	// Transport returns the transport used by the transaction.
+	Transport() ServerTransport
 }
 
-type TransactionRequestHandler = func(ctx context.Context, tx ServerTransaction, req *InboundRequest)
-
-type ServerTransactionStore = TransactionStore[ServerTransactionKey, ServerTransaction]
-
-func NewMemoryServerTransactionStore() ServerTransactionStore {
-	return NewMemoryTransactionStore[ServerTransactionKey, ServerTransaction]()
+// ServerTransport represents a SIP server transport used in the server transaction.
+type ServerTransport interface {
+	ResponseSender
+	// Reliable returns whether the transport is reliable or not.
+	Reliable() bool
 }
 
+// ServerTransactionFactory is a factory for creating server transactions.
 type ServerTransactionFactory interface {
 	NewServerTransaction(
 		ctx context.Context,
-		req *InboundRequest,
+		req *InboundRequestEnvelope,
 		tp ServerTransport,
 		opts *ServerTransactionOptions,
 	) (ServerTransaction, error)
 }
 
-type StdServerTransactionFactory struct{}
-
-var defSrvTxFactory = &StdServerTransactionFactory{}
-
-func DefaultServerTransactionFactory() *StdServerTransactionFactory { return defSrvTxFactory }
-
-func (*StdServerTransactionFactory) NewServerTransaction(
+// ServerTransactionFactoryFunc is a function that implements [ServerTransactionFactory].
+type ServerTransactionFactoryFunc func(
 	ctx context.Context,
-	req *InboundRequest,
+	req *InboundRequestEnvelope,
+	tp ServerTransport,
+	opts *ServerTransactionOptions,
+) (ServerTransaction, error)
+
+func (f ServerTransactionFactoryFunc) NewServerTransaction(
+	ctx context.Context,
+	req *InboundRequestEnvelope,
+	tp ServerTransport,
+	opts *ServerTransactionOptions,
+) (ServerTransaction, error) {
+	return errtrace.Wrap2(f(ctx, req, tp, opts))
+}
+
+// NewServerTransaction creates a new server transaction based on the request method.
+// If the request method is INVITE, it creates an [InviteServerTransaction].
+// Otherwise, it creates a [NonInviteServerTransaction].
+func NewServerTransaction(
+	ctx context.Context,
+	req *InboundRequestEnvelope,
 	tp ServerTransport,
 	opts *ServerTransactionOptions,
 ) (ServerTransaction, error) {
 	if req.Method().Equal(RequestMethodInvite) {
-		return errtrace.Wrap2(NewInviteServerTransaction(req, tp, opts))
+		return errtrace.Wrap2(NewInviteServerTransaction(ctx, req, tp, opts))
 	}
-	return errtrace.Wrap2(NewNonInviteServerTransaction(req, tp, opts))
-}
-
-const srvTransactCtxKey types.ContextKey = "server_transaction"
-
-func ServerTransactionFromContext(ctx context.Context) (ServerTransaction, bool) {
-	tx, ok := ctx.Value(srvTransactCtxKey).(ServerTransaction)
-	return tx, ok
+	return errtrace.Wrap2(NewNonInviteServerTransaction(ctx, req, tp, opts))
 }
 
 // ServerTransactionOptions contains options for a server transaction.
@@ -81,9 +95,9 @@ type ServerTransactionOptions struct {
 	// Timings is the SIP timing config that will be used with the transaction.
 	// If zero, the default SIP timing config will be used.
 	Timings TimingConfig
-	// Log is the logger that will be used with the transaction.
+	// Logger is the logger that will be used with the transaction.
 	// If nil, the [log.Default] will be used.
-	Log *slog.Logger
+	Logger *slog.Logger
 }
 
 func (o *ServerTransactionOptions) key() ServerTransactionKey {
@@ -101,10 +115,10 @@ func (o *ServerTransactionOptions) timings() TimingConfig {
 }
 
 func (o *ServerTransactionOptions) log() *slog.Logger {
-	if o == nil || o.Log == nil {
+	if o == nil || o.Logger == nil {
 		return log.Default()
 	}
-	return o.Log
+	return o.Logger
 }
 
 type serverTransact struct {
@@ -112,15 +126,15 @@ type serverTransact struct {
 	key      ServerTransactionKey
 	tp       ServerTransport
 	timings  TimingConfig
-	req      *InboundRequest
-	lastRes  atomic.Pointer[OutboundResponse]
+	req      *InboundRequestEnvelope
+	lastRes  atomic.Pointer[OutboundResponseEnvelope]
 	sendOpts atomic.Pointer[SendResponseOptions]
 }
 
 func newServerTransact(
 	typ TransactionType,
 	impl serverTransactImpl,
-	req *InboundRequest,
+	req *InboundRequestEnvelope,
 	tp ServerTransport,
 	opts *ServerTransactionOptions,
 ) (*serverTransact, error) {
@@ -136,10 +150,12 @@ func newServerTransact(
 
 	key := opts.key()
 	if !key.IsValid() {
-		if err := key.FillFromMessage(req); err != nil {
+		var err error
+		if key, err = MakeServerTransactionKey(req); err != nil {
 			return nil, errtrace.Wrap(NewInvalidArgumentError(err))
 		}
 	}
+	req.Metadata().Set("transaction_key", key)
 
 	tx := &serverTransact{
 		key:     key,
@@ -147,13 +163,13 @@ func newServerTransact(
 		timings: opts.timings(),
 		req:     req,
 	}
-	ctx := context.WithValue(context.Background(), srvTransactCtxKey, impl)
-	tx.baseTransact = newBaseTransact(ctx, typ, impl, opts.log())
+	tx.baseTransact = newBaseTransact(typ, impl, opts.log())
 	return tx, nil
 }
 
 type serverTransactImpl interface {
 	transactImpl
+	ServerTransaction
 	takeSnapshot() *ServerTransactionSnapshot
 }
 
@@ -164,7 +180,7 @@ func (tx *serverTransact) srvTxImpl() serverTransactImpl {
 // LogValue implements [slog.LogValuer].
 func (tx *serverTransact) LogValue() slog.Value {
 	if tx == nil {
-		return slog.Value{}
+		return zeroSlogValue
 	}
 	return slog.GroupValue(
 		slog.Any("key", tx.key),
@@ -182,7 +198,7 @@ func (tx *serverTransact) Key() ServerTransactionKey {
 }
 
 // Request returns the initial request that started this transaction.
-func (tx *serverTransact) Request() *InboundRequest {
+func (tx *serverTransact) Request() *InboundRequestEnvelope {
 	if tx == nil {
 		return nil
 	}
@@ -190,49 +206,174 @@ func (tx *serverTransact) Request() *InboundRequest {
 }
 
 // LastResponse returns the last response sent by the transaction.
-func (tx *serverTransact) LastResponse() *OutboundResponse {
+func (tx *serverTransact) LastResponse() *OutboundResponseEnvelope {
 	if tx == nil {
 		return nil
 	}
 	return tx.lastRes.Load()
 }
 
-// MatchRequest checks whether the request matches the server transaction.
+// Transport returns the transport used by the transaction.
+func (tx *serverTransact) Transport() ServerTransport {
+	if tx == nil {
+		return nil
+	}
+	return tx.tp
+}
+
+// MatchMessage checks whether the message matches the server transaction.
 // It implements the matching rules defined in RFC 3261 section 17.2.3.
-func (tx *serverTransact) MatchRequest(req *InboundRequest) error {
-	var reqKey ServerTransactionKey
-	if err := reqKey.FillFromMessage(req); err != nil {
-		return errtrace.Wrap(NewInvalidArgumentError(err))
+func (tx *serverTransact) MatchMessage(msg Message) bool {
+	var (
+		isReq, isRes bool
+		mtd          RequestMethod
+	)
+	switch m := msg.(type) {
+	case *InboundRequestEnvelope:
+		isReq = true
+		mtd = m.Method()
+	case *Request:
+		isRes = true
+		mtd = m.Method
+	case *OutboundResponseEnvelope:
+		isRes = true
+	case *Response:
+		isRes = true
 	}
 
-	txKey := tx.key
-	if v, ok := tx.impl.(interface {
-		adjustKeys(txKey, reqKey *ServerTransactionKey, req *InboundRequest)
-	}); ok {
-		v.adjustKeys(&txKey, &reqKey, req)
+	if isReq {
+		reqKey, err := MakeServerTransactionKey(msg)
+		if err != nil {
+			return false
+		}
+		txKey := tx.key
+		if v, ok := tx.impl.(interface {
+			adjustKeys(txKey, reqKey *ServerTransactionKey, mtd RequestMethod)
+		}); ok {
+			v.adjustKeys(&txKey, &reqKey, mtd)
+		}
+		return txKey.Equal(reqKey)
+	} else if isRes {
+		return tx.matchRes(msg) == nil
+	}
+	return false
+}
+
+//nolint:gocognit
+func (tx *serverTransact) matchRes(res Message) error {
+	if tx == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("invalid transaction"))
+	}
+	if tx.req == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("missing transaction request"))
+	}
+	if res == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("invalid response"))
 	}
 
-	if !txKey.Equal(reqKey) {
-		return errtrace.Wrap(ErrTransactionNotMatched)
+	reqHdrs := tx.req.Headers()
+	resHdrs := GetMessageHeaders(res)
+
+	reqVia, ok := reqHdrs.FirstVia()
+	if !ok || reqVia == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("missing request Via"))
+	}
+	resVia, ok := resHdrs.FirstVia()
+	if !ok || resVia == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("missing response Via"))
+	}
+	if !reqVia.Equal(resVia) {
+		return errtrace.Wrap(NewInvalidArgumentError("response Via does not match transaction request"))
+	}
+
+	reqCallID, ok := reqHdrs.CallID()
+	if !ok {
+		return errtrace.Wrap(NewInvalidArgumentError("missing request Call-ID"))
+	}
+	resCallID, ok := resHdrs.CallID()
+	if !ok {
+		return errtrace.Wrap(NewInvalidArgumentError("missing response Call-ID"))
+	}
+	if reqCallID != resCallID {
+		return errtrace.Wrap(NewInvalidArgumentError("response Call-ID does not match transaction request"))
+	}
+
+	reqFrom, ok := reqHdrs.From()
+	if !ok || reqFrom == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("missing request From"))
+	}
+	resFrom, ok := resHdrs.From()
+	if !ok || resFrom == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("missing response From"))
+	}
+	if !reqFrom.Equal(resFrom) {
+		return errtrace.Wrap(NewInvalidArgumentError("response From does not match transaction request"))
+	}
+
+	reqTo, ok := reqHdrs.To()
+	if !ok || reqTo == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("missing request To"))
+	}
+	resTo, ok := resHdrs.To()
+	if !ok || resTo == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("missing response To"))
+	}
+	if !equalNameAddrWithoutTag(header.NameAddr(*reqTo), header.NameAddr(*resTo)) {
+		return errtrace.Wrap(NewInvalidArgumentError("response To does not match transaction request"))
+	}
+	if reqTag, ok := reqTo.Tag(); ok && reqTag != "" {
+		resTag, _ := resTo.Tag()
+		if reqTag != resTag {
+			return errtrace.Wrap(NewInvalidArgumentError("response To tag does not match transaction request"))
+		}
+	}
+
+	reqCSeq, ok := reqHdrs.CSeq()
+	if !ok || reqCSeq == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("missing request CSeq"))
+	}
+	resCSeq, ok := resHdrs.CSeq()
+	if !ok || resCSeq == nil {
+		return errtrace.Wrap(NewInvalidArgumentError("missing response CSeq"))
+	}
+	if reqCSeq.SeqNum != resCSeq.SeqNum {
+		return errtrace.Wrap(NewInvalidArgumentError("response CSeq number does not match transaction request"))
+	}
+	if !resCSeq.Method.Equal(reqCSeq.Method) {
+		return errtrace.Wrap(NewInvalidArgumentError("response CSeq method does not match transaction request"))
 	}
 	return nil
 }
 
+func equalNameAddrWithoutTag(a, b header.NameAddr) bool {
+	a = a.Clone()
+	b = b.Clone()
+	if a.Params != nil {
+		a.Params.Del("tag")
+	}
+	if b.Params != nil {
+		b.Params.Del("tag")
+	}
+	return a.Equal(b)
+}
+
 // RecvRequest is called on each inbound request received by the transport layer.
-func (tx *serverTransact) RecvRequest(ctx context.Context, req *InboundRequest) error {
-	if err := tx.MatchRequest(req); err != nil {
-		return errtrace.Wrap(err)
+func (tx *serverTransact) RecvRequest(ctx context.Context, req *InboundRequestEnvelope) error {
+	if !tx.MatchMessage(req) {
+		return errtrace.Wrap(NewInvalidArgumentError(ErrMessageNotMatched))
 	}
 
+	ctx = ContextWithTransaction(ctx, tx.impl)
+
 	if v, ok := tx.impl.(interface {
-		recvReq(ctx context.Context, req *InboundRequest) error
+		recvReq(ctx context.Context, req *InboundRequestEnvelope) error
 	}); ok {
 		return errtrace.Wrap(v.recvReq(ctx, req))
 	}
 	return errtrace.Wrap(tx.recvReq(ctx, req))
 }
 
-func (tx *serverTransact) recvReq(ctx context.Context, req *InboundRequest) error {
+func (tx *serverTransact) recvReq(ctx context.Context, req *InboundRequestEnvelope) error {
 	switch {
 	case tx.req.Method().Equal(req.Method()):
 		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtRecvReq, req))
@@ -248,21 +389,40 @@ func (tx *serverTransact) Respond(ctx context.Context, sts ResponseStatus, opts 
 	if err != nil {
 		return errtrace.Wrap(err)
 	}
-	if err := res.msg.Validate(); err != nil {
+	return errtrace.Wrap(tx.SendResponse(ctx, res, opts.sendOpts()))
+}
+
+// SendResponse sends a response to the remote address with specified options.
+// Response will be passed to the transport layer by the transaction's FSM.
+func (tx *serverTransact) SendResponse(
+	ctx context.Context,
+	res *OutboundResponseEnvelope,
+	opts *SendResponseOptions,
+) error {
+	if err := res.Validate(); err != nil {
+		return errtrace.Wrap(err)
+	}
+	if err := tx.matchRes(res); err != nil {
 		return errtrace.Wrap(err)
 	}
 
-	switch {
-	case res.msg.Status.IsProvisional():
-		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtSend1xx, res, opts.sendOpts()))
-	case res.msg.Status.IsSuccessful():
-		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtSend2xx, res, opts.sendOpts()))
+	ctx = ContextWithTransaction(ctx, tx.impl)
+
+	switch sts := res.Status(); {
+	case sts.IsProvisional():
+		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtSend1xx, res, opts))
+	case sts.IsSuccessful():
+		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtSend2xx, res, opts))
 	default:
-		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtSend300699, res, opts.sendOpts()))
+		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtSend300699, res, opts))
 	}
 }
 
-func (tx *serverTransact) sendRes(ctx context.Context, res *OutboundResponse, opts *SendResponseOptions) error {
+func (tx *serverTransact) sendRes(
+	ctx context.Context,
+	res *OutboundResponseEnvelope,
+	opts *SendResponseOptions,
+) error {
 	if err := tx.tp.SendResponse(ctx, res, opts); err != nil {
 		err = fmt.Errorf("send %q response: %w", res.Status(), err)
 		if err := tx.fsm.FireCtx(ctx, txEvtTranspErr, errtrace.Wrap(err)); err != nil {
@@ -285,32 +445,35 @@ func (tx *serverTransact) initFSM(start TransactionState) error {
 		return errtrace.Wrap(err)
 	}
 
-	tx.fsm.SetTriggerParameters(txEvtRecvReq, reflect.TypeOf((*InboundRequest)(nil)))
+	tx.fsm.SetTriggerParameters(txEvtRecvReq, reflect.TypeFor[*InboundRequestEnvelope]())
 	tx.fsm.SetTriggerParameters(txEvtSend1xx,
-		reflect.TypeOf((*OutboundResponse)(nil)),
-		reflect.TypeOf((*SendResponseOptions)(nil)),
+		reflect.TypeFor[*OutboundResponseEnvelope](),
+		reflect.TypeFor[*SendResponseOptions](),
 	)
 	tx.fsm.SetTriggerParameters(txEvtSend2xx,
-		reflect.TypeOf((*OutboundResponse)(nil)),
-		reflect.TypeOf((*SendResponseOptions)(nil)),
+		reflect.TypeFor[*OutboundResponseEnvelope](),
+		reflect.TypeFor[*SendResponseOptions](),
 	)
 	tx.fsm.SetTriggerParameters(txEvtSend300699,
-		reflect.TypeOf((*OutboundResponse)(nil)),
-		reflect.TypeOf((*SendResponseOptions)(nil)),
+		reflect.TypeFor[*OutboundResponseEnvelope](),
+		reflect.TypeFor[*SendResponseOptions](),
 	)
 
 	return nil
 }
 
 func (tx *serverTransact) actSendRes(ctx context.Context, args ...any) error {
-	res := args[0].(*OutboundResponse)     //nolint:forcetypeassert
-	opts := args[1].(*SendResponseOptions) //nolint:forcetypeassert
+	res := args[0].(*OutboundResponseEnvelope) //nolint:forcetypeassert
+	opts := args[1].(*SendResponseOptions)     //nolint:forcetypeassert
 	defer func() {
 		tx.lastRes.Store(res)
 		tx.sendOpts.Store(cloneSendResOpts(opts))
 	}()
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "send response", slog.Any("transaction", tx.impl), slog.Any("response", res))
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "send response",
+		slog.Any("transaction", tx.impl),
+		slog.Any("response", res),
+	)
 
 	tx.sendRes(ctx, res, opts) //nolint:errcheck
 	return nil
@@ -323,7 +486,10 @@ func (tx *serverTransact) actResendRes(ctx context.Context, _ ...any) error {
 	}
 	opts := tx.sendOpts.Load()
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "re-send response", slog.Any("transaction", tx.impl), slog.Any("response", res))
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "re-send response",
+		slog.Any("transaction", tx.impl),
+		slog.Any("response", res),
+	)
 
 	tx.sendRes(ctx, res, opts) //nolint:errcheck
 	return nil
@@ -368,9 +534,9 @@ type ServerTransactionSnapshot struct {
 	// Key is the transaction key.
 	Key ServerTransactionKey `json:"key"`
 	// Request is the request that created the transaction.
-	Request *InboundRequest `json:"request"`
+	Request *InboundRequestEnvelope `json:"request"`
 	// LastResponse is the last response sent by the transaction.
-	LastResponse *OutboundResponse `json:"last_response,omitempty"`
+	LastResponse *OutboundResponseEnvelope `json:"last_response,omitempty"`
 	// SendOptions are the options used to send the last response.
 	SendOptions *SendResponseOptions `json:"send_options,omitempty"`
 	// Timings are the timing configuration used to create the transaction.
@@ -430,9 +596,9 @@ type ServerTransactionKey struct {
 	// Call-ID of the request that created the transaction.
 	// RFC 2543 transactions.
 	CallID string `json:"call_id,omitempty"`
-	// CSeqNum is the CSeq number of the request that created the transaction.
+	// SeqNum is the CSeq number of the request that created the transaction.
 	// RFC 2543 transactions.
-	CSeqNum uint `json:"cseq_num,omitempty"`
+	SeqNum uint `json:"seq_num,omitempty"`
 	// Topmost Via header field of the request that created the transaction.
 	// RFC 2543 transactions.
 	Via string `json:"via,omitempty"`
@@ -440,83 +606,68 @@ type ServerTransactionKey struct {
 
 var zeroSrvTxKey ServerTransactionKey
 
-// FillFromMessage populates the key fields from the given message.
-func (k *ServerTransactionKey) FillFromMessage(msg Message) error {
+// MakeServerTransactionKey builds server transaction key from the given message.
+func MakeServerTransactionKey(msg Message) (ServerTransactionKey, error) {
 	if msg == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid message"))
+		return zeroSrvTxKey, errtrace.Wrap(NewInvalidArgumentError("invalid message"))
 	}
 	if err := msg.Validate(); err != nil {
-		return errtrace.Wrap(NewInvalidArgumentError(err))
+		return zeroSrvTxKey, errtrace.Wrap(NewInvalidArgumentError(err))
 	}
 
 	hdrs := GetMessageHeaders(msg)
 	via, _ := hdrs.FirstVia()
-	cseq, _ := hdrs.CSeq()
-
 	if branch, _ := via.Branch(); IsRFC3261Branch(branch) {
-		k.Branch = branch
-		k.SentBy = util.LCase(via.Addr.String())
-		k.Method = util.UCase(string(cseq.Method))
-
-		if util.EqFold(k.Method, RequestMethodAck) {
-			k.Method = string(RequestMethodInvite)
-		}
-
-		return nil
+		return makeSrvTransactKey3261(hdrs, via), nil
 	}
-
-	// RFC 2543 can match only requests
-	var (
-		ruri URI
-		rmtd RequestMethod
-	)
-	switch m := msg.(type) {
-	case *Request:
-		ruri = m.URI
-		rmtd = m.Method
-	case interface {
-		Method() RequestMethod
-		URI() URI
-	}:
-		ruri = m.URI()
-		rmtd = m.Method()
-	default:
-		return errtrace.Wrap(NewInvalidArgumentError("unexpected message type %T", msg))
-	}
-
-	return errtrace.Wrap(k.fillFromRequestRFC2543(rmtd, ruri, hdrs))
+	return errtrace.Wrap2(makeSrvTransactKey2543(msg, hdrs, via))
 }
 
-func (k *ServerTransactionKey) fillFromRequestRFC2543(rmtd RequestMethod, ruri URI, hdrs Headers) error {
-	via, _ := hdrs.FirstVia()
+func makeSrvTransactKey3261(hdrs Headers, via *header.ViaHop) ServerTransactionKey {
+	var k ServerTransactionKey
+	k.Branch, _ = via.Branch()
+	k.SentBy = util.LCase(via.Addr.String())
+
+	cseq, _ := hdrs.CSeq()
+	if cseq.Method.Equal(RequestMethodAck) {
+		k.Method = string(RequestMethodInvite)
+	} else {
+		k.Method = string(cseq.Method.ToUpper())
+	}
+	return k
+}
+
+func makeSrvTransactKey2543(msg Message, hdrs Headers, via *header.ViaHop) (ServerTransactionKey, error) {
+	var k ServerTransactionKey
 	k.Via = util.LCase(via.String())
-	k.URI = util.LCase(ruri.Render(nil))
-
-	from, _ := hdrs.From()
-	k.FromTag, _ = from.Tag()
-	if k.FromTag == "" {
-		return errtrace.Wrap(NewInvalidArgumentError("missing From tag"))
-	}
-
-	to, _ := hdrs.To()
-	k.ToTag, _ = to.Tag()
-	if k.ToTag == "" && !rmtd.Equal(RequestMethodInvite) {
-		return errtrace.Wrap(NewInvalidArgumentError("missing To tag"))
-	}
 
 	callID, _ := hdrs.CallID()
 	k.CallID = string(callID)
 
-	cseq, _ := hdrs.CSeq()
-	k.Method = util.UCase(string(cseq.Method))
-	k.CSeqNum = cseq.SeqNum
-
-	if util.EqFold(k.Method, RequestMethodAck) {
-		k.Method = string(RequestMethodInvite)
-		k.ToTag = ""
+	switch m := msg.(type) {
+	case *Request:
+		k.URI = util.LCase(m.URI.Render(nil))
+	case interface{ URI() URI }:
+		k.URI = util.LCase(m.URI().Render(nil))
 	}
 
-	return nil
+	from, _ := hdrs.From()
+	k.FromTag, _ = from.Tag()
+	if k.FromTag == "" {
+		return zeroSrvTxKey, errtrace.Wrap(NewInvalidArgumentError("missing From tag"))
+	}
+
+	to, _ := hdrs.To()
+	k.ToTag, _ = to.Tag()
+
+	cseq, _ := hdrs.CSeq()
+	k.SeqNum = cseq.SeqNum
+	if cseq.Method.Equal(RequestMethodAck) {
+		k.Method = string(RequestMethodInvite)
+	} else {
+		k.Method = string(cseq.Method.ToUpper())
+	}
+	return k, nil
 }
 
 // Equal checks whether the key is equal to another key.
@@ -545,7 +696,7 @@ func (k ServerTransactionKey) Equal(val any) bool {
 		k.FromTag == other.FromTag &&
 		k.ToTag == other.ToTag &&
 		k.CallID == other.CallID &&
-		k.CSeqNum == other.CSeqNum &&
+		k.SeqNum == other.SeqNum &&
 		util.EqFold(k.Via, other.Via)
 }
 
@@ -558,9 +709,8 @@ func (k ServerTransactionKey) IsValid() bool {
 	return k.Method != "" &&
 		k.URI != "" &&
 		k.FromTag != "" &&
-		(util.EqFold(k.Method, RequestMethodInvite) || k.ToTag != "") &&
 		k.CallID != "" &&
-		k.CSeqNum > 0 &&
+		k.SeqNum > 0 &&
 		k.Via != ""
 }
 
@@ -572,7 +722,7 @@ func (k ServerTransactionKey) IsZero() bool {
 		k.FromTag == "" &&
 		k.ToTag == "" &&
 		k.CallID == "" &&
-		k.CSeqNum == 0 &&
+		k.SeqNum == 0 &&
 		k.Via == ""
 }
 
@@ -581,24 +731,24 @@ func (k ServerTransactionKey) LogValue() slog.Value {
 	if IsRFC3261Branch(k.Branch) {
 		return slog.GroupValue(
 			slog.Any("branch", k.Branch),
-			slog.Any("sent-by", k.SentBy),
+			slog.Any("sent_by", k.SentBy),
 			slog.Any("method", k.Method),
 		)
 	}
 	return slog.GroupValue(
 		slog.Any("method", k.Method),
 		slog.Any("uri", k.URI),
-		slog.Any("from-tag", k.FromTag),
-		slog.Any("to-tag", k.ToTag),
-		slog.Any("call-id", k.CallID),
-		slog.Any("cseq-num", k.CSeqNum),
+		slog.Any("from_tag", k.FromTag),
+		slog.Any("to_tag", k.ToTag),
+		slog.Any("call_id", k.CallID),
+		slog.Any("seq_num", k.SeqNum),
 		slog.Any("via", k.Via),
 	)
 }
 
 const (
-	srvTxKeyHashRFC3261 byte = 1
-	srvTxKeyHashRFC2543 byte = 2
+	srvTxKeyHash3261 byte = 1
+	srvTxKeyHash2543 byte = 2
 )
 
 // MarshalBinary returns a canonical binary representation of the key that can be used as
@@ -610,12 +760,12 @@ const (
 // resulting bytes if needed.
 func (k ServerTransactionKey) MarshalBinary() ([]byte, error) {
 	if IsRFC3261Branch(k.Branch) {
-		return k.marshalRFC3261(), nil
+		return k.marshal3261(), nil
 	}
-	return k.marshalRFC2543(), nil
+	return k.marshal2543(), nil
 }
 
-func (k ServerTransactionKey) marshalRFC3261() []byte {
+func (k ServerTransactionKey) marshal3261() []byte {
 	sentBy := util.LCase(k.SentBy)
 	method := util.UCase(k.Method)
 
@@ -625,40 +775,41 @@ func (k ServerTransactionKey) marshalRFC3261() []byte {
 		util.SizePrefixedString(method)
 
 	buf := make([]byte, 0, size)
-	buf = append(buf, srvTxKeyHashRFC3261)
+	buf = append(buf, srvTxKeyHash3261)
 	buf = util.AppendPrefixedString(buf, k.Branch)
 	buf = util.AppendPrefixedString(buf, sentBy)
 	buf = util.AppendPrefixedString(buf, method)
 	return buf
 }
 
-func (k ServerTransactionKey) marshalRFC2543() []byte {
+func (k ServerTransactionKey) marshal2543() []byte {
 	method := util.UCase(k.Method)
 	uri := util.LCase(k.URI)
 	via := util.LCase(k.Via)
 
 	size := 1 +
-		util.SizePrefixedString(method) +
 		util.SizePrefixedString(uri) +
 		util.SizePrefixedString(k.FromTag) +
 		util.SizePrefixedString(k.ToTag) +
 		util.SizePrefixedString(k.CallID) +
-		util.SizeUVarInt(uint64(k.CSeqNum)) +
+		util.SizeUVarInt(uint64(k.SeqNum)) +
+		util.SizePrefixedString(method) +
 		util.SizePrefixedString(via)
 
 	buf := make([]byte, 0, size)
-	buf = append(buf, srvTxKeyHashRFC2543)
-	buf = util.AppendPrefixedString(buf, method)
+	buf = append(buf, srvTxKeyHash2543)
 	buf = util.AppendPrefixedString(buf, uri)
 	buf = util.AppendPrefixedString(buf, k.FromTag)
 	buf = util.AppendPrefixedString(buf, k.ToTag)
 	buf = util.AppendPrefixedString(buf, k.CallID)
-	buf = util.AppendUVarInt(buf, uint64(k.CSeqNum))
+	buf = util.AppendUVarInt(buf, uint64(k.SeqNum))
+	buf = util.AppendPrefixedString(buf, method)
 	buf = util.AppendPrefixedString(buf, via)
 	return buf
 }
 
-// UnmarshalBinary populates the key fields from a binary representation produced by [ServerTransactionKey.MarshalBinary].
+// UnmarshalBinary populates the key fields from a binary representation
+// produced by [ServerTransactionKey.MarshalBinary].
 func (k *ServerTransactionKey) UnmarshalBinary(data []byte) error {
 	if len(data) == 0 {
 		return errtrace.Wrap(NewInvalidArgumentError("invalid data"))
@@ -671,7 +822,7 @@ func (k *ServerTransactionKey) UnmarshalBinary(data []byte) error {
 	)
 
 	switch data[0] {
-	case srvTxKeyHashRFC3261:
+	case srvTxKeyHash3261:
 		if key.Branch, rest, err = util.ConsumePrefixedString(rest); err != nil {
 			return errtrace.Wrap(err)
 		}
@@ -681,10 +832,7 @@ func (k *ServerTransactionKey) UnmarshalBinary(data []byte) error {
 		if key.Method, rest, err = util.ConsumePrefixedString(rest); err != nil {
 			return errtrace.Wrap(err)
 		}
-	case srvTxKeyHashRFC2543:
-		if key.Method, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
-		}
+	case srvTxKeyHash2543:
 		if key.URI, rest, err = util.ConsumePrefixedString(rest); err != nil {
 			return errtrace.Wrap(err)
 		}
@@ -697,11 +845,14 @@ func (k *ServerTransactionKey) UnmarshalBinary(data []byte) error {
 		if key.CallID, rest, err = util.ConsumePrefixedString(rest); err != nil {
 			return errtrace.Wrap(err)
 		}
-		var cseq uint64
-		if cseq, rest, err = util.ConsumeUVarInt(rest); err != nil {
+		var seqNum uint64
+		if seqNum, rest, err = util.ConsumeUVarInt(rest); err != nil {
 			return errtrace.Wrap(err)
 		}
-		key.CSeqNum = uint(cseq)
+		key.SeqNum = uint(seqNum)
+		if key.Method, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return errtrace.Wrap(err)
+		}
 		if key.Via, rest, err = util.ConsumePrefixedString(rest); err != nil {
 			return errtrace.Wrap(err)
 		}
@@ -743,9 +894,139 @@ func (k ServerTransactionKey) Format(f fmt.State, verb rune) {
 	}
 }
 
-func GetServerTransactionKey(tx ServerTransaction) (ServerTransactionKey, bool) {
-	if v, ok := tx.(interface{ Key() ServerTransactionKey }); ok {
-		return v.Key(), true
+type ServerTransactionStore interface {
+	Load(ctx context.Context, key ServerTransactionKey) (ServerTransaction, error)
+	LookupMatched(ctx context.Context, msg Message) (ServerTransaction, error)
+	LookupMerged(ctx context.Context, key ServerTransactionKey) (ServerTransaction, error)
+	Store(ctx context.Context, tx ServerTransaction) error
+	Delete(ctx context.Context, tx ServerTransaction) error
+	All(ctx context.Context) (iter.Seq[ServerTransaction], error)
+}
+
+type MemoryServerTransactionStore struct {
+	keyLocks syncutil.KeyMutex[string]
+	// store for matching request re-transmits (3261/2345)
+	main *syncutil.ShardMap[string, ServerTransaction]
+	// store for checking on merged requests, loop detection (3261/2345)
+	merged *syncutil.ShardMap[string, ServerTransaction]
+}
+
+// NewMemoryServerTransactionStore creates a new in-memory server transaction store.
+func NewMemoryServerTransactionStore() *MemoryServerTransactionStore {
+	return &MemoryServerTransactionStore{
+		main:   syncutil.NewShardMap[string, ServerTransaction](),
+		merged: syncutil.NewShardMap[string, ServerTransaction](),
 	}
-	return zeroSrvTxKey, false
+}
+
+func (s *MemoryServerTransactionStore) Load(
+	_ context.Context,
+	key ServerTransactionKey,
+) (ServerTransaction, error) {
+	// match inbound RFC 3261/2345 request retransmits
+	hash := key.String()
+	unlock := s.keyLocks.Lock(hash)
+	tx, ok := s.main.Get(hash)
+	unlock()
+	if ok {
+		return tx, nil
+	}
+
+	if IsRFC3261Branch(key.Branch) || !util.EqFold(key.Method, string(RequestMethodAck)) {
+		return nil, errtrace.Wrap(ErrTransactionNotFound)
+	}
+
+	key.ToTag = ""
+	hash = key.String()
+	unlock = s.keyLocks.Lock(hash)
+	tx, ok = s.main.Get(hash)
+	unlock()
+	if !ok {
+		return nil, errtrace.Wrap(ErrTransactionNotFound)
+	}
+	return tx, nil
+}
+
+func (s *MemoryServerTransactionStore) LookupMatched(
+	ctx context.Context,
+	msg Message,
+) (ServerTransaction, error) {
+	key, err := MakeServerTransactionKey(msg)
+	if err != nil {
+		return nil, errtrace.Wrap(err)
+	}
+
+	tx, err := s.Load(ctx, key)
+	if err != nil {
+		return nil, errtrace.Wrap(err)
+	}
+
+	if !tx.MatchMessage(msg) {
+		return nil, errtrace.Wrap(ErrTransactionNotFound)
+	}
+	return tx, nil
+}
+
+func (s *MemoryServerTransactionStore) LookupMerged(
+	_ context.Context,
+	key ServerTransactionKey,
+) (ServerTransaction, error) {
+	key.Branch = ""
+	key.SentBy = ""
+	key.URI = ""
+	key.ToTag = ""
+	key.Via = ""
+	hash := key.String()
+	unlock := s.keyLocks.Lock(hash)
+	tx, ok := s.merged.Get(hash)
+	unlock()
+	if !ok {
+		return nil, errtrace.Wrap(ErrTransactionNotFound)
+	}
+	return tx, nil
+}
+
+// Store stores a new one if it does not exist.
+func (s *MemoryServerTransactionStore) Store(_ context.Context, tx ServerTransaction) error {
+	key := tx.Key()
+	hash := key.String()
+	unlock := s.keyLocks.Lock(hash)
+	s.main.Set(hash, tx)
+	unlock()
+
+	key = ServerTransactionKey{
+		FromTag: key.FromTag,
+		CallID:  key.CallID,
+		SeqNum:  key.SeqNum,
+		Method:  key.Method,
+	}
+	hash = key.String()
+	unlock = s.keyLocks.Lock(hash)
+	s.merged.Set(hash, tx)
+	unlock()
+	return nil
+}
+
+func (s *MemoryServerTransactionStore) Delete(_ context.Context, tx ServerTransaction) error {
+	key := tx.Key()
+	hash := key.String()
+	unlock := s.keyLocks.Lock(hash)
+	s.main.Del(hash)
+	unlock()
+
+	key = ServerTransactionKey{
+		FromTag: key.FromTag,
+		CallID:  key.CallID,
+		SeqNum:  key.SeqNum,
+		Method:  key.Method,
+	}
+	hash = key.String()
+	unlock = s.keyLocks.Lock(hash)
+	s.merged.Del(hash)
+	unlock()
+	return nil
+}
+
+func (s *MemoryServerTransactionStore) All(_ context.Context) (iter.Seq[ServerTransaction], error) {
+	return util.SeqValues(s.main.Items()), nil
 }

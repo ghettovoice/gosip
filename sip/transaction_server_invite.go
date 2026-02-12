@@ -15,7 +15,8 @@ import (
 )
 
 // InviteServerTransaction represents an invite server transaction.
-// It implements the server transaction state machine defined in RFC 3261 section 17.2. plus patches from RFC 6026.
+// It implements the server transaction FSM defined in RFC 3261 section 17.2.1
+// and patches from RFC 6026.
 type InviteServerTransaction struct {
 	*serverTransact
 
@@ -25,18 +26,26 @@ type InviteServerTransaction struct {
 	tmrI   atomic.Pointer[timeutil.SerializableTimer]
 	tmrL   atomic.Pointer[timeutil.SerializableTimer]
 
-	onAck       types.CallbackManager[TransactionRequestHandler]
-	pendingAcks types.Deque[*InboundRequest]
+	onAck       types.CallbackManager[InboundRequestHandler]
+	pendingAcks types.Deque[pendingAck]
+}
+
+type pendingAck struct {
+	ctx context.Context
+	ack *InboundRequestEnvelope
 }
 
 // NewInviteServerTransaction creates a new invite server transaction and starts its state machine.
 //
+// Context does not affect the transaction lifecycle, it can be used to pass
+// additional information to the transaction.
 // Request expected to be a valid SIP request with INVITE method.
 // Transport expected to be a non-nil server transport.
 // Options are optional and can be nil, in which case default options will be used.
 // Transaction key will be filled from the request automatically if not specified in the options.
 func NewInviteServerTransaction(
-	req *InboundRequest,
+	ctx context.Context,
+	req *InboundRequestEnvelope,
 	tp ServerTransport,
 	opts *ServerTransactionOptions,
 ) (*InviteServerTransaction, error) {
@@ -54,10 +63,12 @@ func NewInviteServerTransaction(
 	}
 	tx.serverTransact = srvTx
 
+	ctx = ContextWithTransaction(ctx, tx)
+
 	if err := tx.initFSM(TransactionStateProceeding); err != nil {
 		return nil, errtrace.Wrap(err)
 	}
-	if err := tx.actProceeding(tx.ctx); err != nil {
+	if err := tx.actProceeding(ctx); err != nil {
 		return nil, errtrace.Wrap(err)
 	}
 	return tx, nil
@@ -77,7 +88,7 @@ func (tx *InviteServerTransaction) initFSM(start TransactionState) error {
 		return errtrace.Wrap(err)
 	}
 
-	tx.fsm.SetTriggerParameters(txEvtRecvAck, reflect.TypeOf((*InboundRequest)(nil)))
+	tx.fsm.SetTriggerParameters(txEvtRecvAck, reflect.TypeFor[*InboundRequestEnvelope]())
 
 	tx.fsm.Configure(TransactionStateProceeding).
 		InternalTransition(txEvtRecvReq, tx.actResendRes).
@@ -117,7 +128,8 @@ func (tx *InviteServerTransaction) initFSM(start TransactionState) error {
 
 	tx.fsm.Configure(TransactionStateTerminated).
 		OnEntry(tx.actTerminated).
-		OnEntryFrom(txEvtTimerH, tx.actTimedOut)
+		OnEntryFrom(txEvtTimerH, tx.actTimedOut).
+		InternalTransition(txEvtTerminate, tx.actNoop)
 
 	return nil
 }
@@ -143,11 +155,11 @@ func (tx *InviteServerTransaction) actSendRes(ctx context.Context, args ...any) 
 }
 
 func (tx *InviteServerTransaction) actPassAck(ctx context.Context, args ...any) error {
-	ack := args[0].(*InboundRequest) //nolint:forcetypeassert
+	ack := args[0].(*InboundRequestEnvelope) //nolint:forcetypeassert
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug, "pass ACK", slog.Any("transaction", tx), slog.Any("ack", ack))
 
-	tx.pendingAcks.Append(ack)
+	tx.pendingAcks.Append(pendingAck{ctx, ack})
 	if tx.onAck.Len() > 0 {
 		tx.deliverPendingAcks()
 	}
@@ -160,18 +172,18 @@ func (tx *InviteServerTransaction) deliverPendingAcks() {
 		return
 	}
 
-	tx.onAck.Range(func(fn TransactionRequestHandler) {
-		for _, ack := range acks {
-			fn(tx.ctx, tx, ack)
+	for fn := range tx.onAck.All() {
+		for _, e := range acks {
+			fn(e.ctx, e.ack)
 		}
-	})
+	}
 }
 
 //nolint:unparam
 func (tx *InviteServerTransaction) actProceeding(ctx context.Context, args ...any) error {
 	tx.serverTransact.actProceeding(ctx, args...) //nolint:errcheck
 
-	tmr := timeutil.AfterFunc(tx.timings.Time100(), tx.onTimer1xx)
+	tmr := timeutil.AfterFunc(tx.timings.Time100(), tx.timer1xxHdlr(ctx))
 	tx.tmr1xx.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -183,24 +195,26 @@ func (tx *InviteServerTransaction) actProceeding(ctx context.Context, args ...an
 	return nil
 }
 
-func (tx *InviteServerTransaction) onTimer1xx() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "1xx timer expired", slog.Any("transaction", tx))
+func (tx *InviteServerTransaction) timer1xxHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer expired", slog.Any("transaction", tx))
 
-	tx.tmr1xx.Store(nil)
+		tx.tmr1xx.Store(nil)
 
-	if tx.State() != TransactionStateProceeding {
-		return
-	}
+		if tx.State() != TransactionStateProceeding {
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimer1xx); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimer1xx, tx.State(), err))
+		if err := tx.fsm.FireCtx(ctx, txEvtTimer1xx); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimer1xx, tx.State(), err))
+		}
 	}
 }
 
 func (tx *InviteServerTransaction) actAccepted(ctx context.Context, _ ...any) error {
 	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction accepted", slog.Any("transaction", tx))
 
-	tmr := timeutil.AfterFunc(tx.timings.TimeL(), tx.onTimerL)
+	tmr := timeutil.AfterFunc(tx.timings.TimeL(), tx.timerLHdlr(ctx))
 	tx.tmrL.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -212,25 +226,27 @@ func (tx *InviteServerTransaction) actAccepted(ctx context.Context, _ ...any) er
 	return nil
 }
 
-func (tx *InviteServerTransaction) onTimerL() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer L expired", slog.Any("transaction", tx))
+func (tx *InviteServerTransaction) timerLHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer L expired", slog.Any("transaction", tx))
 
-	tx.tmrL.Store(nil)
+		tx.tmrL.Store(nil)
 
-	if tx.State() != TransactionStateAccepted {
-		return
-	}
+		if tx.State() != TransactionStateAccepted {
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerL); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerL, tx.State(), err))
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerL); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerL, tx.State(), err))
+		}
 	}
 }
 
 func (tx *InviteServerTransaction) actCompleted(ctx context.Context, args ...any) error {
 	tx.serverTransact.actCompleted(ctx, args...) //nolint:errcheck
 
-	if !IsReliableTransport(tx.tp) {
-		tmr := timeutil.AfterFunc(tx.timings.TimeG(), tx.onTimerG)
+	if !tx.tp.Reliable() {
+		tmr := timeutil.AfterFunc(tx.timings.TimeG(), tx.timerGHdlr(ctx))
 		tx.tmrG.Store(tmr)
 
 		tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -240,7 +256,7 @@ func (tx *InviteServerTransaction) actCompleted(ctx context.Context, args ...any
 		)
 	}
 
-	tmr := timeutil.AfterFunc(tx.timings.TimeH(), tx.onTimerH)
+	tmr := timeutil.AfterFunc(tx.timings.TimeH(), tx.timerHHdlr(ctx))
 	tx.tmrH.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -252,40 +268,44 @@ func (tx *InviteServerTransaction) actCompleted(ctx context.Context, args ...any
 	return nil
 }
 
-func (tx *InviteServerTransaction) onTimerH() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer H expired", slog.Any("transaction", tx))
+func (tx *InviteServerTransaction) timerGHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer G expired", slog.Any("transaction", tx))
 
-	tx.tmrH.Store(nil)
+		if tx.State() != TransactionStateCompleted {
+			tx.tmrG.Store(nil)
+			return
+		}
 
-	if tx.State() != TransactionStateCompleted {
-		return
-	}
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerG); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerG, tx.State(), err))
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerH); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerH, tx.State(), err))
+		if tmr := tx.tmrG.Load(); tmr != nil {
+			tmr.Reset(min(2*tmr.Duration(), tx.timings.T2()))
+
+			tx.log.LogAttrs(ctx, slog.LevelDebug,
+				"timer G reset",
+				slog.Any("transaction", tx),
+				slog.Time("expires_at", time.Now().Add(tmr.Left())),
+			)
+		}
 	}
 }
 
-func (tx *InviteServerTransaction) onTimerG() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer G expired", slog.Any("transaction", tx))
+func (tx *InviteServerTransaction) timerHHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer H expired", slog.Any("transaction", tx))
 
-	if tx.State() != TransactionStateCompleted {
-		tx.tmrG.Store(nil)
-		return
-	}
+		tx.tmrH.Store(nil)
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerG); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerG, tx.State(), err))
-	}
+		if tx.State() != TransactionStateCompleted {
+			return
+		}
 
-	if tmr := tx.tmrG.Load(); tmr != nil {
-		tmr.Reset(min(2*tmr.Duration(), tx.timings.T2()))
-
-		tx.log.LogAttrs(tx.ctx, slog.LevelDebug,
-			"timer G reset",
-			slog.Any("transaction", tx),
-			slog.Time("expires_at", time.Now().Add(tmr.Left())),
-		)
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerH); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerH, tx.State(), err))
+		}
 	}
 }
 
@@ -300,10 +320,10 @@ func (tx *InviteServerTransaction) actConfirmed(ctx context.Context, _ ...any) e
 	}
 
 	var timeI time.Duration
-	if !IsReliableTransport(tx.tp) {
+	if !tx.tp.Reliable() {
 		timeI = tx.timings.TimeI()
 	}
-	tmr := timeutil.AfterFunc(timeI, tx.onTimerI)
+	tmr := timeutil.AfterFunc(timeI, tx.timerIHdlr(ctx))
 	tx.tmrI.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -315,17 +335,19 @@ func (tx *InviteServerTransaction) actConfirmed(ctx context.Context, _ ...any) e
 	return nil
 }
 
-func (tx *InviteServerTransaction) onTimerI() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer I expired", slog.Any("transaction", tx))
+func (tx *InviteServerTransaction) timerIHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer I expired", slog.Any("transaction", tx))
 
-	tx.tmrI.Store(nil)
+		tx.tmrI.Store(nil)
 
-	if tx.State() != TransactionStateConfirmed {
-		return
-	}
+		if tx.State() != TransactionStateConfirmed {
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerI); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerI, tx.State(), err))
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerI); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerI, tx.State(), err))
+		}
 	}
 }
 
@@ -349,40 +371,37 @@ func (tx *InviteServerTransaction) actTerminated(ctx context.Context, args ...an
 	return nil
 }
 
-func (tx *InviteServerTransaction) adjustKeys(txKey, reqKey *ServerTransactionKey, req *InboundRequest) {
-	if !IsRFC3261Branch(txKey.Branch) && req.Method().Equal(RequestMethodAck) {
-		to, _ := req.Headers().To()
-		reqKey.ToTag, _ = to.Tag()
-
+func (tx *InviteServerTransaction) adjustKeys(txKey, _ *ServerTransactionKey, reqMtd RequestMethod) {
+	// set tx key To tag to last response To tag for RFC 2543 matching of ACK on initial INVITE
+	if !IsRFC3261Branch(txKey.Branch) && reqMtd.Equal(RequestMethodAck) && txKey.ToTag == "" {
 		if res := tx.LastResponse(); res != nil {
-			to, _ := res.Headers().To()
-			txKey.ToTag, _ = to.Tag()
+			res.AccessMessage(func(r *Response) {
+				to, _ := r.Headers.To()
+				txKey.ToTag, _ = to.Tag()
+			})
 		}
 	}
 }
 
-func (tx *InviteServerTransaction) recvReq(ctx context.Context, req *InboundRequest) error {
+func (tx *InviteServerTransaction) recvReq(ctx context.Context, req *InboundRequestEnvelope) error {
 	if req.Method().Equal(RequestMethodAck) {
 		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtRecvAck, req))
 	}
 	return errtrace.Wrap(tx.serverTransact.recvReq(ctx, req))
 }
 
-// OnAck registers a callback to be called when the transaction receives an 2xx ACK.
+// OnAck binds the callback to be called when the transaction receives an 2xx ACK.
 //
 // 2xx ACK can be matched to the INVITE transaction only by RFC 2543 matching rules,
 // so this callback here only for backward compatibility with old clients.
 // 2xx ACK from RFC 3261 always goes outside of the INVITE transaction.
 //
-// The callback will be called with the transaction's context, see [Transaction.Context].
-// The transaction can be retrieved from the context using [TransactionFromContext].
-//
-// The callback can be canceled by calling the returned cancel function.
-// Multiple callbacks can be registered.
-func (tx *InviteServerTransaction) OnAck(fn TransactionRequestHandler) (cancel func()) {
-	cancel = tx.onAck.Add(fn)
-	tx.deliverPendingAcks()
-	return cancel
+// The callback can be unbound by calling the returned cancel function.
+// Multiple callbacks are allowed, they will be called in the order they were registered.
+// Context passed to the callback will be the context passed to the [InviteServerTransaction.RecvRequest] method.
+func (tx *InviteServerTransaction) OnAck(fn InboundRequestHandler) (unbind func()) {
+	defer tx.deliverPendingAcks()
+	return tx.onAck.Add(fn)
 }
 
 func (tx *InviteServerTransaction) takeSnapshot() *ServerTransactionSnapshot {
@@ -405,6 +424,8 @@ func (tx *InviteServerTransaction) takeSnapshot() *ServerTransactionSnapshot {
 
 // RestoreInviteServerTransaction restores an invite server transaction from a snapshot.
 //
+// Context does not affect the transaction lifecycle, it can be used to
+// pass additional information to the transaction.
 // The snapshot contains the serialized state of the transaction.
 // Transport is required to send responses.
 // Options are optional and can be nil. The key field from options is ignored
@@ -414,6 +435,7 @@ func (tx *InviteServerTransaction) takeSnapshot() *ServerTransactionSnapshot {
 // Timers will be restored and their callbacks will be reconnected to the FSM.
 // If a timer has already expired according to the snapshot, it will not be restarted.
 func RestoreInviteServerTransaction(
+	ctx context.Context,
 	snap *ServerTransactionSnapshot,
 	tp ServerTransport,
 	opts *ServerTransactionOptions,
@@ -436,6 +458,8 @@ func RestoreInviteServerTransaction(
 	}
 	tx.serverTransact = srvTx
 
+	ctx = ContextWithTransaction(ctx, tx)
+
 	if snap.LastResponse != nil {
 		tx.lastRes.Store(snap.LastResponse)
 	}
@@ -448,40 +472,40 @@ func RestoreInviteServerTransaction(
 		return nil, errtrace.Wrap(err)
 	}
 
-	tx.restoreTimers(snap)
+	tx.restoreTimers(ctx, snap)
 
 	return tx, nil
 }
 
 // restoreTimers restores transaction timers from the snapshot and reconnects their callbacks.
-func (tx *InviteServerTransaction) restoreTimers(snap *ServerTransactionSnapshot) {
+func (tx *InviteServerTransaction) restoreTimers(ctx context.Context, snap *ServerTransactionSnapshot) {
 	if tmr := snap.Timer1xx; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimer1xx)
+		restored.SetCallback(tx.timer1xxHdlr(ctx))
 		tx.tmr1xx.Store(restored)
 	}
 
 	if tmr := snap.TimerG; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerG)
+		restored.SetCallback(tx.timerGHdlr(ctx))
 		tx.tmrG.Store(restored)
 	}
 
 	if tmr := snap.TimerH; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerH)
+		restored.SetCallback(tx.timerHHdlr(ctx))
 		tx.tmrH.Store(restored)
 	}
 
 	if tmr := snap.TimerI; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerI)
+		restored.SetCallback(tx.timerIHdlr(ctx))
 		tx.tmrI.Store(restored)
 	}
 
 	if tmr := snap.TimerL; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerL)
+		restored.SetCallback(tx.timerLHdlr(ctx))
 		tx.tmrL.Store(restored)
 	}
 }

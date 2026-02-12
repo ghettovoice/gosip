@@ -380,10 +380,10 @@ type readDeadlinePacketConn struct {
 
 func (c *readDeadlinePacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
 	if c.readTimeout > 0 {
-		if err := c.PacketConn.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
+		if err := c.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
 			return 0, nil, errtrace.Wrap(err)
 		}
-		defer c.PacketConn.SetReadDeadline(zeroTime)
+		defer c.SetReadDeadline(zeroTime)
 	}
 	return errtrace.Wrap3(c.PacketConn.ReadFrom(b))
 }
@@ -395,10 +395,10 @@ type readDeadlineConn struct {
 
 func (c *readDeadlineConn) Read(b []byte) (int, error) {
 	if c.readTimeout > 0 {
-		if err := c.Conn.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
+		if err := c.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
 			return 0, errtrace.Wrap(err)
 		}
-		defer c.Conn.SetReadDeadline(zeroTime)
+		defer c.SetReadDeadline(zeroTime)
 	}
 	return errtrace.Wrap2(c.Conn.Read(b))
 }

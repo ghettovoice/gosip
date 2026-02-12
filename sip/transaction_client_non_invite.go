@@ -21,7 +21,8 @@ type NonInviteClientTransaction struct {
 }
 
 func NewNonInviteClientTransaction(
-	req *OutboundRequest,
+	ctx context.Context,
+	req *OutboundRequestEnvelope,
 	tp ClientTransport,
 	opts *ClientTransactionOptions,
 ) (*NonInviteClientTransaction, error) {
@@ -39,10 +40,12 @@ func NewNonInviteClientTransaction(
 	}
 	tx.clientTransact = clnTx
 
+	ctx = ContextWithTransaction(ctx, tx)
+
 	if err := tx.initFSM(TransactionStateTrying); err != nil {
 		return nil, errtrace.Wrap(err)
 	}
-	if err := tx.actTrying(tx.ctx); err != nil {
+	if err := tx.actTrying(ctx); err != nil {
 		return nil, errtrace.Wrap(err)
 	}
 	return tx, nil
@@ -89,7 +92,8 @@ func (tx *NonInviteClientTransaction) initFSM(start TransactionState) error {
 	tx.fsm.Configure(TransactionStateTerminated).
 		OnEntry(tx.actTerminated).
 		OnEntryFrom(txEvtTimerF, tx.actTimedOut).
-		OnEntryFrom(txEvtTranspErr, tx.actTranspErr)
+		OnEntryFrom(txEvtTranspErr, tx.actTranspErr).
+		InternalTransition(txEvtTerminate, tx.actNoop)
 
 	return nil
 }
@@ -101,8 +105,8 @@ func (tx *NonInviteClientTransaction) actTrying(ctx context.Context, _ ...any) e
 		return errtrace.Wrap(err)
 	}
 
-	if !IsReliableTransport(tx.tp) {
-		tmr := timeutil.AfterFunc(tx.timings.TimeE(), tx.onTimerE)
+	if !tx.tp.Reliable() {
+		tmr := timeutil.AfterFunc(tx.timings.TimeE(), tx.timerEHdlr(ctx))
 		tx.tmrE.Store(tmr)
 
 		tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -112,7 +116,7 @@ func (tx *NonInviteClientTransaction) actTrying(ctx context.Context, _ ...any) e
 		)
 	}
 
-	tmr := timeutil.AfterFunc(tx.timings.TimeF(), tx.onTimerF)
+	tmr := timeutil.AfterFunc(tx.timings.TimeF(), tx.timerFHdlr(ctx))
 	tx.tmrF.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -124,46 +128,50 @@ func (tx *NonInviteClientTransaction) actTrying(ctx context.Context, _ ...any) e
 	return nil
 }
 
-func (tx *NonInviteClientTransaction) onTimerE() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer E expired", slog.Any("transaction", tx))
+func (tx *NonInviteClientTransaction) timerEHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer E expired", slog.Any("transaction", tx))
 
-	if tx.State() != TransactionStateTrying && tx.State() != TransactionStateProceeding {
-		tx.tmrE.Store(nil)
-		return
-	}
-
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerE); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerE, tx.State(), err))
-	}
-
-	if tmr := tx.tmrE.Load(); tmr != nil {
-		var dur time.Duration
-		if tx.State() == TransactionStateTrying {
-			dur = min(2*tmr.Duration(), tx.timings.T2())
-		} else {
-			dur = tx.timings.T2()
+		if tx.State() != TransactionStateTrying && tx.State() != TransactionStateProceeding {
+			tx.tmrE.Store(nil)
+			return
 		}
-		tmr.Reset(dur)
 
-		tx.log.LogAttrs(tx.ctx, slog.LevelDebug,
-			"timer E reset",
-			slog.Any("transaction", tx),
-			slog.Time("expires_at", time.Now().Add(tmr.Left())),
-		)
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerE); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerE, tx.State(), err))
+		}
+
+		if tmr := tx.tmrE.Load(); tmr != nil {
+			var dur time.Duration
+			if tx.State() == TransactionStateTrying {
+				dur = min(2*tmr.Duration(), tx.timings.T2())
+			} else {
+				dur = tx.timings.T2()
+			}
+			tmr.Reset(dur)
+
+			tx.log.LogAttrs(ctx, slog.LevelDebug,
+				"timer E reset",
+				slog.Any("transaction", tx),
+				slog.Time("expires_at", time.Now().Add(tmr.Left())),
+			)
+		}
 	}
 }
 
-func (tx *NonInviteClientTransaction) onTimerF() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer F expired", slog.Any("transaction", tx))
+func (tx *NonInviteClientTransaction) timerFHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer F expired", slog.Any("transaction", tx))
 
-	tx.tmrF.Store(nil)
+		tx.tmrF.Store(nil)
 
-	if tx.State() != TransactionStateTrying && tx.State() != TransactionStateProceeding {
-		return
-	}
+		if tx.State() != TransactionStateTrying && tx.State() != TransactionStateProceeding {
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerF); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerF, tx.State(), err))
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerF); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerF, tx.State(), err))
+		}
 	}
 }
 
@@ -177,7 +185,7 @@ func (tx *NonInviteClientTransaction) actCompleted(ctx context.Context, args ...
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer F stopped", slog.Any("transaction", tx))
 	}
 
-	tmr := timeutil.AfterFunc(tx.timings.TimeK(), tx.onTimerK)
+	tmr := timeutil.AfterFunc(tx.timings.TimeK(), tx.timerKHdlr(ctx))
 	tx.tmrK.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -189,17 +197,19 @@ func (tx *NonInviteClientTransaction) actCompleted(ctx context.Context, args ...
 	return nil
 }
 
-func (tx *NonInviteClientTransaction) onTimerK() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer K expired", slog.Any("transaction", tx))
+func (tx *NonInviteClientTransaction) timerKHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer K expired", slog.Any("transaction", tx))
 
-	tx.tmrK.Store(nil)
+		tx.tmrK.Store(nil)
 
-	if tx.State() != TransactionStateCompleted {
-		return
-	}
+		if tx.State() != TransactionStateCompleted {
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerK); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerK, tx.State(), err))
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerK); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerK, tx.State(), err))
+		}
 	}
 }
 
@@ -236,6 +246,7 @@ func (tx *NonInviteClientTransaction) takeSnapshot() *ClientTransactionSnapshot 
 }
 
 func RestoreNonInviteClientTransaction(
+	ctx context.Context,
 	snap *ClientTransactionSnapshot,
 	tp ClientTransport,
 	opts *ClientTransactionOptions,
@@ -259,6 +270,8 @@ func RestoreNonInviteClientTransaction(
 	}
 	tx.clientTransact = clnTx
 
+	ctx = ContextWithTransaction(ctx, tx)
+
 	if snap.LastResponse != nil {
 		tx.lastRes.Store(snap.LastResponse)
 	}
@@ -267,27 +280,27 @@ func RestoreNonInviteClientTransaction(
 		return nil, errtrace.Wrap(err)
 	}
 
-	tx.restoreTimers(snap)
+	tx.restoreTimers(ctx, snap)
 
 	return tx, nil
 }
 
-func (tx *NonInviteClientTransaction) restoreTimers(snap *ClientTransactionSnapshot) {
+func (tx *NonInviteClientTransaction) restoreTimers(ctx context.Context, snap *ClientTransactionSnapshot) {
 	if tmr := snap.TimerE; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerE)
+		restored.SetCallback(tx.timerEHdlr(ctx))
 		tx.tmrE.Store(restored)
 	}
 
 	if tmr := snap.TimerF; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerF)
+		restored.SetCallback(tx.timerFHdlr(ctx))
 		tx.tmrF.Store(restored)
 	}
 
 	if tmr := snap.TimerK; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerK)
+		restored.SetCallback(tx.timerKHdlr(ctx))
 		tx.tmrK.Store(restored)
 	}
 }

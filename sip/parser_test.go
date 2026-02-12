@@ -344,6 +344,8 @@ func TestParsePacket(t *testing.T) {
 }
 
 func TestParsePacket_ContentLengthTooLarge(t *testing.T) {
+	t.Parallel()
+
 	contentLen := sip.MaxMsgSize + 1
 	input := []byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +
@@ -538,6 +540,8 @@ func TestParseStream(t *testing.T) {
 }
 
 func TestParseStream_ContentLengthTooLarge(t *testing.T) {
+	t.Parallel()
+
 	contentLen := sip.MaxMsgSize + 1
 	input := []byte("INVITE sip:bob@b.example.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP a.example.com;branch=qwerty\r\n" +

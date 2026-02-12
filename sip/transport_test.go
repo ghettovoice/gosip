@@ -16,13 +16,13 @@ import (
 
 // sendReqCall captures a request send call for testing.
 type sendReqCall struct {
-	req  *sip.OutboundRequest
+	req  *sip.OutboundRequestEnvelope
 	opts *sip.SendRequestOptions
 }
 
 // sendResCall captures a response send call for testing.
 type sendResCall struct {
-	res  *sip.OutboundResponse
+	res  *sip.OutboundResponseEnvelope
 	opts *sip.SendResponseOptions
 }
 
@@ -34,12 +34,14 @@ type stubTransport struct {
 	network string
 	rel     bool // reliable transport flag
 
-	mu          sync.Mutex
-	serveErr    error
-	closed      bool
-	reqHandlers []sip.TransportRequestHandler
-	resHandlers []sip.TransportResponseHandler
-	serveCh     chan struct{}
+	mu         sync.Mutex
+	serveErr   error
+	closed     bool
+	inReqInts  []sip.InboundRequestInterceptor
+	inResInts  []sip.InboundResponseInterceptor
+	outReqInts []sip.OutboundRequestInterceptor
+	outResInts []sip.OutboundResponseInterceptor
+	serveCh    chan struct{}
 
 	// Request tracking
 	sentReqs    []sendReqCall
@@ -81,7 +83,7 @@ func newStubTransportExt(
 	}
 }
 
-func (st *stubTransport) Serve() error {
+func (st *stubTransport) Serve(ctx context.Context) error {
 	st.mu.Lock()
 	ch := st.serveCh
 	st.mu.Unlock()
@@ -98,7 +100,7 @@ func (st *stubTransport) Serve() error {
 	return nil
 }
 
-func (st *stubTransport) Close() error {
+func (st *stubTransport) Close(ctx context.Context) error {
 	st.mu.Lock()
 	if st.closed {
 		st.mu.Unlock()
@@ -110,31 +112,84 @@ func (st *stubTransport) Close() error {
 	return nil
 }
 
-func (st *stubTransport) OnRequest(fn sip.TransportRequestHandler) (cancel func()) {
+func (st *stubTransport) UseInboundRequestInterceptor(interceptor sip.InboundRequestInterceptor) (unbind func()) {
 	st.mu.Lock()
-	idx := len(st.reqHandlers)
-	st.reqHandlers = append(st.reqHandlers, fn)
+	idx := len(st.inReqInts)
+	st.inReqInts = append(st.inReqInts, interceptor)
 	st.mu.Unlock()
 	return func() {
 		st.mu.Lock()
-		if idx < len(st.reqHandlers) {
-			st.reqHandlers[idx] = nil
+		if idx < len(st.inReqInts) {
+			st.inReqInts[idx] = nil
 		}
 		st.mu.Unlock()
 	}
 }
 
-func (st *stubTransport) OnResponse(fn sip.TransportResponseHandler) (cancel func()) {
+func (st *stubTransport) UseInboundResponseInterceptor(interceptor sip.InboundResponseInterceptor) (unbind func()) {
 	st.mu.Lock()
-	idx := len(st.resHandlers)
-	st.resHandlers = append(st.resHandlers, fn)
+	idx := len(st.inResInts)
+	st.inResInts = append(st.inResInts, interceptor)
 	st.mu.Unlock()
 	return func() {
 		st.mu.Lock()
-		if idx < len(st.resHandlers) {
-			st.resHandlers[idx] = nil
+		if idx < len(st.inResInts) {
+			st.inResInts[idx] = nil
 		}
 		st.mu.Unlock()
+	}
+}
+
+func (st *stubTransport) UseOutboundRequestInterceptor(interceptor sip.OutboundRequestInterceptor) (unbind func()) {
+	st.mu.Lock()
+	idx := len(st.outReqInts)
+	st.outReqInts = append(st.outReqInts, interceptor)
+	st.mu.Unlock()
+	return func() {
+		st.mu.Lock()
+		if idx < len(st.outReqInts) {
+			st.outReqInts[idx] = nil
+		}
+		st.mu.Unlock()
+	}
+}
+
+func (st *stubTransport) UseOutboundResponseInterceptor(interceptor sip.OutboundResponseInterceptor) (unbind func()) {
+	st.mu.Lock()
+	idx := len(st.outResInts)
+	st.outResInts = append(st.outResInts, interceptor)
+	st.mu.Unlock()
+	return func() {
+		st.mu.Lock()
+		if idx < len(st.outResInts) {
+			st.outResInts[idx] = nil
+		}
+		st.mu.Unlock()
+	}
+}
+
+func (st *stubTransport) UseInterceptor(interceptor sip.MessageInterceptor) (unbind func()) {
+	if interceptor == nil {
+		return func() {}
+	}
+
+	var unbinds []func()
+	if inbound := interceptor.InboundRequestInterceptor(); inbound != nil {
+		unbinds = append(unbinds, st.UseInboundRequestInterceptor(inbound))
+	}
+	if inbound := interceptor.InboundResponseInterceptor(); inbound != nil {
+		unbinds = append(unbinds, st.UseInboundResponseInterceptor(inbound))
+	}
+	if outbound := interceptor.OutboundRequestInterceptor(); outbound != nil {
+		unbinds = append(unbinds, st.UseOutboundRequestInterceptor(outbound))
+	}
+	if outbound := interceptor.OutboundResponseInterceptor(); outbound != nil {
+		unbinds = append(unbinds, st.UseOutboundResponseInterceptor(outbound))
+	}
+	return func() {
+		for _, fn := range unbinds {
+			fn()
+		}
 	}
 }
 
@@ -152,7 +207,7 @@ func (*stubTransport) Streamed() bool { return false }
 
 func (st *stubTransport) DefaultPort() uint16 { return st.laddr.Port() }
 
-func (st *stubTransport) SendRequest(_ context.Context, req *sip.OutboundRequest, opts *sip.SendRequestOptions) error {
+func (st *stubTransport) SendRequest(_ context.Context, req *sip.OutboundRequestEnvelope, opts *sip.SendRequestOptions) error {
 	call := sendReqCall{req: req}
 	if opts != nil {
 		copied := *opts
@@ -175,7 +230,13 @@ func (st *stubTransport) SendRequest(_ context.Context, req *sip.OutboundRequest
 	return nil
 }
 
-func (st *stubTransport) SendResponse(_ context.Context, res *sip.OutboundResponse, opts *sip.SendResponseOptions) error {
+// func (st *stubTransport) setSendReqHook(fn func(sendReqCall, int) error) {
+// 	st.mu.Lock()
+// 	st.sendReqHook = fn
+// 	st.mu.Unlock()
+// }
+
+func (st *stubTransport) SendResponse(_ context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions) error {
 	call := sendResCall{res: res}
 	if opts != nil {
 		copied := *opts
@@ -198,6 +259,12 @@ func (st *stubTransport) SendResponse(_ context.Context, res *sip.OutboundRespon
 	return nil
 }
 
+func (st *stubTransport) setSendResHook(fn func(sendResCall, int) error) {
+	st.mu.Lock()
+	st.sendResHook = fn
+	st.mu.Unlock()
+}
+
 func (st *stubTransport) requestCount() int {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -210,27 +277,43 @@ func (st *stubTransport) responseCount() int {
 	return len(st.sentRess)
 }
 
-func (st *stubTransport) triggerRequest(ctx context.Context, req *sip.InboundRequest) {
-	st.mu.Lock()
-	handlers := append([]sip.TransportRequestHandler(nil), st.reqHandlers...)
-	st.mu.Unlock()
-	for _, fn := range handlers {
-		if fn != nil {
-			fn(ctx, st, req)
-		}
-	}
+// func (st *stubTransport) sendReqChan() <-chan sendReqCall {
+// 	return st.sendReqCh
+// }
+
+func (st *stubTransport) sendResChan() <-chan sendResCall {
+	return st.sendResCh
 }
 
-func (st *stubTransport) triggerResponse(ctx context.Context, res *sip.InboundResponse) {
-	st.mu.Lock()
-	handlers := append([]sip.TransportResponseHandler(nil), st.resHandlers...)
-	st.mu.Unlock()
-	for _, fn := range handlers {
-		if fn != nil {
-			fn(ctx, st, res)
-		}
-	}
-}
+// func (st *stubTransport) triggerRequest(ctx context.Context, req *sip.InboundRequestEnvelope) error {
+// 	st.mu.Lock()
+// 	interceptors := append([]sip.InboundRequestInterceptor(nil), st.inReqInts...)
+// 	st.mu.Unlock()
+
+// 	final := sip.RequestReceiverFunc(func(context.Context, *sip.InboundRequestEnvelope) error {
+// 		return nil
+// 	})
+// 	receiver := sip.ChainInboundRequest(interceptors, final)
+// 	if receiver == nil {
+// 		return nil
+// 	}
+// 	return errtrace.Wrap(receiver.RecvRequest(sip.ContextWithTransport(ctx, st), req))
+// }
+
+// func (st *stubTransport) triggerResponse(ctx context.Context, res *sip.InboundResponseEnvelope) error {
+// 	st.mu.Lock()
+// 	interceptors := append([]sip.InboundResponseInterceptor(nil), st.inResInts...)
+// 	st.mu.Unlock()
+
+// 	final := sip.ResponseReceiverFunc(func(context.Context, *sip.InboundResponseEnvelope) error {
+// 		return nil
+// 	})
+// 	receiver := sip.ChainInboundResponse(interceptors, final)
+// 	if receiver == nil {
+// 		return nil
+// 	}
+// 	return errtrace.Wrap(receiver.RecvResponse(sip.ContextWithTransport(ctx, st), res))
+// }
 
 // waitSendReq waits for a request to be sent and returns it.
 func (st *stubTransport) waitSendReq(tb testing.TB, timeout time.Duration) sendReqCall {
@@ -296,80 +379,4 @@ func (st *stubTransport) drainSendRess() {
 			return
 		}
 	}
-}
-
-// Aliases for backward compatibility with existing tests.
-
-// waitSend is an alias for waitSendReq (for client transaction tests).
-func (st *stubTransport) waitSend(tb testing.TB, timeout time.Duration) sendReqCall {
-	tb.Helper()
-	return st.waitSendReq(tb, timeout)
-}
-
-// ensureNoSend is an alias for ensureNoSendReq (for client transaction tests).
-func (st *stubTransport) ensureNoSend(tb testing.TB, timeout time.Duration) {
-	tb.Helper()
-	st.ensureNoSendReq(tb, timeout)
-}
-
-// drainSends is an alias for drainSendReqs (for client transaction tests).
-func (st *stubTransport) drainSends() {
-	st.drainSendReqs()
-}
-
-// newStubClientTransport is an alias for newStubTransportExt (for client transaction tests).
-func newStubClientTransport(
-	proto sip.TransportProto,
-	netw string,
-	laddr netip.AddrPort,
-	rel bool,
-) *stubTransport {
-	return newStubTransportExt(proto, netw, laddr, rel)
-}
-
-// stubServerTransportWrapper wraps stubTransport for server transaction tests,
-// providing server-specific method signatures.
-type stubServerTransportWrapper struct {
-	*stubTransport
-}
-
-// newStubServerTransport creates a stub for server transaction tests.
-func newStubServerTransport(
-	proto sip.TransportProto,
-	netw string,
-	laddr netip.AddrPort,
-	rel bool,
-) *stubServerTransportWrapper {
-	return &stubServerTransportWrapper{
-		stubTransport: newStubTransportExt(proto, netw, laddr, rel),
-	}
-}
-
-// waitSend waits for a response send (for server transaction tests).
-func (w *stubServerTransportWrapper) waitSend(tb testing.TB, timeout time.Duration) sendResCall {
-	tb.Helper()
-	return w.waitSendRes(tb, timeout)
-}
-
-// ensureNoSend asserts no response is sent within timeout (for server transaction tests).
-func (w *stubServerTransportWrapper) ensureNoSend(tb testing.TB, timeout time.Duration) {
-	tb.Helper()
-	w.ensureNoSendRes(tb, timeout)
-}
-
-// drainSends drains pending response sends (for server transaction tests).
-func (w *stubServerTransportWrapper) drainSends() {
-	w.drainSendRess()
-}
-
-// sendCh returns the response send channel (for server transaction tests).
-func (w *stubServerTransportWrapper) sendCh() chan sendResCall {
-	return w.sendResCh
-}
-
-// setSendHook sets the response send hook (for server transaction tests).
-func (w *stubServerTransportWrapper) setSendHook(hook func(call sendResCall, index int) error) {
-	w.mu.Lock()
-	w.sendResHook = hook
-	w.mu.Unlock()
 }

@@ -782,7 +782,7 @@ func TestRequest_NewResponse(t *testing.T) {
 		}
 
 		if got, want := res.Reason, reason; got != want {
-			t.Fatalf("Reason = %v, want %v", got, want)
+			t.Fatalf("res.Reason = %v, want %v", got, want)
 		}
 
 		toHdr, _ := res.Headers.To()

@@ -15,7 +15,9 @@ import (
 )
 
 // Any implements any URI (usually not SIP or tel).
-type Any url.URL
+type Any struct {
+	url.URL
+}
 
 // Clone returns a deep copy of the Any URI.
 func (u *Any) Clone() URI {
@@ -33,12 +35,20 @@ func (u *Any) Clone() URI {
 	return &u2
 }
 
+// Scheme returns the URI scheme.
+func (u *Any) Scheme() string {
+	if u == nil {
+		return ""
+	}
+	return u.URL.Scheme
+}
+
 // RenderToOptions writes the URI to the provided writer.
 func (u *Any) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error) {
 	if u == nil {
 		return 0, nil
 	}
-	return errtrace.Wrap2(fmt.Fprint(w, (*url.URL)(u).String()))
+	return errtrace.Wrap2(fmt.Fprint(w, u.URL.String()))
 }
 
 // RenderOptions returns the string representation of the URI.
@@ -137,10 +147,10 @@ func ParseAny[T ~string | ~[]byte](src T) (*Any, error) {
 	if err != nil {
 		return nil, errtrace.Wrap(errorutil.NewWrapperError(grammar.ErrMalformedInput, err))
 	}
-	return (*Any)(u), nil
+	return &Any{URL: *u}, nil
 }
 
 func buildFromAnyNode(node *abnf.Node) *Any {
 	u, _ := url.Parse(node.String())
-	return (*Any)(u)
+	return &Any{URL: *u}
 }

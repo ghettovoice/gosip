@@ -272,7 +272,7 @@ func (cln *DigestChallenge) RenderTo(w io.Writer, opts *RenderOptions) (num int,
 	defer ioutil.FreeCountingWriter(cw)
 	cw.Fprint("Digest ")
 
-	var kvs [][]string //nolint:prealloc
+	var kvs [][]string
 	// resolve and write all non-empty std scalar parameters in alphabet order
 	for k, v := range map[string]string{
 		"realm":     cln.Realm,
@@ -461,7 +461,7 @@ func (cln *BearerChallenge) RenderTo(w io.Writer, opts *RenderOptions) (num int,
 	cw.Fprint("Bearer ")
 
 	// write std parameters
-	var kvs [][]string //nolint:prealloc
+	var kvs [][]string
 	for k, v := range map[string]string{
 		"realm": cln.Realm,
 		"scope": cln.Scope,

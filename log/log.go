@@ -1,7 +1,7 @@
 // Package log provides preconfigured loggers and utilities.
 package log
 
-//go:generate go tool errtrace -w .
+//go:generate errtrace -w .
 
 import (
 	"context"

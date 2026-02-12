@@ -3,6 +3,7 @@ package header_test
 import (
 	"fmt"
 	"io"
+	"net/url"
 	"reflect"
 	"testing"
 	"time"
@@ -158,11 +159,11 @@ func TestParse(t *testing.T) {
 			nil,
 			header.AlertInfo{
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("foo", "bar").Set("baz", ""),
 				},
 				{
-					URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/x/y/z"},
+					URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/x/y/z"}},
 				},
 			},
 			nil,
@@ -264,11 +265,11 @@ func TestParse(t *testing.T) {
 			nil,
 			header.CallInfo{
 				{
-					URI:    &uri.Any{Scheme: "http", Host: "www.example.com", Path: "/alice/photo.jpg"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "http", Host: "www.example.com", Path: "/alice/photo.jpg"}},
 					Params: make(header.Values).Set("purpose", "icon"),
 				},
 				{
-					URI:    &uri.Any{Scheme: "http", Host: "www.example.com", Path: "/alice/"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "http", Host: "www.example.com", Path: "/alice/"}},
 					Params: make(header.Values).Set("purpose", "info"),
 				},
 			},
@@ -329,7 +330,7 @@ func TestParse(t *testing.T) {
 				},
 				{
 					DisplayName: "Mr. Watson",
-					URI:         &uri.Any{Scheme: "mailto", Opaque: "watson@bell-telephone.com"},
+					URI:         &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "watson@bell-telephone.com"}},
 					Params:      make(header.Values).Set("q", "0.1"),
 				},
 			},
@@ -454,7 +455,7 @@ func TestParse(t *testing.T) {
 					Params: make(header.Values).Set("p2", "zzz"),
 				},
 				{
-					URI: &uri.Any{Scheme: "http", Host: "example.org", Path: "/qwerty"},
+					URI: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.org", Path: "/qwerty"}},
 				},
 			},
 			nil,
@@ -491,7 +492,7 @@ func TestParse(t *testing.T) {
 			"From: https://example.org/username?tag=a48s",
 			nil,
 			&header.From{
-				URI:    &uri.Any{Scheme: "https", Host: "example.org", Path: "/username"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.org", Path: "/username"}},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -517,7 +518,7 @@ func TestParse(t *testing.T) {
 			nil,
 			&header.From{
 				DisplayName: "Anonymous",
-				URI:         &uri.Any{Scheme: "https", Host: "example.org", Path: "/username"},
+				URI:         &uri.Any{URL: url.URL{Scheme: "https", Host: "example.org", Path: "/username"}},
 				Params:      make(header.Values).Set("tag", "hyh8"),
 			},
 			nil,
@@ -565,8 +566,8 @@ func TestParse(t *testing.T) {
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
 					&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
-					&uri.Any{Scheme: "http", Host: "example.com"},
-					&uri.Any{Path: "/a/b/c"},
+					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -586,7 +587,7 @@ func TestParse(t *testing.T) {
 			&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
 				Realm:       "atlanta.com",
 				Scope:       "abc",
-				AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
+				AuthzServer: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
 				Error:       "qwerty",
 				Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 			}},
@@ -704,7 +705,7 @@ func TestParse(t *testing.T) {
 			"Reply-To: https://example.org/username?tag=a48s",
 			nil,
 			&header.ReplyTo{
-				URI:    &uri.Any{Scheme: "https", Host: "example.org", Path: "/username"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.org", Path: "/username"}},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -814,7 +815,7 @@ func TestParse(t *testing.T) {
 			"To: https://example.org/username?tag=a48s",
 			nil,
 			&header.To{
-				URI:    &uri.Any{Scheme: "https", Host: "example.org", Path: "/username"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.org", Path: "/username"}},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -840,7 +841,7 @@ func TestParse(t *testing.T) {
 			nil,
 			&header.To{
 				DisplayName: "Anonymous",
-				URI:         &uri.Any{Scheme: "https", Host: "example.org", Path: "/username"},
+				URI:         &uri.Any{URL: url.URL{Scheme: "https", Host: "example.org", Path: "/username"}},
 				Params:      make(header.Values).Set("tag", "hyh8"),
 			},
 			nil,
@@ -966,8 +967,8 @@ func TestParse(t *testing.T) {
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
 					&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
-					&uri.Any{Scheme: "http", Host: "example.com"},
-					&uri.Any{Path: "/a/b/c"},
+					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -987,7 +988,7 @@ func TestParse(t *testing.T) {
 			&header.WWWAuthenticate{AuthChallenge: &header.BearerChallenge{
 				Realm:       "atlanta.com",
 				Scope:       "abc",
-				AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
+				AuthzServer: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
 				Error:       "qwerty",
 				Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 			}},

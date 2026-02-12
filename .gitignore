@@ -238,3 +238,5 @@ coverage/
 *.report
 
 __debug*
+
+tmp/

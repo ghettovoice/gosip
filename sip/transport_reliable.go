@@ -35,9 +35,10 @@ type ReliableTransportOptions struct {
 	// Parser is a parser used to parse inbound SIP messages.
 	// If nil, [DefaultParser] is used.
 	Parser Parser
-	// SentByHost is a host used to build the Via's "sent-by" field.
-	// If empty, "127.0.0.1" is used.
-	SentByHost string
+	// SentBy is a "host[:port]" used to build the Via's "sent-by" field.
+	// To force the transport append actual port used, build [Addr] with zero port.
+	// If zero, the transport's local address is used.
+	SentBy Addr
 	// ConnIdleTTL is the maximum duration a reliable connection may be idle before it is closed.
 	// Idle timer resets every time a new message is received or sent.
 	// If the TTL is set to -1, then no idle timer is used, connections will stay open until transport shutdown.
@@ -46,9 +47,9 @@ type ReliableTransportOptions struct {
 	// ConnDialer is a connection dialer used to dial connections for reliable transports.
 	// If nil, [DefaultConnDialer] is used.
 	ConnDialer ConnDialer
-	// Log is a logger used to log transport events, warnings and errors.
+	// Logger is a logger used to log transport events, warnings and errors.
 	// If nil, [log.Default] is used.
-	Log *slog.Logger
+	Logger *slog.Logger
 	// DNSResolver is a DNS resolver used to resolve the message destination.
 	// If nil, [dns.DefaultResolver] is used.
 	DNSResolver DNSResolver
@@ -82,11 +83,11 @@ func (o *ReliableTransportOptions) parser() Parser {
 	return o.Parser
 }
 
-func (o *ReliableTransportOptions) sentByHost() string {
-	if o == nil || o.SentByHost == "" {
-		return "127.0.0.1"
+func (o *ReliableTransportOptions) sentBy() Addr {
+	if o == nil {
+		return Addr{}
 	}
-	return o.SentByHost
+	return o.SentBy
 }
 
 func (o *ReliableTransportOptions) connIdleTTL() time.Duration {
@@ -104,10 +105,10 @@ func (o *ReliableTransportOptions) connDialer() ConnDialer {
 }
 
 func (o *ReliableTransportOptions) log() *slog.Logger {
-	if o == nil || o.Log == nil {
+	if o == nil || o.Logger == nil {
 		return log.Default()
 	}
-	return o.Log
+	return o.Logger
 }
 
 func (o *ReliableTransportOptions) dnsResolver() DNSResolver {
@@ -117,7 +118,21 @@ func (o *ReliableTransportOptions) dnsResolver() DNSResolver {
 	return o.DNSResolver
 }
 
+// ConnDialer is used to dial connections for reliable transports.
+type ConnDialer interface {
+	// DialConn dials a connection to the remote address.
+	DialConn(ctx context.Context, network string, raddr netip.AddrPort) (net.Conn, error)
+}
+
+// ConnDialerFunc is a [ConnDialer] implementation based on a function.
+type ConnDialerFunc func(ctx context.Context, network string, raddr netip.AddrPort) (net.Conn, error)
+
+func (f ConnDialerFunc) DialConn(ctx context.Context, network string, raddr netip.AddrPort) (net.Conn, error) {
+	return errtrace.Wrap2(f(ctx, network, raddr))
+}
+
 // ReliableTransport implements [Transport] interface based on a reliable network protocol.
+// TODO: add OnNewConnection hook to allow custom decorators of net.Conn.
 type ReliableTransport struct {
 	*baseTransp
 	lsnr        net.Listener
@@ -145,7 +160,6 @@ func NewReliableTransport(
 
 	tp := new(ReliableTransport)
 	tp.baseTransp = newBaseTransp(
-		context.Background(),
 		tp,
 		TransportMetadata{
 			Proto:       proto,
@@ -156,7 +170,7 @@ func NewReliableTransport(
 			DefaultPort: opts.defPort(),
 		},
 		netip.MustParseAddrPort(ls.Addr().String()),
-		opts.sentByHost(),
+		opts.sentBy(),
 		opts.dnsResolver(),
 		opts.log(),
 	)
@@ -167,7 +181,7 @@ func NewReliableTransport(
 	return tp, nil
 }
 
-func (tp *ReliableTransport) close() error {
+func (tp *ReliableTransport) close(context.Context) error {
 	err := tp.lsnr.Close()
 	for c := range tp.allConns() {
 		c.Close()
@@ -175,8 +189,6 @@ func (tp *ReliableTransport) close() error {
 	tp.connSrvWg.Wait()
 	return errtrace.Wrap(err)
 }
-
-const errNoConn Error = "no connection found"
 
 func (tp *ReliableTransport) writeTo(
 	ctx context.Context,
@@ -193,12 +205,12 @@ func (tp *ReliableTransport) writeTo(
 		}
 	} else {
 		var err error
-		conn, err = tp.getOrDialConn(raddr, func(raddr netip.AddrPort) (net.Conn, error) {
+		conn, err = tp.getOrDialConn(ctx, raddr, func(ctx context.Context, raddr netip.AddrPort) (net.Conn, error) {
 			c, e := tp.connDialer.DialConn(ctx, tp.meta.Network, raddr)
 			if e != nil {
 				return nil, errtrace.Wrap(e)
 			}
-			return tp.initConn(c), nil
+			return tp.initConn(context.WithoutCancel(ctx), c), nil
 		})
 		if err != nil {
 			return zeroAddrPort, errtrace.Wrap(err)
@@ -217,11 +229,11 @@ func (tp *ReliableTransport) writeTo(
 	return netip.MustParseAddrPort(conn.LocalAddr().String()), nil
 }
 
-func (tp *ReliableTransport) serve() error {
+func (tp *ReliableTransport) serve(ctx context.Context) error {
 	defer tp.lsnr.Close()
 
-	tp.log.LogAttrs(tp.ctx, slog.LevelDebug, "begin serving the listener", slog.Any("listener", tp.lsnr))
-	defer tp.log.LogAttrs(tp.ctx, slog.LevelDebug, "serving the listener finished", slog.Any("listener", tp.lsnr))
+	tp.log.LogAttrs(ctx, slog.LevelDebug, "begin serving the listener", slog.Any("listener", tp.lsnr))
+	defer tp.log.LogAttrs(ctx, slog.LevelDebug, "serving the listener finished", slog.Any("listener", tp.lsnr))
 
 	var tempDelay time.Duration
 	for {
@@ -237,7 +249,7 @@ func (tp *ReliableTransport) serve() error {
 					tempDelay = v
 				}
 
-				tp.log.LogAttrs(tp.ctx, slog.LevelDebug,
+				tp.log.LogAttrs(ctx, slog.LevelDebug,
 					"failed to accept connection due to the temporary error, continue serving after delay...",
 					slog.Any("error", err),
 					slog.Duration("delay", tempDelay),
@@ -245,7 +257,7 @@ func (tp *ReliableTransport) serve() error {
 
 				tmr := time.NewTimer(tempDelay)
 				select {
-				case <-tp.ctx.Done():
+				case <-tp.closing:
 					tmr.Stop()
 					return errtrace.Wrap(ErrTransportClosed)
 				case <-tmr.C:
@@ -253,19 +265,19 @@ func (tp *ReliableTransport) serve() error {
 				continue
 			}
 
-			select {
-			case <-tp.ctx.Done():
+			if tp.isClosing() {
 				return errtrace.Wrap(ErrTransportClosed)
-			default:
-				return errtrace.Wrap(err)
 			}
+			return errtrace.Wrap(err)
 		}
 
-		tp.trackConn(tp.initConn(conn))
+		tp.trackConn(tp.initConn(ctx, conn))
 	}
 }
 
-func (tp *ReliableTransport) initConn(conn net.Conn) net.Conn {
+func (tp *ReliableTransport) initConn(ctx context.Context, conn net.Conn) net.Conn {
+	// TODO: autoCloseConn is temporary solution, integrate RFC 5626 as decorator for connection
+	//       with keep-alive logic
 	conn = newAutoCloseConn(
 		newCloseOnceConn(
 			newLogConn(conn, tp.log),
@@ -273,8 +285,8 @@ func (tp *ReliableTransport) initConn(conn net.Conn) net.Conn {
 		tp.connIdleTTL,
 	)
 	tp.connSrvWg.Go(func() {
-		if err := tp.serveConn(conn); err != nil && !errors.Is(err, ErrTransportClosed) {
-			tp.log.LogAttrs(tp.ctx, slog.LevelWarn, "failed to serve the connection",
+		if err := tp.serveConn(ctx, conn); err != nil && !errors.Is(err, ErrTransportClosed) {
+			tp.log.LogAttrs(ctx, slog.LevelWarn, "failed to serve the connection",
 				slog.Any("connection", conn),
 				slog.Any("error", err),
 			)
@@ -283,29 +295,27 @@ func (tp *ReliableTransport) initConn(conn net.Conn) net.Conn {
 	return conn
 }
 
-func (tp *ReliableTransport) serveConn(conn net.Conn) error {
+func (tp *ReliableTransport) serveConn(ctx context.Context, conn net.Conn) error {
 	defer func() {
 		tp.untrackConn(conn)
 		conn.Close()
 	}()
 
-	tp.log.LogAttrs(tp.ctx, slog.LevelDebug, "begin serving the connection", slog.Any("connection", conn))
-	defer tp.log.LogAttrs(tp.ctx, slog.LevelDebug, "serving the connection finished", slog.Any("connection", conn))
+	tp.log.LogAttrs(ctx, slog.LevelDebug, "begin serving the connection", slog.Any("connection", conn))
+	defer tp.log.LogAttrs(ctx, slog.LevelDebug, "serving the connection finished", slog.Any("connection", conn))
 
 	var msgs iter.Seq2[Message, error]
 	if tp.meta.Streamed {
-		msgs = streamMsgs(conn, tp.parser, time.Minute)
+		msgs = streamMsgs(tp.meta.Proto, conn, tp.parser, time.Minute)
 	} else {
-		msgs = packetMsgs(&packetConn{conn}, tp.parser, time.Minute)
+		msgs = packetMsgs(tp.meta.Proto, &packetConn{conn}, tp.parser, time.Minute)
 	}
 
-	err := tp.readMsgs(msgs)
-	select {
-	case <-tp.ctx.Done():
+	err := tp.readMsgs(ctx, msgs)
+	if tp.isClosing() {
 		return errtrace.Wrap(ErrTransportClosed)
-	default:
-		return errtrace.Wrap(err)
 	}
+	return errtrace.Wrap(err)
 }
 
 type connTracker struct {
@@ -343,14 +353,18 @@ func (trk *connTracker) getConn(raddr netip.AddrPort) (net.Conn, bool) {
 	return conn, true
 }
 
-func (trk *connTracker) getOrDialConn(raddr netip.AddrPort, dialConn func(netip.AddrPort) (net.Conn, error)) (net.Conn, error) {
+func (trk *connTracker) getOrDialConn(
+	ctx context.Context,
+	raddr netip.AddrPort,
+	dialConn func(context.Context, netip.AddrPort) (net.Conn, error),
+) (net.Conn, error) {
 	trk.mu.Lock()
 	defer trk.mu.Unlock()
 
 	c, ok := trk.conns[raddr]
 	if !ok {
 		var err error
-		c, err = dialConn(raddr)
+		c, err = dialConn(ctx, raddr)
 		if err != nil {
 			return nil, errtrace.Wrap(err)
 		}

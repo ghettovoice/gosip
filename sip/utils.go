@@ -3,11 +3,18 @@ package sip
 import (
 	"bufio"
 	"io"
+	"log/slog"
 	"net/textproto"
 	"sync"
 )
 
-var jsonNull = []byte("null")
+var (
+	sNilTag  = "<nil>"
+	bNilTag  = []byte(sNilTag)
+	jsonNull = []byte("null")
+
+	zeroSlogValue slog.Value
+)
 
 var txtProtoRdrPool = sync.Pool{
 	New: func() any { return new(textproto.Reader) },

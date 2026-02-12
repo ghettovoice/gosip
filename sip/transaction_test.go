@@ -1,7 +1,9 @@
 package sip_test
 
 import (
+	"context"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,7 +16,7 @@ func newInviteReq(
 	tb testing.TB,
 	tp sip.TransportProto,
 	branch string,
-	rmtAddr netip.AddrPort,
+	viaAddr netip.AddrPort,
 ) *sip.Request {
 	tb.Helper()
 
@@ -33,7 +35,7 @@ func newInviteReq(
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: tp,
-					Addr:      header.HostPort(rmtAddr.Addr().String(), rmtAddr.Port()),
+					Addr:      header.HostPort(viaAddr.Addr().String(), viaAddr.Port()),
 					Params:    make(header.Values).Set("branch", branch),
 				},
 			}).
@@ -46,7 +48,8 @@ func newInviteReq(
 			}).
 			Set(header.CallID("call-1234@bob.voip.com")).
 			Set(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
-			Set(header.MaxForwards(70)),
+			Set(header.MaxForwards(70)).
+			Set(&header.Timestamp{RequestTime: time.Now().Add(-time.Second)}),
 	}
 	return req
 }
@@ -56,9 +59,14 @@ func newInInviteReq(
 	tp sip.TransportProto,
 	branch string,
 	locAddr, rmtAddr netip.AddrPort,
-) *sip.InboundRequest {
+) *sip.InboundRequestEnvelope {
 	tb.Helper()
-	return sip.NewInboundRequest(newInviteReq(tb, tp, branch, rmtAddr), locAddr, rmtAddr)
+
+	req, err := sip.NewInboundRequestEnvelope(newInviteReq(tb, tp, branch, rmtAddr), tp, locAddr, rmtAddr)
+	if err != nil {
+		tb.Fatalf("sip.NewInboundRequestEnvelope() error = %v, want nil", err)
+	}
+	return req
 }
 
 func newOutInviteReq(
@@ -66,10 +74,14 @@ func newOutInviteReq(
 	tp sip.TransportProto,
 	branch string,
 	locAddr, rmtAddr netip.AddrPort,
-) *sip.OutboundRequest {
+) *sip.OutboundRequestEnvelope {
 	tb.Helper()
 
-	req := sip.NewOutboundRequest(newInviteReq(tb, tp, branch, rmtAddr))
+	req, err := sip.NewOutboundRequestEnvelope(newInviteReq(tb, tp, branch, locAddr))
+	if err != nil {
+		tb.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
+	}
+	req.SetTransport(tp)
 	req.SetLocalAddr(locAddr)
 	req.SetRemoteAddr(rmtAddr)
 	return req
@@ -94,14 +106,19 @@ func newAckReq(tb testing.TB, invite *sip.Request, res *sip.Response) *sip.Reque
 	return ack
 }
 
-func newInAckReq(tb testing.TB, invite *sip.InboundRequest, res *sip.OutboundResponse) *sip.InboundRequest {
+func newInAckReq(tb testing.TB, invite *sip.InboundRequestEnvelope, res *sip.OutboundResponseEnvelope) *sip.InboundRequestEnvelope {
 	tb.Helper()
 
-	return sip.NewInboundRequest(
+	req, err := sip.NewInboundRequestEnvelope(
 		newAckReq(tb, invite.Message(), res.Message()),
+		invite.Transport(),
 		invite.RemoteAddr(),
 		invite.LocalAddr(),
 	)
+	if err != nil {
+		tb.Fatalf("sip.NewInboundRequestEnvelope() error = %v, want nil", err)
+	}
+	return req
 }
 
 func newNonInviteReq(
@@ -125,9 +142,14 @@ func newInNonInviteReq(
 	tp sip.TransportProto,
 	branch string,
 	locAddr, rmtAddr netip.AddrPort,
-) *sip.InboundRequest {
+) *sip.InboundRequestEnvelope {
 	tb.Helper()
-	return sip.NewInboundRequest(newNonInviteReq(tb, tp, branch, rmtAddr), locAddr, rmtAddr)
+
+	req, err := sip.NewInboundRequestEnvelope(newNonInviteReq(tb, tp, branch, rmtAddr), tp, locAddr, rmtAddr)
+	if err != nil {
+		tb.Fatalf("sip.NewInboundRequestEnvelope() error = %v, want nil", err)
+	}
+	return req
 }
 
 func newOutNonInviteReq(
@@ -135,16 +157,20 @@ func newOutNonInviteReq(
 	tp sip.TransportProto,
 	branch string,
 	locAddr, rmtAddr netip.AddrPort,
-) *sip.OutboundRequest {
+) *sip.OutboundRequestEnvelope {
 	tb.Helper()
 
-	req := sip.NewOutboundRequest(newNonInviteReq(tb, tp, branch, rmtAddr))
+	req, err := sip.NewOutboundRequestEnvelope(newNonInviteReq(tb, tp, branch, locAddr))
+	if err != nil {
+		tb.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
+	}
+	req.SetTransport(tp)
 	req.SetLocalAddr(locAddr)
 	req.SetRemoteAddr(rmtAddr)
 	return req
 }
 
-func newInRes(tb testing.TB, req *sip.OutboundRequest, sts sip.ResponseStatus) *sip.InboundResponse {
+func newInRes(tb testing.TB, req *sip.OutboundRequestEnvelope, sts sip.ResponseStatus) *sip.InboundResponseEnvelope {
 	tb.Helper()
 
 	msg, err := req.Message().NewResponse(sts, nil)
@@ -152,7 +178,11 @@ func newInRes(tb testing.TB, req *sip.OutboundRequest, sts sip.ResponseStatus) *
 		tb.Fatalf("failed to create response: %v", err)
 	}
 
-	return sip.NewInboundResponse(msg, req.LocalAddr(), req.RemoteAddr())
+	res, err := sip.NewInboundResponseEnvelope(msg, req.Transport(), req.LocalAddr(), req.RemoteAddr())
+	if err != nil {
+		tb.Fatalf("sip.NewInboundResponseEnvelope() error = %v, want nil", err)
+	}
+	return res
 }
 
 //nolint:unparam
@@ -171,4 +201,136 @@ func waitForTransactState(tb testing.TB, tx sip.Transaction, want sip.Transactio
 		time.Sleep(2 * time.Millisecond)
 	}
 	tb.Fatalf("transaction state did not reach %q, got %q", want, getState())
+}
+
+type stubTransaction struct {
+	typ      sip.TransactionType
+	handlers []sip.TransactionStateHandler
+}
+
+func (tx *stubTransaction) Type() sip.TransactionType {
+	return tx.typ
+}
+
+func (*stubTransaction) State() sip.TransactionState {
+	return ""
+}
+
+func (*stubTransaction) MatchMessage(msg sip.Message) bool {
+	// For stub transactions, we'll accept any message for testing purposes
+	return true
+}
+
+func (tx *stubTransaction) OnStateChanged(fn sip.TransactionStateHandler) (cancel func()) {
+	tx.handlers = append(tx.handlers, fn)
+	return func() {}
+}
+
+func (*stubTransaction) OnError(fn sip.ErrorHandler) (cancel func()) {
+	_ = fn
+	return func() {}
+}
+
+func (*stubTransaction) Terminate(_ context.Context) error {
+	return nil
+}
+
+func (tx *stubTransaction) fireState(to sip.TransactionState) {
+	for _, handler := range tx.handlers {
+		if handler != nil {
+			handler(context.Background(), "", to)
+		}
+	}
+}
+
+type stubClientTransaction struct {
+	stubTransaction
+	key        sip.ClientTransactionKey
+	recvCalled atomic.Bool
+	recvRes    *sip.InboundResponseEnvelope
+}
+
+func (tx *stubClientTransaction) Type() sip.TransactionType {
+	if tx.typ != "" {
+		return tx.typ
+	}
+	return sip.TransactionTypeClientInvite
+}
+
+func (*stubClientTransaction) State() sip.TransactionState {
+	return sip.TransactionStateCalling
+}
+
+func (tx *stubClientTransaction) Key() sip.ClientTransactionKey {
+	return tx.key
+}
+
+func (*stubClientTransaction) Request() *sip.OutboundRequestEnvelope {
+	return nil
+}
+
+func (*stubClientTransaction) LastResponse() *sip.InboundResponseEnvelope {
+	return nil
+}
+
+func (*stubClientTransaction) Transport() sip.ClientTransport {
+	return nil
+}
+
+func (tx *stubClientTransaction) RecvResponse(_ context.Context, res *sip.InboundResponseEnvelope) error {
+	tx.recvRes = res
+	tx.recvCalled.Store(true)
+	return nil
+}
+
+func (*stubClientTransaction) OnResponse(_ sip.InboundResponseHandler) (cancel func()) {
+	return func() {}
+}
+
+type stubServerTransaction struct {
+	stubTransaction
+	key        sip.ServerTransactionKey
+	recvCalled atomic.Bool
+	recvReq    *sip.InboundRequestEnvelope
+}
+
+func (tx *stubServerTransaction) Type() sip.TransactionType {
+	if tx.typ != "" {
+		return tx.typ
+	}
+	return sip.TransactionTypeServerInvite
+}
+
+func (*stubServerTransaction) State() sip.TransactionState {
+	return sip.TransactionStateTrying
+}
+
+func (tx *stubServerTransaction) Key() sip.ServerTransactionKey {
+	return tx.key
+}
+
+func (*stubServerTransaction) Request() *sip.InboundRequestEnvelope {
+	return nil
+}
+
+func (*stubServerTransaction) LastResponse() *sip.OutboundResponseEnvelope {
+	return nil
+}
+
+func (*stubServerTransaction) Transport() sip.ServerTransport {
+	return nil
+}
+
+func (tx *stubServerTransaction) RecvRequest(_ context.Context, req *sip.InboundRequestEnvelope) error {
+	tx.recvReq = req
+	tx.recvCalled.Store(true)
+	return nil
+}
+
+func (*stubServerTransaction) SendResponse(
+	_ context.Context,
+	_ *sip.OutboundResponseEnvelope,
+	_ *sip.SendResponseOptions,
+) error {
+	return nil
 }

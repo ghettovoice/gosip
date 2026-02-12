@@ -97,7 +97,7 @@ type ParseError struct {
 
 func (err *ParseError) Error() string {
 	if err == nil {
-		return "<nil>"
+		return sNilTag
 	}
 	return fmt.Sprintf("parse failed (state=%q data=%q): %v", err.State, util.Ellipsis(string(err.Data), 10), err.Err)
 }

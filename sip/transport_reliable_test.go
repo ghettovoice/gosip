@@ -40,6 +40,8 @@ func TestNewReliableTransport(t *testing.T) {
 		Times(1)
 
 	t.Run("empty protocol", func(t *testing.T) {
+		t.Parallel()
+
 		_, got := sip.NewReliableTransport("", ls, nil)
 		want := sip.ErrInvalidArgument
 		if diff := cmp.Diff(got, want, cmpopts.EquateErrors()); diff != "" {
@@ -50,6 +52,8 @@ func TestNewReliableTransport(t *testing.T) {
 	})
 
 	t.Run("nil listener", func(t *testing.T) {
+		t.Parallel()
+
 		_, got := sip.NewReliableTransport("TCP", nil, nil)
 		want := sip.ErrInvalidArgument
 		if diff := cmp.Diff(got, want, cmpopts.EquateErrors()); diff != "" {
@@ -60,6 +64,8 @@ func TestNewReliableTransport(t *testing.T) {
 	})
 
 	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+
 		tp, err := sip.NewReliableTransport("TCP", ls, &sip.ReliableTransportOptions{
 			DefaultPort: 4554,
 			Streamed:    true,
@@ -90,7 +96,7 @@ func TestNewReliableTransport(t *testing.T) {
 			t.Errorf("tp.DefaultPort() = %v, want %v", got, want)
 		}
 
-		if err := tp.Close(); err != nil {
+		if err := tp.Close(t.Context()); err != nil {
 			t.Fatalf("tp.Close() error = %v, want nil", err)
 		}
 	})
@@ -126,6 +132,7 @@ func setupRelTransp(
 		ConnDialer: sip.ConnDialerFunc(func(context.Context, string, netip.AddrPort) (net.Conn, error) {
 			return getConn(), nil
 		}),
+		SentBy: sip.HostPort("127.0.0.1", 0),
 		// Log: log.Console(),
 	})
 	if err != nil {
@@ -133,7 +140,7 @@ func setupRelTransp(
 	}
 
 	tb.Cleanup(func() {
-		tp.Close()
+		tp.Close(tb.Context())
 	})
 
 	return tp, ls
@@ -176,7 +183,10 @@ func TestReliableTransport_SendRequest(t *testing.T) {
 
 		req := baseReq.Clone().(*sip.Request) //nolint:forcetypeassert
 		req.Headers.Del("Via")
-		outReq := sip.NewOutboundRequest(req)
+		outReq, err := sip.NewOutboundRequestEnvelope(req)
+		if err != nil {
+			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
+		}
 		outReq.SetRemoteAddr(netip.MustParseAddrPort("123.123.123.123:5060"))
 
 		got := tp.SendRequest(t.Context(), outReq, nil)
@@ -239,7 +249,10 @@ func TestReliableTransport_SendRequest(t *testing.T) {
 		tp, _ := setupRelTransp(t, ctrl, nil, func() net.Conn { return conn })
 
 		req := baseReq.Clone().(*sip.Request) //nolint:forcetypeassert
-		outReq := sip.NewOutboundRequest(req)
+		outReq, err := sip.NewOutboundRequestEnvelope(req)
+		if err != nil {
+			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
+		}
 		outReq.SetRemoteAddr(netip.MustParseAddrPort("123.123.123.123:5060"))
 
 		got := tp.SendRequest(ctx, outReq, nil)
@@ -255,7 +268,10 @@ func TestReliableTransport_SendRequest(t *testing.T) {
 		tp, _ := setupRelTransp(t, ctrl, nil, nil)
 
 		req := baseReq.Clone().(*sip.Request) //nolint:forcetypeassert
-		outReq := sip.NewOutboundRequest(req)
+		outReq, err := sip.NewOutboundRequestEnvelope(req)
+		if err != nil {
+			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
+		}
 
 		got := tp.SendRequest(t.Context(), outReq, nil)
 		want := sip.NewInvalidArgumentError("invalid remote address")
@@ -319,7 +335,10 @@ func TestReliableTransport_SendRequest(t *testing.T) {
 		// first
 		req := baseReq.Clone().(*sip.Request) //nolint:forcetypeassert
 		req.Body = []byte("hello world" + strings.Repeat("x", int(sip.MTU)))
-		outReq := sip.NewOutboundRequest(req)
+		outReq, err := sip.NewOutboundRequestEnvelope(req)
+		if err != nil {
+			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
+		}
 		outReq.SetRemoteAddr(netip.MustParseAddrPort("123.123.123.123:0"))
 
 		got := tp.SendRequest(t.Context(), outReq, nil)
@@ -346,7 +365,10 @@ func TestReliableTransport_SendRequest(t *testing.T) {
 		// second
 		req = baseReq.Clone().(*sip.Request) //nolint:forcetypeassert
 		req.Method = sip.RequestMethodOptions
-		outReq = sip.NewOutboundRequest(req)
+		outReq, err = sip.NewOutboundRequestEnvelope(req)
+		if err != nil {
+			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
+		}
 		outReq.SetRemoteAddr(netip.MustParseAddrPort("123.123.123.123:0"))
 
 		got = tp.SendRequest(t.Context(), outReq, nil)
@@ -406,7 +428,10 @@ func TestReliableTransport_SendResponse(t *testing.T) {
 
 		res := baseRes.Clone().(*sip.Response) //nolint:forcetypeassert
 		res.Status = 55
-		outRes := sip.NewOutboundResponse(res)
+		outRes, err := sip.NewOutboundResponseEnvelope(res)
+		if err != nil {
+			t.Fatalf("sip.NewOutboundResponseEnvelope() error = %v, want nil", err)
+		}
 
 		got := tp.SendResponse(t.Context(), outRes, nil)
 		want := sip.ErrInvalidMessage
@@ -423,12 +448,15 @@ func TestReliableTransport_SendResponse(t *testing.T) {
 		res := baseRes.Clone().(*sip.Response) //nolint:forcetypeassert
 		via, _ := res.Headers.FirstVia()
 		via.Transport = "UDP"
-		outRes := sip.NewOutboundResponse(res)
+		outRes, err := sip.NewOutboundResponseEnvelope(res)
+		if err != nil {
+			t.Fatalf("sip.NewOutboundResponseEnvelope() error = %v, want nil", err)
+		}
 
 		got := tp.SendResponse(t.Context(), outRes, nil)
-		want := sip.NewInvalidArgumentError(`transport mismatch: got "UDP", want "TCP"`)
+		want := sip.NewInvalidArgumentError(`Via transport mismatch: got "UDP", want "TCP"`)
 		if got.Error() != want.Error() {
-			t.Errorf("tp.SendResponse(ctx, res, nil) = %v, want %v\ndiff (-got +want):\n%v",
+			t.Errorf("tp.SendResponse(ctx, res, nil) error = %v, want %v\ndiff (-got +want):\n%v",
 				got, want, cmp.Diff(got, want, cmpopts.EquateErrors()),
 			)
 		}
@@ -507,12 +535,17 @@ func TestReliableTransport_SendResponse(t *testing.T) {
 			Times(2)
 
 		reqRecv := make(chan struct{})
-		unbind := tp.OnRequest(func(context.Context, sip.ServerTransport, *sip.InboundRequest) {
-			close(reqRecv)
-		})
+		unbind := tp.UseInboundRequestInterceptor(
+			sip.InboundRequestInterceptorFunc(
+				func(context.Context, *sip.InboundRequestEnvelope, sip.RequestReceiver) error {
+					close(reqRecv)
+					return nil
+				},
+			),
+		)
 		defer unbind()
 
-		go tp.Serve() //nolint:errcheck
+		go tp.Serve(t.Context()) //nolint:errcheck
 
 		select {
 		case <-reqRecv:
@@ -521,7 +554,10 @@ func TestReliableTransport_SendResponse(t *testing.T) {
 		}
 
 		res := baseRes.Clone().(*sip.Response) //nolint:forcetypeassert
-		outRes := sip.NewOutboundResponse(res)
+		outRes, err := sip.NewOutboundResponseEnvelope(res)
+		if err != nil {
+			t.Fatalf("sip.NewOutboundResponseEnvelope() error = %v, want nil", err)
+		}
 		outRes.SetRemoteAddr(netip.AddrPortFrom(netip.AddrFrom4([4]byte{123, 123, 123, 123}), 12345))
 
 		if got := tp.SendResponse(t.Context(), outRes, nil); got != nil {
@@ -592,7 +628,10 @@ func TestReliableTransport_SendResponse(t *testing.T) {
 		tp, _ := setupRelTransp(t, ctrl, nil, func() net.Conn { return conn })
 
 		res := baseRes.Clone().(*sip.Response) //nolint:forcetypeassert
-		outRes := sip.NewOutboundResponse(res)
+		outRes, err := sip.NewOutboundResponseEnvelope(res)
+		if err != nil {
+			t.Fatalf("sip.NewOutboundResponseEnvelope() error = %v, want nil", err)
+		}
 
 		if got := tp.SendResponse(t.Context(), outRes, nil); got != nil {
 			t.Fatalf("tp.SendResponse(ctx, res, nil) = %v, want nil", got)
@@ -768,13 +807,18 @@ func TestReliableTransport_ReceiveRequests(t *testing.T) {
 		}
 	}()
 
-	reqs := make(chan *sip.InboundRequest)
-	unbind := tp.OnRequest(func(_ context.Context, _ sip.ServerTransport, req *sip.InboundRequest) {
-		reqs <- req
-	})
+	reqs := make(chan *sip.InboundRequestEnvelope)
+	unbind := tp.UseInboundRequestInterceptor(
+		sip.InboundRequestInterceptorFunc(
+			func(_ context.Context, req *sip.InboundRequestEnvelope, _ sip.RequestReceiver) error {
+				reqs <- req
+				return nil
+			},
+		),
+	)
 	defer unbind()
 
-	go tp.Serve() //nolint:errcheck
+	go tp.Serve(t.Context()) //nolint:errcheck
 
 	// got valid request
 	req := <-reqs
@@ -906,12 +950,16 @@ func TestReliableTransport_ReceiveRequests_PanicInHandler(t *testing.T) {
 		}).
 		Times(2)
 
-	unbind := tp.OnRequest(func(context.Context, sip.ServerTransport, *sip.InboundRequest) {
-		panic("boom")
-	})
+	unbind := tp.UseInboundRequestInterceptor(
+		sip.InboundRequestInterceptorFunc(
+			func(context.Context, *sip.InboundRequestEnvelope, sip.RequestReceiver) error {
+				panic("boom")
+			},
+		),
+	)
 	defer unbind()
 
-	go tp.Serve() //nolint:errcheck
+	go tp.Serve(t.Context()) //nolint:errcheck
 
 	readPackets <- readPacket{buf: []byte(
 		"INVITE sip:127.0.0.1:5060 SIP/2.0\r\n" +
@@ -930,9 +978,6 @@ func TestReliableTransport_ReceiveRequests_PanicInHandler(t *testing.T) {
 		gotMsg := string(pkt.buf)
 		if !strings.HasPrefix(gotMsg, "SIP/2.0 500 Server Internal Error\r\n") {
 			t.Fatalf("unexpected response sent: %q", gotMsg)
-		}
-		if !strings.Contains(gotMsg, "\r\nRetry-After: 60\r\n") {
-			t.Fatalf("missing Retry-After header in response: %q", gotMsg)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for 500 response")

@@ -90,13 +90,6 @@
 //   - Validation: [types.ValidFlag] interface for syntax validation
 //   - Equality: [types.Equalable] interface for RFC-compliant comparison
 //
-// Helper functions [GetScheme], [GetAddr], and [GetParams] provide uniform access
-// to URI components regardless of the concrete type:
-//
-//	scheme := uri.GetScheme(u)   // Returns "sip", "sips", "tel", or other
-//	addr := uri.GetAddr(u)       // Returns host:port or telephone number
-//	params := uri.GetParams(u)   // Returns URI parameters as Values
-//
 // # Serialization
 //
 // All URI types implement [encoding.TextMarshaler] and [encoding.TextUnmarshaler],

@@ -2,6 +2,7 @@ package uri_test
 
 import (
 	"fmt"
+	"net/url"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -23,22 +24,22 @@ func TestParse(t *testing.T) {
 		{"empty input", "", nil, grammar.ErrEmptyInput},
 
 		{"any malformed", []byte{0x7f}, nil, grammar.ErrMalformedInput},
-		{"any as path", "abc", &uri.Any{Path: "abc"}, nil},
-		{"any as path with slashes", "/a/b/c", &uri.Any{Path: "/a/b/c"}, nil},
-		{"any with scheme and host", "http://localhost", &uri.Any{Scheme: "http", Host: "localhost"}, nil},
+		{"any as path", "abc", &uri.Any{URL: url.URL{Path: "abc"}}, nil},
+		{"any as path with slashes", "/a/b/c", &uri.Any{URL: url.URL{Path: "/a/b/c"}}, nil},
+		{"any with scheme and host", "http://localhost", &uri.Any{URL: url.URL{Scheme: "http", Host: "localhost"}}, nil},
 		{
 			"any with host and path",
 			"http://localhost/abc",
-			&uri.Any{Scheme: "http", Host: "localhost", Path: "/abc"},
+			&uri.Any{URL: url.URL{Scheme: "http", Host: "localhost", Path: "/abc"}},
 			nil,
 		},
 		{
 			"any as opaque",
 			"urn:service:sos?a=1&b=2",
-			&uri.Any{Scheme: "urn", Opaque: "service:sos", RawQuery: "a=1&b=2"},
+			&uri.Any{URL: url.URL{Scheme: "urn", Opaque: "service:sos", RawQuery: "a=1&b=2"}},
 			nil,
 		},
-		{"any as bytes", []byte("http://localhost"), &uri.Any{Scheme: "http", Host: "localhost"}, nil},
+		{"any as bytes", []byte("http://localhost"), &uri.Any{URL: url.URL{Scheme: "http", Host: "localhost"}}, nil},
 
 		{"tel", "tel:+1(22)333-44-55", &uri.Tel{Number: "+1(22)333-44-55"}, nil},
 		{
@@ -186,83 +187,6 @@ func TestParse(t *testing.T) {
 						fmt.Sprintf("%v", c.input), gotErr, c.wantErr, diff,
 					)
 				}
-			}
-		})
-	}
-}
-
-func TestGetScheme(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		uri  uri.URI
-		want string
-	}{
-		{"nil", nil, ""},
-		{"sip", &uri.SIP{}, "sip"},
-		{"sips", &uri.SIP{Secured: true}, "sips"},
-		{"tel", &uri.Tel{}, "tel"},
-		{"any", &uri.Any{Scheme: "http"}, "http"},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got, want := uri.GetScheme(c.uri), c.want; got != want {
-				t.Errorf("uri.GetScheme(%+v) = %q, want %q", c.uri, got, want)
-			}
-		})
-	}
-}
-
-func TestGetAddr(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		uri  uri.URI
-		want string
-	}{
-		{"nil", nil, ""},
-		{"sip", &uri.SIP{Addr: uri.HostPort("example.com", 5060)}, "example.com:5060"},
-		{"tel", &uri.Tel{Number: "+123"}, "+123"},
-		{"any", &uri.Any{Scheme: "http", Host: "example.com", Path: "/abc"}, "example.com/abc"},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got, want := uri.GetAddr(c.uri), c.want; got != want {
-				t.Errorf("uri.GetAddr(%+v) = %q, want %q", c.uri, got, want)
-			}
-		})
-	}
-}
-
-func TestGetParams(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		uri  uri.URI
-		want uri.Values
-	}{
-		{"nil", nil, nil},
-		{"sip", &uri.SIP{Params: make(uri.Values).Set("a", "1")}, make(uri.Values).Set("a", "1")},
-		{"tel", &uri.Tel{Params: make(uri.Values).Set("a", "1")}, make(uri.Values).Set("a", "1")},
-		{"any", &uri.Any{RawQuery: "a=1&b=2"}, make(uri.Values).Set("a", "1").Set("b", "2")},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := uri.GetParams(c.uri)
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Errorf("uri.GetParams(%+v) = %+v, want %+v\ndiff (-got +want):\n%v", c.uri, got, c.want, diff)
 			}
 		})
 	}

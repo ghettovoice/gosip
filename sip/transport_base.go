@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -31,87 +32,130 @@ var (
 )
 
 type baseTransp struct {
-	ctx        context.Context
-	cancCtx    context.CancelFunc
-	impl       transpImpl
-	meta       TransportMetadata
-	laddr      netip.AddrPort
-	sentByHost string
-	dns        DNSResolver
-	log        *slog.Logger
+	impl   transpImpl
+	meta   TransportMetadata
+	laddr  netip.AddrPort
+	sentBy Addr
+	dns    DNSResolver
+	log    *slog.Logger
 
 	srvOnce sync.Once
 	srvErr  error
-	onReq   types.CallbackManager[TransportRequestHandler]
-	onRes   types.CallbackManager[TransportResponseHandler]
+
+	closing chan struct{}
+	clsOnce sync.Once
+	clsErr  error
+
+	inReqInts  types.CallbackManager[InboundRequestInterceptor]
+	inResInts  types.CallbackManager[InboundResponseInterceptor]
+	outReqInts types.CallbackManager[OutboundRequestInterceptor]
+	outResInts types.CallbackManager[OutboundResponseInterceptor]
 }
 
 type transpImpl interface {
+	Transport
 	writeTo(
 		ctx context.Context,
 		bb *bytes.Buffer,
 		raddr netip.AddrPort,
 		opts *transpWriteOpts,
 	) (netip.AddrPort, error)
-	serve() error
-	close() error
+	serve(ctx context.Context) error
+	close(ctx context.Context) error
 }
 
 type transpWriteOpts struct {
 	noDialConn bool
 }
 
-//nolint:revive
 func newBaseTransp(
-	ctx context.Context,
 	impl transpImpl,
 	md TransportMetadata,
 	laddr netip.AddrPort,
-	sentByHost string,
+	sentBy Addr,
 	dns DNSResolver,
 	logger *slog.Logger,
 ) *baseTransp {
-	ctx, cancel := context.WithCancel(ctx)
-	tp := &baseTransp{
-		ctx:        ctx,
-		cancCtx:    cancel,
-		impl:       impl,
-		meta:       md,
-		laddr:      laddr,
-		sentByHost: sentByHost,
-		dns:        dns,
-		log:        logger.With("transport", impl),
+	if sentBy.IsZero() {
+		sentBy = HostPort(laddr.Addr().String(), laddr.Port())
+	} else if _, ok := sentBy.Port(); ok {
+		sentBy = HostPort(sentBy.Host(), laddr.Port())
 	}
+
+	tp := &baseTransp{
+		impl:    impl,
+		meta:    md,
+		laddr:   laddr,
+		sentBy:  sentBy,
+		dns:     dns,
+		log:     logger,
+		closing: make(chan struct{}),
+	}
+	tp.log = tp.log.With("transport", tp)
 	return tp
 }
 
 // Proto returns the transport protocol.
-func (tp *baseTransp) Proto() TransportProto { return tp.meta.Proto }
+func (tp *baseTransp) Proto() TransportProto {
+	if tp == nil {
+		return ""
+	}
+	return tp.meta.Proto
+}
 
 // Network returns the transport network.
-func (tp *baseTransp) Network() string { return tp.meta.Network }
+func (tp *baseTransp) Network() string {
+	if tp == nil {
+		return ""
+	}
+	return tp.meta.Network
+}
 
 // LocalAddr returns the transport local address.
-func (tp *baseTransp) LocalAddr() netip.AddrPort { return tp.laddr }
+func (tp *baseTransp) LocalAddr() netip.AddrPort {
+	if tp == nil {
+		return zeroAddrPort
+	}
+	return tp.laddr
+}
 
 // Reliable returns whether the transport is reliable or not.
-func (tp *baseTransp) Reliable() bool { return tp.meta.Reliable }
+func (tp *baseTransp) Reliable() bool {
+	if tp == nil {
+		return false
+	}
+	return tp.meta.Reliable
+}
 
 // Secured returns whether the transport is secured or not.
-func (tp *baseTransp) Secured() bool { return tp.meta.Secured }
+func (tp *baseTransp) Secured() bool {
+	if tp == nil {
+		return false
+	}
+	return tp.meta.Secured
+}
 
 // Streamed returns whether the transport is streamed or not.
-func (tp *baseTransp) Streamed() bool { return tp.meta.Streamed }
+func (tp *baseTransp) Streamed() bool {
+	if tp == nil {
+		return false
+	}
+	return tp.meta.Streamed
+}
 
 // DefaultPort returns the transport default port.
-// It is used to build remote addresses when no port is specified,
-// or during DNS lookup to resolve the message destination.
-func (tp *baseTransp) DefaultPort() uint16 { return tp.meta.DefaultPort }
+// The default port is used to build remote addresses when no port is specified or during DNS lookup.
+func (tp *baseTransp) DefaultPort() uint16 {
+	if tp == nil {
+		return 0
+	}
+	return tp.meta.DefaultPort
+}
 
 // LogValue builds a [slog.Value] for the transport.
 func (tp *baseTransp) LogValue() slog.Value {
 	if tp == nil {
-		return slog.Value{}
+		return zeroSlogValue
 	}
 	return slog.GroupValue(
 		slog.Any("proto", tp.meta.Proto),
@@ -120,7 +164,7 @@ func (tp *baseTransp) LogValue() slog.Value {
 	)
 }
 
-// Logger returns the transport logger.
+// Logger returns the logger associated with the transport.
 func (tp *baseTransp) Logger() *slog.Logger {
 	if tp == nil {
 		return nil
@@ -128,18 +172,41 @@ func (tp *baseTransp) Logger() *slog.Logger {
 	return tp.log
 }
 
-// SendRequestOptions sends a request to the specified remote address.
+// SendRequest sends the request to the remote address specified in the req.
 //
 // Context can be used to cancel the request sending process through the deadline.
+// If no deadline is specified on the context, the deadline is set to [SendRequestOptions.Timeout].
 //
-// The request must have the [header.Via] header with at least one non-zero [header.ViaHop] element,
-// this element can have zero (or stub) transport and address fields, they will be filled by the transport.
-// See RFC 3261 Section 18.1.1 for details.
+// The request must have the [header.Via] header with at least one [header.ViaHop] element,
+// this element can have zero transport and address fields, they will be filled by the transport.
+// In case of reliable transport, Content-Length header will be added automatically if it is missing.
 //
-// Options are optional and can be nil.
-func (tp *baseTransp) SendRequest(ctx context.Context, req *OutboundRequest, opts *SendRequestOptions) error {
-	// fail fast if transport is already closed
-	if tp.isClosed() {
+// Options are optional, if nil is passed, default options are used (see [SendRequestOptions]).
+func (tp *baseTransp) SendRequest(
+	ctx context.Context,
+	req *OutboundRequestEnvelope,
+	opts *SendRequestOptions,
+) error {
+	sender := ChainOutboundRequest(
+		slices.Collect(
+			util.SeqFilter(
+				tp.outReqInts.All(),
+				func(i OutboundRequestInterceptor) bool {
+					return i != nil
+				},
+			),
+		),
+		RequestSenderFunc(tp.sendRequest),
+	)
+	return errtrace.Wrap(sender.SendRequest(ContextWithTransport(ctx, tp.impl), req, opts))
+}
+
+func (tp *baseTransp) sendRequest(
+	ctx context.Context,
+	req *OutboundRequestEnvelope,
+	opts *SendRequestOptions,
+) error {
+	if tp.isClosing() {
 		return errtrace.Wrap(ErrTransportClosed)
 	}
 
@@ -149,6 +216,7 @@ func (tp *baseTransp) SendRequest(ctx context.Context, req *OutboundRequest, opt
 		defer cancel()
 	}
 
+	req.SetTransport(tp.meta.Proto)
 	req.SetLocalAddr(tp.laddr)
 
 	raddr := req.RemoteAddr()
@@ -160,13 +228,18 @@ func (tp *baseTransp) SendRequest(ctx context.Context, req *OutboundRequest, opt
 		return errtrace.Wrap(NewInvalidArgumentError("invalid remote address"))
 	}
 
-	req.UpdateMessage(func(msg *Request) {
-		if via, ok := msg.Headers.FirstVia(); ok {
-			via.Transport = tp.meta.Proto
-			via.Addr = header.HostPort(tp.sentByHost, tp.laddr.Port())
+	req.AccessMessage(func(r *Request) {
+		if r == nil || r.Headers == nil {
+			return
 		}
-		if tp.meta.Streamed && !msg.Headers.Has("Content-Length") {
-			msg.Headers.Set(header.ContentLength(len(msg.Body)))
+
+		if via, ok := r.Headers.FirstVia(); ok && via != nil {
+			via.Transport = tp.meta.Proto
+			via.Addr = tp.sentBy.Clone()
+		}
+
+		if tp.meta.Streamed {
+			r.Headers.Set(header.ContentLength(len(r.Body)))
 		}
 	})
 
@@ -195,20 +268,42 @@ func (tp *baseTransp) SendRequest(ctx context.Context, req *OutboundRequest, opt
 	return nil
 }
 
-// SendResponseOptions sends a response to a remote address resolved with steps
+// SendResponse sends the response to a remote address resolved with steps
 // defined in RFC 3261 Section 18.2.2. and RFC 3263 Section 5.
 //
 // Context can be used to cancel the response sending process through the deadline.
-// Options are optional and can be nil.
-func (tp *baseTransp) SendResponse(ctx context.Context, res *OutboundResponse, opts *SendResponseOptions) error {
-	return errtrace.Wrap(tp.sendRes(ctx, res, opts))
+// If no deadline is specified on the context, the deadline is set to [SendResponseOptions.Timeout].
+//
+// The topmost [header.ViaHop] transport must match the transport protocol.
+// In case of reliable transport, Content-Length header will be added automatically if it is missing.
+//
+// Options are optional, if nil is passed, default options are used (see [SendResponseOptions]).
+func (tp *baseTransp) SendResponse(
+	ctx context.Context,
+	res *OutboundResponseEnvelope,
+	opts *SendResponseOptions,
+) error {
+	sender := ChainOutboundResponse(
+		slices.Collect(
+			util.SeqFilter(
+				tp.outResInts.All(),
+				func(i OutboundResponseInterceptor) bool {
+					return i != nil
+				},
+			),
+		),
+		ResponseSenderFunc(tp.sendResponse),
+	)
+	return errtrace.Wrap(sender.SendResponse(ContextWithTransport(ctx, tp.impl), res, opts))
 }
 
-const errNoResTargets Error = "no response targets resolved"
-
-func (tp *baseTransp) sendRes(ctx context.Context, res *OutboundResponse, opts *SendResponseOptions) error {
-	// fail fast if transport is already closed
-	if tp.isClosed() {
+//nolint:gocognit
+func (tp *baseTransp) sendResponse(
+	ctx context.Context,
+	res *OutboundResponseEnvelope,
+	opts *SendResponseOptions,
+) error {
+	if tp.isClosing() {
 		return errtrace.Wrap(ErrTransportClosed)
 	}
 
@@ -218,16 +313,21 @@ func (tp *baseTransp) sendRes(ctx context.Context, res *OutboundResponse, opts *
 		defer cancel()
 	}
 
+	res.SetTransport(tp.meta.Proto)
 	res.SetLocalAddr(tp.laddr)
 
 	var via header.ViaHop
-	res.UpdateMessage(func(msg *Response) {
-		if tp.meta.Streamed && !msg.Headers.Has("Content-Length") {
-			msg.Headers.Set(header.ContentLength(len(msg.Body)))
+	res.AccessMessage(func(r *Response) {
+		if r == nil || r.Headers == nil {
+			return
 		}
 
-		if hop, ok := msg.Headers.FirstVia(); ok {
+		if hop, ok := r.Headers.FirstVia(); ok && hop != nil {
 			via = hop.Clone()
+		}
+
+		if tp.meta.Streamed {
+			r.Headers.Set(header.ContentLength(len(r.Body)))
 		}
 	})
 
@@ -235,10 +335,10 @@ func (tp *baseTransp) sendRes(ctx context.Context, res *OutboundResponse, opts *
 		return errtrace.Wrap(NewInvalidArgumentError(err))
 	}
 
-	if !res.Transport().Equal(tp.meta.Proto) {
+	if !via.Transport.Equal(tp.meta.Proto) {
 		return errtrace.Wrap(NewInvalidArgumentError(
-			"transport mismatch: got %q, want %q",
-			res.Transport(),
+			"Via transport mismatch: got %q, want %q",
+			via.Transport,
 			tp.meta.Proto,
 		))
 	}
@@ -266,7 +366,8 @@ func (tp *baseTransp) sendRes(ctx context.Context, res *OutboundResponse, opts *
 		}
 	}
 
-	// finally fallback to address resolving procedure defined in RFC 3261 Section 18.2.2. and RFC 3263 Section 5.
+	// finally fallback to address resolving procedure defined in
+	// RFC 3261 Section 18.2.2. and RFC 3263 Section 5.
 	var errs []error
 	for _, raddr := range ResponseAddrs(ctx, via, tp.meta, tp.dns) {
 		res.SetRemoteAddr(raddr)
@@ -283,16 +384,16 @@ func (tp *baseTransp) sendRes(ctx context.Context, res *OutboundResponse, opts *
 		}
 	}
 	if len(errs) == 0 {
-		return errtrace.Wrap(errNoResTargets)
+		return errtrace.Wrap(ErrNoTarget)
 	}
 	return errtrace.Wrap(errorutil.JoinPrefix("all response targets failed:", errs...))
 }
 
-func (tp *baseTransp) resolveWriteErr(ctx context.Context, err error) error {
+func (*baseTransp) resolveWriteErr(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, net.ErrClosed) || tp.ctx.Err() != nil {
+	if errors.Is(err, net.ErrClosed) {
 		return ErrTransportClosed //errtrace:skip
 	}
 	if ctx.Err() != nil {
@@ -301,47 +402,100 @@ func (tp *baseTransp) resolveWriteErr(ctx context.Context, err error) error {
 	return err //errtrace:skip
 }
 
-// OnRequest registers a request callback.
-//
-// Multiple callbacks are allowed, they will be called in the order they were registered.
-// If all callbacks return fails with error, the request will be automatically rejected with failure response.
-//
-// Context passed to the callback is canceled when the transport is closed.
-// Transport can be retrieved from the context using [TransportFromContext].
-func (tp *baseTransp) OnRequest(fn TransportRequestHandler) (cancel func()) {
-	return tp.onReq.Add(fn)
+func (tp *baseTransp) Respond(
+	ctx context.Context,
+	req *InboundRequestEnvelope,
+	sts ResponseStatus,
+	opts *RespondOptions,
+) error {
+	return errtrace.Wrap(RespondStateless(ctx, tp.impl, req, sts, opts))
 }
 
-// OnResponse registers a response callback.
+// UseInboundRequestInterceptor adds interceptor for inbound requests.
+// The interceptor can be removed by calling the returned cancel function.
 //
-// Multiple callbacks are allowed, they will be called in the order they were registered.
-// If all callbacks return fails with error, the response will be silently discarded.
+// Context passed to the interceptor is a child of the context passed to [Serve] method.
+func (tp *baseTransp) UseInboundRequestInterceptor(interceptor InboundRequestInterceptor) (unbind func()) {
+	return tp.inReqInts.Add(interceptor)
+}
+
+// UseInboundResponseInterceptor adds interceptor for inbound responses.
+// The interceptor can be removed by calling the returned cancel function.
 //
-// Context passed to the callback is canceled when the transport is closed.
-// Transport can be retrieved from the context using [TransportFromContext].
-func (tp *baseTransp) OnResponse(fn TransportResponseHandler) (cancel func()) {
-	return tp.onRes.Add(fn)
+// Context passed to the interceptor is a child of the context passed to [Serve] method.
+func (tp *baseTransp) UseInboundResponseInterceptor(interceptor InboundResponseInterceptor) (unbind func()) {
+	return tp.inResInts.Add(interceptor)
+}
+
+// UseOutboundRequestInterceptor adds interceptor for outbound requests.
+// The interceptor can be removed by calling the returned cancel function.
+//
+// Context passed to the interceptor is a child of the context passed to [Serve] method.
+func (tp *baseTransp) UseOutboundRequestInterceptor(interceptor OutboundRequestInterceptor) (unbind func()) {
+	return tp.outReqInts.Add(interceptor)
+}
+
+// UseOutboundResponseInterceptor adds interceptor for outbound responses.
+// The interceptor can be removed by calling the returned cancel function.
+//
+// Context passed to the interceptor is a child of the context passed to [Serve] method.
+func (tp *baseTransp) UseOutboundResponseInterceptor(interceptor OutboundResponseInterceptor) (unbind func()) {
+	return tp.outResInts.Add(interceptor)
+}
+
+// UseInterceptor adds all non-nil interceptors from the provided object.
+// The interceptor can be removed by calling the returned cancel function.
+//
+// Context passed to the interceptor is a child of the context passed to [Serve] method.
+func (tp *baseTransp) UseInterceptor(interceptor MessageInterceptor) (unbind func()) {
+	if interceptor == nil {
+		return func() {}
+	}
+
+	var unbinds []func()
+	if inbound := interceptor.InboundRequestInterceptor(); inbound != nil {
+		unbinds = append(unbinds, tp.UseInboundRequestInterceptor(inbound))
+	}
+	if inbound := interceptor.InboundResponseInterceptor(); inbound != nil {
+		unbinds = append(unbinds, tp.UseInboundResponseInterceptor(inbound))
+	}
+	if outbound := interceptor.OutboundRequestInterceptor(); outbound != nil {
+		unbinds = append(unbinds, tp.UseOutboundRequestInterceptor(outbound))
+	}
+	if outbound := interceptor.OutboundResponseInterceptor(); outbound != nil {
+		unbinds = append(unbinds, tp.UseOutboundResponseInterceptor(outbound))
+	}
+	return func() {
+		for _, fn := range unbinds {
+			fn()
+		}
+	}
 }
 
 // Serve starts serving the listener and blocks until the transport is closed.
-// Repeated calls return the same terminal error, typically [ErrTransportClosed] after [Transport.Close].
-func (tp *baseTransp) Serve() error {
+//
+// Context is passed to the inbound message interceptors chain.
+// Cancellation of the context does not stop the serve/read loop, use [Close] method instead.
+func (tp *baseTransp) Serve(ctx context.Context) error {
 	tp.srvOnce.Do(func() {
-		tp.srvErr = tp.impl.serve()
+		tp.srvErr = tp.impl.serve(ContextWithTransport(ctx, tp.impl))
 	})
 	return errtrace.Wrap(tp.srvErr)
 }
 
 // Close closes the transport and underlying listener with all connections.
 // It returns any error returned from closing the listener.
-func (tp *baseTransp) Close() error {
-	tp.cancCtx()
-	return errtrace.Wrap(tp.impl.close())
+func (tp *baseTransp) Close(ctx context.Context) error {
+	tp.clsOnce.Do(func() {
+		close(tp.closing)
+		tp.clsErr = tp.impl.close(ContextWithTransport(ctx, tp.impl))
+	})
+	return errtrace.Wrap(tp.clsErr)
 }
 
-func (tp *baseTransp) isClosed() bool {
+func (tp *baseTransp) isClosing() bool {
 	select {
-	case <-tp.ctx.Done():
+	case <-tp.closing:
 		return true
 	default:
 		return false
@@ -349,10 +503,7 @@ func (tp *baseTransp) isClosed() bool {
 }
 
 //nolint:gocognit
-func (tp *baseTransp) readMsgs(msgs iter.Seq2[Message, error]) error {
-	// ctx := log.ContextWithLogger(tp.ctx, tp.log)
-	ctx := tp.ctx
-
+func (tp *baseTransp) readMsgs(ctx context.Context, msgs iter.Seq2[Message, error]) error {
 	var tempDelay time.Duration
 	for msg, err := range msgs {
 		if err != nil {
@@ -371,14 +522,14 @@ func (tp *baseTransp) readMsgs(msgs iter.Seq2[Message, error]) error {
 					}
 
 					tp.log.LogAttrs(ctx, slog.LevelDebug,
-						"failed to read message due to the temporary error, continue serving after delay...",
+						"failed to read inbound message due to the temporary error, continue serving after delay...",
 						slog.Any("error", err),
 						slog.Duration("delay", tempDelay),
 					)
 
 					tmr := time.NewTimer(tempDelay)
 					select {
-					case <-tp.ctx.Done():
+					case <-tp.closing:
 						tmr.Stop()
 						return errtrace.Wrap(ErrTransportClosed)
 					case <-tmr.C:
@@ -388,26 +539,26 @@ func (tp *baseTransp) readMsgs(msgs iter.Seq2[Message, error]) error {
 				return errtrace.Wrap(err)
 			}
 
-			// pass messages with parse errors (incomplete message, missing Content-Length, other ErrInvalidMessage or Grammar errors),
-			// they will be discarded below
+			// pass messages with parse errors (incomplete message, missing Content-Length,
+			// other ErrInvalidMessage or Grammar errors), they will be discarded below
 			msg = perr.Msg
 		}
 
 		if msg != nil {
 			switch msg := msg.(type) {
-			case *InboundRequest:
-				if tp.recvReqSafe(ctx, msg, err) {
+			case *InboundRequestEnvelope:
+				if tp.recvReqSafe(ctx, msg, errtrace.Wrap(err)) {
 					return nil
 				}
-			case *InboundResponse:
-				if tp.recvResSafe(ctx, msg, err) {
+			case *InboundResponseEnvelope:
+				if tp.recvResSafe(ctx, msg, errtrace.Wrap(err)) {
 					return nil
 				}
 			default:
 				tp.log.LogAttrs(ctx, slog.LevelWarn,
-					"silently discard inbound message due to unsupported message type",
-					slog.Any("error", newUnexpectMsgTypeErr(msg)),
+					"silently discard the inbound message due to unsupported message type",
 					slog.Any("message", msg),
+					slog.Any("error", newUnexpectMsgTypeErr(msg)),
 				)
 			}
 		}
@@ -419,52 +570,72 @@ func (tp *baseTransp) readMsgs(msgs iter.Seq2[Message, error]) error {
 	return nil
 }
 
-func (tp *baseTransp) recvReqSafe(ctx context.Context, req *InboundRequest, err error) (stop bool) {
+func (tp *baseTransp) recvReqSafe(ctx context.Context, req *InboundRequestEnvelope, err error) (stop bool) {
 	defer func() {
-		if r := recover(); r != nil {
-			tp.log.LogAttrs(ctx, slog.LevelError, "panic in inbound request handler",
-				slog.Any("panic", r),
-				slog.String("stack", string(debug.Stack())),
+		if pe := recover(); pe != nil {
+			tp.log.LogAttrs(ctx, slog.LevelError,
+				"panic occurred while processing the inbound request",
 				slog.Any("request", req),
+				slog.Any("error", pe),
+				slog.String("stack", string(debug.Stack())),
 			)
+
+			stop = tp.meta.Reliable
 
 			func() {
 				defer func() {
-					if r2 := recover(); r2 != nil {
-						tp.log.LogAttrs(ctx, slog.LevelError, "panic while responding to inbound request handler panic",
-							slog.Any("panic", r2),
-							slog.String("stack", string(debug.Stack())),
+					if pe := recover(); pe != nil {
+						tp.log.LogAttrs(ctx, slog.LevelError,
+							"panic occurred while responding to the inbound request",
 							slog.Any("request", req),
+							slog.Any("error", pe),
+							slog.String("stack", string(debug.Stack())),
 						)
+
+						stop = tp.meta.Reliable
 					}
 				}()
 
-				respondStateless(ctx, tp.impl.(ServerTransport), req, ResponseStatusServerInternalError)
+				tp.respond(ctx, req, ResponseStatusServerInternalError)
 			}()
-
-			stop = tp.meta.Reliable
 		}
 	}()
 
-	tp.recvReq(ctx, req, err)
+	if err := tp.recvReq(ctx, req, errtrace.Wrap(err)); err != nil {
+		var (
+			rejectErr *rejectRequestError
+			lvl       slog.Level
+		)
+		sts := ResponseStatusServerInternalError
+		if errors.As(err, &rejectErr) {
+			sts = rejectErr.sts
+			lvl = rejectErr.lvl
+		}
+
+		tp.log.LogAttrs(ctx, lvl,
+			"rejecting the inbound request due to error",
+			slog.Any("request", req),
+			slog.Any("error", err),
+		)
+
+		tp.respond(ctx, req, sts)
+	}
 	return false
 }
 
-func (tp *baseTransp) recvReq(ctx context.Context, req *InboundRequest, err error) {
-	ctx = context.WithValue(ctx, srvTranspCtxKey, tp.impl)
-
+func (tp *baseTransp) recvReq(ctx context.Context, req *InboundRequestEnvelope, err error) error {
 	// try to setup Via params even first to allow correct response routing in case of any failure
-	if via, ok := req.msg.Headers.FirstVia(); ok && via != nil && via.IsValid() {
+	if via, ok := req.message().Headers.FirstVia(); ok && via != nil && via.IsValid() {
 		// RFC 3261 Section 18.2.1.
-		if via.Addr.IP() == nil || !via.Addr.IP().Equal(req.rmtAddr.Addr().AsSlice()) {
+		if via.Addr.IP() == nil || !via.Addr.IP().Equal(req.remoteAddr().Addr().AsSlice()) {
 			if via.Params == nil {
-				via.Params = make(header.Values)
+				via.Params = make(Values)
 			}
-			via.Params.Set("received", req.rmtAddr.Addr().String())
+			via.Params.Set("received", req.remoteAddr().Addr().String())
 		}
 		// RFC 3581 Section 4.
 		if via.Params.Has("rport") {
-			via.Params.Set("rport", strconv.Itoa(int(req.rmtAddr.Port())))
+			via.Params.Set("rport", strconv.Itoa(int(req.remoteAddr().Port())))
 		}
 	}
 
@@ -484,110 +655,112 @@ func (tp *baseTransp) recvReq(ctx context.Context, req *InboundRequest, err erro
 			sts = ResponseStatusServerInternalError
 		}
 
-		tp.log.LogAttrs(ctx, slog.LevelDebug, "discarding inbound request due to parse error",
-			slog.Any("error", err),
-			slog.Any("request", req),
-		)
-		respondStateless(ctx, tp.impl.(ServerTransport), req, sts)
-		return
+		return errtrace.Wrap(NewRejectRequestError(err, sts, slog.LevelDebug))
 	}
 
 	if err := req.Validate(); err != nil {
-		tp.log.LogAttrs(ctx, slog.LevelDebug, "discarding inbound request due to validation error",
-			slog.Any("error", err),
-			slog.Any("request", req),
-		)
-		respondStateless(ctx, tp.impl.(ServerTransport), req, ResponseStatusBadRequest)
-		return
+		return errtrace.Wrap(NewRejectRequestError(err, ResponseStatusBadRequest, slog.LevelDebug))
 	}
 
-	if v, ok := tp.impl.(interface {
-		recvReq(ctx context.Context, req *InboundRequest)
-	}); ok {
-		v.recvReq(ctx, req)
-		return
-	}
-
-	var handled bool
-	tp.onReq.Range(func(fn TransportRequestHandler) {
-		handled = true
-		fn(ctx, tp.impl.(ServerTransport), req)
-	})
-	if handled {
-		return
-	}
-
-	tp.log.LogAttrs(ctx, slog.LevelWarn, "discarding inbound request due to missing request handlers",
-		slog.Any("request", req),
+	receiver := ChainInboundRequest(
+		slices.Collect(
+			util.SeqFilter(
+				tp.inReqInts.All(),
+				func(i InboundRequestInterceptor) bool {
+					return i != nil
+				},
+			),
+		),
+		RequestReceiverFunc(func(ctx context.Context, req *InboundRequestEnvelope) error {
+			return errtrace.Wrap(NewRejectRequestError(
+				ErrUnhandledMessage,
+				ResponseStatusServiceUnavailable,
+				slog.LevelWarn,
+			))
+		}),
 	)
-	respondStateless(ctx, tp.impl.(ServerTransport), req, ResponseStatusServiceUnavailable)
+	return errtrace.Wrap(receiver.RecvRequest(ctx, req))
 }
 
-func (tp *baseTransp) recvResSafe(ctx context.Context, res *InboundResponse, err error) (stop bool) {
+func (tp *baseTransp) respond(ctx context.Context, req *InboundRequestEnvelope, sts ResponseStatus) {
+	if err := tp.Respond(ctx, req, sts, nil); err != nil {
+		lvl := slog.LevelError
+		if errors.Is(err, ErrInvalidArgument) {
+			lvl = slog.LevelDebug
+		}
+
+		tp.log.LogAttrs(ctx, lvl,
+			"silently discard the inbound request due to respond failure",
+			slog.Any("request", req),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (tp *baseTransp) recvResSafe(ctx context.Context, res *InboundResponseEnvelope, err error) (stop bool) {
 	defer func() {
-		if r := recover(); r != nil {
-			tp.log.LogAttrs(ctx, slog.LevelError, "panic in inbound response handler",
-				slog.Any("panic", r),
-				slog.String("stack", string(debug.Stack())),
+		if pe := recover(); pe != nil {
+			tp.log.LogAttrs(ctx, slog.LevelError,
+				"panic occurred while processing the inbound response",
 				slog.Any("response", res),
+				slog.Any("error", pe),
+				slog.String("stack", string(debug.Stack())),
 			)
+
 			stop = tp.meta.Reliable
 		}
 	}()
 
-	tp.recvRes(ctx, res, err)
+	if err := tp.recvRes(ctx, res, errtrace.Wrap(err)); err != nil {
+		var (
+			rejectErr *rejectResponseError
+			lvl       slog.Level
+		)
+		if errors.As(err, &rejectErr) {
+			lvl = rejectErr.lvl
+		}
+
+		tp.log.LogAttrs(ctx, lvl,
+			"silently discard the inbound response due to error",
+			slog.Any("response", res),
+			slog.Any("error", err),
+		)
+	}
 	return false
 }
 
-func (tp *baseTransp) recvRes(ctx context.Context, res *InboundResponse, err error) {
-	ctx = context.WithValue(ctx, clnTranspCtxKey, tp.impl)
-
+func (tp *baseTransp) recvRes(ctx context.Context, res *InboundResponseEnvelope, err error) error {
 	if err != nil {
-		tp.log.LogAttrs(ctx, slog.LevelDebug, "silently discard inbound response due to parse error",
-			slog.Any("error", err),
-			slog.Any("response", res),
-		)
-		return
+		return errtrace.Wrap(NewRejectResponseError(err, slog.LevelDebug))
 	}
 
 	if err := res.Validate(); err != nil {
-		tp.log.LogAttrs(ctx, slog.LevelDebug, "silently discard inbound response due to validation error",
-			slog.Any("error", err),
-			slog.Any("response", res),
-		)
-		return
+		return errtrace.Wrap(NewRejectResponseError(err, slog.LevelDebug))
 	}
 
 	// RFC 3261 Section 18.1.2.
-	via, _ := res.msg.Headers.FirstVia()
-	if !util.EqFold(via.Addr.Host(), tp.sentByHost) {
-		tp.log.LogAttrs(ctx, slog.LevelDebug, "silently discard inbound response due to host mismatch",
-			slog.String("via_host", via.Addr.Host()),
-			slog.String("transport_host", tp.sentByHost),
-			slog.Any("response", res),
-		)
-		return
+	via, _ := res.message().Headers.FirstVia()
+	if !via.Addr.Equal(tp.sentBy) {
+		return errtrace.Wrap(NewRejectResponseError(
+			errorutil.Errorf("Via sent-by mismatch: got %s, want %s", via.Addr, tp.sentBy),
+			slog.LevelDebug,
+		))
 	}
 
-	if v, ok := tp.impl.(interface {
-		recvRes(ctx context.Context, res *InboundResponse)
-	}); ok {
-		v.recvRes(ctx, res)
-		return
-	}
-
-	var handled bool
-	tp.onRes.Range(func(fn TransportResponseHandler) {
-		handled = true
-		fn(ctx, tp.impl.(ClientTransport), res)
-	})
-	if handled {
-		return
-	}
-
-	tp.log.LogAttrs(ctx, slog.LevelWarn, "silently discard inbound response due to missing response handlers",
-		slog.Any("response", res),
+	receiver := ChainInboundResponse(
+		slices.Collect(
+			util.SeqFilter(
+				tp.inResInts.All(),
+				func(i InboundResponseInterceptor) bool {
+					return i != nil
+				},
+			),
+		),
+		ResponseReceiverFunc(func(ctx context.Context, res *InboundResponseEnvelope) error {
+			return errtrace.Wrap(NewRejectResponseError(ErrUnhandledMessage, slog.LevelWarn))
+		}),
 	)
+	return errtrace.Wrap(receiver.RecvResponse(ctx, res))
 }
 
 func (tp *baseTransp) shouldStopReadMsgs(err error) bool {
@@ -609,18 +782,23 @@ func (tp *baseTransp) shouldStopReadMsgs(err error) bool {
 	return errors.Is(err, ErrInvalidMessage) || errorutil.IsGrammarErr(err)
 }
 
-func wrapInMsg(msg Message, laddr, raddr netip.AddrPort) Message {
+func wrapInMsg(msg Message, proto TransportProto, laddr, raddr netip.AddrPort) (Message, error) {
 	switch m := msg.(type) {
 	case *Request:
-		return NewInboundRequest(m, laddr, raddr)
+		return errtrace.Wrap2(NewInboundRequestEnvelope(m, proto, laddr, raddr))
 	case *Response:
-		return NewInboundResponse(m, laddr, raddr)
+		return errtrace.Wrap2(NewInboundResponseEnvelope(m, proto, laddr, raddr))
 	default:
-		return msg
+		return msg, nil
 	}
 }
 
-func packetMsgs(conn net.PacketConn, prs Parser, readTimeout time.Duration) iter.Seq2[Message, error] {
+func packetMsgs(
+	proto TransportProto,
+	conn net.PacketConn,
+	prs Parser,
+	readTimeout time.Duration,
+) iter.Seq2[Message, error] {
 	return func(yield func(Message, error) bool) {
 		conn = &readDeadlinePacketConn{conn, readTimeout}
 		laddr := netip.MustParseAddrPort(conn.LocalAddr().String())
@@ -638,7 +816,12 @@ func packetMsgs(conn net.PacketConn, prs Parser, readTimeout time.Duration) iter
 			raddr := netip.MustParseAddrPort(rmtAddr.String())
 			msg, err := prs.ParsePacket(buf[:num])
 			if err == nil {
-				msg = wrapInMsg(msg, laddr, raddr)
+				m, e := wrapInMsg(msg, proto, laddr, raddr)
+				if e != nil {
+					// should never happen
+					panic(e)
+				}
+				msg = m
 			} else {
 				var perr *ParseError
 				// skip any empty buffer and parse errors without message
@@ -646,7 +829,12 @@ func packetMsgs(conn net.PacketConn, prs Parser, readTimeout time.Duration) iter
 					continue
 				}
 
-				perr.Msg = wrapInMsg(perr.Msg, laddr, raddr)
+				m, e := wrapInMsg(perr.Msg, proto, laddr, raddr)
+				if e != nil {
+					// should never happen
+					panic(e)
+				}
+				perr.Msg = m
 			}
 
 			if !yield(msg, errtrace.Wrap(err)) {
@@ -656,7 +844,13 @@ func packetMsgs(conn net.PacketConn, prs Parser, readTimeout time.Duration) iter
 	}
 }
 
-func streamMsgs(conn net.Conn, prs Parser, readTimeout time.Duration) iter.Seq2[Message, error] {
+//nolint:gocognit
+func streamMsgs(
+	proto TransportProto,
+	conn net.Conn,
+	prs Parser,
+	readTimeout time.Duration,
+) iter.Seq2[Message, error] {
 	return func(yield func(Message, error) bool) {
 		laddr := netip.MustParseAddrPort(conn.LocalAddr().String())
 		raddr := netip.MustParseAddrPort(conn.RemoteAddr().String())
@@ -670,7 +864,12 @@ func streamMsgs(conn net.Conn, prs Parser, readTimeout time.Duration) iter.Seq2[
 			if err == nil {
 				rd.N = int64(MaxMsgSize)
 
-				msg = wrapInMsg(msg, laddr, raddr)
+				m, e := wrapInMsg(msg, proto, laddr, raddr)
+				if e != nil {
+					// should never happen
+					panic(e)
+				}
+				msg = m
 			} else {
 				isTooLong := rd.N <= 0
 				rd.N = int64(MaxMsgSize)
@@ -700,7 +899,12 @@ func streamMsgs(conn net.Conn, prs Parser, readTimeout time.Duration) iter.Seq2[
 					err = fmt.Errorf("%w: %w", err, ErrMessageTooLarge)
 				}
 
-				perr.Msg = wrapInMsg(perr.Msg, laddr, raddr)
+				m, e := wrapInMsg(perr.Msg, proto, laddr, raddr)
+				if e != nil {
+					// should never happen
+					panic(e)
+				}
+				perr.Msg = m
 			}
 
 			if !yield(msg, errtrace.Wrap(err)) {

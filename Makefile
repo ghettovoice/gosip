@@ -1,8 +1,5 @@
 PKG=...
 
-setup:
-	go mod tidy
-
 test:
 	go test -race -vet=all -covermode=atomic -coverprofile=cover.out ./$(PKG)
 
@@ -14,10 +11,6 @@ test-linux:
 			golang:latest \
 			go version && \
 			make setup && make test
-
-lint:
-	go tool golangci-lint run ./...
-	go tool govulncheck ./...
 
 cov:
 	go tool cover -html=./cover.out

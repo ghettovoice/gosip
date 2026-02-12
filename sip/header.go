@@ -79,6 +79,13 @@ func (hdrs Headers) Append(hdr Header, hds ...Header) Headers {
 	return hdrs
 }
 
+func (hdrs Headers) AppendFrom(other Headers) Headers {
+	for _, hs := range other {
+		hdrs.Append(hs[0], hs[1:]...)
+	}
+	return hdrs
+}
+
 // Prepend prepends the given header(s) to the existing headers.
 func (hdrs Headers) Prepend(hdr Header, hds ...Header) Headers {
 	n := hdr.CanonicName()
@@ -86,6 +93,15 @@ func (hdrs Headers) Prepend(hdr Header, hds ...Header) Headers {
 	for _, h := range hds {
 		n = h.CanonicName()
 		hdrs[n] = append([]Header{h}, hdrs[n]...)
+	}
+	return hdrs
+}
+
+func (hdrs Headers) PrependFrom(other Headers) Headers {
+	for _, hs := range other {
+		for i := len(hs) - 1; i >= 0; i-- {
+			hdrs.Prepend(hs[i])
+		}
 	}
 	return hdrs
 }
@@ -193,36 +209,6 @@ func (hdrs *Headers) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// AcceptEncoding returns an iterator over all Accept-Encoding header elements.
-func (hdrs Headers) AcceptEncoding() iter.Seq[*header.EncodingRange] {
-	return AllHeaderElems[header.AcceptEncoding](hdrs, "Accept-Encoding")
-}
-
-// AcceptLanguage returns an iterator over all Accept-Language header elements.
-func (hdrs Headers) AcceptLanguage() iter.Seq[*header.LanguageRange] {
-	return AllHeaderElems[header.AcceptLanguage](hdrs, "Accept-Language")
-}
-
-// Accept returns an iterator over all Accept header elements.
-func (hdrs Headers) Accept() iter.Seq[*header.MIMERange] {
-	return AllHeaderElems[header.Accept](hdrs, "Accept")
-}
-
-// AlertInfo returns an iterator over all Alert-Info header elements.
-func (hdrs Headers) AlertInfo() iter.Seq[*header.AlertInfoAddr] {
-	return AllHeaderElems[header.AlertInfo](hdrs, "Alert-Info")
-}
-
-// Allow returns an iterator over all Allow header elements.
-func (hdrs Headers) Allow() iter.Seq[*header.RequestMethod] {
-	return AllHeaderElems[header.Allow](hdrs, "Allow")
-}
-
-// AuthenticationInfo returns the first Authentication-Info header.
-func (hdrs Headers) AuthenticationInfo() (*header.AuthenticationInfo, bool) {
-	return FirstHeader[*header.AuthenticationInfo](hdrs, "Authentication-Info")
-}
-
 // Authorization returns an iterator over all Authorization headers.
 func (hdrs Headers) Authorization() iter.Seq[*header.Authorization] {
 	return func(yield func(*header.Authorization) bool) {
@@ -241,29 +227,9 @@ func (hdrs Headers) CallID() (header.CallID, bool) {
 	return FirstHeader[header.CallID](hdrs, "Call-ID")
 }
 
-// CallInfo returns an iterator over all Call-Info header elements.
-func (hdrs Headers) CallInfo() iter.Seq[*header.CallInfoAddr] {
-	return AllHeaderElems[header.CallInfo](hdrs, "Call-Info")
-}
-
 // Contact returns an iterator over all Contact header elements.
 func (hdrs Headers) Contact() iter.Seq[*header.ContactAddr] {
 	return AllHeaderElems[header.Contact](hdrs, "Contact")
-}
-
-// ContentDisposition returns the first Content-Disposition header.
-func (hdrs Headers) ContentDisposition() (*header.ContentDisposition, bool) {
-	return FirstHeader[*header.ContentDisposition](hdrs, "Content-Disposition")
-}
-
-// ContentEncoding returns an iterator over all Content-Encoding header elements.
-func (hdrs Headers) ContentEncoding() iter.Seq[*header.Encoding] {
-	return AllHeaderElems[header.ContentEncoding](hdrs, "Content-Encoding")
-}
-
-// ContentLanguage returns an iterator over all Content-Language header elements.
-func (hdrs Headers) ContentLanguage() iter.Seq[*header.Language] {
-	return AllHeaderElems[header.ContentLanguage](hdrs, "Content-Language")
 }
 
 // ContentLength returns the first Content-Length header.
@@ -281,54 +247,14 @@ func (hdrs Headers) CSeq() (*header.CSeq, bool) {
 	return FirstHeader[*header.CSeq](hdrs, "CSeq")
 }
 
-// Date returns the first Date header.
-func (hdrs Headers) Date() (*header.Date, bool) {
-	return FirstHeader[*header.Date](hdrs, "Date")
-}
-
-// ErrorInfo returns an iterator over all Error-Info header elements.
-func (hdrs Headers) ErrorInfo() iter.Seq[*header.ErrorInfoAddr] {
-	return AllHeaderElems[header.ErrorInfo](hdrs, "Error-Info")
-}
-
-// Expires returns the first Expires header.
-func (hdrs Headers) Expires() (*header.Expires, bool) {
-	return FirstHeader[*header.Expires](hdrs, "Expires")
-}
-
 // From returns the first From header.
 func (hdrs Headers) From() (*header.From, bool) {
 	return FirstHeader[*header.From](hdrs, "From")
 }
 
-// InReplyTo returns an iterator over all In-Reply-To header elements.
-func (hdrs Headers) InReplyTo() iter.Seq[*header.CallID] {
-	return AllHeaderElems[header.InReplyTo](hdrs, "In-Reply-To")
-}
-
 // MaxForwards returns the first Max-Forwards header.
 func (hdrs Headers) MaxForwards() (header.MaxForwards, bool) {
 	return FirstHeader[header.MaxForwards](hdrs, "Max-Forwards")
-}
-
-// MIMEVersion returns the first MIME-Version header.
-func (hdrs Headers) MIMEVersion() (header.MIMEVersion, bool) {
-	return FirstHeader[header.MIMEVersion](hdrs, "MIME-Version")
-}
-
-// MinExpires returns the first Min-Expires header.
-func (hdrs Headers) MinExpires() (*header.MinExpires, bool) {
-	return FirstHeader[*header.MinExpires](hdrs, "Min-Expires")
-}
-
-// Organization returns the first Organization header.
-func (hdrs Headers) Organization() (header.Organization, bool) {
-	return FirstHeader[header.Organization](hdrs, "Organization")
-}
-
-// Priority returns the first Priority header.
-func (hdrs Headers) Priority() (header.Priority, bool) {
-	return FirstHeader[header.Priority](hdrs, "Priority")
 }
 
 // ProxyAuthenticate returns an iterator over all Proxy-Authenticate header elements.
@@ -357,29 +283,9 @@ func (hdrs Headers) ProxyAuthorization() iter.Seq[*header.ProxyAuthorization] {
 	}
 }
 
-// ProxyRequire returns an iterator over all Proxy-Require header elements.
-func (hdrs Headers) ProxyRequire() iter.Seq[*header.Option] {
-	return AllHeaderElems[header.ProxyRequire](hdrs, "Proxy-Require")
-}
-
 // RecordRoute returns an iterator over all Record-Route header elements.
 func (hdrs Headers) RecordRoute() iter.Seq[*header.RouteHop] {
 	return AllHeaderElems[header.RecordRoute](hdrs, "Record-Route")
-}
-
-// ReplyTo returns the first Reply-To header.
-func (hdrs Headers) ReplyTo() (*header.ReplyTo, bool) {
-	return FirstHeader[*header.ReplyTo](hdrs, "Reply-To")
-}
-
-// Require returns an iterator over all Require header elements.
-func (hdrs Headers) Require() iter.Seq[*header.Option] {
-	return AllHeaderElems[header.Require](hdrs, "Require")
-}
-
-// RetryAfter returns the first Retry-After header.
-func (hdrs Headers) RetryAfter() (*header.RetryAfter, bool) {
-	return FirstHeader[*header.RetryAfter](hdrs, "Retry-After")
 }
 
 // Route returns an iterator over all Route header elements.
@@ -387,39 +293,9 @@ func (hdrs Headers) Route() iter.Seq[*header.RouteHop] {
 	return AllHeaderElems[header.Route](hdrs, "Route")
 }
 
-// Server returns the first Server header.
-func (hdrs Headers) Server() (header.Server, bool) {
-	return FirstHeader[header.Server](hdrs, "Server")
-}
-
-// Subject returns the first Subject header.
-func (hdrs Headers) Subject() (header.Subject, bool) {
-	return FirstHeader[header.Subject](hdrs, "Subject")
-}
-
-// Supported returns an iterator over all Supported header elements.
-func (hdrs Headers) Supported() iter.Seq[*header.Option] {
-	return AllHeaderElems[header.Supported](hdrs, "Supported")
-}
-
-// Timestamp returns the first Timestamp header.
-func (hdrs Headers) Timestamp() (*header.Timestamp, bool) {
-	return FirstHeader[*header.Timestamp](hdrs, "Timestamp")
-}
-
 // To returns the first To header.
 func (hdrs Headers) To() (*header.To, bool) {
 	return FirstHeader[*header.To](hdrs, "To")
-}
-
-// Unsupported returns an iterator over all Unsupported header elements.
-func (hdrs Headers) Unsupported() iter.Seq[*header.Option] {
-	return AllHeaderElems[header.Unsupported](hdrs, "Unsupported")
-}
-
-// UserAgent returns the first User-Agent header.
-func (hdrs Headers) UserAgent() (header.UserAgent, bool) {
-	return FirstHeader[header.UserAgent](hdrs, "User-Agent")
 }
 
 // Via returns an iterator over all Via header elements.
@@ -435,11 +311,6 @@ func (hdrs Headers) FirstVia() (*header.ViaHop, bool) {
 // It returns false if no such element exists.
 func (hdrs Headers) PopFirstVia() (*header.ViaHop, bool) {
 	return PopFirstHeaderElem[header.Via](hdrs, "Via")
-}
-
-// Warning returns an iterator over all Warning header elements.
-func (hdrs Headers) Warning() iter.Seq[*header.WarningEntry] {
-	return AllHeaderElems[header.Warning](hdrs, "Warning")
 }
 
 // WWWAuthenticate returns an iterator over all WWW-Authenticate header elements.
@@ -551,7 +422,7 @@ func renderHdrs(w io.Writer, hdrs Headers, opts *RenderOptions) (num int, err er
 }
 
 func sortHdrs(hdrs Headers) []Header {
-	var hds []Header
+	hds := make([]Header, 0, len(hdrs))
 	for _, hs := range hdrs {
 		hds = append(hds, hs...)
 	}

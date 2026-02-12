@@ -1,6 +1,7 @@
 package header_test
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -27,15 +28,17 @@ func TestErrorInfo_Render(t *testing.T) {
 			header.ErrorInfo{
 				{
 					URI: &uri.Any{
-						Scheme:   "https",
-						Host:     "example.com",
-						Path:     "/a/b/c",
-						RawQuery: "foo=bar",
+						URL: url.URL{
+							Scheme:   "https",
+							Host:     "example.com",
+							Path:     "/a/b/c",
+							RawQuery: "foo=bar",
+						},
 					},
 					Params: make(header.Values).Set("foo", "bar").Set("baz", ""),
 				},
 				{
-					URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/x/y/z"},
+					URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/x/y/z"}},
 				},
 			},
 			"Error-Info: <https://example.com/a/b/c?foo=bar>;baz;foo=bar, <https://example.com/x/y/z>",
@@ -67,8 +70,8 @@ func TestErrorInfo_RenderTo(t *testing.T) {
 		{
 			"full",
 			header.ErrorInfo{
-				{URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
-				{URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/x/y/z"}},
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}},
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/x/y/z"}}},
 			},
 			"Error-Info: <https://example.com/a/b/c>, <https://example.com/x/y/z>",
 			nil,
@@ -104,8 +107,8 @@ func TestErrorInfo_String(t *testing.T) {
 		{
 			"full",
 			header.ErrorInfo{
-				{URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
-				{URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/x/y/z"}},
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}},
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/x/y/z"}}},
 			},
 			"<https://example.com/a/b/c>, <https://example.com/x/y/z>",
 		},
@@ -139,7 +142,7 @@ func TestErrorInfo_Equal(t *testing.T) {
 		{"zero to nil ptr", header.ErrorInfo{}, (*header.ErrorInfo)(nil), false},
 		{
 			"not match 1",
-			header.ErrorInfo{{URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}},
+			header.ErrorInfo{{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}}},
 			header.ErrorInfo{},
 			false,
 		},
@@ -147,21 +150,21 @@ func TestErrorInfo_Equal(t *testing.T) {
 			"not match 2",
 			header.ErrorInfo{
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "abc.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field1", `"QWERTY"`),
 				},
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "asd.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field2", "asd"),
 				},
 			},
 			header.ErrorInfo{
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "asd.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field2", "asd"),
 				},
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "abc.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field1", `"QWERTY"`),
 				},
 			},
@@ -171,21 +174,21 @@ func TestErrorInfo_Equal(t *testing.T) {
 			"not match 3",
 			header.ErrorInfo{
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "abc.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field1", `"QWERTY"`),
 				},
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "asd.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field2", "asd"),
 				},
 			},
 			header.ErrorInfo{
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "abc.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field1", `"qwerty"`),
 				},
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "asd.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field2", "asd"),
 				},
 			},
@@ -195,13 +198,13 @@ func TestErrorInfo_Equal(t *testing.T) {
 			"not match 4",
 			header.ErrorInfo{
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "abc.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("purpose", "qwe"),
 				},
 			},
 			header.ErrorInfo{
 				{
-					URI: &uri.Any{Scheme: "https", Host: "abc.com", Path: "/a/b/c"},
+					URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
 				},
 			},
 			false,
@@ -210,21 +213,21 @@ func TestErrorInfo_Equal(t *testing.T) {
 			"match",
 			header.ErrorInfo{
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "abc.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field1", `"QWERTY"`),
 				},
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "asd.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field2", "asd").Set("purpose", "qwe"),
 				},
 			},
 			header.ErrorInfo{
 				{
-					URI:    &uri.Any{Scheme: "HTTPS", Host: "ABC.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "HTTPS", Host: "ABC.com", Path: "/a/b/c"}},
 					Params: make(header.Values).Set("field1", `"qwerty"`).Append("field1", `"QWERTY"`),
 				},
 				{
-					URI: &uri.Any{Scheme: "https", Host: "ASD.COM", Path: "/a/b/c"},
+					URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "ASD.COM", Path: "/a/b/c"}},
 					Params: make(header.Values).
 						Set("purpose", "qwe").
 						Append("field1", "zxc").
@@ -260,7 +263,7 @@ func TestErrorInfo_IsValid(t *testing.T) {
 			"valid",
 			header.ErrorInfo{
 				{
-					URI:    &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 					Params: header.Values{"purpose": {"qwe"}},
 				},
 			},
@@ -270,7 +273,7 @@ func TestErrorInfo_IsValid(t *testing.T) {
 		{
 			"invalid 2",
 			header.ErrorInfo{{
-				URI:    &uri.Any{Scheme: "https", Host: "example.com"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com"}},
 				Params: header.Values{"f i e l d": {"123"}},
 			}},
 			false,
@@ -300,7 +303,7 @@ func TestErrorInfo_Clone(t *testing.T) {
 		{
 			"full",
 			header.ErrorInfo{{
-				URI:    &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 				Params: header.Values{"purpose": {"qwe"}},
 			}},
 		},

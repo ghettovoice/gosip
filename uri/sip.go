@@ -36,6 +36,14 @@ func (u *SIP) Clone() URI {
 	return &u2
 }
 
+// Scheme returns the URI scheme.
+func (u *SIP) Scheme() string {
+	if u == nil {
+		return ""
+	}
+	return u.scheme()
+}
+
 // RenderToOptions writes the SIP URI to the provided writer.
 func (u *SIP) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error) {
 	if u == nil {

@@ -5,14 +5,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"log/slog"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"braces.dev/errtrace"
 
+	"github.com/ghettovoice/gosip/internal/syncutil"
 	"github.com/ghettovoice/gosip/internal/timeutil"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
@@ -20,56 +23,70 @@ import (
 )
 
 // ClientTransaction represents a SIP client transaction.
+// RFC 3261 Section 17.1.
 type ClientTransaction interface {
 	Transaction
-	// MatchResponse checks whether the response matches the client transaction.
-	MatchResponse(res *InboundResponse) error
-	// RecvResponse is called on each inbound response received by the transport layer.
-	RecvResponse(ctx context.Context, res *InboundResponse) error
-	// OnResponse registers a callback to be called when the transaction receives a response.
-	OnResponse(fn TransactionResponseHandler) (cancel func())
+	ResponseReceiver
+	// Key returns the client transaction key.
+	Key() ClientTransactionKey
+	// Request returns the initial request that started this transaction.
+	Request() *OutboundRequestEnvelope
+	// LastResponse returns the last response received by the transaction.
+	LastResponse() *InboundResponseEnvelope
+	// Transport returns the transport used by the transaction.
+	Transport() ClientTransport
+	// OnResponse binds the callback to be called when the transaction receives a response.
+	// The callback can be unbound by calling the returned unbind function.
+	OnResponse(fn InboundResponseHandler) (unbind func())
 }
 
-type TransactionResponseHandler = func(ctx context.Context, tx ClientTransaction, res *InboundResponse)
-
-type ClientTransactionStore = TransactionStore[ClientTransactionKey, ClientTransaction]
-
-func NewMemoryClientTransactionStore() ClientTransactionStore {
-	return NewMemoryTransactionStore[ClientTransactionKey, ClientTransaction]()
+// ClientTransport represents a SIP client transport used in the client transaction.
+type ClientTransport interface {
+	RequestSender
+	// Reliable returns whether the transport is reliable or not.
+	Reliable() bool
 }
 
+// ClientTransactionFactory is a factory for creating client transactions.
 type ClientTransactionFactory interface {
 	NewClientTransaction(
 		ctx context.Context,
-		req *OutboundRequest,
+		req *OutboundRequestEnvelope,
 		tp ClientTransport,
 		opts *ClientTransactionOptions,
 	) (ClientTransaction, error)
 }
 
-type StdClientTransactionFactory struct{}
-
-var defClnTxFactory = &StdClientTransactionFactory{}
-
-func DefaultClientTransactionFactory() *StdClientTransactionFactory { return defClnTxFactory }
-
-func (*StdClientTransactionFactory) NewClientTransaction(
+// ClientTransactionFactoryFunc is a function that implements [ClientTransactionFactory].
+type ClientTransactionFactoryFunc func(
 	ctx context.Context,
-	req *OutboundRequest,
+	req *OutboundRequestEnvelope,
+	tp ClientTransport,
+	opts *ClientTransactionOptions,
+) (ClientTransaction, error)
+
+func (f ClientTransactionFactoryFunc) NewClientTransaction(
+	ctx context.Context,
+	req *OutboundRequestEnvelope,
+	tp ClientTransport,
+	opts *ClientTransactionOptions,
+) (ClientTransaction, error) {
+	return errtrace.Wrap2(f(ctx, req, tp, opts))
+}
+
+// NewClientTransaction creates a new client transaction based on the request method.
+// If the request method is INVITE, it creates an [InviteClientTransaction].
+// Otherwise, it creates a [NonInviteClientTransaction].
+func NewClientTransaction(
+	ctx context.Context,
+	req *OutboundRequestEnvelope,
 	tp ClientTransport,
 	opts *ClientTransactionOptions,
 ) (ClientTransaction, error) {
 	if req.Method().Equal(RequestMethodInvite) {
-		return errtrace.Wrap2(NewInviteClientTransaction(req, tp, opts))
+		return errtrace.Wrap2(NewInviteClientTransaction(ctx, req, tp, opts))
 	}
-	return errtrace.Wrap2(NewNonInviteClientTransaction(req, tp, opts))
-}
-
-const clnTransactCtxKey types.ContextKey = "client_transaction"
-
-func ClientTransactionFromContext(ctx context.Context) (ClientTransaction, bool) {
-	tx, ok := ctx.Value(clnTransactCtxKey).(ClientTransaction)
-	return tx, ok
+	return errtrace.Wrap2(NewNonInviteClientTransaction(ctx, req, tp, opts))
 }
 
 // ClientTransactionOptions contains options for a client transaction.
@@ -83,9 +100,9 @@ type ClientTransactionOptions struct {
 	Timings TimingConfig
 	// SendOptions are the options that will be used to send the requests.
 	SendOptions *SendRequestOptions
-	// Log is the logger that will be used with the transaction.
+	// Logger is the logger that will be used with the transaction.
 	// If nil, the [log.Default] will be used.
-	Log *slog.Logger
+	Logger *slog.Logger
 }
 
 func (o *ClientTransactionOptions) key() ClientTransactionKey {
@@ -110,10 +127,10 @@ func (o *ClientTransactionOptions) sendOpts() *SendRequestOptions {
 }
 
 func (o *ClientTransactionOptions) log() *slog.Logger {
-	if o == nil || o.Log == nil {
+	if o == nil || o.Logger == nil {
 		return log.Default()
 	}
-	return o.Log
+	return o.Logger
 }
 
 type clientTransact struct {
@@ -121,18 +138,23 @@ type clientTransact struct {
 	key      ClientTransactionKey
 	tp       ClientTransport
 	timings  TimingConfig
-	req      *OutboundRequest
+	req      *OutboundRequestEnvelope
 	sendOpts *SendRequestOptions
-	lastRes  atomic.Pointer[InboundResponse]
+	lastRes  atomic.Pointer[InboundResponseEnvelope]
 
-	onRes       types.CallbackManager[TransactionResponseHandler]
-	pendingRess types.Deque[*InboundResponse]
+	onRes       types.CallbackManager[InboundResponseHandler]
+	pendingRess types.Deque[pendingResponse]
+}
+
+type pendingResponse struct {
+	ctx context.Context
+	res *InboundResponseEnvelope
 }
 
 func newClientTransact(
 	typ TransactionType,
 	impl clientTransactImpl,
-	req *OutboundRequest,
+	req *OutboundRequestEnvelope,
 	tp ClientTransport,
 	opts *ClientTransactionOptions,
 ) (*clientTransact, error) {
@@ -143,12 +165,24 @@ func newClientTransact(
 		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid transport"))
 	}
 
+	req.AccessMessage(func(r *Request) {
+		via, _ := r.Headers.FirstVia()
+		if branch, ok := via.Branch(); !ok || branch == "" || !strings.HasPrefix(branch, MagicCookie) {
+			if via.Params == nil {
+				via.Params = make(Values)
+			}
+			via.Params.Set("branch", GenerateBranch(0))
+		}
+	})
+
 	key := opts.key()
 	if !key.IsValid() {
-		if err := key.FillFromMessage(req); err != nil {
+		var err error
+		if key, err = MakeClientTransactionKey(req); err != nil {
 			return nil, errtrace.Wrap(NewInvalidArgumentError(err))
 		}
 	}
+	req.Metadata().Set("transaction_key", key)
 
 	tx := &clientTransact{
 		key:      key,
@@ -157,13 +191,13 @@ func newClientTransact(
 		sendOpts: opts.sendOpts(),
 		timings:  opts.timings(),
 	}
-	ctx := context.WithValue(context.Background(), clnTransactCtxKey, impl)
-	tx.baseTransact = newBaseTransact(ctx, typ, impl, opts.log())
+	tx.baseTransact = newBaseTransact(typ, impl, opts.log())
 	return tx, nil
 }
 
 type clientTransactImpl interface {
 	transactImpl
+	ClientTransaction
 	takeSnapshot() *ClientTransactionSnapshot
 }
 
@@ -174,7 +208,7 @@ func (tx *clientTransact) clnTxImpl() clientTransactImpl {
 // LogValue implements [slog.LogValuer].
 func (tx *clientTransact) LogValue() slog.Value {
 	if tx == nil {
-		return slog.Value{}
+		return zeroSlogValue
 	}
 	return slog.GroupValue(
 		slog.Any("key", tx.key),
@@ -191,7 +225,7 @@ func (tx *clientTransact) Key() ClientTransactionKey {
 	return tx.key
 }
 
-func (tx *clientTransact) Request() *OutboundRequest {
+func (tx *clientTransact) Request() *OutboundRequestEnvelope {
 	if tx == nil {
 		return nil
 	}
@@ -199,32 +233,38 @@ func (tx *clientTransact) Request() *OutboundRequest {
 }
 
 // LastResponse returns the last response received by the transaction.
-func (tx *clientTransact) LastResponse() *InboundResponse {
+func (tx *clientTransact) LastResponse() *InboundResponseEnvelope {
 	if tx == nil {
 		return nil
 	}
 	return tx.lastRes.Load()
 }
 
-// MatchResponse checks whether the response matches the client transaction.
-// It implements the matching rules defined in RFC 3261 Section 17.1.3.
-func (tx *clientTransact) MatchResponse(res *InboundResponse) error {
-	var resKey ClientTransactionKey
-	if err := resKey.FillFromMessage(res); err != nil {
-		return errtrace.Wrap(NewInvalidArgumentError(err))
+// Transport returns the transport used by the transaction.
+func (tx *clientTransact) Transport() ClientTransport {
+	if tx == nil {
+		return nil
 	}
+	return tx.tp
+}
 
-	if !tx.key.Equal(resKey) {
-		return errtrace.Wrap(ErrTransactionNotMatched)
+// MatchMessage checks whether the message matches the client transaction.
+// It implements the matching rules defined in RFC 3261 Section 17.1.3.
+func (tx *clientTransact) MatchMessage(msg Message) bool {
+	key, err := MakeClientTransactionKey(msg)
+	if err != nil {
+		return false
 	}
-	return nil
+	return tx.key.Equal(key)
 }
 
 // RecvResponse is called on each inbound response received by the transport layer.
-func (tx *clientTransact) RecvResponse(ctx context.Context, res *InboundResponse) error {
-	if err := tx.MatchResponse(res); err != nil {
-		return errtrace.Wrap(err)
+func (tx *clientTransact) RecvResponse(ctx context.Context, res *InboundResponseEnvelope) error {
+	if !tx.MatchMessage(res) {
+		return errtrace.Wrap(ErrMessageNotMatched)
 	}
+
+	ctx = ContextWithTransaction(ctx, tx.impl)
 
 	switch {
 	case res.Status().IsProvisional():
@@ -236,7 +276,7 @@ func (tx *clientTransact) RecvResponse(ctx context.Context, res *InboundResponse
 	}
 }
 
-func (tx *clientTransact) sendReq(ctx context.Context, req *OutboundRequest) error {
+func (tx *clientTransact) sendReq(ctx context.Context, req *OutboundRequestEnvelope) error {
 	if err := tx.tp.SendRequest(ctx, req, tx.sendOpts); err != nil {
 		err = fmt.Errorf("send %q request: %w", req.Method(), err)
 		if err := tx.fsm.FireCtx(ctx, txEvtTranspErr, errtrace.Wrap(err)); err != nil {
@@ -258,27 +298,33 @@ func (tx *clientTransact) initFSM(start TransactionState) error {
 		return errtrace.Wrap(err)
 	}
 
-	tx.fsm.SetTriggerParameters(txEvtRecv1xx, reflect.TypeOf((*InboundResponse)(nil)))
-	tx.fsm.SetTriggerParameters(txEvtRecv2xx, reflect.TypeOf((*InboundResponse)(nil)))
-	tx.fsm.SetTriggerParameters(txEvtRecv300699, reflect.TypeOf((*InboundResponse)(nil)))
+	tx.fsm.SetTriggerParameters(txEvtRecv1xx, reflect.TypeFor[*InboundResponseEnvelope]())
+	tx.fsm.SetTriggerParameters(txEvtRecv2xx, reflect.TypeFor[*InboundResponseEnvelope]())
+	tx.fsm.SetTriggerParameters(txEvtRecv300699, reflect.TypeFor[*InboundResponseEnvelope]())
 
 	return nil
 }
 
 func (tx *clientTransact) actSendReq(ctx context.Context, _ ...any) error {
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "send request", slog.Any("transaction", tx.impl), slog.Any("request", tx.req))
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "send request",
+		slog.Any("transaction", tx.impl),
+		slog.Any("request", tx.req),
+	)
 
 	tx.sendReq(ctx, tx.req) //nolint:errcheck
 	return nil
 }
 
 func (tx *clientTransact) actPassRes(ctx context.Context, args ...any) error {
-	res := args[0].(*InboundResponse) //nolint:forcetypeassert
+	res := args[0].(*InboundResponseEnvelope) //nolint:forcetypeassert
 	tx.lastRes.Store(res)
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "pass response", slog.Any("transaction", tx.impl), slog.Any("response", res))
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "pass response",
+		slog.Any("transaction", tx.impl),
+		slog.Any("response", res),
+	)
 
-	tx.pendingRess.Append(res)
+	tx.pendingRess.Append(pendingResponse{ctx, res})
 	if tx.onRes.Len() > 0 {
 		tx.deliverPendingRess()
 	}
@@ -291,11 +337,11 @@ func (tx *clientTransact) deliverPendingRess() {
 		return
 	}
 
-	tx.onRes.Range(func(fn TransactionResponseHandler) {
-		for _, res := range resps {
-			fn(tx.ctx, tx.impl.(ClientTransaction), res)
+	for fn := range tx.onRes.All() {
+		for _, e := range resps {
+			fn(e.ctx, e.res)
 		}
-	})
+	}
 }
 
 func (tx *clientTransact) actProceeding(ctx context.Context, _ ...any) error {
@@ -311,17 +357,14 @@ func (tx *clientTransact) actCompleted(ctx context.Context, _ ...any) error {
 	return nil
 }
 
-// OnResponse registers a callback to be called when the transaction receives a response.
+// OnResponse binds the callback to be called when the transaction receives a response.
 //
-// The callback will be called with the transaction's context, see [Transaction.Context].
-// The transaction can be retrieved from the context using [TransactionFromContext].
-//
-// The callback can be canceled by calling the returned cancel function.
-// Multiple callbacks can be registered.
-func (tx *clientTransact) OnResponse(fn TransactionResponseHandler) (cancel func()) {
-	cancel = tx.onRes.Add(fn)
-	tx.deliverPendingRess()
-	return cancel
+// The callback can be unbound by calling the returned cancel function.
+// Multiple callbacks can be registered, they will be called in the order they were registered.
+// Context passed to the callback is the context passed to [ClientTransport.RecvResponse].
+func (tx *clientTransact) OnResponse(fn InboundResponseHandler) (unbind func()) {
+	defer tx.deliverPendingRess()
+	return tx.onRes.Add(fn)
 }
 
 // Snapshot returns a snapshot of the transaction state that can be serialized.
@@ -350,11 +393,11 @@ type ClientTransactionSnapshot struct {
 	// Key is the transaction key.
 	Key ClientTransactionKey `json:"key"`
 	// Request is the request that created the transaction.
-	Request *OutboundRequest `json:"request"`
+	Request *OutboundRequestEnvelope `json:"request"`
 	// SendOptions are the options used to send the request.
 	SendOptions *SendRequestOptions `json:"send_options,omitempty"`
 	// LastResponse is the last response received by the transaction.
-	LastResponse *InboundResponse `json:"last_response,omitempty"`
+	LastResponse *InboundResponseEnvelope `json:"last_response,omitempty"`
 	// Timings are the timing configuration used to create the transaction.
 	Timings TimingConfig `json:"timing_config,omitzero"`
 
@@ -397,22 +440,23 @@ type ClientTransactionKey struct {
 
 var zeroClnTxKey ClientTransactionKey
 
-// FillFromMessage populates the key fields from the given message.
-func (k *ClientTransactionKey) FillFromMessage(msg Message) error {
+// MakeClientTransactionKey creates a client transaction key from the given message.
+func MakeClientTransactionKey(msg Message) (ClientTransactionKey, error) {
 	if msg == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid message"))
+		return zeroClnTxKey, errtrace.Wrap(NewInvalidArgumentError("invalid message"))
 	}
 	if err := msg.Validate(); err != nil {
-		return errtrace.Wrap(NewInvalidArgumentError(err))
+		return zeroClnTxKey, errtrace.Wrap(NewInvalidArgumentError(err))
 	}
 
 	hdrs := GetMessageHeaders(msg)
 	via, _ := hdrs.FirstVia()
 	cseq, _ := hdrs.CSeq()
 
+	var k ClientTransactionKey
 	k.Branch, _ = via.Branch()
-	k.Method = util.UCase(string(cseq.Method))
-	return nil
+	k.Method = string(cseq.Method.ToUpper())
+	return k, nil
 }
 
 // Equal checks whether the key is equal to another key.
@@ -514,9 +558,79 @@ func (k ClientTransactionKey) Format(f fmt.State, verb rune) {
 	}
 }
 
-func GetClientTransactionKey(tx ClientTransaction) (ClientTransactionKey, bool) {
-	if v, ok := tx.(interface{ Key() ClientTransactionKey }); ok {
-		return v.Key(), true
+type ClientTransactionStore interface {
+	Load(ctx context.Context, key ClientTransactionKey) (ClientTransaction, error)
+	LookupMatched(ctx context.Context, msg Message) (ClientTransaction, error)
+	Store(ctx context.Context, tx ClientTransaction) error
+	Delete(ctx context.Context, tx ClientTransaction) error
+	All(ctx context.Context) (iter.Seq[ClientTransaction], error)
+}
+
+type MemoryClientTransactionStore struct {
+	keyLocks syncutil.KeyMutex[string]
+	// store for matching responses
+	main *syncutil.ShardMap[string, ClientTransaction]
+}
+
+// NewMemoryClientTransactionStore creates a new in-memory client transaction store.
+func NewMemoryClientTransactionStore() *MemoryClientTransactionStore {
+	return &MemoryClientTransactionStore{
+		main: syncutil.NewShardMap[string, ClientTransaction](),
 	}
-	return zeroClnTxKey, false
+}
+
+func (s *MemoryClientTransactionStore) Load(
+	_ context.Context,
+	key ClientTransactionKey,
+) (ClientTransaction, error) {
+	hash := key.String()
+	unlock := s.keyLocks.Lock(hash)
+	tx, ok := s.main.Get(hash)
+	unlock()
+	if !ok {
+		return nil, errtrace.Wrap(ErrTransactionNotFound)
+	}
+	return tx, nil
+}
+
+func (s *MemoryClientTransactionStore) LookupMatched(
+	ctx context.Context,
+	msg Message,
+) (ClientTransaction, error) {
+	key, err := MakeClientTransactionKey(msg)
+	if err != nil {
+		return nil, errtrace.Wrap(err)
+	}
+
+	tx, err := s.Load(ctx, key)
+	if err != nil {
+		return nil, errtrace.Wrap(err)
+	}
+
+	if !tx.MatchMessage(msg) {
+		return nil, errtrace.Wrap(ErrTransactionNotFound)
+	}
+	return tx, nil
+}
+
+// Store stores a new one if it does not exist.
+func (s *MemoryClientTransactionStore) Store(_ context.Context, tx ClientTransaction) error {
+	key := tx.Key()
+	hash := key.String()
+	unlock := s.keyLocks.Lock(hash)
+	s.main.Set(hash, tx)
+	unlock()
+	return nil
+}
+
+func (s *MemoryClientTransactionStore) Delete(_ context.Context, tx ClientTransaction) error {
+	hash := tx.Key().String()
+	unlock := s.keyLocks.Lock(hash)
+	s.main.Del(hash)
+	unlock()
+	return nil
+}
+
+func (s *MemoryClientTransactionStore) All(_ context.Context) (iter.Seq[ClientTransaction], error) {
+	return util.SeqValues(s.main.Items()), nil
 }

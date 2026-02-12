@@ -1,239 +1,25 @@
-# Options for analysis running.
+version: "2"
 run:
-  # Timeout for analysis, e.g., 30s, 5m.
-  # If the value is lower or equal to 0, the timeout is disabled.
-  # Default: 1m
-  timeout: 5m
-  # Exit code when at least one issue was found.
-  # Default: 1
-  issues-exit-code: 1
-  # Include test files or not.
-  # Default: true
-  tests: true
-  # List of build tags, all linters use it.
-  # Default: []
-  build-tags: []
-  # If set, we pass it to "go list -mod={option}". From "go help modules":
-  # If invoked with -mod=readonly, the go command is disallowed from the implicit
-  # automatic updating of go.mod described above. Instead, it fails when any changes
-  # to go.mod are needed. This setting is most useful to check that go.mod does
-  # not need updates, such as in a continuous integration and testing system.
-  # If invoked with -mod=vendor, the go command assumes that the vendor
-  # directory holds the correct copies of dependencies and ignores
-  # the dependency descriptions in go.mod.
-  #
-  # Allowed values: readonly|vendor|mod
-  # Default: ""
-  modules-download-mode: readonly
-  # Allow multiple parallel golangci-lint instances running.
-  # If false, golangci-lint acquires file lock on start.
-  # Default: false
-  allow-parallel-runners: false
-  # Allow multiple golangci-lint instances running, but serialize them around a lock.
-  # If false, golangci-lint exits with an error if it fails to acquire file lock on start.
-  # Default: false
-  allow-serial-runners: false
-  # Define the Go version limit.
-  # Mainly related to generics support since go1.18.
-  # Default: use Go version from the go.mod file, fallback on the env var `GOVERSION`, fallback on 1.17
-  go: ""
-  # Number of operating system threads (`GOMAXPROCS`) that can execute golangci-lint simultaneously.
-  # If it is explicitly set to 0 (i.e., not the default),
-  # then golangci-lint will automatically set the value to match Linux container CPU quota.
-  # Default: the number of logical CPUs in the machine
   concurrency: 4
-
-# output configuration options
+  go: ""
+  modules-download-mode: readonly
+  issues-exit-code: 1
+  tests: true
+  allow-parallel-runners: false
+  allow-serial-runners: false
 output:
-  # The formats used to render issues.
-  # Formats:
-  # - `colored-line-number`
-  # - `line-number`
-  # - `json`
-  # - `colored-tab`
-  # - `tab`
-  # - `html`
-  # - `checkstyle`
-  # - `code-climate`
-  # - `junit-xml`
-  # - `junit-xml-extended`
-  # - `github-actions`
-  # - `teamcity`
-  # - `sarif`
-  # Output path can be either `stdout`, `stderr` or path to the file to write to.
-  #
-  # For the CLI flag (`--out-format`), multiple formats can be specified by separating them by comma.
-  # The output can be specified for each of them by separating format name and path by colon symbol.
-  # Example: "--out-format=checkstyle:report.xml,json:stdout,colored-line-number"
-  # The CLI flag (`--out-format`) overrides the configuration file.
-  #
-  # Default:
-  #   formats:
-  #     - format: colored-line-number
-  #       path: stdout
   formats:
-    - format: colored-line-number
+    text:
       path: stdout
-  # Print lines of code with issue.
-  # Default: true
-  print-issued-lines: true
-  # Print the linter name at the end of issue text.
-  # Default: true
-  print-linter-name: true
-  # Add a prefix to the output file references.
-  # Default: ""
-  path-prefix: ""
-  # Sort results by the order defined in `sort-order`.
-  # Default: false
-  sort-results: true
-  # Order to use when sorting results.
-  # Require `sort-results` to `true`.
-  # Possible values: `file`, `linter`, and `severity`.
-  #
-  # If the severity values are inside the following list, they are ordered in this order:
-  #   1. error
-  #   2. warning
-  #   3. high
-  #   4. medium
-  #   5. low
-  # Either they are sorted alphabetically.
-  #
-  # Default: ["file"]
+      print-linter-name: true
+      print-issued-lines: true
   sort-order:
     - linter
     - severity
-    - file # filepath, line, and column.
-  # Show statistics per linter.
-  # Default: false
-  show-stats: true
-
-issues:
-  # List of regexps of issue texts to exclude.
-  #
-  # But independently of this option, we use default exclude patterns.
-  # It can be disabled by `exclude-use-default: false`.
-  # To list all excluded by default patterns, execute `golangci-lint run --help`.
-  #
-  # Default: https://golangci-lint.run/usage/false-positives/#default-exclusions
-  exclude: []
-  # Excluding configuration per-path, per-linter, per-text and per-source.
-  exclude-rules:
-    - text: 'shadow: declaration of "(err|ctx)" shadows declaration at'
-      linters: [govet]
-  # Independently of the option `exclude` we use default exclude patterns,
-  # it can be disabled by this option.
-  # To list all excluded by default patterns, execute `golangci-lint run --help`.
-  # Default: true
-  exclude-use-default: true
-  # If set to true, `exclude` and `exclude-rules` regular expressions become case-sensitive.
-  # Default: false
-  exclude-case-sensitive: false
-  # Which dirs to exclude: issues from them won't be reported.
-  # Can use regexp here: `generated.*`, regexp is applied on a full path,
-  # including the path prefix if one is set.
-  # Default dirs are skipped independently of this option's value (see exclude-dirs-use-default).
-  # "/" will be replaced by the current OS file path separator to properly work on Windows.
-  # Default: []
-  exclude-dirs: []
-  # Enables exclude of directories:
-  # - vendor$, third_party$, testdata$, examples$, Godeps$, builtin$
-  # Default: true
-  exclude-dirs-use-default: true
-  # Which files to exclude: they will be analyzed, but issues from them won't be reported.
-  # There is no need to include all autogenerated files,
-  # we confidently recognize autogenerated files.
-  # If it's not, please let us know.
-  # "/" will be replaced by the current OS file path separator to properly work on Windows.
-  # Default: []
-  exclude-files:
-    - internal/mocks/net.go
-    - internal/grammar/rfc3261/rules.go
-    - internal/grammar/rfc3966/rules.go
-  # Mode of the generated files analysis:
-  #
-  # - `strict`: sources are excluded by following strictly the Go-generated file convention.
-  #    Source files that have lines matching only the following regular expression will be excluded: `^// Code generated .* DO NOT EDIT\.$`
-  #    This line must appear before the first non-comment, non-blank text in the file.
-  #    https://go.dev/s/generatedcode
-  # - `lax`: sources are excluded if they contain lines `autogenerated file`, `code generated`, `do not edit`, etc.
-  # - `disable`: disable the generated files exclusion.
-  #
-  # Default: lax
-  exclude-generated: lax
-  # The list of ids of default excludes to include or disable.
-  # https://golangci-lint.run/usage/false-positives/#default-exclusions
-  # Default: []
-  include: []
-  # Maximum issues count per one linter.
-  # Set to 0 to disable.
-  # Default: 50
-  max-issues-per-linter: 0
-  # Maximum count of issues with the same text.
-  # Set to 0 to disable.
-  # Default: 3
-  max-same-issues: 0
-  # Make issues output unique by line.
-  # Default: true
-  uniq-by-line: true
-  # Show only new issues: if there are unstaged changes or untracked files,
-  # only those changes are analyzed, else only changes in HEAD~ are analyzed.
-  # It's a super-useful option for integration of golangci-lint into an existing large codebase.
-  # It's not practical to fix all existing issues at the moment of integration:
-  # much better don't allow issues in new code.
-  #
-  # Default: false
-  new: false
-  # Show only new issues created after git revision `REV`.
-  # Default: ""
-  new-from-rev: ""
-  # Show only new issues created in a git patch with set file path.
-  # Default: ""
-  new-from-patch: ""
-  # Show issues in any part of update files (requires new-from-rev or new-from-patch).
-  # Default: false
-  whole-files: false
-  # Fix found issues (if it's supported by the linter).
-  # Default: false
-  fix: false
-
-severity:
-  # Set the default severity for issues.
-  #
-  # If severity rules are defined and the issues do not match or no severity is provided to the rule,
-  # this will be the default severity applied.
-  # Severities should match the supported severity names of the selected out format.
-  # - Code climate: https://docs.codeclimate.com/docs/issues#issue-severity
-  # - Checkstyle: https://checkstyle.sourceforge.io/property_types.html#SeverityLevel
-  # - GitHub: https://help.github.com/en/actions/reference/workflow-commands-for-github-actions#setting-an-error-message
-  # - TeamCity: https://www.jetbrains.com/help/teamcity/service-messages.html#Inspection+Instance
-  #
-  # `@linter` can be used as severity value to keep the severity from linters (e.g. revive, gosec, ...)
-  #
-  # Default: ""
-  default-severity: ""
-  # If set to true `severity-rules` regular expressions become case-sensitive.
-  # Default: false
-  case-sensitive: false
-  # When a list of severity rules is provided, severity information will be added to lint issues.
-  # Severity rules have the same filtering capability as exclude rules,
-  # except you are allowed to specify one matcher per severity rule.
-  #
-  # `@linter` can be used as a severity value to keep the severity from linters (e.g. revive, gosec, ...)
-  #
-  # Only affects out formats that support setting severity information.
-  #
-  # Default: []
-  rules: []
-
+    - file
+  path-prefix: ""
 linters:
-  # Enable only fast linters from enabled linters set (first run won't be fast)
-  # Default: false
-  fast: false
-  # Disable all linters.
-  # Default: false
-  disable-all: true
-  # Enable specific linter
-  # https://golangci-lint.run/docs/linters/
+  default: none
   enable:
     - asciicheck
     - bidichk
@@ -248,16 +34,13 @@ linters:
     - exptostd
     - fatcontext
     - forcetypeassert
-    - gci
     - gocheckcompilerdirectives
     - gocognit
     - goconst
     - gocritic
     - godot
-    - gofumpt
     - goprintffuncname
     - gosec
-    - gosimple
     - gosmopolitan
     - govet
     - iface
@@ -283,7 +66,6 @@ linters:
     - revive
     - sloglint
     - staticcheck
-    - stylecheck
     - tagalign
     - tagliatelle
     - testableexamples
@@ -295,332 +77,340 @@ linters:
     - usestdlibvars
     - usetesting
     - varnamelen
-  # Disable specific linter
-  # https://golangci-lint.run/docs/linters/configuration/#disabled-by-default
-  disable: []
-  # Enable presets.
-  # https://golangci-lint.run/docs/linters/configuration/
-  # Default: []
-  presets: []
-
-# https://golangci-lint.run/docs/linters/configuration/
-linters-settings:
-  # https://golangci-lint.run/docs/linters/configuration/#errcheck
-  errcheck:
-    exclude-functions:
-      - (fmt.State).Write
-      - (net.Conn).SetDeadline
-      - (net.Conn).SetReadDeadline
-      - (net.Conn).SetWriteDeadline
-      - (net.PacketConn).SetDeadline
-      - (net.PacketConn).SetReadDeadline
-      - (net.PacketConn).SetWriteDeadline
-      - (*net.UDPConn).SetDeadline
-      - (*net.UDPConn).SetReadDeadline
-      - (*net.UDPConn).SetWriteDeadline
-      - (*net.TCPConn).SetDeadline
-      - (*net.TCPConn).SetReadDeadline
-      - (*net.TCPConn).SetWriteDeadline
-      - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Write
-      - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).WriteString
-      - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Fprint
-      - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Fprintf
-      - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Call
-
-  # https://golangci-lint.run/docs/linters/configuration/#gci
-  gci:
-    sections:
-      - standard
-      - default
-      - localmodule
-    custom-order: true
-
-  # https://golangci-lint.run/docs/linters/configuration/#goconst
-  goconst:
-    ignore-tests: true
-    min-occurrences: 10
-
-  # https://golangci-lint.run/docs/linters/configuration/#gofumpt
-  gofumpt:
-    extra-rules: true
-
-  # https://golangci-lint.run/docs/linters/configuration/#gosec
-  gosec:
-    excludes:
-      - G115
-
-  # https://golangci-lint.run/docs/linters/configuration/#govet
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment
-
-  # https://golangci-lint.run/docs/linters/configuration/#nestif
-  nestif:
-    min-complexity: 4
-
-  # https://golangci-lint.run/docs/linters/configuration/#recvcheck
-  recvcheck:
-    disable-builtin: false
-    exclusions:
-      - "*.UnmarshalJSON"
-      - "*.UnmarshalText"
-
-  # https://golangci-lint.run/docs/linters/configuration/#revive
-  revive:
-    confidence: 0.8
-    rules:
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#argument-limit
-      - name: argument-limit
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments: [6]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#bare-return
-      - name: bare-return
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#blank-imports
-      - name: blank-imports
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#call-to-gc
-      - name: call-to-gc
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#comment-spacings
-      - name: comment-spacings
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments: []
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#confusing-results
-      - name: confusing-results
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#constant-logical-expr
-      - name: constant-logical-expr
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#context-as-argument
-      - name: context-as-argument
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments:
-          - allowTypesBefore: "*testing.T"
-      # https://github.com/mgechev/revive/blob/HEAD/RULES_DESCRIPTIONS.md#context-keys-type
-      - name: context-keys-type
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#datarace
-      - name: datarace
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#deep-exit
-      - name: deep-exit
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#defer
-      - name: defer
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments: []
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#duplicated-imports
-      - name: duplicated-imports
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#early-return
-      - name: early-return
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments:
-          - "preserveScope"
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#function-result-limit
-      - name: function-result-limit
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments: [3]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#get-return
-      - name: get-return
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#identical-branches
-      - name: identical-branches
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#if-return
-      - name: if-return
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#import-shadowing
-      - name: import-shadowing
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#increment-decrement
-      - name: increment-decrement
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#indent-error-flow
-      - name: indent-error-flow
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments: ["preserveScope"]
-      # https://github.com/mgechev/revive/blob/HEAD/RULES_DESCRIPTIONS.md#max-control-nesting
-      - name: max-control-nesting
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments: [10]
-      # # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#modifies-parameter
-      # - name: modifies-parameter
-      #   severity: warning
-      #   disabled: false
-      #   exclude: ['']
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#modifies-value-receiver
-      - name: modifies-value-receiver
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#nested-structs
-      - name: nested-structs
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#optimize-operands-order
-      - name: optimize-operands-order
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#range-val-address
-      - name: range-val-address
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#range-val-in-closure
-      - name: range-val-in-closure
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#redefines-builtin-id
-      - name: redefines-builtin-id
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/HEAD/RULES_DESCRIPTIONS.md#redundant-build-tag
-      - name: redundant-build-tag
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#redundant-import-alias
-      - name: redundant-import-alias
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/HEAD/RULES_DESCRIPTIONS.md#redundant-test-main-exit
-      - name: redundant-test-main-exit
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#string-of-int
-      - name: string-of-int
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#struct-tag
-      - name: struct-tag
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments: []
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#superfluous-else
-      - name: superfluous-else
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments: ["preserveScope"]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#time-equal
-      - name: time-equal
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/HEAD/RULES_DESCRIPTIONS.md#time-naming
-      - name: time-naming
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unconditional-recursion
-      - name: unconditional-recursion
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unexported-naming
-      - name: unexported-naming
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unexported-return
-      - name: unexported-return
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unused-receiver
-      - name: unused-receiver
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments:
-          - allowRegex: "^_"
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#use-any
-      - name: use-any
-        severity: warning
-        disabled: false
-        exclude: [""]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#var-declaration
-      - name: var-declaration
-        severity: warning
-        disabled: false
-        exclude: [""]
-
-  # https://golangci-lint.run/docs/linters/configuration/#tagalign
-  tagliatelle:
-    case:
+  settings:
+    errcheck:
+      exclude-functions:
+        - (fmt.State).Write
+        - (net.Conn).SetDeadline
+        - (net.Conn).SetReadDeadline
+        - (net.Conn).SetWriteDeadline
+        - (net.PacketConn).SetDeadline
+        - (net.PacketConn).SetReadDeadline
+        - (net.PacketConn).SetWriteDeadline
+        - (*net.UDPConn).SetDeadline
+        - (*net.UDPConn).SetReadDeadline
+        - (*net.UDPConn).SetWriteDeadline
+        - (*net.TCPConn).SetDeadline
+        - (*net.TCPConn).SetReadDeadline
+        - (*net.TCPConn).SetWriteDeadline
+        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Write
+        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).WriteString
+        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Fprint
+        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Fprintf
+        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Call
+    goconst:
+      min-occurrences: 10
+    gosec:
+      excludes:
+        - G115
+    govet:
+      disable:
+        - fieldalignment
+      enable-all: true
+    nestif:
+      min-complexity: 4
+    recvcheck:
+      disable-builtin: false
+      exclusions:
+        - "*.UnmarshalJSON"
+        - "*.UnmarshalText"
+    revive:
+      confidence: 0.8
       rules:
-        json: snake
-        yaml: snake
-
-  # https://golangci-lint.run/docs/linters/configuration/#unparam
-  unparam:
-    check-exported: false
-
-  # https://golangci-lint.run/docs/linters/configuration/#unused
-  unused:
-    local-variables-are-used: false
-
-  # https://golangci-lint.run/docs/linters/configuration/#varnamelen
-  varnamelen:
-    max-distance: 10
-    min-name-length: 1
-    ignore-type-assert-ok: true
-    ignore-map-index-ok: true
-    ignore-chan-recv-ok: true
-    ignore-names:
-      - err
+        - name: argument-limit
+          arguments:
+            - 6
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: bare-return
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: blank-imports
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: call-to-gc
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: comment-spacings
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: confusing-results
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: constant-logical-expr
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: context-as-argument
+          arguments:
+            - allowTypesBefore: "*testing.T"
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: context-keys-type
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: datarace
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: deep-exit
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: defer
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: duplicated-imports
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: early-return
+          arguments:
+            - preserveScope
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: function-result-limit
+          arguments:
+            - 3
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: get-return
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: identical-branches
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: if-return
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: import-shadowing
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: increment-decrement
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: indent-error-flow
+          arguments:
+            - preserveScope
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: max-control-nesting
+          arguments:
+            - 10
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: modifies-value-receiver
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: nested-structs
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: optimize-operands-order
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: range-val-address
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: range-val-in-closure
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: redefines-builtin-id
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: redundant-build-tag
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: redundant-import-alias
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: redundant-test-main-exit
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: string-of-int
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: struct-tag
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: superfluous-else
+          arguments:
+            - preserveScope
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: time-equal
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: time-naming
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: unconditional-recursion
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: unexported-naming
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: unexported-return
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: unused-receiver
+          arguments:
+            - allowRegex: ^_
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: use-any
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: var-declaration
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+          yaml: snake
+    unparam:
+      check-exported: false
+    unused:
+      local-variables-are-used: false
+    varnamelen:
+      max-distance: 10
+      min-name-length: 1
+      ignore-names:
+        - err
+      ignore-type-assert-ok: true
+      ignore-map-index-ok: true
+      ignore-chan-recv-ok: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - govet
+        text: 'shadow: declaration of "(err|ctx|ok)" shadows declaration at'
+      - linters:
+          - goconst
+        path: (.+)_test\.go
+    paths:
+      - internal/mocks/net.go
+      - internal/grammar/rfc3261/rules.go
+      - internal/grammar/rfc3966/rules.go
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: true
+  new-from-rev: ""
+  new-from-patch: ""
+  whole-files: false
+  new: false
+  fix: false
+severity:
+  default: ""
+formatters:
+  enable:
+    - gci
+    - gofumpt
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - localmodule
+      custom-order: true
+    gofumpt:
+      extra-rules: true
+  exclusions:
+    generated: lax
+    paths:
+      - internal/mocks/net.go
+      - internal/grammar/rfc3261/rules.go
+      - internal/grammar/rfc3966/rules.go
+      - third_party$
+      - builtin$
+      - examples$

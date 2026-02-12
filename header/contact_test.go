@@ -2,6 +2,7 @@ package header_test
 
 import (
 	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -44,7 +45,7 @@ func TestContact_Render(t *testing.T) {
 					Params: make(header.Values).Set("q", "0.7"),
 				},
 				{
-					URI:    &uri.Any{Scheme: "mailto", Opaque: "watson@bell-telephone.com"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "watson@bell-telephone.com"}},
 					Params: make(header.Values).Set("q", "0.1"),
 				},
 			},
@@ -95,7 +96,7 @@ func TestContact_RenderTo(t *testing.T) {
 					Params: make(header.Values).Set("q", "0.7"),
 				},
 				{
-					URI:    &uri.Any{Scheme: "mailto", Opaque: "watson@bell-telephone.com"},
+					URI:    &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "watson@bell-telephone.com"}},
 					Params: make(header.Values).Set("q", "0.1"),
 				},
 			},
@@ -134,8 +135,8 @@ func TestContact_String(t *testing.T) {
 		{
 			"full",
 			header.Contact{
-				{URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
-				{URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/x/y/z"}},
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}},
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/x/y/z"}}},
 			},
 			"<https://example.com/a/b/c>, <https://example.com/x/y/z>",
 		},
@@ -179,7 +180,7 @@ func TestContact_Equal(t *testing.T) {
 			}},
 			header.Contact{{
 				DisplayName: "Mr. Watson",
-				URI:         &uri.Any{Scheme: "mailto", Opaque: "watson@bell-telephone.com"},
+				URI:         &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "watson@bell-telephone.com"}},
 				Params:      make(header.Values).Set("q", "0.1"),
 			}},
 			false,
@@ -197,14 +198,14 @@ func TestContact_Equal(t *testing.T) {
 				},
 				{
 					DisplayName: "Mr. Watson",
-					URI:         &uri.Any{Scheme: "mailto", Opaque: "watson@bell-telephone.com"},
+					URI:         &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "watson@bell-telephone.com"}},
 					Params:      make(header.Values).Set("q", "0.1"),
 				},
 			},
 			header.Contact{
 				{
 					DisplayName: "Mr. Watson",
-					URI:         &uri.Any{Scheme: "mailto", Opaque: "watson@bell-telephone.com"},
+					URI:         &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "watson@bell-telephone.com"}},
 					Params:      make(header.Values).Set("q", "0.1"),
 				},
 				{
@@ -255,7 +256,7 @@ func TestContact_Equal(t *testing.T) {
 				},
 				{
 					DisplayName: "Mr. Watson",
-					URI:         &uri.Any{Scheme: "mailto", Opaque: "watson@bell-telephone.com"},
+					URI:         &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "watson@bell-telephone.com"}},
 					Params:      make(header.Values).Set("q", "0.1"),
 				},
 			},
@@ -270,7 +271,7 @@ func TestContact_Equal(t *testing.T) {
 				},
 				{
 					DisplayName: "Mr. Watson",
-					URI:         &uri.Any{Scheme: "mailto", Opaque: "watson@bell-telephone.com"},
+					URI:         &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "watson@bell-telephone.com"}},
 					Params:      make(header.Values).Set("q", "0.1").Set("a", "aaa"),
 				},
 			},
@@ -302,7 +303,7 @@ func TestContact_IsValid(t *testing.T) {
 		{
 			"valid",
 			header.Contact{{
-				URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+				URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 			}},
 			true,
 		},
@@ -311,7 +312,7 @@ func TestContact_IsValid(t *testing.T) {
 		{
 			"invalid 3",
 			header.Contact{{
-				URI:    &uri.Any{Scheme: "https", Host: "example.com"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com"}},
 				Params: header.Values{"f i e l d": {"123"}},
 			}},
 			false,
@@ -341,7 +342,7 @@ func TestContact_Clone(t *testing.T) {
 		{
 			"full",
 			header.Contact{{
-				URI:    &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 				Params: header.Values{"expires": {"3600"}},
 			}},
 		},
@@ -422,7 +423,7 @@ func TestContact_MarshalJSON(t *testing.T) {
 			name: "any_uri",
 			hdr: header.Contact{
 				{
-					URI: &uri.Any{Scheme: "mailto", Opaque: "alice@example.com"},
+					URI: &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "alice@example.com"}},
 				},
 			},
 			want: map[string]any{
@@ -514,7 +515,7 @@ func TestContact_UnmarshalJSON(t *testing.T) {
 			data: `{"name":"Contact","value":"<mailto:alice@example.com>"}`,
 			want: header.Contact{
 				{
-					URI: &uri.Any{Scheme: "mailto", Opaque: "alice@example.com"},
+					URI: &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "alice@example.com"}},
 				},
 			},
 		},
@@ -594,7 +595,7 @@ func TestContact_RoundTripJSON(t *testing.T) {
 			name: "any_uri",
 			hdr: header.Contact{
 				{
-					URI: &uri.Any{Scheme: "mailto", Opaque: "alice@example.com"},
+					URI: &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "alice@example.com"}},
 				},
 			},
 		},

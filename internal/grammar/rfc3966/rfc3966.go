@@ -1,3 +1,3 @@
 package rfc3966
 
-//go:generate go tool abnf gen -y ./abnf.yml
+//go:generate abnf gen -y ./abnf.yml

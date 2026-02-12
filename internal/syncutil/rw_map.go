@@ -35,7 +35,7 @@ func (m *RWMap[K, V]) Set(key K, val V) *RWMap[K, V] {
 	return m
 }
 
-func (m *RWMap[K, V]) GetOrSet(key K, val V) (V, bool) {
+func (m *RWMap[K, V]) GetOrSet(key K, val V) (actual V, found bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if v, ok := m.data[key]; ok {
@@ -55,7 +55,7 @@ func (m *RWMap[K, V]) Del(key K) *RWMap[K, V] {
 	return m
 }
 
-func (m *RWMap[K, V]) GetAndDel(key K) (V, bool) {
+func (m *RWMap[K, V]) GetAndDel(key K) (actual V, found bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	v, ok := m.data[key]

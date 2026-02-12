@@ -13,6 +13,9 @@ import (
 	"github.com/ghettovoice/gosip/internal/timeutil"
 )
 
+// InviteClientTransaction represents a SIP client transaction for INVITE requests.
+// It implements the client transaction FSM defined in RFC 3261 section 17.1.1
+// and patches from RFC 6026.
 type InviteClientTransaction struct {
 	*clientTransact
 
@@ -21,11 +24,18 @@ type InviteClientTransaction struct {
 	tmrD atomic.Pointer[timeutil.SerializableTimer]
 	tmrM atomic.Pointer[timeutil.SerializableTimer]
 
-	ack atomic.Pointer[OutboundRequest]
+	ack atomic.Pointer[OutboundRequestEnvelope]
 }
 
+// NewInviteClientTransaction creates a new invite client transaction and starts its state machine.
+//
+// Context does not affect the transaction lifecycle, it is passed to the initial FSM actions and transitions.
+// Request expected to be a valid SIP request with INVITE method.
+// Transport expected to be a non-nil client transport.
+// Options are optional and can be nil, in which case default options will be used.
 func NewInviteClientTransaction(
-	req *OutboundRequest,
+	ctx context.Context,
+	req *OutboundRequestEnvelope,
 	tp ClientTransport,
 	opts *ClientTransactionOptions,
 ) (*InviteClientTransaction, error) {
@@ -43,10 +53,12 @@ func NewInviteClientTransaction(
 	}
 	tx.clientTransact = clnTx
 
+	ctx = ContextWithTransaction(ctx, tx)
+
 	if err := tx.initFSM(TransactionStateCalling); err != nil {
 		return nil, errtrace.Wrap(err)
 	}
-	if err := tx.actCalling(tx.ctx); err != nil {
+	if err := tx.actCalling(ctx); err != nil {
 		return nil, errtrace.Wrap(err)
 	}
 	return tx, nil
@@ -99,7 +111,8 @@ func (tx *InviteClientTransaction) initFSM(start TransactionState) error {
 	tx.fsm.Configure(TransactionStateTerminated).
 		OnEntry(tx.actTerminated).
 		OnEntryFrom(txEvtTimerB, tx.actTimedOut).
-		OnEntryFrom(txEvtTranspErr, tx.actTranspErr)
+		OnEntryFrom(txEvtTranspErr, tx.actTranspErr).
+		InternalTransition(txEvtTerminate, tx.actNoop)
 
 	return nil
 }
@@ -113,24 +126,27 @@ func (tx *InviteClientTransaction) actPassResSendAck(ctx context.Context, args .
 func (tx *InviteClientTransaction) actSendAck(ctx context.Context, _ ...any) error {
 	ack := tx.ack.Load()
 	if ack == nil {
-		ack = tx.req.Clone().(*OutboundRequest) //nolint:forcetypeassert
-		ack.msg.Method = RequestMethodAck
+		ack = tx.req.Clone().(*OutboundRequestEnvelope) //nolint:forcetypeassert
+		ack.message().Method = RequestMethodAck
 
-		via, _ := ack.msg.Headers.FirstVia()
-		ack.msg.Headers.Set(header.Via{*via})
+		via, _ := ack.message().Headers.FirstVia()
+		ack.message().Headers.Set(header.Via{*via})
 
-		cseq, _ := ack.msg.Headers.CSeq()
+		cseq, _ := ack.message().Headers.CSeq()
 		cseq.Method = RequestMethodAck
 
 		to, _ := tx.LastResponse().Headers().To()
-		ack.msg.Headers.Set(to)
+		ack.message().Headers.Set(to)
 
-		ack.msg.Headers.Set(header.MaxForwards(70))
+		ack.message().Headers.Set(header.MaxForwards(70))
 
 		tx.ack.Store(ack)
 	}
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "send request", slog.Any("transaction", tx.impl), slog.Any("request", ack))
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "send request",
+		slog.Any("transaction", tx.impl),
+		slog.Any("request", ack),
+	)
 
 	tx.sendReq(ctx, ack) //nolint:errcheck
 	return nil
@@ -143,8 +159,8 @@ func (tx *InviteClientTransaction) actCalling(ctx context.Context, _ ...any) err
 		return errtrace.Wrap(err)
 	}
 
-	if !IsReliableTransport(tx.tp) {
-		tmr := timeutil.AfterFunc(tx.timings.TimeA(), tx.onTimerA)
+	if !tx.tp.Reliable() {
+		tmr := timeutil.AfterFunc(tx.timings.TimeA(), tx.timerAHdlr(ctx))
 		tx.tmrA.Store(tmr)
 
 		tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -154,7 +170,7 @@ func (tx *InviteClientTransaction) actCalling(ctx context.Context, _ ...any) err
 		)
 	}
 
-	tmr := timeutil.AfterFunc(tx.timings.TimeB(), tx.onTimerB)
+	tmr := timeutil.AfterFunc(tx.timings.TimeB(), tx.timerBHdlr(ctx))
 	tx.tmrB.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -166,40 +182,44 @@ func (tx *InviteClientTransaction) actCalling(ctx context.Context, _ ...any) err
 	return nil
 }
 
-func (tx *InviteClientTransaction) onTimerA() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer A expired", slog.Any("transaction", tx))
+func (tx *InviteClientTransaction) timerAHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer A expired", slog.Any("transaction", tx))
 
-	if tx.State() != TransactionStateCalling {
-		tx.tmrA.Store(nil)
-		return
-	}
+		if tx.State() != TransactionStateCalling {
+			tx.tmrA.Store(nil)
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerA); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerA, tx.State(), err))
-	}
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerA); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerA, tx.State(), err))
+		}
 
-	if tmr := tx.tmrA.Load(); tmr != nil {
-		tmr.Reset(2 * tmr.Duration())
+		if tmr := tx.tmrA.Load(); tmr != nil {
+			tmr.Reset(2 * tmr.Duration())
 
-		tx.log.LogAttrs(tx.ctx, slog.LevelDebug,
-			"timer A reset",
-			slog.Any("transaction", tx),
-			slog.Time("expires_at", time.Now().Add(tmr.Left())),
-		)
+			tx.log.LogAttrs(ctx, slog.LevelDebug,
+				"timer A reset",
+				slog.Any("transaction", tx),
+				slog.Time("expires_at", time.Now().Add(tmr.Left())),
+			)
+		}
 	}
 }
 
-func (tx *InviteClientTransaction) onTimerB() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer B expired", slog.Any("transaction", tx))
+func (tx *InviteClientTransaction) timerBHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B expired", slog.Any("transaction", tx))
 
-	tx.tmrB.Store(nil)
+		tx.tmrB.Store(nil)
 
-	if tx.State() != TransactionStateCalling {
-		return
-	}
+		if tx.State() != TransactionStateCalling {
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerB); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerB, tx.State(), err))
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerB); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerB, tx.State(), err))
+		}
 	}
 }
 
@@ -226,7 +246,7 @@ func (tx *InviteClientTransaction) actCompleted(ctx context.Context, args ...any
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B stopped", slog.Any("transaction", tx))
 	}
 
-	tmr := timeutil.AfterFunc(tx.timings.TimeD(), tx.onTimerD)
+	tmr := timeutil.AfterFunc(tx.timings.TimeD(), tx.timerDHdlr(ctx))
 	tx.tmrD.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -238,17 +258,19 @@ func (tx *InviteClientTransaction) actCompleted(ctx context.Context, args ...any
 	return nil
 }
 
-func (tx *InviteClientTransaction) onTimerD() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer D expired", slog.Any("transaction", tx))
+func (tx *InviteClientTransaction) timerDHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer D expired", slog.Any("transaction", tx))
 
-	tx.tmrD.Store(nil)
+		tx.tmrD.Store(nil)
 
-	if tx.State() != TransactionStateCompleted {
-		return
-	}
+		if tx.State() != TransactionStateCompleted {
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerD); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerD, tx.State(), err))
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerD); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerD, tx.State(), err))
+		}
 	}
 }
 
@@ -262,7 +284,7 @@ func (tx *InviteClientTransaction) actAccepted(ctx context.Context, _ ...any) er
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B stopped", slog.Any("transaction", tx))
 	}
 
-	tmr := timeutil.AfterFunc(tx.timings.TimeM(), tx.onTimerM)
+	tmr := timeutil.AfterFunc(tx.timings.TimeM(), tx.timerMHdlr(ctx))
 	tx.tmrM.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -274,17 +296,19 @@ func (tx *InviteClientTransaction) actAccepted(ctx context.Context, _ ...any) er
 	return nil
 }
 
-func (tx *InviteClientTransaction) onTimerM() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer M expired", slog.Any("transaction", tx))
+func (tx *InviteClientTransaction) timerMHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer M expired", slog.Any("transaction", tx))
 
-	tx.tmrM.Store(nil)
+		tx.tmrM.Store(nil)
 
-	if tx.State() != TransactionStateAccepted {
-		return
-	}
+		if tx.State() != TransactionStateAccepted {
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerM); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerM, tx.State(), err))
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerM); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerM, tx.State(), err))
+		}
 	}
 }
 
@@ -325,6 +349,7 @@ func (tx *InviteClientTransaction) takeSnapshot() *ClientTransactionSnapshot {
 }
 
 func RestoreInviteClientTransaction(
+	ctx context.Context,
 	snap *ClientTransactionSnapshot,
 	tp ClientTransport,
 	opts *ClientTransactionOptions,
@@ -348,6 +373,8 @@ func RestoreInviteClientTransaction(
 	}
 	tx.clientTransact = clnTx
 
+	ctx = ContextWithTransaction(ctx, tx)
+
 	if snap.LastResponse != nil {
 		tx.lastRes.Store(snap.LastResponse)
 	}
@@ -356,33 +383,33 @@ func RestoreInviteClientTransaction(
 		return nil, errtrace.Wrap(err)
 	}
 
-	tx.restoreTimers(snap)
+	tx.restoreTimers(ctx, snap)
 
 	return tx, nil
 }
 
-func (tx *InviteClientTransaction) restoreTimers(snap *ClientTransactionSnapshot) {
+func (tx *InviteClientTransaction) restoreTimers(ctx context.Context, snap *ClientTransactionSnapshot) {
 	if tmr := snap.TimerA; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerA)
+		restored.SetCallback(tx.timerAHdlr(ctx))
 		tx.tmrA.Store(restored)
 	}
 
 	if tmr := snap.TimerB; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerB)
+		restored.SetCallback(tx.timerBHdlr(ctx))
 		tx.tmrB.Store(restored)
 	}
 
 	if tmr := snap.TimerD; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerD)
+		restored.SetCallback(tx.timerDHdlr(ctx))
 		tx.tmrD.Store(restored)
 	}
 
 	if tmr := snap.TimerM; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerM)
+		restored.SetCallback(tx.timerMHdlr(ctx))
 		tx.tmrM.Store(restored)
 	}
 }

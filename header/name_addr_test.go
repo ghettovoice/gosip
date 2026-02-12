@@ -1,6 +1,7 @@
 package header_test
 
 import (
+	"net/url"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -38,10 +39,12 @@ func TestNameAddr_String(t *testing.T) {
 			"full 2",
 			header.NameAddr{
 				URI: &uri.Any{
-					Scheme:   "https",
-					Host:     "example.com",
-					Path:     "/a/b/c",
-					RawQuery: "foo=bar",
+					URL: url.URL{
+						Scheme:   "https",
+						Host:     "example.com",
+						Path:     "/a/b/c",
+						RawQuery: "foo=bar",
+					},
 				},
 				Params: make(header.Values).Set("foo", "bar").Set("baz", ""),
 			},
@@ -139,12 +142,12 @@ func TestNameAddr_IsValid(t *testing.T) {
 		want bool
 	}{
 		{"zero", header.NameAddr{}, false},
-		{"valid", header.NameAddr{URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}, true},
+		{"valid", header.NameAddr{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}}, true},
 		{"invalid 1", header.NameAddr{URI: (*uri.SIP)(nil)}, false},
 		{
 			"invalid 2",
 			header.NameAddr{
-				URI:    &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 				Params: header.Values{"f i e l d": {"123"}},
 			},
 			false,
@@ -152,7 +155,7 @@ func TestNameAddr_IsValid(t *testing.T) {
 		{
 			"invalid 3",
 			header.NameAddr{
-				URI:    &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 				Params: header.Values{"field": {" a b c "}},
 			},
 			false,
@@ -181,7 +184,7 @@ func TestNameAddr_IsZero(t *testing.T) {
 		{"zero", header.NameAddr{}, true},
 		{"not zero 1", header.NameAddr{DisplayName: "q"}, false},
 		{"not zero 2", header.NameAddr{URI: (*uri.Any)(nil)}, false},
-		{"not zero 3", header.NameAddr{URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}, false},
+		{"not zero 3", header.NameAddr{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}}, false},
 	}
 
 	for _, c := range cases {
@@ -207,7 +210,7 @@ func TestNameAddr_Clone(t *testing.T) {
 			"full",
 			header.NameAddr{
 				DisplayName: "qwe",
-				URI:         &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+				URI:         &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 				Params:      header.Values{"expires": {"123"}, "foo": {"bar"}},
 			},
 		},
@@ -256,10 +259,12 @@ func TestNameAddr_MarshalText(t *testing.T) {
 			name: "any_uri_with_query",
 			addr: header.NameAddr{
 				URI: &uri.Any{
-					Scheme:   "https",
-					Host:     "example.com",
-					Path:     "/a/b",
-					RawQuery: "foo=bar&baz=qux",
+					URL: url.URL{
+						Scheme:   "https",
+						Host:     "example.com",
+						Path:     "/a/b",
+						RawQuery: "foo=bar&baz=qux",
+					},
 				},
 				Params: make(header.Values).
 					Set("foo", "bar"),
@@ -316,10 +321,12 @@ func TestNameAddr_UnmarshalText(t *testing.T) {
 			data: "<https://example.com/a/b?foo=bar&baz=qux>;foo=bar",
 			want: header.NameAddr{
 				URI: &uri.Any{
-					Scheme:   "https",
-					Host:     "example.com",
-					Path:     "/a/b",
-					RawQuery: "foo=bar&baz=qux",
+					URL: url.URL{
+						Scheme:   "https",
+						Host:     "example.com",
+						Path:     "/a/b",
+						RawQuery: "foo=bar&baz=qux",
+					},
 				},
 				Params: make(header.Values).
 					Set("foo", "bar"),
@@ -387,10 +394,12 @@ func TestNameAddr_RoundTripText(t *testing.T) {
 			name: "any_uri_with_query",
 			addr: header.NameAddr{
 				URI: &uri.Any{
-					Scheme:   "https",
-					Host:     "example.com",
-					Path:     "/a/b",
-					RawQuery: "foo=bar&baz=qux",
+					URL: url.URL{
+						Scheme:   "https",
+						Host:     "example.com",
+						Path:     "/a/b",
+						RawQuery: "foo=bar&baz=qux",
+					},
 				},
 				Params: make(header.Values).
 					Set("foo", "bar"),

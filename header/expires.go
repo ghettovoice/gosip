@@ -42,7 +42,7 @@ func (hdr *Expires) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error)
 }
 
 func (hdr *Expires) renderValueTo(w io.Writer) (num int, err error) {
-	return errtrace.Wrap2(fmt.Fprint(w, int64(hdr.Duration.Seconds())))
+	return errtrace.Wrap2(fmt.Fprint(w, int64(hdr.Seconds())))
 }
 
 // RenderOptions returns the string representation of the header.

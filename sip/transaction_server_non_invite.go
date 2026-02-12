@@ -21,12 +21,15 @@ type NonInviteServerTransaction struct {
 
 // NewNonInviteServerTransaction creates a new non-invite server transaction and starts its state machine.
 //
+// Context does not affect the transaction lifecycle, it can be used to
+// pass additional information to the transaction.
 // Request expected to be a valid SIP request with any method except INVITE or ACK.
 // Transport expected to be a non-nil server transport.
 // Options are optional and can be nil, in which case default options will be used.
 // Transaction key will be filled from the request automatically if not specified in the options.
 func NewNonInviteServerTransaction(
-	req *InboundRequest,
+	ctx context.Context,
+	req *InboundRequestEnvelope,
 	tp ServerTransport,
 	opts *ServerTransactionOptions,
 ) (*NonInviteServerTransaction, error) {
@@ -44,10 +47,12 @@ func NewNonInviteServerTransaction(
 	}
 	tx.serverTransact = srvTx
 
+	ctx = ContextWithTransaction(ctx, tx)
+
 	if err := tx.initFSM(TransactionStateTrying); err != nil {
 		return nil, errtrace.Wrap(err)
 	}
-	if err := tx.actTrying(tx.ctx); err != nil {
+	if err := tx.actTrying(ctx); err != nil {
 		return nil, errtrace.Wrap(err)
 	}
 	return tx, nil
@@ -90,7 +95,8 @@ func (tx *NonInviteServerTransaction) initFSM(start TransactionState) error {
 
 	tx.fsm.Configure(TransactionStateTerminated).
 		OnEntry(tx.actTerminated).
-		OnEntryFrom(txEvtTranspErr, tx.actTranspErr)
+		OnEntryFrom(txEvtTranspErr, tx.actTranspErr).
+		InternalTransition(txEvtTerminate, tx.actNoop)
 
 	return nil
 }
@@ -106,10 +112,10 @@ func (tx *NonInviteServerTransaction) actCompleted(ctx context.Context, args ...
 	tx.serverTransact.actCompleted(ctx, args...) //nolint:errcheck
 
 	var timeJ time.Duration
-	if !IsReliableTransport(tx.tp) {
+	if !tx.tp.Reliable() {
 		timeJ = tx.timings.TimeJ()
 	}
-	tmr := timeutil.AfterFunc(timeJ, tx.onTimerJ)
+	tmr := timeutil.AfterFunc(timeJ, tx.timerJHdlr(ctx))
 	tx.tmrJ.Store(tmr)
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug,
@@ -121,17 +127,19 @@ func (tx *NonInviteServerTransaction) actCompleted(ctx context.Context, args ...
 	return nil
 }
 
-func (tx *NonInviteServerTransaction) onTimerJ() {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "timer J expired", slog.Any("transaction", tx))
+func (tx *NonInviteServerTransaction) timerJHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer J expired", slog.Any("transaction", tx))
 
-	tx.tmrJ.Store(nil)
+		tx.tmrJ.Store(nil)
 
-	if tx.State() != TransactionStateCompleted {
-		return
-	}
+		if tx.State() != TransactionStateCompleted {
+			return
+		}
 
-	if err := tx.fsm.FireCtx(tx.ctx, txEvtTimerJ); err != nil {
-		panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerJ, tx.State(), err))
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerJ); err != nil {
+			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTimerJ, tx.State(), err))
+		}
 	}
 }
 
@@ -161,6 +169,8 @@ func (tx *NonInviteServerTransaction) takeSnapshot() *ServerTransactionSnapshot 
 
 // RestoreNonInviteServerTransaction restores a non-invite server transaction from a snapshot.
 //
+// Context does not affect the transaction lifecycle, it can be used to
+// pass additional information to the transaction.
 // The snapshot contains the serialized state of the transaction.
 // Transport is required to send responses.
 // Options are optional and can be nil. The key field from options is ignored
@@ -170,6 +180,7 @@ func (tx *NonInviteServerTransaction) takeSnapshot() *ServerTransactionSnapshot 
 // Timer J will be restored and its callback reconnected to the FSM.
 // If the timer has already expired according to the snapshot, it will not be restarted.
 func RestoreNonInviteServerTransaction(
+	ctx context.Context,
 	snap *ServerTransactionSnapshot,
 	tp ServerTransport,
 	opts *ServerTransactionOptions,
@@ -192,6 +203,8 @@ func RestoreNonInviteServerTransaction(
 	}
 	tx.serverTransact = srvTx
 
+	ctx = ContextWithTransaction(ctx, tx)
+
 	if snap.LastResponse != nil {
 		tx.lastRes.Store(snap.LastResponse)
 	}
@@ -203,15 +216,15 @@ func RestoreNonInviteServerTransaction(
 		return nil, errtrace.Wrap(err)
 	}
 
-	tx.restoreTimers(snap)
+	tx.restoreTimers(ctx, snap)
 
 	return tx, nil
 }
 
-func (tx *NonInviteServerTransaction) restoreTimers(snap *ServerTransactionSnapshot) {
+func (tx *NonInviteServerTransaction) restoreTimers(ctx context.Context, snap *ServerTransactionSnapshot) {
 	if tmr := snap.TimerJ; tmr != nil {
 		restored := timeutil.RestoreTimer(tmr)
-		restored.SetCallback(tx.onTimerJ)
+		restored.SetCallback(tx.timerJHdlr(ctx))
 		tx.tmrJ.Store(restored)
 	}
 }

@@ -1,6 +1,7 @@
 package sip
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -161,7 +162,7 @@ func (res *Response) Render(opts *RenderOptions) string {
 // String returns a short string representation of the response.
 func (res *Response) String() string {
 	if res == nil {
-		return "<nil>"
+		return sNilTag
 	}
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
@@ -198,12 +199,12 @@ func (res *Response) Format(f fmt.State, verb rune) {
 // LogValue implements [slog.LogValuer] for structured logging.
 func (res *Response) LogValue() slog.Value {
 	if res == nil {
-		return slog.Value{}
+		return zeroSlogValue
 	}
 
 	attrs := make([]slog.Attr, 0, 7)
 	attrs = append(attrs, slog.Int("status", int(res.Status)), slog.String("reason", string(res.Reason)))
-	if hop, ok := util.IterFirst(res.Headers.Via()); ok {
+	if hop, ok := util.SeqFirst(res.Headers.Via()); ok {
 		attrs = append(attrs, slog.Any("Via", hop))
 	}
 	if from, ok := res.Headers.From(); ok {
@@ -332,230 +333,471 @@ func (res *Response) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type InboundResponse struct {
-	inboundMessage[*Response]
+type InboundResponseEnvelope struct {
+	*inboundMessageEnvelope[*Response]
 }
 
-func NewInboundResponse(res *Response, laddr, raddr netip.AddrPort) *InboundResponse {
-	return &InboundResponse{
-		inboundMessage[*Response]{
-			msg:     res,
-			msgTime: time.Now(),
-			locAddr: laddr,
-			rmtAddr: raddr,
-			data:    new(MessageMetadata),
-		},
+func NewInboundResponseEnvelope(
+	res *Response,
+	tp TransportProto,
+	laddr, raddr netip.AddrPort,
+) (*InboundResponseEnvelope, error) {
+	if res == nil {
+		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid response"))
 	}
-}
-
-func (r *InboundResponse) Status() ResponseStatus {
-	if r == nil {
-		return 0
+	if tp == "" {
+		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid transport protocol"))
 	}
-	return r.msg.Status
-}
-
-func (r *InboundResponse) Reason() ResponseReason {
-	if r == nil {
-		return ""
+	if !laddr.IsValid() {
+		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid local address"))
 	}
-	return r.msg.Reason
-}
-
-func (r *InboundResponse) RenderTo(w io.Writer, opts *RenderOptions) (int, error) {
-	if r == nil {
-		return 0, nil
+	if !raddr.IsValid() {
+		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid remote address"))
 	}
-	return errtrace.Wrap2(r.msg.RenderTo(w, opts))
-}
 
-func (r *InboundResponse) Render(opts *RenderOptions) string {
-	if r == nil {
-		return ""
+	me := &inboundMessageEnvelope[*Response]{
+		msgTime: time.Now(),
+		data:    new(MessageMetadata),
 	}
-	return r.msg.Render(opts)
+	me.msg.Store(res)
+	me.tp.Store(tp)
+	me.locAddr.Store(laddr)
+	me.rmtAddr.Store(raddr)
+	return &InboundResponseEnvelope{me}, nil
 }
 
-func (r *InboundResponse) String() string {
-	if r == nil {
-		return "<nil>"
-	}
-	return r.msg.String()
-}
-
-func (r *InboundResponse) Format(f fmt.State, verb rune) {
-	if r == nil {
-		f.Write([]byte("<nil>"))
-		return
-	}
-	r.msg.Format(f, verb)
-}
-
-func (r *InboundResponse) Clone() Message {
+func (r *InboundResponseEnvelope) Message() *Response {
 	if r == nil {
 		return nil
 	}
-	return &InboundResponse{
-		inboundMessage[*Response]{
-			msg:     r.msg.Clone().(*Response), //nolint:forcetypeassert
-			msgTime: time.Now(),
-			locAddr: r.locAddr,
-			rmtAddr: r.rmtAddr,
-			data:    r.data.Clone(),
-		},
+	return r.inboundMessageEnvelope.Message()
+}
+
+func (r *InboundResponseEnvelope) Headers() Headers {
+	if r == nil {
+		return nil
+	}
+	return r.inboundMessageEnvelope.Headers()
+}
+
+func (r *InboundResponseEnvelope) Body() []byte {
+	if r == nil {
+		return nil
+	}
+	return r.inboundMessageEnvelope.Body()
+}
+
+func (r *InboundResponseEnvelope) Transport() TransportProto {
+	if r == nil {
+		return ""
+	}
+	return r.inboundMessageEnvelope.Transport()
+}
+
+func (r *InboundResponseEnvelope) LocalAddr() netip.AddrPort {
+	if r == nil {
+		return zeroAddrPort
+	}
+	return r.inboundMessageEnvelope.LocalAddr()
+}
+
+func (r *InboundResponseEnvelope) RemoteAddr() netip.AddrPort {
+	if r == nil {
+		return zeroAddrPort
+	}
+	return r.inboundMessageEnvelope.RemoteAddr()
+}
+
+func (r *InboundResponseEnvelope) MessageTime() time.Time {
+	if r == nil {
+		return zeroTime
+	}
+	return r.inboundMessageEnvelope.MessageTime()
+}
+
+func (r *InboundResponseEnvelope) Metadata() *MessageMetadata {
+	if r == nil {
+		return nil
+	}
+	return r.inboundMessageEnvelope.Metadata()
+}
+
+func (r *InboundResponseEnvelope) Status() ResponseStatus {
+	if r == nil {
+		return 0
+	}
+	return r.message().Status
+}
+
+func (r *InboundResponseEnvelope) Reason() ResponseReason {
+	if r == nil {
+		return ""
+	}
+	return r.message().Reason
+}
+
+func (r *InboundResponseEnvelope) RenderTo(w io.Writer, opts *RenderOptions) (int, error) {
+	if r == nil {
+		return 0, nil
+	}
+	return errtrace.Wrap2(r.inboundMessageEnvelope.RenderTo(w, opts))
+}
+
+func (r *InboundResponseEnvelope) Render(opts *RenderOptions) string {
+	if r == nil {
+		return ""
+	}
+	return r.inboundMessageEnvelope.Render(opts)
+}
+
+func (r *InboundResponseEnvelope) String() string {
+	if r == nil {
+		return sNilTag
+	}
+	return r.message().String()
+}
+
+func (r *InboundResponseEnvelope) Format(f fmt.State, verb rune) {
+	if r == nil {
+		f.Write(bNilTag)
+		return
+	}
+	r.message().Format(f, verb)
+}
+
+func (r *InboundResponseEnvelope) Clone() Message {
+	if r == nil {
+		return nil
+	}
+	return &InboundResponseEnvelope{
+		r.inboundMessageEnvelope.Clone().(*inboundMessageEnvelope[*Response]), //nolint:forcetypeassert
 	}
 }
 
-func (r *InboundResponse) Equal(v any) bool {
+func (r *InboundResponseEnvelope) Equal(v any) bool {
 	if r == nil {
 		return v == nil
 	}
-	if other, ok := v.(*InboundResponse); ok {
-		return r.msg.Equal(other.msg)
+	if other, ok := v.(*InboundResponseEnvelope); ok {
+		return r.inboundMessageEnvelope.Equal(other.inboundMessageEnvelope)
 	}
 	return false
 }
 
-func (r *InboundResponse) IsValid() bool {
+func (r *InboundResponseEnvelope) IsValid() bool {
 	if r == nil {
 		return false
 	}
-	return r.msg.IsValid()
+	return r.inboundMessageEnvelope.IsValid()
 }
 
-func (r *InboundResponse) Validate() error {
+func (r *InboundResponseEnvelope) Validate() error {
 	if r == nil {
 		return errtrace.Wrap(NewInvalidArgumentError("invalid response"))
 	}
-	return errtrace.Wrap(r.msg.Validate())
+	return errtrace.Wrap(r.inboundMessageEnvelope.Validate())
 }
 
-type OutboundResponse struct {
-	outboundMessage[*Response]
-}
-
-func NewOutboundResponse(res *Response) *OutboundResponse {
-	return &OutboundResponse{
-		outboundMessage[*Response]{
-			message: message[*Response]{
-				msg:     res,
-				msgTime: time.Now(),
-				data:    new(MessageMetadata),
-			},
-		},
+func (r *InboundResponseEnvelope) MarshalJSON() ([]byte, error) {
+	if r == nil {
+		return jsonNull, nil
 	}
+	return errtrace.Wrap2(r.inboundMessageEnvelope.MarshalJSON())
 }
 
-func (r *OutboundResponse) Status() ResponseStatus {
+func (r *InboundResponseEnvelope) UnmarshalJSON(data []byte) error {
+	if r.inboundMessageEnvelope == nil {
+		r.inboundMessageEnvelope = new(inboundMessageEnvelope[*Response])
+	}
+	return errtrace.Wrap(r.inboundMessageEnvelope.UnmarshalJSON(data))
+}
+
+func (r *InboundResponseEnvelope) LogValue() slog.Value {
+	if r == nil {
+		return zeroSlogValue
+	}
+	return r.inboundMessageEnvelope.LogValue()
+}
+
+type OutboundResponseEnvelope struct {
+	*outboundMessageEnvelope[*Response]
+}
+
+func NewOutboundResponseEnvelope(res *Response) (*OutboundResponseEnvelope, error) {
+	if res == nil {
+		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid response"))
+	}
+
+	me := &messageEnvelope[*Response]{
+		msgTime: time.Now(),
+		data:    new(MessageMetadata),
+	}
+	me.msg.Store(res)
+	return &OutboundResponseEnvelope{
+		&outboundMessageEnvelope[*Response]{
+			messageEnvelope: me,
+		},
+	}, nil
+}
+
+func (r *OutboundResponseEnvelope) Message() *Response {
+	if r == nil {
+		return nil
+	}
+	return r.outboundMessageEnvelope.Message()
+}
+
+func (r *OutboundResponseEnvelope) AccessMessage(update func(*Response)) {
+	if r == nil {
+		return
+	}
+	r.outboundMessageEnvelope.AccessMessage(update)
+}
+
+func (r *OutboundResponseEnvelope) Headers() Headers {
+	if r == nil {
+		return nil
+	}
+	return r.outboundMessageEnvelope.Headers()
+}
+
+func (r *OutboundResponseEnvelope) Body() []byte {
+	if r == nil {
+		return nil
+	}
+	return r.outboundMessageEnvelope.Body()
+}
+
+func (r *OutboundResponseEnvelope) Transport() TransportProto {
+	if r == nil {
+		return ""
+	}
+	return r.outboundMessageEnvelope.Transport()
+}
+
+func (r *OutboundResponseEnvelope) SetTransport(tp TransportProto) {
+	if r == nil {
+		return
+	}
+	r.outboundMessageEnvelope.SetTransport(tp)
+}
+
+func (r *OutboundResponseEnvelope) LocalAddr() netip.AddrPort {
+	if r == nil {
+		return zeroAddrPort
+	}
+	return r.outboundMessageEnvelope.LocalAddr()
+}
+
+func (r *OutboundResponseEnvelope) SetLocalAddr(addr netip.AddrPort) {
+	if r == nil {
+		return
+	}
+	r.outboundMessageEnvelope.SetLocalAddr(addr)
+}
+
+func (r *OutboundResponseEnvelope) RemoteAddr() netip.AddrPort {
+	if r == nil {
+		return zeroAddrPort
+	}
+	return r.outboundMessageEnvelope.RemoteAddr()
+}
+
+func (r *OutboundResponseEnvelope) SetRemoteAddr(addr netip.AddrPort) {
+	if r == nil {
+		return
+	}
+	r.outboundMessageEnvelope.SetRemoteAddr(addr)
+}
+
+func (r *OutboundResponseEnvelope) MessageTime() time.Time {
+	if r == nil {
+		return zeroTime
+	}
+	return r.outboundMessageEnvelope.MessageTime()
+}
+
+func (r *OutboundResponseEnvelope) Metadata() *MessageMetadata {
+	if r == nil {
+		return nil
+	}
+	return r.outboundMessageEnvelope.Metadata()
+}
+
+func (r *OutboundResponseEnvelope) Status() ResponseStatus {
 	if r == nil {
 		return 0
 	}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.msg.Status
+	r.msgMu.RLock()
+	defer r.msgMu.RUnlock()
+	return r.message().Status
 }
 
-func (r *OutboundResponse) Reason() ResponseReason {
+func (r *OutboundResponseEnvelope) Reason() ResponseReason {
 	if r == nil {
 		return ""
 	}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.msg.Reason
+	r.msgMu.RLock()
+	defer r.msgMu.RUnlock()
+	return r.message().Reason
 }
 
-func (r *OutboundResponse) RenderTo(w io.Writer, opts *RenderOptions) (int, error) {
+func (r *OutboundResponseEnvelope) RenderTo(w io.Writer, opts *RenderOptions) (int, error) {
 	if r == nil {
 		return 0, nil
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return errtrace.Wrap2(r.msg.RenderTo(w, opts))
+	return errtrace.Wrap2(r.outboundMessageEnvelope.RenderTo(w, opts))
 }
 
-func (r *OutboundResponse) Render(opts *RenderOptions) string {
+func (r *OutboundResponseEnvelope) Render(opts *RenderOptions) string {
 	if r == nil {
 		return ""
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.msg.Render(opts)
+	return r.outboundMessageEnvelope.Render(opts)
 }
 
-func (r *OutboundResponse) String() string {
+func (r *OutboundResponseEnvelope) String() string {
 	if r == nil {
-		return "<nil>"
+		return sNilTag
 	}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.msg.String()
+	r.msgMu.RLock()
+	defer r.msgMu.RUnlock()
+	return r.message().String()
 }
 
-func (r *OutboundResponse) Format(f fmt.State, verb rune) {
+func (r *OutboundResponseEnvelope) Format(f fmt.State, verb rune) {
 	if r == nil {
-		f.Write([]byte("<nil>"))
+		f.Write(bNilTag)
 		return
 	}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	r.msg.Format(f, verb)
+	r.msgMu.RLock()
+	defer r.msgMu.RUnlock()
+	r.message().Format(f, verb)
 }
 
-func (r *OutboundResponse) Clone() Message {
+func (r *OutboundResponseEnvelope) Clone() Message {
 	if r == nil {
 		return nil
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return &OutboundResponse{
-		outboundMessage[*Response]{
-			message: message[*Response]{
-				msg:     r.msg.Clone().(*Response), //nolint:forcetypeassert
-				msgTime: time.Now(),
-				locAddr: r.locAddr,
-				rmtAddr: r.rmtAddr,
-				data:    r.data.Clone(),
-			},
-		},
+	return &OutboundResponseEnvelope{
+		r.outboundMessageEnvelope.Clone().(*outboundMessageEnvelope[*Response]), //nolint:forcetypeassert
 	}
 }
 
-func (r *OutboundResponse) Equal(v any) bool {
+func (r *OutboundResponseEnvelope) Equal(v any) bool {
 	if r == nil {
 		return v == nil
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if other, ok := v.(*OutboundResponse); ok {
-		return r.msg.Equal(other.msg)
+	if other, ok := v.(*OutboundResponseEnvelope); ok {
+		return r.outboundMessageEnvelope.Equal(other.outboundMessageEnvelope)
 	}
 	return false
 }
 
-func (r *OutboundResponse) IsValid() bool {
+func (r *OutboundResponseEnvelope) IsValid() bool {
 	if r == nil {
 		return false
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.msg.IsValid()
+	return r.outboundMessageEnvelope.IsValid()
 }
 
-func (r *OutboundResponse) Validate() error {
+func (r *OutboundResponseEnvelope) Validate() error {
 	if r == nil {
 		return errtrace.Wrap(NewInvalidArgumentError("invalid response"))
 	}
+	return errtrace.Wrap(r.outboundMessageEnvelope.Validate())
+}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return errtrace.Wrap(r.msg.Validate())
+func (r *OutboundResponseEnvelope) MarshalJSON() ([]byte, error) {
+	if r == nil {
+		return jsonNull, nil
+	}
+	return errtrace.Wrap2(r.outboundMessageEnvelope.MarshalJSON())
+}
+
+func (r *OutboundResponseEnvelope) UnmarshalJSON(data []byte) error {
+	if r.outboundMessageEnvelope == nil {
+		r.outboundMessageEnvelope = new(outboundMessageEnvelope[*Response])
+	}
+	return errtrace.Wrap(r.outboundMessageEnvelope.UnmarshalJSON(data))
+}
+
+func (r *OutboundResponseEnvelope) LogValue() slog.Value {
+	if r == nil {
+		return zeroSlogValue
+	}
+	return r.outboundMessageEnvelope.LogValue()
+}
+
+// ResponseReceiver is an interface for receiving responses.
+type ResponseReceiver interface {
+	// RecvResponse receives a valid inbound response from the transport or downstream receiver.
+	RecvResponse(ctx context.Context, res *InboundResponseEnvelope) error
+}
+
+type ResponseReceiverFunc func(ctx context.Context, res *InboundResponseEnvelope) error
+
+func (fn ResponseReceiverFunc) RecvResponse(ctx context.Context, res *InboundResponseEnvelope) error {
+	return fn(ctx, res) //errtrace:skip
+}
+
+type ResponseSender interface {
+	// SendResponse sends the response to a remote address resolved with steps
+	// defined in RFC 3261 Section 18.2.2. and RFC 3263 Section 5.
+	//
+	// Context can be used to cancel the response sending process through the deadline.
+	// If no deadline is specified on the context, the deadline is set to [SendResponseOptions.Timeout].
+	//
+	// Options are optional and can be nil.
+	//
+	// If no target is resolved, [ErrNoTarget] is returned.
+	SendResponse(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error
+}
+
+type ResponseSenderFunc func(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error
+
+func (fn ResponseSenderFunc) SendResponse(
+	ctx context.Context,
+	res *OutboundResponseEnvelope,
+	opts *SendResponseOptions,
+) error {
+	return fn(ctx, res, opts) //errtrace:skip
+}
+
+// SendResponseOptions are options for sending a response.
+type SendResponseOptions struct {
+	// Timeout is the timeout for the response sending process.
+	// If zero, the default timeout 1m is used.
+	Timeout time.Duration `json:"timeout,omitempty"`
+	// RenderCompact is the flag that indicates whether the message should be rendered in compact form.
+	// See [RenderOptions] for more details.
+	RenderCompact bool `json:"render_compact,omitempty"`
+}
+
+func (o *SendResponseOptions) timeout() time.Duration {
+	if o == nil || o.Timeout == 0 {
+		return msgSendTimeout
+	}
+	return o.Timeout
+}
+
+func (o *SendResponseOptions) rendOpts() *RenderOptions {
+	if o == nil {
+		return nil
+	}
+	return &RenderOptions{
+		Compact: o.RenderCompact,
+	}
+}
+
+func cloneSendResOpts(opts *SendResponseOptions) *SendResponseOptions {
+	if opts == nil {
+		return nil
+	}
+	newOpts := *opts
+	return &newOpts
 }

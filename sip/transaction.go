@@ -2,7 +2,6 @@ package sip
 
 import (
 	"context"
-	"iter"
 	"log/slog"
 	"reflect"
 	"sync/atomic"
@@ -10,15 +9,7 @@ import (
 	"braces.dev/errtrace"
 	"github.com/qmuntal/stateless"
 
-	"github.com/ghettovoice/gosip/internal/syncutil"
 	"github.com/ghettovoice/gosip/internal/types"
-)
-
-const (
-	ErrTransactionNotFound         Error = "transaction not found"
-	ErrTransactionNotMatched       Error = "transaction not matched"
-	ErrTransactionActionNotAllowed Error = "transaction action not allowed"
-	ErrTransactionTimedOut         Error = "transaction timed out"
 )
 
 type TransactionState string
@@ -46,46 +37,65 @@ const (
 
 // Transaction is a generic SIP transaction.
 type Transaction interface {
-	// OnStateChanged registers a callback to be called when the transaction state changes.
-	OnStateChanged(cb TransactionStateHandler) (cancel func())
-	// OnError registers a callback to be called when the transaction encounters an transport or timeout error.
-	OnError(cb TransactionErrorHandler) (cancel func())
-	// Terminate forces the transaction to terminate.
-	// This is used for internal error recovery when a transaction needs to be
-	// cleaned up due to internal errors (e.g., failed to store in transaction store).
+	// Type returns the transaction type.
+	Type() TransactionType
+	// State returns the current state of the transaction.
+	State() TransactionState
+	// MatchMessage checks whether the message matches the transaction.
+	MatchMessage(msg Message) bool
+	// OnStateChanged binds a callback to be called when the transaction state changes.
+	// The callback can be unbound by calling the returned cancel function.
+	OnStateChanged(fn TransactionStateHandler) (unbind func())
+	// OnError binds a callback to be called when the transaction encounters an transport or timeout error.
+	// The callback can be unbound by calling the returned cancel function.
+	OnError(fn ErrorHandler) (unbind func())
+	// Terminate forces the transaction to terminate immediately switching it
+	// to the [TransactionStateTerminated] state.
 	Terminate(ctx context.Context) error
 }
 
-type TransactionStateHandler = func(ctx context.Context, tx Transaction, from, to TransactionState)
+const transactCtxKey types.ContextKey = "transaction"
 
-type TransactionErrorHandler = func(ctx context.Context, tx Transaction, err error)
-
-type baseTransact struct {
-	ctx       context.Context
-	cancelCtx context.CancelFunc
-	typ       TransactionType
-	impl      transactImpl
-	fsm       *stateless.StateMachine
-	state     atomic.Value // TransactionState
-	log       *slog.Logger
-
-	onStateChanged types.CallbackManager[TransactionStateHandler]
-	pendingStates  types.Deque[stateless.Transition]
-
-	onErr       types.CallbackManager[TransactionErrorHandler]
-	pendingErrs types.Deque[error]
+func ContextWithTransaction(ctx context.Context, tx Transaction) context.Context {
+	return context.WithValue(ctx, transactCtxKey, tx)
 }
 
-type transactImpl any
+func TransactionFromContext(ctx context.Context) (Transaction, bool) {
+	tx, ok := ctx.Value(transactCtxKey).(Transaction)
+	return tx, ok
+}
 
-func newBaseTransact(ctx context.Context, typ TransactionType, impl transactImpl, log *slog.Logger) *baseTransact {
-	ctx, cancelCtx := context.WithCancel(ctx)
+type baseTransact struct {
+	typ   TransactionType
+	impl  transactImpl
+	fsm   *stateless.StateMachine
+	state atomic.Value // TransactionState
+	log   *slog.Logger
+
+	onStateChanged types.CallbackManager[TransactionStateHandler]
+	pendingStates  types.Deque[pendingState]
+
+	onErr       types.CallbackManager[ErrorHandler]
+	pendingErrs types.Deque[pendingError]
+}
+
+type transactImpl Transaction
+
+type pendingState struct {
+	ctx        context.Context
+	transition stateless.Transition
+}
+
+type pendingError struct {
+	ctx context.Context
+	err error
+}
+
+func newBaseTransact(typ TransactionType, impl transactImpl, log *slog.Logger) *baseTransact {
 	return &baseTransact{
-		ctx:       ctx,
-		cancelCtx: cancelCtx,
-		typ:       typ,
-		impl:      impl,
-		log:       log,
+		typ:  typ,
+		impl: impl,
+		log:  log,
 	}
 }
 
@@ -105,53 +115,44 @@ func (tx *baseTransact) State() TransactionState {
 	return tx.state.Load().(TransactionState) //nolint:forcetypeassert
 }
 
-// OnStateChanged registers a callback to be called when the transaction state changes.
+// OnStateChanged binds the callback to be called when the transaction state changes.
 //
-// The callback will be called with the transaction state before and after the change.
-// The callback can be canceled by calling the returned cancel function.
-// Multiple callbacks can be registered.
-//
-// The callback will be called with the transaction's context, see [Transaction.Context].
-// The transaction can be retrieved from the context using [TransactionFromContext].
-func (tx *baseTransact) OnStateChanged(fn TransactionStateHandler) (cancel func()) {
-	cancel = tx.onStateChanged.Add(fn)
-	tx.deliverPendingStates()
-	return cancel
+// The callback can be unbound by calling the returned cancel function.
+// Multiple callbacks are allowed, they will be called in the order they were registered.
+// Context passed to the callback is canceled when the transaction is terminated.
+func (tx *baseTransact) OnStateChanged(fn TransactionStateHandler) (unbind func()) {
+	defer tx.deliverPendingStates()
+	return tx.onStateChanged.Add(fn)
 }
 
 func (tx *baseTransact) deliverPendingStates() {
-	transitions := tx.pendingStates.Drain()
-	if len(transitions) == 0 {
+	states := tx.pendingStates.Drain()
+	if len(states) == 0 {
 		return
 	}
 
-	tx.onStateChanged.Range(func(fn TransactionStateHandler) {
-		for _, tr := range transitions {
-			fn(tx.ctx, tx.impl.(Transaction), tr.Source.(TransactionState), tr.Destination.(TransactionState))
+	for fn := range tx.onStateChanged.All() {
+		for _, e := range states {
+			fn(e.ctx, e.transition.Source.(TransactionState), e.transition.Destination.(TransactionState)) //nolint:forcetypeassert
 		}
-	})
+	}
 }
 
-func (tx *baseTransact) passStateTransition(tr stateless.Transition) {
-	tx.pendingStates.Append(tr)
+func (tx *baseTransact) passStateTransition(ctx context.Context, tr stateless.Transition) {
+	tx.pendingStates.Append(pendingState{ctx, tr})
 	if tx.onStateChanged.Len() > 0 {
 		tx.deliverPendingStates()
 	}
 }
 
-// OnError registers a callback to be called when the transaction encounters an error.
+// OnError binds the callback to be called when the transaction encounters an error.
 // The error can be a transport error (usually [net.Error]) or a [ErrTransactionTimedOut].
 //
-// The callback will be called with the error.
-// The callback can be canceled by calling the returned cancel function.
-// Multiple callbacks can be registered.
-//
-// The callback will be called with the transaction's context, see [Transaction.Context].
-// The transaction can be retrieved from the context using [TransactionFromContext].
-func (tx *baseTransact) OnError(fn TransactionErrorHandler) (cancel func()) {
-	cancel = tx.onErr.Add(fn)
-	tx.deliverPendingErrs()
-	return cancel
+// The callback can be unbound by calling the returned cancel function.
+// Multiple callbacks are allowed, they will be called in the order they were registered.
+func (tx *baseTransact) OnError(fn ErrorHandler) (unbind func()) {
+	defer tx.deliverPendingErrs()
+	return tx.onErr.Add(fn)
 }
 
 func (tx *baseTransact) deliverPendingErrs() {
@@ -160,15 +161,15 @@ func (tx *baseTransact) deliverPendingErrs() {
 		return
 	}
 
-	tx.onErr.Range(func(fn TransactionErrorHandler) {
-		for _, err := range errs {
-			fn(tx.ctx, tx.impl.(Transaction), errtrace.Wrap(err))
+	for fn := range tx.onErr.All() {
+		for _, e := range errs {
+			fn(e.ctx, errtrace.Wrap(e.err))
 		}
-	})
+	}
 }
 
-func (tx *baseTransact) passErr(err error) {
-	tx.pendingErrs.Append(errtrace.Wrap(err))
+func (tx *baseTransact) passErr(ctx context.Context, err error) {
+	tx.pendingErrs.Append(pendingError{ctx, errtrace.Wrap(err)})
 	if tx.onErr.Len() > 0 {
 		tx.deliverPendingErrs()
 	}
@@ -193,25 +194,21 @@ func (tx *baseTransact) initFSM(start TransactionState) error {
 		stateless.FiringQueued,
 	)
 
-	tx.fsm.SetTriggerParameters(txEvtTranspErr, reflect.TypeOf((*error)(nil)).Elem())
+	tx.fsm.SetTriggerParameters(txEvtTranspErr, reflect.TypeFor[error]())
 
-	tx.fsm.OnTransitioned(func(_ context.Context, transition stateless.Transition) {
-		tx.log.LogAttrs(tx.ctx, slog.LevelDebug,
+	tx.fsm.OnTransitioned(func(ctx context.Context, transition stateless.Transition) {
+		tx.log.LogAttrs(ctx, slog.LevelDebug,
 			"transaction state changed",
 			slog.Any("transaction", tx.impl),
 			slog.Any("from", transition.Source),
 			slog.Any("to", transition.Destination),
 		)
 
-		tx.passStateTransition(transition)
-
-		if transition.Destination == TransactionStateTerminated {
-			tx.cancelCtx()
-		}
+		tx.passStateTransition(ctx, transition)
 	})
 
-	tx.fsm.OnUnhandledTrigger(func(_ context.Context, state stateless.State, trigger stateless.Trigger, _ []string) error {
-		return errtrace.Wrap(ErrTransactionActionNotAllowed)
+	tx.fsm.OnUnhandledTrigger(func(context.Context, stateless.State, stateless.Trigger, []string) error {
+		return errtrace.Wrap(ErrActionNotAllowed)
 	})
 
 	return nil
@@ -228,96 +225,62 @@ func (tx *baseTransact) actTranspErr(ctx context.Context, args ...any) error {
 		slog.Any("error", err),
 	)
 
-	tx.passErr(errtrace.Wrap(err))
+	tx.passErr(ctx, errtrace.Wrap(err))
 	return nil
 }
 
 func (tx *baseTransact) actTimedOut(ctx context.Context, _ ...any) error {
 	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction timed out", slog.Any("transaction", tx.impl))
 
-	tx.passErr(errtrace.Wrap(ErrTransactionTimedOut))
+	tx.passErr(ctx, errtrace.Wrap(ErrTransactionTimedOut))
 	return nil
 }
 
 //nolint:unparam
-func (tx *baseTransact) actTerminated(context.Context, ...any) error {
-	tx.log.LogAttrs(tx.ctx, slog.LevelDebug, "transaction terminated", slog.Any("transaction", tx.impl))
+func (tx *baseTransact) actTerminated(ctx context.Context, _ ...any) error {
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction terminated", slog.Any("transaction", tx.impl))
 
 	return nil
 }
 
-// Terminate forces the transaction to terminate.
-// This is used for internal error recovery when a transaction needs to be
-// cleaned up due to internal errors (e.g., failed to store in transaction store).
-// The method triggers the FSM transition to Terminated state, which will
-// properly stop all timers and release resources.
+// Terminate forces the transaction to terminate immediately switching it
+// to the [TransactionStateTerminated] state.
 func (tx *baseTransact) Terminate(ctx context.Context) error {
 	if tx.State() == TransactionStateTerminated {
 		return nil
 	}
-	return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtTerminate))
+	return errtrace.Wrap(tx.fsm.FireCtx(ContextWithTransaction(ctx, tx.impl), txEvtTerminate))
 }
 
-// TransactionStore is an interface for a generic transaction store.
-type TransactionStore[K comparable, T Transaction] interface {
-	// Load loads a transaction by its key.
-	Load(ctx context.Context, key K) (T, error)
-	// Store stores a transaction.
-	Store(ctx context.Context, key K, tx T) error
-	// Delete deletes a transaction by its key.
-	Delete(ctx context.Context, key K) error
-	// All returns all transactions.
-	All(ctx context.Context) (iter.Seq2[K, T], error)
+func SendRequestStateful(
+	ctx context.Context,
+	req *OutboundRequestEnvelope,
+	txf ClientTransactionFactory,
+	opts *SendRequestOptions,
+) (ClientTransaction, error) {
+	// TODO: implement
+	panic("not implemented")
 }
 
-// MemoryTransactionStore implements TransactionStore using in-memory storage.
-type MemoryTransactionStore[K comparable, T Transaction] struct {
-	txs *syncutil.ShardMap[K, T]
-	kmu syncutil.KeyMutex[K]
-}
-
-// NewMemoryTransactionStore creates a new in-memory transaction store.
-func NewMemoryTransactionStore[K comparable, T Transaction]() *MemoryTransactionStore[K, T] {
-	return &MemoryTransactionStore[K, T]{
-		txs: syncutil.NewShardMap[K, T](),
+func RespondStateful(
+	ctx context.Context,
+	txf ServerTransactionFactory,
+	tp ServerTransport,
+	req *InboundRequestEnvelope,
+	sts ResponseStatus,
+	opts *RespondOptions,
+) (ServerTransaction, error) {
+	// TODO: review this later
+	res, err := req.NewResponse(sts, opts.resOpts())
+	if err != nil {
+		return nil, errtrace.Wrap(err)
 	}
-}
-
-// Load loads a transaction by its key.
-func (s *MemoryTransactionStore[K, T]) Load(_ context.Context, key K) (T, error) {
-	unlock := s.kmu.Lock(key)
-	defer unlock()
-
-	tx, ok := s.txs.Get(key)
-	if !ok {
-		return tx, errtrace.Wrap(ErrTransactionNotFound)
+	tx, err := txf.NewServerTransaction(ctx, req, tp, nil)
+	if err != nil {
+		return nil, errtrace.Wrap(err)
+	}
+	if err := tx.SendResponse(ctx, res, opts.sendOpts()); err != nil {
+		return nil, errtrace.Wrap(err)
 	}
 	return tx, nil
-}
-
-// Store stores a new one if it does not exist.
-func (s *MemoryTransactionStore[K, T]) Store(_ context.Context, key K, tx T) error {
-	unlock := s.kmu.Lock(key)
-	defer unlock()
-
-	if _, ok := s.txs.Get(key); ok {
-		return nil
-	}
-	s.txs.Set(key, tx)
-	return nil
-}
-
-// Delete deletes a transaction by its key.
-func (s *MemoryTransactionStore[K, T]) Delete(_ context.Context, key K) error {
-	unlock := s.kmu.Lock(key)
-	defer unlock()
-
-	if _, ok := s.txs.Del(key); !ok {
-		return errtrace.Wrap(ErrTransactionNotFound)
-	}
-	return nil
-}
-
-func (s *MemoryTransactionStore[K, T]) All(_ context.Context) (iter.Seq2[K, T], error) {
-	return s.txs.Items(), nil
 }

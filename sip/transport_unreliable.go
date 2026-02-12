@@ -27,12 +27,13 @@ type UnreliableTransportOptions struct {
 	// Parser is a parser used to parse inbound SIP messages.
 	// If nil, [DefaultParser] is used.
 	Parser Parser
-	// SentByHost is a host used to build the Via's "sent-by" field.
-	// If empty, "127.0.0.1" is used.
-	SentByHost string
-	// Log is a logger used to log transport events, warnings and errors.
+	// SentBy is a "host[:port]" used to build the Via's "sent-by" field.
+	// To force the transport append actual port used, build [Addr] with zero port.
+	// If zero, the transport's local address is used.
+	SentBy Addr
+	// Logger is a logger used to log transport events, warnings and errors.
 	// If nil, [log.Default] is used.
-	Log *slog.Logger
+	Logger *slog.Logger
 	// DNSResolver is a DNS resolver used to resolve the message destination.
 	// If nil, [dns.DefaultResolver] is used.
 	DNSResolver DNSResolver
@@ -59,18 +60,18 @@ func (o *UnreliableTransportOptions) parser() Parser {
 	return o.Parser
 }
 
-func (o *UnreliableTransportOptions) sentByHost() string {
-	if o == nil || o.SentByHost == "" {
-		return "127.0.0.1"
+func (o *UnreliableTransportOptions) sentBy() Addr {
+	if o == nil {
+		return Addr{}
 	}
-	return o.SentByHost
+	return o.SentBy
 }
 
 func (o *UnreliableTransportOptions) log() *slog.Logger {
-	if o == nil || o.Log == nil {
+	if o == nil || o.Logger == nil {
 		return log.Default()
 	}
-	return o.Log
+	return o.Logger
 }
 
 func (o *UnreliableTransportOptions) dnsResolver() DNSResolver {
@@ -104,7 +105,6 @@ func NewUnreliableTransport(
 
 	tp := new(UnreliableTransport)
 	tp.baseTransp = newBaseTransp(
-		context.Background(),
 		tp,
 		TransportMetadata{
 			Proto:       proto,
@@ -115,7 +115,7 @@ func NewUnreliableTransport(
 			DefaultPort: opts.defPort(),
 		},
 		netip.MustParseAddrPort(conn.LocalAddr().String()),
-		opts.sentByHost(),
+		opts.sentBy(),
 		opts.dnsResolver(),
 		opts.log(),
 	)
@@ -124,7 +124,7 @@ func NewUnreliableTransport(
 	return tp, nil
 }
 
-func (tp *UnreliableTransport) close() error {
+func (tp *UnreliableTransport) close(context.Context) error {
 	return errtrace.Wrap(tp.conn.Close())
 }
 
@@ -146,17 +146,15 @@ func (tp *UnreliableTransport) writeTo(
 	return tp.laddr, nil
 }
 
-func (tp *UnreliableTransport) serve() error {
+func (tp *UnreliableTransport) serve(ctx context.Context) error {
 	defer tp.conn.Close()
 
-	tp.log.LogAttrs(tp.ctx, slog.LevelDebug, "begin serving the connection", slog.Any("connection", tp.conn))
-	defer tp.log.LogAttrs(tp.ctx, slog.LevelDebug, "serving the connection finished", slog.Any("connection", tp.conn))
+	tp.log.LogAttrs(ctx, slog.LevelDebug, "begin serving the connection", slog.Any("connection", tp.conn))
+	defer tp.log.LogAttrs(ctx, slog.LevelDebug, "serving the connection finished", slog.Any("connection", tp.conn))
 
-	err := tp.readMsgs(packetMsgs(tp.conn, tp.parser, time.Minute))
-	select {
-	case <-tp.ctx.Done():
+	err := tp.readMsgs(ctx, packetMsgs(tp.meta.Proto, tp.conn, tp.parser, time.Minute))
+	if tp.isClosing() {
 		return errtrace.Wrap(ErrTransportClosed)
-	default:
-		return errtrace.Wrap(err)
 	}
+	return errtrace.Wrap(err)
 }

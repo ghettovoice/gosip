@@ -17,6 +17,7 @@
     "editor.formatOnSave": true,
     "files.autoSave": "onFocusChange",
     "makefile.configureOnOpen": false,
+    "git.showWindsurfWorktrees": true,
     "go.coverMode": "atomic",
     "go.coverOnSingleTest": true,
     "go.coverOnSingleTestFile": true,
@@ -33,14 +34,9 @@
     "go.formatTool": "gofumpt",
     "go.lintTool": "golangci-lint-v2",
     "go.testExplorer.packageDisplayMode": "nested",
-    "go.testFlags": [
-        "-vet=all",
-        "-count=1",
-    ],
+    "go.testFlags": ["-vet=all", "-count=1"],
     "go.toolsManagement.autoUpdate": true,
-    "go.vetFlags": [
-        "-all"
-    ],
+    "go.vetFlags": ["-all"],
     "go.inlayHints.constantValues": true,
     "gitlab.duoCodeSuggestions.enabled": false,
     "gitlab.duoChat.enabled": false,

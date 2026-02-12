@@ -39,19 +39,22 @@ func demoServerTransactionPersistence(logger *slog.Logger) {
 	// Create a sample INVITE request
 	req := createSampleInboundRequest()
 
+	ctx := context.Background()
+
 	// Create a mock transport (in real app, use actual transport)
 	tp := createMockServerTransport()
 
 	// Create the transaction
-	tx, err := sip.NewInviteServerTransaction(req, tp, &sip.ServerTransactionOptions{
-		Log: logger,
+	tx, err := sip.NewInviteServerTransaction(ctx, req, tp, &sip.ServerTransactionOptions{
+		Logger: logger,
 	})
 	if err != nil {
-		log.Fatalf("Failed to create server transaction: %v", err)
+		log.Fatalf("Failed to create server transaction: %v", err) //nolint:revive
 	}
 
 	// Subscribe to state changes to save snapshots
-	tx.OnStateChanged(func(ctx context.Context, _ sip.Transaction, from, to sip.TransactionState) {
+	var snapshotFile *os.File
+	tx.OnStateChanged(func(ctx context.Context, from, to sip.TransactionState) {
 		fmt.Printf("Server transaction state changed: %s -> %s\n", from, to)
 
 		// Take a snapshot on each state change
@@ -59,38 +62,38 @@ func demoServerTransactionPersistence(logger *slog.Logger) {
 
 		// In a real application, you would save this to your persistent store
 		// (database, Redis, file system, etc.)
-		if err := saveServerSnapshot(snapshot); err != nil {
+		var err error
+		if snapshotFile, err = saveServerSnapshot(snapshot); err != nil {
 			log.Printf("Failed to save server snapshot: %v", err)
 		}
 	})
 
 	// Send a provisional response
-	ctx := context.Background()
 	if err := tx.Respond(ctx, 180, nil); err != nil {
-		log.Fatalf("Failed to send provisional response: %v", err)
+		log.Fatalf("Failed to send provisional response: %v", err) //nolint:revive
 	}
 
 	// Take a snapshot manually for this example
 	snapshot := tx.Snapshot()
-	if err := saveServerSnapshot(snapshot); err != nil {
-		log.Fatalf("Failed to save server snapshot: %v", err)
+	if snapshotFile, err = saveServerSnapshot(snapshot); err != nil {
+		log.Fatalf("Failed to save server snapshot: %v", err) //nolint:revive
 	}
 
 	// Simulate server restart by loading the snapshot
 	fmt.Println("\n--- Simulating server restart ---")
 
 	// Load the snapshot (in real app, load from your persistent store)
-	loadedSnapshot, err := loadServerSnapshot()
+	loadedSnapshot, err := loadServerSnapshot(snapshotFile)
 	if err != nil {
-		log.Fatalf("Failed to load server snapshot: %v", err)
+		log.Fatalf("Failed to load server snapshot: %v", err) //nolint:revive
 	}
 
 	// Restore the transaction
-	restoredTx, err := sip.RestoreInviteServerTransaction(loadedSnapshot, tp, &sip.ServerTransactionOptions{
-		Log: logger,
+	restoredTx, err := sip.RestoreInviteServerTransaction(ctx, loadedSnapshot, tp, &sip.ServerTransactionOptions{
+		Logger: logger,
 	})
 	if err != nil {
-		log.Fatalf("Failed to restore server transaction: %v", err)
+		log.Fatalf("Failed to restore server transaction: %v", err) //nolint:revive
 	}
 
 	// The restored transaction can continue working
@@ -99,7 +102,7 @@ func demoServerTransactionPersistence(logger *slog.Logger) {
 
 	// Send final response from restored transaction
 	if err := restoredTx.Respond(ctx, 200, nil); err != nil {
-		log.Fatalf("Failed to send final response: %v", err)
+		log.Fatalf("Failed to send final response: %v", err) //nolint:revive
 	}
 
 	fmt.Printf("Final server transaction state: %s\n", restoredTx.State())
@@ -109,84 +112,86 @@ func demoClientTransactionPersistence(logger *slog.Logger) {
 	// Create a sample outbound INVITE request
 	req := createSampleOutboundRequest()
 
+	ctx := context.Background()
+
 	// Create a mock client transport
 	tp := createMockClientTransport()
 
 	// Create the INVITE client transaction
-	tx, err := sip.NewInviteClientTransaction(req, tp, &sip.ClientTransactionOptions{
-		Log: logger,
+	tx, err := sip.NewInviteClientTransaction(ctx, req, tp, &sip.ClientTransactionOptions{
+		Logger: logger,
 	})
 	if err != nil {
-		log.Fatalf("Failed to create client transaction: %v", err)
+		log.Fatalf("Failed to create client transaction: %v", err) //nolint:revive
 	}
 
 	// Subscribe to state changes to save snapshots
-	tx.OnStateChanged(func(ctx context.Context, _ sip.Transaction, from, to sip.TransactionState) {
+	var snapshotFile *os.File
+	tx.OnStateChanged(func(ctx context.Context, from, to sip.TransactionState) {
 		fmt.Printf("Client transaction state changed: %s -> %s\n", from, to)
 
 		// Take a snapshot on each state change
 		snapshot := tx.Snapshot()
-
-		if err := saveClientSnapshot(snapshot); err != nil {
+		var err error
+		if snapshotFile, err = saveClientSnapshot(snapshot); err != nil {
 			log.Printf("Failed to save client snapshot: %v", err)
 		}
 	})
 
 	// Take a snapshot in Calling state
 	snapshot := tx.Snapshot()
-	if err := saveClientSnapshot(snapshot); err != nil {
-		log.Fatalf("Failed to save client snapshot: %v", err)
+	if snapshotFile, err = saveClientSnapshot(snapshot); err != nil {
+		log.Fatalf("Failed to save client snapshot: %v", err) //nolint:revive
 	}
 	fmt.Printf("Saved client transaction snapshot in state: %s\n", tx.State())
 
 	// Simulate receiving a provisional response to move to Proceeding
-	ctx := context.Background()
 	provisionalRes := createMockResponse(req, 180)
 	if err := tx.RecvResponse(ctx, provisionalRes); err != nil {
-		log.Fatalf("Failed to receive provisional response: %v", err)
+		log.Fatalf("Failed to receive provisional response: %v", err) //nolint:revive
 	}
 
 	// Take another snapshot in Proceeding state
 	snapshot = tx.Snapshot()
-	if err := saveClientSnapshot(snapshot); err != nil {
-		log.Fatalf("Failed to save client snapshot: %v", err)
+	if snapshotFile, err = saveClientSnapshot(snapshot); err != nil {
+		log.Fatalf("Failed to save client snapshot: %v", err) //nolint:revive
 	}
 
 	// Simulate restart by loading the snapshot
 	fmt.Println("\n--- Simulating client restart ---")
 
-	loadedSnapshot, err := loadClientSnapshot()
+	loadedSnapshot, err := loadClientSnapshot(snapshotFile)
 	if err != nil {
-		log.Fatalf("Failed to load client snapshot: %v", err)
+		log.Fatalf("Failed to load client snapshot: %v", err) //nolint:revive
 	}
 
 	// Restore the transaction
-	restoredTx, err := sip.RestoreInviteClientTransaction(loadedSnapshot, tp, &sip.ClientTransactionOptions{
-		Log: logger,
+	restoredTx, err := sip.RestoreInviteClientTransaction(ctx, loadedSnapshot, tp, &sip.ClientTransactionOptions{
+		Logger: logger,
 	})
 	if err != nil {
-		log.Fatalf("Failed to restore client transaction: %v", err)
+		log.Fatalf("Failed to restore client transaction: %v", err) //nolint:revive
 	}
 
 	fmt.Printf("Restored client transaction in state: %s\n", restoredTx.State())
 	fmt.Printf("Client transaction key: %v\n", restoredTx.Key())
 
 	// Re-register response callback (callbacks are not persisted)
-	restoredTx.OnResponse(func(ctx context.Context, _ sip.ClientTransaction, res *sip.InboundResponse) {
+	restoredTx.OnResponse(func(ctx context.Context, res *sip.InboundResponseEnvelope) {
 		fmt.Printf("Restored client transaction received response: %d\n", res.Status())
 	})
 
 	// Simulate receiving final response
 	finalRes := createMockResponse(req, 200)
 	if err := restoredTx.RecvResponse(ctx, finalRes); err != nil {
-		log.Fatalf("Failed to receive final response: %v", err)
+		log.Fatalf("Failed to receive final response: %v", err) //nolint:revive
 	}
 
 	fmt.Printf("Final client transaction state: %s\n", restoredTx.State())
 }
 
-func createSampleInboundRequest() *sip.InboundRequest {
-	return sip.NewInboundRequest(
+func createSampleInboundRequest() *sip.InboundRequestEnvelope {
+	req, err := sip.NewInboundRequestEnvelope(
 		&sip.Request{
 			Proto:  sip.ProtoVer20(),
 			Method: sip.RequestMethodInvite,
@@ -214,13 +219,18 @@ func createSampleInboundRequest() *sip.InboundRequest {
 				Set(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
 				Set(header.MaxForwards(70)),
 		},
+		"UDP",
 		netip.MustParseAddrPort("127.0.0.1:5060"),
 		netip.MustParseAddrPort("127.0.0.1:5070"),
 	)
+	if err != nil {
+		log.Fatalf("Failed to create request: %v", err) //nolint:revive
+	}
+	return req
 }
 
-func createSampleOutboundRequest() *sip.OutboundRequest {
-	req := sip.NewOutboundRequest(
+func createSampleOutboundRequest() *sip.OutboundRequestEnvelope {
+	req, err := sip.NewOutboundRequestEnvelope(
 		&sip.Request{
 			Proto:  sip.ProtoVer20(),
 			Method: sip.RequestMethodInvite,
@@ -249,17 +259,24 @@ func createSampleOutboundRequest() *sip.OutboundRequest {
 				Set(header.MaxForwards(70)),
 		},
 	)
+	if err != nil {
+		log.Fatalf("Failed to create request: %v", err) //nolint:revive
+	}
 	req.SetLocalAddr(netip.MustParseAddrPort("127.0.0.1:5060"))
 	req.SetRemoteAddr(netip.MustParseAddrPort("192.168.1.100:5060"))
 	return req
 }
 
-func createMockResponse(req *sip.OutboundRequest, status sip.ResponseStatus) *sip.InboundResponse {
+func createMockResponse(req *sip.OutboundRequestEnvelope, status sip.ResponseStatus) *sip.InboundResponseEnvelope {
 	msg, err := req.Message().NewResponse(status, nil)
 	if err != nil {
-		log.Fatalf("Failed to create response: %v", err)
+		log.Fatalf("Failed to create response: %v", err) //nolint:revive
 	}
-	return sip.NewInboundResponse(msg, req.RemoteAddr(), req.LocalAddr())
+	res, err := sip.NewInboundResponseEnvelope(msg, req.Transport(), req.RemoteAddr(), req.LocalAddr())
+	if err != nil {
+		log.Fatalf("Failed to create response: %v", err) //nolint:revive
+	}
+	return res
 }
 
 func createMockServerTransport() sip.ServerTransport {
@@ -270,84 +287,47 @@ func createMockClientTransport() sip.ClientTransport {
 	return &mockClientTransport{}
 }
 
-// mockServerTransport implements the ServerTransport interface for testing
+// mockServerTransport implements the ServerTransport interface for testing.
 type mockServerTransport struct{}
 
-func (m *mockServerTransport) Proto() sip.TransportProto { return "UDP" }
+func (*mockServerTransport) Reliable() bool { return false }
 
-func (m *mockServerTransport) Network() string { return "udp" }
-
-func (m *mockServerTransport) LocalAddr() netip.AddrPort {
-	return netip.MustParseAddrPort("127.0.0.1:5060")
-}
-
-func (m *mockServerTransport) Reliable() bool { return false }
-
-func (m *mockServerTransport) Secured() bool { return false }
-
-func (m *mockServerTransport) Streamed() bool { return false }
-
-func (m *mockServerTransport) DefaultPort() uint16 { return 5060 }
-
-func (m *mockServerTransport) SendResponse(ctx context.Context, res *sip.OutboundResponse, opts *sip.SendResponseOptions) error {
+func (*mockServerTransport) SendResponse(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions) error {
 	fmt.Printf("Mock sending response: %d\n", res.Status())
 	return nil
 }
 
-func (m *mockServerTransport) OnRequest(fn sip.TransportRequestHandler) (cancel func()) {
-	return func() {}
-}
-
-func (m *mockServerTransport) Close() error { return nil }
-
-// mockClientTransport implements the ClientTransport interface for testing
+// mockClientTransport implements the ClientTransport interface for testing.
 type mockClientTransport struct{}
 
-func (m *mockClientTransport) Proto() sip.TransportProto { return "UDP" }
+func (*mockClientTransport) Reliable() bool { return false }
 
-func (m *mockClientTransport) Network() string { return "udp" }
-
-func (m *mockClientTransport) LocalAddr() netip.AddrPort {
-	return netip.MustParseAddrPort("127.0.0.1:5060")
-}
-
-func (m *mockClientTransport) Reliable() bool { return false }
-
-func (m *mockClientTransport) Secured() bool { return false }
-
-func (m *mockClientTransport) Streamed() bool { return false }
-
-func (m *mockClientTransport) DefaultPort() uint16 { return 5060 }
-
-func (m *mockClientTransport) SendRequest(ctx context.Context, req *sip.OutboundRequest, opts *sip.SendRequestOptions) error {
+func (*mockClientTransport) SendRequest(ctx context.Context, req *sip.OutboundRequestEnvelope, opts *sip.SendRequestOptions) error {
 	fmt.Printf("Mock sending request: %s\n", req.Method())
 	return nil
 }
 
-func (m *mockClientTransport) OnResponse(fn sip.TransportResponseHandler) (cancel func()) {
-	return func() {}
-}
+func (*mockClientTransport) Close() error { return nil }
 
-func (m *mockClientTransport) Close() error { return nil }
-
-// saveServerSnapshot saves a server transaction snapshot to persistent storage
-func saveServerSnapshot(snapshot *sip.ServerTransactionSnapshot) error {
+// saveServerSnapshot saves a server transaction snapshot to persistent storage.
+func saveServerSnapshot(snapshot *sip.ServerTransactionSnapshot) (*os.File, error) {
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal snapshot: %w", err)
+		return nil, fmt.Errorf("marshal snapshot: %w", err)
 	}
 
-	if err := os.WriteFile("/tmp/server_transaction_snapshot.json", data, 0644); err != nil {
-		return fmt.Errorf("write snapshot file: %w", err)
+	file, err := os.CreateTemp("", "server_transaction_snapshot_*.json")
+	if err != nil {
+		return nil, fmt.Errorf("write snapshot file: %w", err)
 	}
 
 	fmt.Printf("Server snapshot saved (%d bytes)\n", len(data))
-	return nil
+	return file, nil
 }
 
-// loadServerSnapshot loads a server transaction snapshot from persistent storage
-func loadServerSnapshot() (*sip.ServerTransactionSnapshot, error) {
-	data, err := os.ReadFile("/tmp/server_transaction_snapshot.json")
+// loadServerSnapshot loads a server transaction snapshot from persistent storage.
+func loadServerSnapshot(file *os.File) (*sip.ServerTransactionSnapshot, error) {
+	data, err := os.ReadFile(file.Name())
 	if err != nil {
 		return nil, fmt.Errorf("read snapshot file: %w", err)
 	}
@@ -361,24 +341,25 @@ func loadServerSnapshot() (*sip.ServerTransactionSnapshot, error) {
 	return &snapshot, nil
 }
 
-// saveClientSnapshot saves a client transaction snapshot to persistent storage
-func saveClientSnapshot(snapshot *sip.ClientTransactionSnapshot) error {
+// saveClientSnapshot saves a client transaction snapshot to persistent storage.
+func saveClientSnapshot(snapshot *sip.ClientTransactionSnapshot) (*os.File, error) {
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal snapshot: %w", err)
+		return nil, fmt.Errorf("marshal snapshot: %w", err)
 	}
 
-	if err := os.WriteFile("/tmp/client_transaction_snapshot.json", data, 0644); err != nil {
-		return fmt.Errorf("write snapshot file: %w", err)
+	file, err := os.CreateTemp("", "client_transaction_snapshot_*.json")
+	if err != nil {
+		return nil, fmt.Errorf("write snapshot file: %w", err)
 	}
 
 	fmt.Printf("Client snapshot saved (%d bytes)\n", len(data))
-	return nil
+	return file, nil
 }
 
-// loadClientSnapshot loads a client transaction snapshot from persistent storage
-func loadClientSnapshot() (*sip.ClientTransactionSnapshot, error) {
-	data, err := os.ReadFile("/tmp/client_transaction_snapshot.json")
+// loadClientSnapshot loads a client transaction snapshot from persistent storage.
+func loadClientSnapshot(file *os.File) (*sip.ClientTransactionSnapshot, error) {
+	data, err := os.ReadFile(file.Name())
 	if err != nil {
 		return nil, fmt.Errorf("read snapshot file: %w", err)
 	}

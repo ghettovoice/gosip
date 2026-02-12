@@ -21,10 +21,10 @@ func TestAny_Render(t *testing.T) {
 	}{
 		{"nil", (*uri.Any)(nil), ""},
 		{"empty", &uri.Any{}, ""},
-		{"scheme", &uri.Any{Scheme: "qwe"}, "qwe:"},
-		{"path", &uri.Any{Path: "qwe/abc.wav"}, "qwe/abc.wav"},
-		{"scheme and host", &uri.Any{Scheme: "http", Host: "example.com"}, "http://example.com"},
-		{"scheme and opaque", &uri.Any{Scheme: "ftp", Opaque: "example.com/a/b/c"}, "ftp:example.com/a/b/c"},
+		{"scheme", &uri.Any{URL: url.URL{Scheme: "qwe"}}, "qwe:"},
+		{"path", &uri.Any{URL: url.URL{Path: "qwe/abc.wav"}}, "qwe/abc.wav"},
+		{"scheme and host", &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}}, "http://example.com"},
+		{"scheme and opaque", &uri.Any{URL: url.URL{Scheme: "ftp", Opaque: "example.com/a/b/c"}}, "ftp:example.com/a/b/c"},
 	}
 
 	for _, c := range cases {
@@ -49,7 +49,7 @@ func TestAny_RenderTo(t *testing.T) {
 		wantErr error
 	}{
 		{"nil", (*uri.Any)(nil), "", nil},
-		{"scheme and host", &uri.Any{Scheme: "http", Host: "example.com"}, "http://example.com", nil},
+		{"scheme and host", &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}}, "http://example.com", nil},
 	}
 
 	for _, c := range cases {
@@ -78,7 +78,7 @@ func TestAny_String(t *testing.T) {
 	}{
 		{"nil", (*uri.Any)(nil), ""},
 		{"empty", &uri.Any{}, ""},
-		{"scheme and host", &uri.Any{Scheme: "http", Host: "example.com"}, "http://example.com"},
+		{"scheme and host", &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}}, "http://example.com"},
 	}
 
 	for _, c := range cases {
@@ -108,20 +108,20 @@ func TestAny_Equal(t *testing.T) {
 		{"zero ptr to zero val", &uri.Any{}, uri.Any{}, true},
 		{
 			"type mismatch",
-			&uri.Any{Scheme: "ftp", Host: "example.com"},
+			&uri.Any{URL: url.URL{Scheme: "ftp", Host: "example.com"}},
 			"ftp://example.com",
 			false,
 		},
 		{
 			"case insensitive",
-			&uri.Any{Scheme: "http", Host: "example.com", Path: "/A/B/C"},
-			uri.Any{Scheme: "HTTP", Host: "EXAMPLE.COM", Path: "/a/b/c"},
+			&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com", Path: "/A/B/C"}},
+			uri.Any{URL: url.URL{Scheme: "HTTP", Host: "EXAMPLE.COM", Path: "/a/b/c"}},
 			true,
 		},
 		{
 			"different paths",
-			&uri.Any{Scheme: "http", Host: "example.com", Path: "/c/b/a"},
-			&uri.Any{Scheme: "http", Host: "example.com", Path: "/a/b/c"},
+			&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com", Path: "/c/b/a"}},
+			&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com", Path: "/a/b/c"}},
 			false,
 		},
 	}
@@ -146,7 +146,7 @@ func TestAny_IsValid(t *testing.T) {
 	}{
 		{"nil", (*uri.Any)(nil), false},
 		{"zero", &uri.Any{}, false},
-		{"valid", &uri.Any{Scheme: "ftp", Host: "example.com"}, true},
+		{"valid", &uri.Any{URL: url.URL{Scheme: "ftp", Host: "example.com"}}, true},
 	}
 
 	for _, c := range cases {
@@ -170,11 +170,11 @@ func TestAny_Clone(t *testing.T) {
 		{"zero", &uri.Any{}},
 		{
 			"valid with user",
-			&uri.Any{Scheme: "https", User: url.User("root"), Host: "example.com"},
+			&uri.Any{URL: url.URL{Scheme: "https", User: url.User("root"), Host: "example.com"}},
 		},
 		{
 			"valid with user and password",
-			&uri.Any{Scheme: "https", User: url.UserPassword("root", "qwe"), Host: "example.com"},
+			&uri.Any{URL: url.URL{Scheme: "https", User: url.UserPassword("root", "qwe"), Host: "example.com"}},
 		},
 	}
 
@@ -205,8 +205,8 @@ func TestAny_RoundTripText(t *testing.T) {
 	}{
 		{"nil", (*uri.Any)(nil), true},
 		{"zero", &uri.Any{}, true},
-		{"opaque", &uri.Any{Scheme: "mailto", Opaque: "user@example.com"}, false},
-		{"full", &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b", RawQuery: "q=1"}, false},
+		{"opaque", &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "user@example.com"}}, false},
+		{"full", &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b", RawQuery: "q=1"}}, false},
 	}
 
 	for _, c := range cases {

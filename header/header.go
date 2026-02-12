@@ -1,6 +1,6 @@
 package header
 
-//go:generate go tool errtrace -w .
+//go:generate errtrace -w .
 
 import (
 	"encoding/json"
@@ -138,7 +138,7 @@ func renderHdrParams(w io.Writer, params Values, addQParam bool) (num int, err e
 	// Sort parameters in alphabet order, but with "q" parameter always the first place.
 	// If missing the "q" param, then dump it with the default value.
 	// RFC 2616 Section 14.1.
-	var kvs [][]string //nolint:prealloc
+	var kvs [][]string
 	if addQParam && !params.Has("q") {
 		kvs = append(kvs, []string{"q", "1"})
 	}
@@ -227,7 +227,7 @@ func validateHdrParams(params Values) bool {
 			return false
 		}
 		v, _ := params.Last(k)
-		if v != "" && !(grammar.IsToken(v) || grammar.IsHost(v) || grammar.IsQuoted(v)) {
+		if v != "" && (!grammar.IsToken(v) && !grammar.IsHost(v) && !grammar.IsQuoted(v)) {
 			return false
 		}
 	}

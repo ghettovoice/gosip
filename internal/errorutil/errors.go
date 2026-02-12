@@ -1,6 +1,6 @@
 package errorutil
 
-//go:generate go tool errtrace -w .
+//go:generate errtrace -w .
 
 import (
 	"errors"
@@ -69,7 +69,7 @@ func JoinPrefix(prefix string, errs ...error) error {
 		return nil
 	}
 	if len(errs) == 1 {
-		return fmt.Errorf("%s: %w", prefix, errs[0]) //errtrace:skip
+		return fmt.Errorf("%s: %w", strings.TrimRight(prefix, ":"), errs[0]) //errtrace:skip
 	}
 	return &multiError{prefix: prefix, errs: errs} //errtrace:skip
 }

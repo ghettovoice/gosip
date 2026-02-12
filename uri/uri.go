@@ -1,14 +1,11 @@
 package uri
 
-//go:generate go tool errtrace -w .
+//go:generate errtrace -w .
 
 import (
-	"net/url"
-
 	"braces.dev/errtrace"
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/errorutil"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 )
@@ -37,6 +34,7 @@ type RequestMethod = types.RequestMethod
 
 // URI represents generic URI (SIP, SIPS, Tel, ...etc).
 type URI interface {
+	Scheme() string
 	types.Renderer
 	types.Cloneable[URI]
 	types.ValidFlag
@@ -95,81 +93,4 @@ func FromABNF(node *abnf.Node) URI {
 	default:
 		return buildFromAnyNode(node)
 	}
-}
-
-// GetScheme returns the scheme of the URI.
-//
-// SIP and SIPS URIs return "sip" or "sips" respectively,
-// Tel URI returns "tel",
-// Any URI returns the value of [URI.Scheme] field.
-// If the URI is nil, an empty string is returned.
-// If the URI is of unknown type, a panic is raised.
-func GetScheme(u URI) string {
-	if u == nil {
-		return ""
-	}
-
-	switch u := u.(type) {
-	case *SIP:
-		return u.scheme()
-	case *Tel:
-		return "tel"
-	case *Any:
-		return u.Scheme
-	default:
-		panic(newUnexpectURITypeErr(u))
-	}
-}
-
-// GetAddr returns the address of the URI.
-//
-// SIP and SIPS URIs returns the value of [SIP.Addr] field,
-// Tel URI returns the value of [Tel.Number] field,
-// Any URI returns the value of concatenated [net/url.URL.Host] and [net/url.URL.Path] fields.
-// If the URI is nil, an empty string is returned.
-// If the URI is of unknown type, a panic is raised.
-func GetAddr(u URI) string {
-	if u == nil {
-		return ""
-	}
-
-	switch u := u.(type) {
-	case *SIP:
-		return u.Addr.String()
-	case *Tel:
-		return u.Number
-	case *Any:
-		return u.Host + u.Path
-	default:
-		panic(newUnexpectURITypeErr(u))
-	}
-}
-
-// GetParams returns the parameters of the URI.
-//
-// SIP and SIPS URIs return the value of [SIP.Params] field,
-// Tel URI returns the value of [Tel.Params] field,
-// Any URI returns the value of [net/url.URL.RawQuery] field parsed into [Values].
-// If the URI is nil, nil is returned.
-// If the URI is of unknown type, a panic is raised.
-func GetParams(u URI) Values {
-	if u == nil {
-		return nil
-	}
-
-	switch u := u.(type) {
-	case *SIP:
-		return u.Params
-	case *Tel:
-		return u.Params
-	case *Any:
-		p, _ := url.ParseQuery(u.RawQuery)
-		return Values(p)
-	default:
-		panic(newUnexpectURITypeErr(u))
-	}
-}
-
-func newUnexpectURITypeErr(u URI) error {
-	return errorutil.Errorf("unexpected URI type %T", u) //errtrace:skip
 }

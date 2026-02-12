@@ -294,6 +294,8 @@ func ExampleSerializableTimer() {
 }
 
 func TestNewTimerWithFunc(t *testing.T) {
+	t.Parallel()
+
 	// Test timer expiration with callback
 	duration := 10 * time.Millisecond
 	var callbackExecuted int32 // atomic int32
@@ -319,6 +321,8 @@ func TestNewTimerWithFunc(t *testing.T) {
 }
 
 func TestTimer_AfterFunc_Expired(t *testing.T) {
+	t.Parallel()
+
 	// Test setting callback on already expired timer
 	duration := 10 * time.Millisecond
 	var callbackExecuted int32 // atomic int32
@@ -343,6 +347,8 @@ func TestTimer_AfterFunc_Expired(t *testing.T) {
 }
 
 func TestTimer_AfterFunc_Stopped(t *testing.T) {
+	t.Parallel()
+
 	// Test that stopped timers don't execute callbacks
 	duration := 100 * time.Millisecond
 	var callbackExecuted int32 // atomic int32
@@ -368,6 +374,8 @@ func TestTimer_AfterFunc_Stopped(t *testing.T) {
 }
 
 func TestTimer_AfterFunc_WithSerialization(t *testing.T) {
+	t.Parallel()
+
 	// Test callback execution after serialization/deserialization
 	duration := 10 * time.Millisecond
 
@@ -413,6 +421,8 @@ func TestTimer_AfterFunc_WithSerialization(t *testing.T) {
 }
 
 func TestTimer_AfterFunc_WithSerialization_NoExtraUpdate(t *testing.T) {
+	t.Parallel()
+
 	// Test that FromJSON() automatically calls UpdateState() and triggers callbacks
 	// if callback is set before unmarshaling
 	duration := 10 * time.Millisecond
@@ -457,6 +467,8 @@ func TestTimer_AfterFunc_WithSerialization_NoExtraUpdate(t *testing.T) {
 }
 
 func TestTimer_Reset_ClearsCallback(t *testing.T) {
+	t.Parallel()
+
 	// Test that Reset clears callback state
 	duration := 100 * time.Millisecond
 	var callbackExecuted int32 // atomic int32

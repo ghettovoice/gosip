@@ -39,6 +39,14 @@ func (u *Tel) Clone() URI {
 	return &u2
 }
 
+// Scheme returns the URI scheme.
+func (u *Tel) Scheme() string {
+	if u == nil {
+		return ""
+	}
+	return "tel"
+}
+
 // RenderToOptions writes the Tel URI to the provided writer.
 func (u *Tel) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error) {
 	if u == nil {

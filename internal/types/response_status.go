@@ -92,7 +92,7 @@ const (
 
 type ResponseStatus uint
 
-func (s ResponseStatus) IsValid() bool { return s >= 100 }
+func (s ResponseStatus) IsValid() bool { return s >= 100 && s < 700 }
 
 func (s ResponseStatus) Equal(val any) bool {
 	var other ResponseStatus
@@ -110,17 +110,17 @@ func (s ResponseStatus) Equal(val any) bool {
 	return s == other
 }
 
-func (s ResponseStatus) IsProvisional() bool { return s >= 100 && s < 200 }
+func (s ResponseStatus) IsProvisional() bool { return s/100 == 1 }
 
-func (s ResponseStatus) IsSuccessful() bool { return s >= 200 && s < 300 }
+func (s ResponseStatus) IsSuccessful() bool { return s/100 == 2 }
 
-func (s ResponseStatus) IsRedirection() bool { return s >= 300 && s < 400 }
+func (s ResponseStatus) IsRedirection() bool { return s/100 == 3 }
 
-func (s ResponseStatus) IsRequestFailure() bool { return s >= 400 && s < 500 }
+func (s ResponseStatus) IsRequestFailure() bool { return s/100 == 4 }
 
-func (s ResponseStatus) IsServerFailure() bool { return s >= 500 && s < 600 }
+func (s ResponseStatus) IsServerFailure() bool { return s/100 == 5 }
 
-func (s ResponseStatus) IsGlobalFailure() bool { return s >= 600 && s < 700 }
+func (s ResponseStatus) IsGlobalFailure() bool { return s/100 == 6 }
 
 func (s ResponseStatus) IsFinal() bool { return s >= 200 && s < 700 }
 

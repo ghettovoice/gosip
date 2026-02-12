@@ -29,7 +29,7 @@ func TestServerTransactionKey_RoundTripBinary(t *testing.T) {
 				FromTag: "from",
 				ToTag:   "to",
 				CallID:  "call",
-				CSeqNum: 42,
+				SeqNum:  42,
 				Via:     "SIP/2.0/UDP example.com:5060",
 			},
 		},

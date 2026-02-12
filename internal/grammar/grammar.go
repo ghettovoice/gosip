@@ -1,6 +1,6 @@
 package grammar
 
-//go:generate go tool errtrace -w .
+//go:generate errtrace -w .
 
 import (
 	"fmt"

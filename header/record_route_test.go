@@ -1,6 +1,7 @@
 package header_test
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -254,7 +255,7 @@ func TestRecordRoute_IsValid(t *testing.T) {
 		{
 			"valid",
 			header.RecordRoute{{
-				URI: &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+				URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 			}},
 			true,
 		},
@@ -263,7 +264,7 @@ func TestRecordRoute_IsValid(t *testing.T) {
 		{
 			"invalid 3",
 			header.RecordRoute{{
-				URI:    &uri.Any{Scheme: "https", Host: "example.com"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com"}},
 				Params: header.Values{"f i e l d": {"123"}},
 			}},
 			false,
@@ -293,7 +294,7 @@ func TestRecordRoute_Clone(t *testing.T) {
 		{
 			"full",
 			header.RecordRoute{{
-				URI:    &uri.Any{Scheme: "https", Host: "example.com", Path: "/a/b/c"},
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
 				Params: header.Values{"expires": {"3600"}},
 			}},
 		},

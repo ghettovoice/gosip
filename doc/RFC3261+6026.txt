@@ -9055,15 +9055,6 @@ Via: SIP/2.0/UDP 192.0.2.1:5060 ;received=192.0.2.207
    are two requests defined by this document that require special
    handling for authentication: ACK and CANCEL.
 
-
-
-
-
-Rosenberg, et. al.          Standards Track                   [Page 194]
-
-RFC 3261            SIP: Session Initiation Protocol           June 2002
-
-
    Under an authentication scheme that uses responses to carry values
    used to compute nonces (such as Digest), some problems come up for
    any requests that take no response, including ACK.  For this reason,
