@@ -1107,6 +1107,7 @@ func ParseAddressValue(addressText string) (
 
 	// Finally, parse any header parameters and then return.
 	addressText = addressText[startOfParams:]
+	addressText = strings.TrimLeft(addressText, " ")
 	headerParams, _, err = ParseParams(addressText, ';', ';', ',', true, true)
 	return
 }

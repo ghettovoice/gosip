@@ -618,6 +618,10 @@ func TestFromHeaders(t *testing.T) {
 			&sip.FromHeader{DisplayName: sip.String{"Alice Liddell"},
 				Address: &sip.SipUri{false, sip.String{"alice"}, nil, "wonderland.com", nil, noParams, noParams},
 				Params:  noParams}}},
+		{fromHeaderInput("From: \"6600\" <sip:6600@wonderland.com:5060> ;epid=1223334444ABCD; tag=abcdef123"), &fromHeaderResult{pass,
+			&sip.FromHeader{DisplayName: sip.String{"6600"},
+				Address: &sip.SipUri{false, sip.String{"6600"}, nil, "wonderland.com", &port5060, noParams, noParams},
+				Params:  sip.NewParams().Add("epid", sip.String{"1223334444ABCD"}).Add("tag", sip.String{"abcdef123"})}}},
 
 		{fromHeaderInput("From: sip:alice@wonderland.com, sip:hatter@wonderland.com"), &fromHeaderResult{fail,
 			&sip.FromHeader{}}},
