@@ -1,78 +1,92 @@
 package types
 
 import (
-	"container/list"
 	"iter"
+	"slices"
 	"sync"
 )
 
-type CallbackManager[T any] struct {
-	mu     sync.RWMutex
-	cbs    map[int]*list.Element
-	order  *list.List
-	nextID int
-}
-
-type callback[T any] struct {
+type callbackItem[T any] struct {
 	id int
 	cb T
 }
 
-func (m *CallbackManager[T]) Len() int {
-	if m == nil {
+type CallbackManager[T any] struct {
+	mu        sync.RWMutex
+	items     []callbackItem[T]
+	positions map[int]int
+	nextID    int
+}
+
+func (cm *CallbackManager[T]) Len() int {
+	if cm == nil {
 		return 0
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.cbs)
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	return len(cm.items)
 }
 
-func (m *CallbackManager[T]) Add(cb T) (remove func()) {
-	m.mu.Lock()
-	id := m.nextID
-	m.nextID++
+func (cm *CallbackManager[T]) Add(cb T) (remove func()) {
+	cm.mu.Lock()
+	if cm.items == nil {
+		cm.items = make([]callbackItem[T], 0, 1)
+		cm.positions = make(map[int]int)
+	}
 
-	if m.cbs == nil {
-		m.cbs = make(map[int]*list.Element)
-	}
-	if m.order == nil {
-		m.order = list.New()
-	}
-	el := m.order.PushBack(&callback[T]{id, cb})
-	m.cbs[id] = el
-	m.mu.Unlock()
+	id := cm.nextID
+	cm.nextID++
+	cm.positions[id] = len(cm.items)
+	cm.items = append(cm.items, callbackItem[T]{
+		id: id,
+		cb: cb,
+	})
+	cm.mu.Unlock()
 
 	var once sync.Once
+
 	return func() {
 		once.Do(func() {
-			m.mu.Lock()
-			if el, ok := m.cbs[id]; ok {
-				m.order.Remove(el)
-				delete(m.cbs, id)
+			cm.mu.Lock()
+			defer cm.mu.Unlock()
+
+			idx, ok := cm.positions[id]
+			if !ok {
+				return
 			}
-			m.mu.Unlock()
+
+			delete(cm.positions, id)
+
+			cm.items = slices.Delete(cm.items, idx, idx+1)
+			for i := idx; i < len(cm.items); i++ {
+				cm.positions[cm.items[i].id] = i
+			}
 		})
 	}
 }
 
-func (m *CallbackManager[T]) All() iter.Seq[T] {
+func (cm *CallbackManager[T]) All() iter.Seq[T] {
 	return func(yield func(T) bool) {
-		if m == nil {
+		if cm == nil {
 			return
 		}
 
-		m.mu.RLock()
-		if m.order == nil {
-			m.mu.RUnlock()
+		cm.mu.RLock()
+
+		if len(cm.items) == 0 {
+			cm.mu.RUnlock()
 			return
 		}
-		callbacks := make([]T, 0, m.order.Len())
-		for el := m.order.Front(); el != nil; el = el.Next() {
-			entry := el.Value.(*callback[T]) //nolint:forcetypeassert
-			callbacks = append(callbacks, entry.cb)
+
+		// Make a copy to avoid holding lock during callback execution.
+		callbacks := make([]T, len(cm.items))
+		for i, item := range cm.items {
+			callbacks[i] = item.cb
 		}
-		m.mu.RUnlock()
+
+		cm.mu.RUnlock()
 
 		for _, cb := range callbacks {
 			if !yield(cb) {

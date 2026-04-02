@@ -1,416 +1,346 @@
 version: "2"
 run:
-  concurrency: 4
-  go: ""
-  modules-download-mode: readonly
-  issues-exit-code: 1
-  tests: true
-  allow-parallel-runners: false
-  allow-serial-runners: false
+    concurrency: 4
+    modules-download-mode: readonly
+    issues-exit-code: 1
+    tests: true
+    allow-parallel-runners: false
+    allow-serial-runners: false
 output:
-  formats:
-    text:
-      path: stdout
-      print-linter-name: true
-      print-issued-lines: true
-  sort-order:
-    - linter
-    - severity
-    - file
-  path-prefix: ""
+    formats:
+        text:
+            path: stdout
+            print-linter-name: true
+            print-issued-lines: true
+    sort-order:
+        - linter
+        - severity
+        - file
 linters:
-  default: none
-  enable:
-    - asciicheck
-    - bidichk
-    - bodyclose
-    - copyloopvar
-    - durationcheck
-    - errcheck
-    - errchkjson
-    - errname
-    - errorlint
-    - exhaustive
-    - exptostd
-    - fatcontext
-    - forcetypeassert
-    - gocheckcompilerdirectives
-    - gocognit
-    - goconst
-    - gocritic
-    - godot
-    - goprintffuncname
-    - gosec
-    - gosmopolitan
-    - govet
-    - iface
-    - inamedparam
-    - ineffassign
-    - interfacebloat
-    - intrange
-    - makezero
-    - mirror
-    - misspell
-    - musttag
-    - nakedret
-    - nilerr
-    - nilnesserr
-    - nilnil
-    - nolintlint
-    - nosprintfhostport
-    - perfsprint
-    - prealloc
-    - predeclared
-    - reassign
-    - recvcheck
-    - revive
-    - sloglint
-    - staticcheck
-    - tagalign
-    - tagliatelle
-    - testableexamples
-    - testpackage
-    - thelper
-    - unconvert
-    - unparam
-    - unused
-    - usestdlibvars
-    - usetesting
-    - varnamelen
-  settings:
-    errcheck:
-      exclude-functions:
-        - (fmt.State).Write
-        - (net.Conn).SetDeadline
-        - (net.Conn).SetReadDeadline
-        - (net.Conn).SetWriteDeadline
-        - (net.PacketConn).SetDeadline
-        - (net.PacketConn).SetReadDeadline
-        - (net.PacketConn).SetWriteDeadline
-        - (*net.UDPConn).SetDeadline
-        - (*net.UDPConn).SetReadDeadline
-        - (*net.UDPConn).SetWriteDeadline
-        - (*net.TCPConn).SetDeadline
-        - (*net.TCPConn).SetReadDeadline
-        - (*net.TCPConn).SetWriteDeadline
-        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Write
-        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).WriteString
-        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Fprint
-        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Fprintf
-        - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Call
-    goconst:
-      min-occurrences: 10
-    gosec:
-      excludes:
-        - G115
-    govet:
-      disable:
-        - fieldalignment
-      enable-all: true
-    nestif:
-      min-complexity: 4
-    recvcheck:
-      disable-builtin: false
-      exclusions:
-        - "*.UnmarshalJSON"
-        - "*.UnmarshalText"
-    revive:
-      confidence: 0.8
-      rules:
-        - name: argument-limit
-          arguments:
-            - 6
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: bare-return
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: blank-imports
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: call-to-gc
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: comment-spacings
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: confusing-results
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: constant-logical-expr
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: context-as-argument
-          arguments:
-            - allowTypesBefore: "*testing.T"
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: context-keys-type
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: datarace
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: deep-exit
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: defer
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: duplicated-imports
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: early-return
-          arguments:
-            - preserveScope
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: function-result-limit
-          arguments:
-            - 3
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: get-return
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: identical-branches
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: if-return
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: import-shadowing
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: increment-decrement
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: indent-error-flow
-          arguments:
-            - preserveScope
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: max-control-nesting
-          arguments:
-            - 10
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: modifies-value-receiver
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: nested-structs
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: optimize-operands-order
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: range-val-address
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: range-val-in-closure
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: redefines-builtin-id
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: redundant-build-tag
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: redundant-import-alias
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: redundant-test-main-exit
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: string-of-int
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: struct-tag
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: superfluous-else
-          arguments:
-            - preserveScope
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: time-equal
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: time-naming
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: unconditional-recursion
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: unexported-naming
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: unexported-return
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: unused-receiver
-          arguments:
-            - allowRegex: ^_
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: use-any
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-        - name: var-declaration
-          severity: warning
-          disabled: false
-          exclude:
-            - ""
-    tagliatelle:
-      case:
+    default: none
+    enable:
+        - asasalint
+        - asciicheck
+        - bidichk
+        - bodyclose
+        - contextcheck
+        - copyloopvar
+        - durationcheck
+        - errcheck
+        - errchkjson
+        - errname
+        - errorlint
+        - exhaustive
+        - exptostd
+        - fatcontext
+        - forcetypeassert
+        - gocheckcompilerdirectives
+        - gocognit
+        - goconst
+        - gocritic
+        - godoclint
+        - godot
+        - goprintffuncname
+        - gosec
+        - gosmopolitan
+        - govet
+        - iface
+        - inamedparam
+        - ineffassign
+        - interfacebloat
+        - intrange
+        - makezero
+        - mirror
+        - misspell
+        - modernize
+        - musttag
+        - nakedret
+        - nestif
+        - nilerr
+        - nilnesserr
+        - nilnil
+        - nolintlint
+        - nosprintfhostport
+        - perfsprint
+        - prealloc
+        - predeclared
+        - reassign
+        - recvcheck
+        - revive
+        - sloglint
+        - staticcheck
+        - tagalign
+        - tagliatelle
+        - testableexamples
+        - testifylint
+        - testpackage
+        - thelper
+        - tparallel
+        - unconvert
+        - unparam
+        - unused
+        - usestdlibvars
+        - usetesting
+        - varnamelen
+        - wastedassign
+        - wsl_v5
+    settings:
+        # errcheck:
+        #     exclude-functions:
+        #         - (fmt.State).Write
+        #         - (net.Conn).SetDeadline
+        #         - (net.Conn).SetReadDeadline
+        #         - (net.Conn).SetWriteDeadline
+        #         - (net.PacketConn).SetDeadline
+        #         - (net.PacketConn).SetReadDeadline
+        #         - (net.PacketConn).SetWriteDeadline
+        #         - (*net.UDPConn).SetDeadline
+        #         - (*net.UDPConn).SetReadDeadline
+        #         - (*net.UDPConn).SetWriteDeadline
+        #         - (*net.TCPConn).SetDeadline
+        #         - (*net.TCPConn).SetReadDeadline
+        #         - (*net.TCPConn).SetWriteDeadline
+        #         - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Write
+        #         - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).WriteString
+        #         - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Fprint
+        #         - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Fprintf
+        #         - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Call
+        exhaustive:
+            default-signifies-exhaustive: true
+        goconst:
+            min-occurrences: 10
+        gosec:
+            excludes:
+                - G115
+        govet:
+            disable:
+                - fieldalignment
+            enable-all: true
+        nestif:
+            min-complexity: 16
+        recvcheck:
+            disable-builtin: false
+            exclusions:
+                - "*.UnmarshalJSON"
+                - "*.UnmarshalText"
+        revive:
+            confidence: 0.8
+            rules:
+                - name: argument-limit
+                  arguments:
+                      - 6
+                  severity: warning
+                  disabled: false
+                - name: bare-return
+                  severity: warning
+                  disabled: true
+                - name: blank-imports
+                  severity: warning
+                  disabled: false
+                - name: call-to-gc
+                  severity: warning
+                  disabled: false
+                - name: comment-spacings
+                  severity: warning
+                  disabled: false
+                - name: confusing-results
+                  severity: warning
+                  disabled: false
+                - name: constant-logical-expr
+                  severity: warning
+                  disabled: false
+                - name: context-as-argument
+                  arguments:
+                      - allowTypesBefore: "*testing.T"
+                  severity: warning
+                  disabled: false
+                - name: context-keys-type
+                  severity: warning
+                  disabled: false
+                - name: datarace
+                  severity: warning
+                  disabled: false
+                - name: deep-exit
+                  severity: warning
+                  disabled: false
+                - name: defer
+                  severity: warning
+                  disabled: false
+                - name: duplicated-imports
+                  severity: warning
+                  disabled: false
+                - name: early-return
+                  arguments:
+                      - preserveScope
+                  severity: warning
+                  disabled: false
+                - name: function-result-limit
+                  arguments:
+                      - 3
+                  severity: warning
+                  disabled: false
+                - name: get-return
+                  severity: warning
+                  disabled: false
+                - name: identical-branches
+                  severity: warning
+                  disabled: false
+                - name: if-return
+                  severity: warning
+                  disabled: false
+                - name: import-shadowing
+                  severity: warning
+                  disabled: false
+                - name: increment-decrement
+                  severity: warning
+                  disabled: false
+                - name: indent-error-flow
+                  arguments:
+                      - preserveScope
+                  severity: warning
+                  disabled: false
+                - name: max-control-nesting
+                  arguments:
+                      - 10
+                  severity: warning
+                  disabled: false
+                - name: modifies-value-receiver
+                  severity: warning
+                  disabled: false
+                - name: nested-structs
+                  severity: warning
+                  disabled: false
+                - name: optimize-operands-order
+                  severity: warning
+                  disabled: false
+                - name: range-val-address
+                  severity: warning
+                  disabled: true
+                - name: range-val-in-closure
+                  severity: warning
+                  disabled: true
+                - name: redefines-builtin-id
+                  severity: warning
+                  disabled: true
+                - name: redundant-build-tag
+                  severity: warning
+                  disabled: false
+                - name: redundant-import-alias
+                  severity: warning
+                  disabled: false
+                - name: redundant-test-main-exit
+                  severity: warning
+                  disabled: false
+                - name: string-of-int
+                  severity: warning
+                  disabled: false
+                - name: struct-tag
+                  severity: warning
+                  disabled: false
+                - name: superfluous-else
+                  arguments:
+                      - preserveScope
+                  severity: warning
+                  disabled: false
+                - name: time-equal
+                  severity: warning
+                  disabled: false
+                - name: time-naming
+                  severity: warning
+                  disabled: false
+                - name: unconditional-recursion
+                  severity: warning
+                  disabled: false
+                - name: unexported-naming
+                  severity: warning
+                  disabled: false
+                - name: unexported-return
+                  severity: warning
+                  disabled: false
+                - name: unused-receiver
+                  arguments:
+                      - allowRegex: ^_
+                  severity: warning
+                  disabled: false
+                - name: use-any
+                  severity: warning
+                  disabled: false
+                - name: var-declaration
+                  severity: warning
+                  disabled: false
+        sloglint:
+            attr-only: true
+            context: "scope"
+            static-msg: true
+            msg-style: lowercased
+            key-naming-case: snake
+        tagliatelle:
+            case:
+                rules:
+                    json: snake
+                    yaml: snake
+        unparam:
+            check-exported: false
+        unused:
+            local-variables-are-used: false
+        varnamelen:
+            max-distance: 10
+            min-name-length: 1
+            ignore-names:
+                - err
+            ignore-type-assert-ok: true
+            ignore-map-index-ok: true
+            ignore-chan-recv-ok: true
+        wsl_v5:
+            allow-whole-block: true
+            branch-max-lines: 4
+    exclusions:
+        generated: lax
+        presets:
+            - comments
+            - common-false-positives
+            - legacy
+            - std-error-handling
         rules:
-          json: snake
-          yaml: snake
-    unparam:
-      check-exported: false
-    unused:
-      local-variables-are-used: false
-    varnamelen:
-      max-distance: 10
-      min-name-length: 1
-      ignore-names:
-        - err
-      ignore-type-assert-ok: true
-      ignore-map-index-ok: true
-      ignore-chan-recv-ok: true
-  exclusions:
-    generated: lax
-    presets:
-      - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
-    rules:
-      - linters:
-          - govet
-        text: 'shadow: declaration of "(err|ctx|ok)" shadows declaration at'
-      - linters:
-          - goconst
-        path: (.+)_test\.go
-    paths:
-      - internal/mocks/net.go
-      - internal/grammar/rfc3261/rules.go
-      - internal/grammar/rfc3966/rules.go
-      - third_party$
-      - builtin$
-      - examples$
+            - linters:
+                  - govet
+              text: 'shadow: declaration of "(err|ctx|ok)" shadows declaration at'
+            - linters:
+                  - goconst
+                  - gocognit
+                  - nilnil
+              path: (.+)_test\.go
+        paths:
+            - internal/testutil/netmock/net.go
+            - internal/grammar/rfc3261/rules.go
+            - internal/grammar/rfc3966/rules.go
+            - third_party$
+            - builtin$
+            - examples$
 issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
-  uniq-by-line: true
-  new-from-rev: ""
-  new-from-patch: ""
-  whole-files: false
-  new: false
-  fix: false
-severity:
-  default: ""
+    max-issues-per-linter: 0
+    max-same-issues: 0
+    uniq-by-line: true
+    new: false
 formatters:
-  enable:
-    - gci
-    - gofumpt
-  settings:
-    gci:
-      sections:
-        - standard
-        - default
-        - localmodule
-      custom-order: true
-    gofumpt:
-      extra-rules: true
-  exclusions:
-    generated: lax
-    paths:
-      - internal/mocks/net.go
-      - internal/grammar/rfc3261/rules.go
-      - internal/grammar/rfc3966/rules.go
-      - third_party$
-      - builtin$
-      - examples$
+    enable:
+        - gci
+        - gofumpt
+    settings:
+        gci:
+            sections:
+                - standard
+                - default
+                - localmodule
+            custom-order: true
+        gofumpt:
+            extra-rules: true
+    exclusions:
+        generated: lax
+        paths:
+            - internal/testutil/netmock/net.go
+            - internal/grammar/rfc3261/rules.go
+            - internal/grammar/rfc3966/rules.go
+            - third_party$
+            - builtin$
+            - examples$

@@ -1,8 +1,6 @@
 // Package log provides preconfigured loggers and utilities.
 package log
 
-//go:generate errtrace -w .
-
 import (
 	"context"
 	"fmt"
@@ -67,7 +65,7 @@ var develop = slog.New(newHandler(
 // Develop returns the logger configured for extended output useful during development.
 func Develop() *slog.Logger { return develop }
 
-var noop = slog.New(noopHandler{})
+var noop = slog.New(slog.DiscardHandler)
 
 // Noop returns no-op logger that write nothing.
 func Noop() *slog.Logger { return noop }
@@ -83,6 +81,7 @@ func SetDefault(l *slog.Logger) {
 	if l == nil {
 		l = noop
 	}
+
 	_default.Store(l)
 }
 
@@ -123,5 +122,6 @@ func LoggerFromValues(vals ...any) *slog.Logger {
 			}
 		}
 	}
+
 	return Default()
 }

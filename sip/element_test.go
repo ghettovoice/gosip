@@ -1,114 +1,153 @@
 package sip_test
 
 import (
-	"errors"
+	"context"
 	"net"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/uri"
 )
 
-func TestTmp(t *testing.T) {
-	conn, err := net.ListenPacket("udp", "127.0.0.1:5060")
+func TestElement(t *testing.T) {
+	tp, err := sip.NewConnlessTransport(
+		sip.UDPTransportMetadata(),
+		&sip.ConnlessTransportOptions{
+			TransportOptions: sip.TransportOptions{
+				Logger: log.Console(),
+			},
+		},
+	)
 	if err != nil {
-		t.Fatalf("failed to listen: %+v", err)
+		t.Fatal(err)
 	}
-	defer conn.Close()
 
-	rmtConn, err := net.ListenPacket("udp", "127.0.0.1:6060")
+	rmtConn, err := net.ListenPacket("udp", "127.0.0.1:5070")
 	if err != nil {
-		t.Fatalf("failed to setup remote conn: %+v", err)
+		t.Fatal(err)
 	}
-	defer rmtConn.Close()
-	go func() {
-		buf := make([]byte, sip.MaxMsgSize)
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		log.Console().Info("starting listener...")
+
+		err := tp.ListenAndServe(t.Context(), "127.0.0.1:5060")
+
+		log.Console().Info("listener stopped", "error", err)
+	})
+	wg.Go(func() {
+		log.Console().Info("starting remote conn reader...")
+
+		buf := make([]byte, sip.MaxMessageSize)
 		for {
 			n, addr, err := rmtConn.ReadFrom(buf)
 			if err != nil {
+				log.Console().Info("remote conn reader stopped", "error", err)
 				return
 			}
 
-			t.Logf("packet on remote from %s:\n%s", addr, buf[:n])
-
-			time.Sleep(time.Second)
-
-			_, err = rmtConn.WriteTo([]byte(
-				"OPTIONS sip:local@127.0.0.1:5060 SIP/2.0\r\n"+
-					"Via: SIP/2.0/UDP 127.0.0.1:6060;branch=z9hG4bK-123456\r\n"+
-					"From: <sip:local@127.0.0.1:6060>;tag=123456\r\n"+
-					"To: <sip:remote@127.0.0.1:5060>\r\n"+
-					"Call-ID: call-123456\r\n"+
-					"CSeq: 1 OPTIONS\r\n"+
-					"Max-Forwards: 70\r\n"+
-					"\r\n",
-			), &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5060})
-			if err != nil {
-				t.Errorf("failed to write to remote conn: %+v", err)
-			}
-
-			t.Log("remote sent packet")
-
-			return //nolint:staticcheck
+			log.Console().Info("received message", "addr", addr, "message", string(buf[:n]))
 		}
-	}()
-
-	tp, err := sip.NewUnreliableTransport("UDP", conn, &sip.UnreliableTransportOptions{
-		Logger: log.Console(),
 	})
-	if err != nil {
-		t.Fatalf("failed to setup transport: %+v", err)
-	}
 
-	elm, err := sip.NewElement("GoSIP", &sip.ElementOptions{
-		Logger: log.Console(),
-	})
-	if err != nil {
-		t.Fatalf("failed to setup element: %+v", err)
-	}
-
-	tp.UseInterceptor(elm)
-
-	go func() {
-		if err := tp.Serve(t.Context()); err != nil && !errors.Is(err, sip.ErrTransportClosed) {
-			t.Errorf("failed to serve transport: %+v", err)
-		}
-	}()
-	defer tp.Close(t.Context())
-
-	time.Sleep(5 * time.Second)
-
-	req, err := sip.NewRequest(
-		sip.RequestMethodOptions,
-		&uri.SIP{
-			User: uri.User("remote"),
-			Addr: uri.HostPort("127.0.0.1", 6060),
+	elm, err := sip.NewElement(
+		"QwertY",
+		tp,
+		&sip.ElementOptions{
+			TransactionManagerOptions: &sip.TransactionManagerOptions{},
+			Logger:                    log.Console(),
 		},
-		&uri.SIP{
-			User: uri.User("local"),
-			Addr: uri.HostPort("127.0.0.1", 5060),
-		},
-		&uri.SIP{
-			User: uri.User("remote"),
-			Addr: uri.HostPort("127.0.0.1", 6060),
-		},
-		nil,
 	)
 	if err != nil {
-		t.Fatalf("failed to build request: %+v", err)
+		t.Fatal(err)
 	}
-	outReq, err := sip.NewOutboundRequestEnvelope(req)
+
+	elm.TransportManager().UseInterceptor(sip.StdMessageInterceptor{
+		InboundRequest: sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
+			log.Console().Info("intercepted request")
+			return nil
+		}),
+	})
+
+	time.Sleep(time.Second)
+
+	if _, err := rmtConn.WriteTo(
+		[]byte(
+			"INVITE sip:bob@b.example.com SIP/2.0\r\n"+
+				"Via: SIP/2.0/UDP a.example.com;branch=qwerty,\r\n"+
+				"\tSIP/2.0/UDP b.example.com;branch=asdf\r\n"+
+				"Via: SIP/2.0/UDP c.example.com;branch=zxcvb\r\n"+
+				"From: <sip:alice@a.example.com>;tag=abc\r\n"+
+				"To: sip:bob@b.example.com\r\n"+
+				"CSeq: 1 INVITE\r\n"+
+				"Call-ID: zxc\r\n"+
+				"Max-Forwards: 70\r\n"+
+				"Contact: <sip:alice@a.example.com:5060>;transport=tcp\r\n"+
+				"X-Generic-Header: 123\r\n"+
+				"Content-Type: text/plain\r\n"+
+				"Content-Length: 14\r\n"+
+				"P-Custom-Header: 123 abc\r\n"+
+				"\r\n"+
+				"Hello world!\r\n",
+		),
+		&net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 5060,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(time.Second)
+
+	req, err := sip.NewOutboundRequestEnvelope(
+		&sip.Request{
+			Proto:  sip.ProtoVer20(),
+			Method: sip.RequestMethodInfo,
+			URI: &uri.SIP{
+				User: uri.User("test"),
+				Addr: uri.AddrFromHostPort("127.0.0.1", 5070),
+			},
+			Headers: make(sip.Headers).
+				Set(
+					&header.From{
+						URI: &uri.SIP{
+							User: uri.User("alice"),
+							Addr: uri.AddrFromHost("a.example.com"),
+						},
+						Params: make(header.Values).Append("tag", "abc"),
+					},
+					&header.To{
+						URI: &uri.SIP{
+							User: uri.User("bob"),
+							Addr: uri.AddrFromHost("b.example.com"),
+						},
+					},
+				).
+				Set(
+					&header.CSeq{SeqNum: 1, Method: "INVITE"},
+					header.CallID("zxc"),
+					header.MaxForwards(70),
+				),
+		},
+	)
 	if err != nil {
-		t.Fatalf("failed to build outbound request envelope: %+v", err)
-	}
-	outReq.SetRemoteAddr(netip.MustParseAddrPort("127.0.0.1:6060"))
-
-	if err := tp.SendRequest(t.Context(), outReq, nil); err != nil {
-		t.Fatalf("failed to send outbound request: %+v", err)
+		t.Fatal(err)
 	}
 
-	time.Sleep(5 * time.Second)
+	req.SetRemoteAddr(netip.MustParseAddrPort("127.0.0.1:5070"))
+
+	if err := elm.SendRequest(t.Context(), req, &sip.SendRequestOptions{RenderCompact: true}); err != nil {
+		t.Fatalf("%+v", err)
+	}
+
+	time.Sleep(time.Second)
+
+	rmtConn.Close()
+	elm.Close()
 }

@@ -24,6 +24,8 @@ const (
 
 type RequestMethod string
 
+func (m RequestMethod) Canonic() RequestMethod { return util.UCase(m) }
+
 func (m RequestMethod) ToUpper() RequestMethod { return util.UCase(m) }
 
 func (m RequestMethod) ToLower() RequestMethod { return util.LCase(m) }
@@ -39,15 +41,17 @@ func (m RequestMethod) Equal(val any) bool {
 		if v == nil {
 			return false
 		}
+
 		other = *v
 	default:
 		return false
 	}
+
 	return util.EqFold(m, other)
 }
 
 func IsKnownRequestMethod[T ~string](mtd T) bool {
-	switch util.UCase(RequestMethod(mtd)) {
+	switch RequestMethod(mtd).Canonic() {
 	case RequestMethodAck,
 		RequestMethodBye,
 		RequestMethodCancel,
@@ -64,5 +68,6 @@ func IsKnownRequestMethod[T ~string](mtd T) bool {
 		RequestMethodUpdate:
 		return true
 	}
+
 	return false
 }

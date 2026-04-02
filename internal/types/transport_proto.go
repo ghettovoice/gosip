@@ -7,6 +7,8 @@ import (
 
 type TransportProto string
 
+func (p TransportProto) Canonic() TransportProto { return util.UCase(p) }
+
 func (p TransportProto) ToUpper() TransportProto { return util.UCase(p) }
 
 func (p TransportProto) ToLower() TransportProto { return util.LCase(p) }
@@ -22,9 +24,11 @@ func (p TransportProto) Equal(val any) bool {
 		if v == nil {
 			return false
 		}
+
 		other = *v
 	default:
 		return false
 	}
+
 	return util.EqFold(p, other)
 }

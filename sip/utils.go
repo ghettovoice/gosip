@@ -3,17 +3,18 @@ package sip
 import (
 	"bufio"
 	"io"
-	"log/slog"
 	"net/textproto"
 	"sync"
 )
 
 var (
-	sNilTag  = "<nil>"
-	bNilTag  = []byte(sNilTag)
+	sNilTag = "<nil>"
+	bNilTag = []byte(sNilTag)
+
 	jsonNull = []byte("null")
 
-	zeroSlogValue slog.Value
+	crlf   = []byte("\r\n")
+	crlf2x = []byte("\r\n\r\n")
 )
 
 var txtProtoRdrPool = sync.Pool{
@@ -32,7 +33,7 @@ func freeTxtProtoRdr(r *textproto.Reader) {
 }
 
 var bufferedRdrPool = sync.Pool{
-	New: func() any { return bufio.NewReaderSize(nil, int(MaxMsgSize)) },
+	New: func() any { return bufio.NewReaderSize(nil, int(MaxMessageSize)) },
 }
 
 func getBufferedRdr(r io.Reader) *bufio.Reader {

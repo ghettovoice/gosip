@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"braces.dev/errtrace"
 	"github.com/ghettovoice/abnf"
 
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/util"
@@ -34,8 +34,10 @@ func (u *Tel) Clone() URI {
 	if u == nil {
 		return nil
 	}
+
 	u2 := *u
 	u2.Params = u.Params.Clone()
+
 	return &u2
 }
 
@@ -47,7 +49,7 @@ func (u *Tel) Scheme() string {
 	return "tel"
 }
 
-// RenderToOptions writes the Tel URI to the provided writer.
+// RenderTo writes the Tel URI to the provided writer.
 func (u *Tel) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error) {
 	if u == nil {
 		return 0, nil
@@ -55,6 +57,7 @@ func (u *Tel) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error) {
 
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
+
 	cw.Fprint("tel:", u.number())
 
 	if len(u.Params) > 0 {
@@ -74,23 +77,26 @@ func (u *Tel) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error) {
 			} else if (b[0] == "isub" || b[0] == "ext") && a[0] != "isub" && a[0] != "ext" {
 				return 1
 			}
+
 			if a[0] == "phone-context" && b[0] != "phone-context" {
 				return -1
 			} else if a[0] != "phone-context" && b[0] == "phone-context" {
 				return 1
 			}
+
 			return util.CmpKVs(a, b)
 		})
 
 		for _, kv := range kvs {
 			cw.Fprint(";", kv[0])
+
 			if kv[1] != "" {
 				cw.Fprint("=", grammar.Escape(kv[1], shouldEscapeURIParamChar))
 			}
 		}
 	}
 
-	return errtrace.Wrap2(cw.Result())
+	return errors.Wrap2(cw.Result())
 }
 
 func (u *Tel) number() string { return strings.ReplaceAll(u.Number, " ", "") }
@@ -100,9 +106,12 @@ func (u *Tel) Render(opts *RenderOptions) string {
 	if u == nil {
 		return ""
 	}
+
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
+
 	u.RenderTo(sb, opts) //nolint:errcheck
+
 	return sb.String()
 }
 
@@ -122,15 +131,21 @@ func (u *Tel) Format(f fmt.State, verb rune) {
 			u.RenderTo(f, nil) //nolint:errcheck
 			return
 		}
+
 		fmt.Fprint(f, u.String())
+
 		return
 	case 'q':
 		fmt.Fprint(f, strconv.Quote(u.String()))
 		return
 	default:
-		type hideMethods Tel
-		type Tel hideMethods
+		type (
+			hideMethods Tel
+			Tel         hideMethods
+		)
+
 		fmt.Fprintf(f, fmt.FormatString(f, verb), (*Tel)(u))
+
 		return
 	}
 }
@@ -176,20 +191,24 @@ func (u *Tel) compareParams(params Values) bool {
 		}
 
 		v1, _ := u.Params.Last(k)
+
 		v2, _ := params.Last(k)
 		switch util.LCase(k) {
 		case "ext", "phone-context":
 			if grammar.IsTelNum(v1) {
 				v1 = grammar.CleanTelNum(v1)
 			}
+
 			if grammar.IsTelNum(v2) {
 				v2 = grammar.CleanTelNum(v2)
 			}
 		}
+
 		if !util.EqFold(v1, v2) {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -198,19 +217,23 @@ func (u *Tel) IsValid() bool {
 	if u == nil {
 		return false
 	}
+
 	if u.number() == "" {
 		return false
 	}
+
 	if !u.IsGlob() {
 		if ctx, ok := u.Params.Last("phone-context"); !ok || grammar.CleanTelNum(ctx) == "" {
 			return false
 		}
 	}
+
 	for k := range u.Params {
 		if !grammar.IsTelURIParamName(k) {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -227,11 +250,13 @@ func (u *Tel) ToSIP() *SIP {
 	if !u2.IsGlob() {
 		if ctx, _ := u2.Params.Last("phone-context"); grammar.IsHost(ctx) {
 			host = ctx
-			u2.Params.Del("phone-context")
+
+			u2.Params.Delete("phone-context")
 		} else if ctx != "" {
 			u2.Params.Set("phone-context", grammar.CleanTelNum(ctx))
 		}
 	}
+
 	if ext, _ := u2.Params.Last("ext"); ext != "" {
 		u2.Params.Set("ext", grammar.CleanTelNum(ext))
 	}
@@ -240,24 +265,39 @@ func (u *Tel) ToSIP() *SIP {
 	// tel URIs may be used within contexts where comparisons are case-sensitive.
 	return &SIP{
 		User:   User(util.LCase(u2.Render(nil)[4:])),
-		Addr:   Host(host),
+		Addr:   AddrFromHost(host),
 		Params: make(Values).Set("user", "phone"),
 	}
 }
 
 // MarshalText implements [encoding.TextMarshaler].
 func (u *Tel) MarshalText() ([]byte, error) {
-	return []byte(u.String()), nil
+	return errors.Wrap2(u.AppendText(nil))
+}
+
+func (u *Tel) AppendText(b []byte) ([]byte, error) {
+	return append(b, u.String()...), nil
 }
 
 // UnmarshalText implements [encoding.TextUnmarshaler].
 func (u *Tel) UnmarshalText(text []byte) error {
+	if u == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil URI")
+	}
+
+	if len(text) == 0 || util.EqFold(string(text), "tel:") {
+		*u = Tel{}
+		return nil
+	}
+
 	u1, err := ParseTel(string(text))
 	if err != nil {
 		*u = Tel{}
-		return errtrace.Wrap(err)
+		return errors.Wrap(err)
 	}
+
 	*u = *u1
+
 	return nil
 }
 
@@ -274,11 +314,24 @@ func (u *Tel) ISDNSubAddr() (string, bool) {
 }
 
 // ParseTel parses a Tel URI from the given input src (string or []byte).
-func ParseTel[T ~string | ~[]byte](src T) (*Tel, error) {
-	n, err := grammar.ParseTelURI(src)
-	if err != nil {
-		return nil, errtrace.Wrap(err)
+func ParseTel[T ~string | ~[]byte](src T) (u *Tel, err error) {
+	defer func() {
+		if rv := recover(); rv != nil {
+			u = nil
+
+			if e, ok := rv.(error); ok {
+				err = errors.Wrap(e)
+			} else {
+				err = errors.ErrorfWrap("%v", rv)
+			}
+		}
+	}()
+
+	n, e := grammar.ParseTelURI(src)
+	if e != nil {
+		return nil, errors.Wrap(e)
 	}
+
 	return buildFromTelURINode(n), nil
 }
 
@@ -301,6 +354,7 @@ func buildTelURIParams(node *abnf.Node) Values {
 	if n, ok := node.GetNode("context"); ok {
 		ns = append(abnf.Nodes{n}, ns...)
 	}
+
 	if len(ns) == 0 {
 		return nil
 	}
@@ -325,6 +379,7 @@ func buildTelURIParams(node *abnf.Node) Values {
 				if vn, ok := n.GetNode("pvalue"); ok {
 					pval = grammar.Unescape(vn.String())
 				}
+
 				ps.Append(
 					grammar.MustGetNode(n, "pname").String(),
 					grammar.Unescape(pval),
@@ -332,5 +387,6 @@ func buildTelURIParams(node *abnf.Node) Values {
 			}
 		}
 	}
+
 	return ps
 }

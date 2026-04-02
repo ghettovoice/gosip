@@ -1,8 +1,10 @@
 package sip
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
+	"iter"
 	"log/slog"
 	"maps"
 	"net/netip"
@@ -14,15 +16,26 @@ import (
 	"sync/atomic"
 	"time"
 
-	"braces.dev/errtrace"
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/header"
-	"github.com/ghettovoice/gosip/internal/errorutil"
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/syncutil"
 	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/uri"
+)
+
+// Message errors.
+const (
+	ErrInvalidMessage        errors.Error = "invalid message"
+	ErrEntityTooLarge        errors.Error = "entity too large"
+	ErrMessageTooLarge       errors.Error = "message too large"
+	ErrMethodNotAllowed      errors.Error = "method not allowed"
+	ErrMessageNotMatched     errors.Error = "message not matched"
+	ErrUnhandledMessage      errors.Error = "unhandled message"
+	ErrNoDestAddressResolved errors.Error = "no destination address resolved"
 )
 
 // Message represents a SIP message.
@@ -35,11 +48,24 @@ type Message interface {
 }
 
 // ParseMessage parses a SIP message from a byte sequence.
-func ParseMessage[T ~string | ~[]byte](s T) (Message, error) {
+func ParseMessage[T ~string | ~[]byte](s T) (msg Message, err error) {
+	defer func() {
+		if rv := recover(); rv != nil {
+			msg = nil
+
+			if e, ok := rv.(error); ok {
+				err = errors.Wrap(e)
+			} else {
+				err = errors.ErrorfWrap("%v", rv)
+			}
+		}
+	}()
+
 	node, err := grammar.ParseMessage(s)
 	if err != nil {
-		return nil, errtrace.Wrap(err)
+		return nil, errors.Wrap(err)
 	}
+
 	return buildFromMessageNode(node), nil
 }
 
@@ -47,10 +73,12 @@ func buildFromMessageNode(node *abnf.Node) Message {
 	if n, ok := node.GetNode("Request"); ok {
 		return buildFromRequestNode(n)
 	}
+
 	if n, ok := node.GetNode("Response"); ok {
 		return buildFromResponseNode(n)
 	}
-	panic(grammar.ErrUnexpectNode)
+
+	panic(errors.Wrap(grammar.ErrUnexpectNode))
 }
 
 func buildFromRequestNode(node *abnf.Node) *Request {
@@ -58,9 +86,10 @@ func buildFromRequestNode(node *abnf.Node) *Request {
 	if n, ok := node.GetNode("message-body"); ok {
 		body = n.Value
 	}
+
 	return &Request{
 		Method:  RequestMethod(grammar.MustGetNode(node, "Method").String()),
-		URI:     uri.FromABNF(grammar.MustGetNode(node, "Request-URI").Children[0]),
+		URI:     util.Must2(uri.FromABNF(grammar.MustGetNode(node, "Request-URI").Children[0])),
 		Proto:   buildFromSIPVersionNode(grammar.MustGetNode(node, "SIP-Version")),
 		Headers: buildFromMessageHeaderNodes(node.GetNodes("message-header")),
 		Body:    body,
@@ -69,10 +98,12 @@ func buildFromRequestNode(node *abnf.Node) *Request {
 
 func buildFromResponseNode(node *abnf.Node) *Response {
 	code, _ := strconv.ParseUint(grammar.MustGetNode(node, "Status-Code").String(), 10, 16)
+
 	var body []byte
 	if n, ok := node.GetNode("message-body"); ok {
 		body = n.Value
 	}
+
 	return &Response{
 		Status:  ResponseStatus(code),
 		Reason:  ResponseReason(grammar.MustGetNode(node, "Reason-Phrase").String()),
@@ -87,6 +118,7 @@ func buildFromSIPVersionNode(node *abnf.Node) ProtoInfo {
 	for _, n := range node.Children[2:] {
 		version.WriteString(n.String())
 	}
+
 	return ProtoInfo{Name: node.Children[0].String(), Version: version.String()}
 }
 
@@ -97,27 +129,32 @@ func buildFromMessageHeaderNodes(nodes abnf.Nodes) Headers {
 
 	hdrs := make(Headers)
 	for _, node := range nodes {
-		hdrs.Append(header.FromABNF(node.Children[0].Children[0]))
+		hdrs.Append(util.Must2(header.FromABNF(node.Children[0].Children[0])))
 	}
+
 	return hdrs
 }
 
 func parseMsgStart[T ~string | ~[]byte](src T) (Message, error) {
 	node, err := grammar.ParseMessageStart(src)
 	if err != nil {
-		return nil, errtrace.Wrap(err)
+		return nil, errors.Wrap(err)
 	}
+
 	if n, ok := node.GetNode("Request-Line"); ok {
 		return buildFromRequestNode(n), nil
 	}
+
 	if n, ok := node.GetNode("Status-Line"); ok {
 		return buildFromResponseNode(n), nil
 	}
-	panic(grammar.ErrUnexpectNode)
+
+	panic(errors.Wrap(grammar.ErrUnexpectNode))
 }
 
 // GetMessageHeaders returns the headers of the given message.
-// It panics if the message is not a [Request] or [Response].
+// Message expected to be a [Request], [Response] or implement interface { Headers() Headers },
+// otherwise it returns nil.
 func GetMessageHeaders(msg Message) Headers {
 	switch m := msg.(type) {
 	case *Request:
@@ -141,24 +178,31 @@ func GetMessageHeaders(msg Message) Headers {
 }
 
 // SetMessageHeaders sets the headers of the given message.
-// It panics if the message is not a [Request] or [Response].
-func SetMessageHeaders(msg Message, hdrs Headers) {
+// Message expected to be a [Request], [Response],
+// implement interface { AccessMessage(func(*Request)) } or interface { AccessMessage(func(*Response)) },
+// otherwise it returns an error.
+func SetMessageHeaders(msg Message, hdrs Headers) error {
 	switch m := msg.(type) {
 	case *Request:
 		m.Headers = hdrs
+		return nil
 	case *Response:
 		m.Headers = hdrs
+		return nil
 	case interface{ AccessMessage(u func(*Request)) }:
 		m.AccessMessage(func(r *Request) { r.Headers = hdrs })
+		return nil
 	case interface{ AccessMessage(u func(*Response)) }:
 		m.AccessMessage(func(r *Response) { r.Headers = hdrs })
+		return nil
 	default:
-		panic(newUnexpectMsgTypeErr(msg))
+		return newUnexpectMsgTypeErrWrap(msg)
 	}
 }
 
 // GetMessageBody returns the body of the given message.
-// It panics if the message is not a [Request] or [Response].
+// Message expected to be a [Request], [Response] or implement interface { Body() []byte },
+// otherwise it returns nil.
 func GetMessageBody(msg Message) []byte {
 	switch m := msg.(type) {
 	case *Request:
@@ -182,83 +226,168 @@ func GetMessageBody(msg Message) []byte {
 }
 
 // SetMessageBody sets the body of the given message.
-// It panics if the message is not a [Request] or [Response].
-func SetMessageBody(msg Message, body []byte) {
+// Message expected to be a [Request], [Response],
+// implement interface { AccessMessage(func(*Request)) } or interface { AccessMessage(func(*Response)) },
+// otherwise it returns an error.
+func SetMessageBody(msg Message, body []byte) error {
 	switch m := msg.(type) {
 	case *Request:
 		m.Body = body
+		return nil
 	case *Response:
 		m.Body = body
+		return nil
 	case interface{ AccessMessage(u func(*Request)) }:
 		m.AccessMessage(func(r *Request) { r.Body = body })
+		return nil
 	case interface{ AccessMessage(u func(*Response)) }:
 		m.AccessMessage(func(r *Response) { r.Body = body })
+		return nil
 	default:
-		panic(newUnexpectMsgTypeErr(msg))
+		return newUnexpectMsgTypeErrWrap(msg)
 	}
 }
 
 func newMissHdrErr(name HeaderName) error {
 	if name == "" {
-		return errMissHdrs //errtrace:skip
+		return errors.Error("missing mandatory headers")
 	}
-	return errorutil.Errorf("missing mandatory header %q", name) //errtrace:skip
+	return errors.Errorf("missing mandatory header %q", name)
 }
 
-func NewInvalidMessageError(args ...any) error {
-	return errorutil.NewWrapperError(ErrInvalidMessage, args...) //errtrace:skip
+func newInvalidMsgErr(args ...any) error {
+	return errors.Prefix(ErrInvalidMessage, args...)
 }
 
 func newUnexpectMsgTypeErr(msg Message) error {
-	return errorutil.Errorf("unexpected message type %T", msg) //errtrace:skip
+	return errors.Errorf("unexpected message type %T", msg)
+}
+
+func newUnexpectMsgTypeErrWrap(msg Message) error {
+	return errors.GetCaller().Wrap(newUnexpectMsgTypeErr(msg))
 }
 
 // MessageMetadata is a thread-safe key-value store for arbitrary data.
 // It wraps [syncutil.RWMap] with JSON serialization support.
 // Values in the metadata expected to be serializable to JSON.
 type MessageMetadata struct {
-	syncutil.RWMap[string, any]
+	data syncutil.RWMap[string, any]
 }
 
-func (m *MessageMetadata) MarshalJSON() ([]byte, error) {
-	if m == nil {
+func MessageMetadataFromValues(vals iter.Seq2[string, any]) *MessageMetadata {
+	var d MessageMetadata
+	for k, v := range vals {
+		d.Set(k, v)
+	}
+
+	return &d
+}
+
+func (d *MessageMetadata) Populate(vals iter.Seq2[string, any]) *MessageMetadata {
+	for k, v := range vals {
+		d.Set(k, v)
+	}
+	return d
+}
+
+func (d *MessageMetadata) Get(key string) (any, bool) {
+	if d == nil {
+		return nil, false
+	}
+	return d.data.Load(key)
+}
+
+func (d *MessageMetadata) Set(key string, val any) *MessageMetadata {
+	d.data.Store(key, val)
+	return d
+}
+
+func (d *MessageMetadata) Delete(key string) *MessageMetadata {
+	d.data.Delete(key)
+	return d
+}
+
+func (d *MessageMetadata) Has(key string) bool {
+	if d == nil {
+		return false
+	}
+	return d.data.Has(key)
+}
+
+func (d *MessageMetadata) Len() int {
+	if d == nil {
+		return 0
+	}
+	return d.data.Len()
+}
+
+func (d *MessageMetadata) Clear() *MessageMetadata {
+	if d == nil {
+		return d
+	}
+
+	d.data.Clear()
+
+	return d
+}
+
+func (d *MessageMetadata) All() iter.Seq2[string, any] {
+	return func(yield func(string, any) bool) {
+		if d == nil {
+			return
+		}
+
+		for k, v := range d.data.All() {
+			if !yield(k, v) {
+				break
+			}
+		}
+	}
+}
+
+func (d *MessageMetadata) MarshalJSON() ([]byte, error) {
+	if d == nil {
 		return jsonNull, nil
 	}
-	return errtrace.Wrap2(json.Marshal(maps.Collect(m.All())))
+	return errors.Wrap2(json.Marshal(maps.Collect(d.All())))
 }
 
-func (m *MessageMetadata) UnmarshalJSON(data []byte) error {
+func (d *MessageMetadata) UnmarshalJSON(data []byte) error {
+	if d == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil metadata")
+	}
+
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return errtrace.Wrap(err)
+		return errors.Wrap(err)
 	}
+
 	for k, v := range raw {
-		m.Set(k, v)
+		d.Set(k, v)
 	}
+
 	return nil
 }
 
 // Clone returns a deep copy of the MessageMetadata.
-func (m *MessageMetadata) Clone() *MessageMetadata {
-	if m == nil {
+func (d *MessageMetadata) Clone() *MessageMetadata {
+	if d == nil {
 		return nil
 	}
+
 	clone := &MessageMetadata{}
-	m.CopyTo(&clone.RWMap)
+	d.data.CopyTo(&clone.data)
+
 	return clone
 }
 
 type messageEnvelope[T Message] struct {
-	msg     atomic.Value // T
-	msgTime time.Time
-	tp      atomic.Value // TransportProto
-	locAddr,
-	rmtAddr atomic.Value // netip.AddrPort
-	data *MessageMetadata
-}
-
-func (m *messageEnvelope[T]) message() T {
-	return m.msg.Load().(T) //nolint:forcetypeassert
+	msg          T
+	msgBuf       bytes.Buffer
+	msgTime      time.Time
+	tp           atomic.Value // TransportProto
+	laddr, raddr atomic.Value // netip.AddrPort
+	meta         *MessageMetadata
 }
 
 func (m *messageEnvelope[T]) Message() T {
@@ -266,21 +395,29 @@ func (m *messageEnvelope[T]) Message() T {
 		var zero T
 		return zero
 	}
-	return m.message().Clone().(T) //nolint:forcetypeassert
+
+	return m.msg.Clone().(T) //nolint:forcetypeassert
 }
 
 func (m *messageEnvelope[T]) Headers() Headers {
 	if m == nil {
 		return nil
 	}
-	return GetMessageHeaders(m.message()).Clone()
+	return GetMessageHeaders(m.msg).Clone()
 }
 
 func (m *messageEnvelope[T]) Body() []byte {
 	if m == nil {
 		return nil
 	}
-	return slices.Clone(GetMessageBody(m.message()))
+	return slices.Clone(GetMessageBody(m.msg))
+}
+
+func (m *messageEnvelope[T]) MessageTime() time.Time {
+	if m == nil {
+		return time.Time{}
+	}
+	return m.msgTime
 }
 
 func (m *messageEnvelope[T]) transport() TransportProto {
@@ -288,6 +425,7 @@ func (m *messageEnvelope[T]) transport() TransportProto {
 	if !ok {
 		return ""
 	}
+
 	return tp
 }
 
@@ -299,61 +437,68 @@ func (m *messageEnvelope[T]) Transport() TransportProto {
 }
 
 func (m *messageEnvelope[T]) localAddr() netip.AddrPort {
-	laddr, ok := m.locAddr.Load().(netip.AddrPort)
+	laddr, ok := m.laddr.Load().(netip.AddrPort)
 	if !ok {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
+
 	return laddr
 }
 
 func (m *messageEnvelope[T]) LocalAddr() netip.AddrPort {
 	if m == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return m.localAddr()
 }
 
 func (m *messageEnvelope[T]) remoteAddr() netip.AddrPort {
-	raddr, ok := m.rmtAddr.Load().(netip.AddrPort)
+	raddr, ok := m.raddr.Load().(netip.AddrPort)
 	if !ok {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
+
 	return raddr
 }
 
 func (m *messageEnvelope[T]) RemoteAddr() netip.AddrPort {
 	if m == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return m.remoteAddr()
-}
-
-func (m *messageEnvelope[T]) MessageTime() time.Time {
-	if m == nil {
-		return zeroTime
-	}
-	return m.msgTime
 }
 
 func (m *messageEnvelope[T]) Metadata() *MessageMetadata {
 	if m == nil {
 		return nil
 	}
-	return m.data
+	return m.meta
 }
 
 func (m *messageEnvelope[T]) RenderTo(w io.Writer, opts *RenderOptions) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
-	return errtrace.Wrap2(m.message().RenderTo(w, opts))
+
+	if m.msgBuf.Len() == 0 {
+		if n, err := m.msg.RenderTo(&m.msgBuf, opts); err != nil {
+			return n, errors.Wrap(err)
+		}
+	}
+
+	return errors.Wrap2(w.Write(m.msgBuf.Bytes()))
 }
 
 func (m *messageEnvelope[T]) Render(opts *RenderOptions) string {
 	if m == nil {
 		return ""
 	}
-	return m.message().Render(opts)
+
+	if m.msgBuf.Len() == 0 {
+		m.msg.RenderTo(&m.msgBuf, opts) //nolint:errcheck
+	}
+
+	return m.msgBuf.String()
 }
 
 func (m *messageEnvelope[T]) Clone() Message {
@@ -361,14 +506,16 @@ func (m *messageEnvelope[T]) Clone() Message {
 		return nil
 	}
 
+	//nolint:forcetypeassert
 	m2 := &messageEnvelope[T]{
+		msg:     m.msg.Clone().(T),
 		msgTime: time.Now(),
-		data:    m.data.Clone(),
+		meta:    m.meta.Clone(),
 	}
-	m2.msg.Store(m.message().Clone())
 	m2.tp.Store(m.transport())
-	m2.locAddr.Store(m.localAddr())
-	m2.rmtAddr.Store(m.remoteAddr())
+	m2.laddr.Store(m.localAddr())
+	m2.raddr.Store(m.remoteAddr())
+
 	return m2
 }
 
@@ -376,9 +523,11 @@ func (m *messageEnvelope[T]) Equal(v any) bool {
 	if m == nil {
 		return v == nil
 	}
+
 	if other, ok := v.(*messageEnvelope[T]); ok {
-		return m.message().Equal(other.message())
+		return m.msg.Equal(other.msg)
 	}
+
 	return false
 }
 
@@ -386,22 +535,22 @@ func (m *messageEnvelope[T]) IsValid() bool {
 	if m == nil {
 		return false
 	}
-	return m.message().IsValid()
+	return m.msg.IsValid()
 }
 
 func (m *messageEnvelope[T]) Validate() error {
 	if m == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid message"))
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
 	}
-	return errtrace.Wrap(m.message().Validate())
+	return errors.Wrap(m.msg.Validate())
 }
 
 type messageEnvelopeData[T Message] struct {
 	Message     T                `json:"message"`
+	MessageTime time.Time        `json:"message_time"`
 	Transport   TransportProto   `json:"transport"`
 	LocalAddr   netip.AddrPort   `json:"local_addr"`
 	RemoteAddr  netip.AddrPort   `json:"remote_addr"`
-	MessageTime time.Time        `json:"message_time"`
 	Metadata    *MessageMetadata `json:"metadata"`
 }
 
@@ -410,61 +559,63 @@ func (m *messageEnvelope[T]) MarshalJSON() ([]byte, error) {
 		return jsonNull, nil
 	}
 
-	return errtrace.Wrap2(json.Marshal(messageEnvelopeData[T]{
-		Message:     m.message(),
+	return errors.Wrap2(json.Marshal(messageEnvelopeData[T]{
+		Message:     m.msg,
+		MessageTime: m.msgTime,
 		Transport:   m.transport(),
 		LocalAddr:   m.localAddr(),
 		RemoteAddr:  m.remoteAddr(),
-		MessageTime: m.msgTime,
-		Metadata:    m.data,
+		Metadata:    m.meta,
 	}))
 }
 
 func (m *messageEnvelope[T]) UnmarshalJSON(data []byte) error {
+	if m == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
+	}
+
 	var msgData messageEnvelopeData[T]
 	if err := json.Unmarshal(data, &msgData); err != nil {
-		return errtrace.Wrap(err)
+		*m = messageEnvelope[T]{}
+		return errors.Wrap(err)
 	}
 
 	msgVal := reflect.ValueOf(msgData.Message)
 	if k := msgVal.Kind(); !msgVal.IsValid() || (k == reflect.Pointer || k == reflect.Interface) && msgVal.IsNil() {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid message"))
-	}
-	if msgData.Transport == "" {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid transport"))
-	}
-	if !msgData.LocalAddr.IsValid() {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid local address"))
-	}
-	if !msgData.RemoteAddr.IsValid() {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid remote address"))
+		*m = messageEnvelope[T]{}
+		return errors.NewInvalidArgumentErrorWrap("nil message")
 	}
 
-	m.msg.Store(msgData.Message)
-	m.tp.Store(msgData.Transport)
-	m.locAddr.Store(msgData.LocalAddr)
-	m.rmtAddr.Store(msgData.RemoteAddr)
 	if msgData.MessageTime.IsZero() {
 		msgData.MessageTime = time.Now()
 	}
-	m.msgTime = msgData.MessageTime
+
 	if msgData.Metadata == nil {
 		msgData.Metadata = new(MessageMetadata)
 	}
-	m.data = msgData.Metadata
+
+	m.msg = msgData.Message
+	m.msgBuf.Reset()
+	m.msgTime = msgData.MessageTime
+	m.tp.Store(msgData.Transport)
+	m.laddr.Store(msgData.LocalAddr)
+	m.raddr.Store(msgData.RemoteAddr)
+	m.meta = msgData.Metadata
+
 	return nil
 }
 
 func (m *messageEnvelope[T]) LogValue() slog.Value {
 	if m == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
+
 	return slog.GroupValue(
-		slog.Any("message", m.message().Clone()),
+		slog.Any("message", m.msg.Clone()),
+		slog.Any("message_time", m.msgTime),
 		slog.Any("transport", m.transport()),
 		slog.Any("local_addr", m.localAddr()),
 		slog.Any("remote_addr", m.remoteAddr()),
-		slog.Any("message_time", m.msgTime),
 	)
 }
 
@@ -483,13 +634,16 @@ func (m *outboundMessageEnvelope[T]) Message() T {
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
+
 	return m.messageEnvelope.Message()
 }
 
 func (m *outboundMessageEnvelope[T]) AccessMessage(update func(T)) {
 	m.msgMu.Lock()
 	defer m.msgMu.Unlock()
-	update(m.message())
+
+	update(m.msg)
+	m.msgBuf.Reset()
 }
 
 func (m *outboundMessageEnvelope[T]) Headers() Headers {
@@ -499,6 +653,7 @@ func (m *outboundMessageEnvelope[T]) Headers() Headers {
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
+
 	return m.messageEnvelope.Headers()
 }
 
@@ -509,7 +664,15 @@ func (m *outboundMessageEnvelope[T]) Body() []byte {
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
+
 	return m.messageEnvelope.Body()
+}
+
+func (m *outboundMessageEnvelope[T]) MessageTime() time.Time {
+	if m == nil {
+		return time.Time{}
+	}
+	return m.messageEnvelope.MessageTime()
 }
 
 func (m *outboundMessageEnvelope[T]) Transport() TransportProto {
@@ -525,31 +688,24 @@ func (m *outboundMessageEnvelope[T]) SetTransport(tp TransportProto) {
 
 func (m *outboundMessageEnvelope[T]) LocalAddr() netip.AddrPort {
 	if m == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return m.localAddr()
 }
 
 func (m *outboundMessageEnvelope[T]) SetLocalAddr(addr netip.AddrPort) {
-	m.locAddr.Store(addr)
+	m.laddr.Store(addr)
 }
 
 func (m *outboundMessageEnvelope[T]) RemoteAddr() netip.AddrPort {
 	if m == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return m.remoteAddr()
 }
 
 func (m *outboundMessageEnvelope[T]) SetRemoteAddr(addr netip.AddrPort) {
-	m.rmtAddr.Store(addr)
-}
-
-func (m *outboundMessageEnvelope[T]) MessageTime() time.Time {
-	if m == nil {
-		return zeroTime
-	}
-	return m.msgTime
+	m.raddr.Store(addr)
 }
 
 func (m *outboundMessageEnvelope[T]) Metadata() *MessageMetadata {
@@ -566,7 +722,8 @@ func (m *outboundMessageEnvelope[T]) RenderTo(w io.Writer, opts *RenderOptions) 
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
-	return errtrace.Wrap2(m.messageEnvelope.RenderTo(w, opts))
+
+	return errors.Wrap2(m.messageEnvelope.RenderTo(w, opts))
 }
 
 func (m *outboundMessageEnvelope[T]) Render(opts *RenderOptions) string {
@@ -576,6 +733,7 @@ func (m *outboundMessageEnvelope[T]) Render(opts *RenderOptions) string {
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
+
 	return m.messageEnvelope.Render(opts)
 }
 
@@ -586,6 +744,7 @@ func (m *outboundMessageEnvelope[T]) Clone() Message {
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
+
 	return &outboundMessageEnvelope[T]{
 		messageEnvelope: m.messageEnvelope.Clone().(*messageEnvelope[T]), //nolint:forcetypeassert
 	}
@@ -595,11 +754,13 @@ func (m *outboundMessageEnvelope[T]) Equal(v any) bool {
 	if m == nil {
 		return v == nil
 	}
+
 	if other, ok := v.(*outboundMessageEnvelope[T]); ok {
 		m.msgMu.RLock()
 		defer m.msgMu.RUnlock()
 		return m.messageEnvelope.Equal(other.messageEnvelope)
 	}
+
 	return false
 }
 
@@ -610,17 +771,19 @@ func (m *outboundMessageEnvelope[T]) IsValid() bool {
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
+
 	return m.messageEnvelope.IsValid()
 }
 
 func (m *outboundMessageEnvelope[T]) Validate() error {
 	if m == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid message"))
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
 	}
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
-	return errtrace.Wrap(m.messageEnvelope.Validate())
+
+	return errors.Wrap(m.messageEnvelope.Validate())
 }
 
 func (m *outboundMessageEnvelope[T]) MarshalJSON() ([]byte, error) {
@@ -630,22 +793,41 @@ func (m *outboundMessageEnvelope[T]) MarshalJSON() ([]byte, error) {
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
-	return errtrace.Wrap2(m.messageEnvelope.MarshalJSON())
+
+	return errors.Wrap2(m.messageEnvelope.MarshalJSON())
 }
 
 func (m *outboundMessageEnvelope[T]) UnmarshalJSON(data []byte) error {
+	if m == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
+	}
+
+	m.msgMu.Lock()
+	defer m.msgMu.Unlock()
+
+	return errors.Wrap(m.unmarshalUnsafe(data))
+}
+
+func (m *outboundMessageEnvelope[T]) unmarshalUnsafe(data []byte) error {
 	if m.messageEnvelope == nil {
 		m.messageEnvelope = new(messageEnvelope[T])
 	}
-	return errtrace.Wrap(m.messageEnvelope.UnmarshalJSON(data))
+
+	if err := m.messageEnvelope.UnmarshalJSON(data); err != nil {
+		*m = outboundMessageEnvelope[T]{}
+		return errors.Wrap(err)
+	}
+
+	return nil
 }
 
 func (m *outboundMessageEnvelope[T]) LogValue() slog.Value {
 	if m == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
 
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
+
 	return m.messageEnvelope.LogValue()
 }

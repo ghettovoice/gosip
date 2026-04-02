@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	braces.dev/errtrace v0.4.0
-	github.com/ghettovoice/abnf v0.6.5
+	github.com/ghettovoice/abnf v0.7.0
 	github.com/golang-cz/devslog v0.0.15
 	github.com/google/go-cmp v0.7.0
 	github.com/miekg/dns v1.1.72
@@ -12,7 +12,6 @@ require (
 	github.com/qmuntal/stateless v1.8.0
 	github.com/samber/slog-formatter v1.2.2
 	go.uber.org/goleak v1.3.0
-	go.uber.org/mock v0.6.0
 )
 
 require (

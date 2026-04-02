@@ -13,13 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"braces.dev/errtrace"
-
-	"github.com/ghettovoice/gosip/header"
-	"github.com/ghettovoice/gosip/internal/errorutil"
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/netutil"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/sip/header"
 )
 
 // RequestMethod represents a SIP request method.
@@ -56,7 +55,7 @@ type Request struct {
 	URI     URI           `json:"uri"`
 	Proto   ProtoInfo     `json:"proto"`
 	Headers Headers       `json:"headers"`
-	Body    []byte        `json:"body"`
+	Body    []byte        `json:"body,omitempty"`
 }
 
 // RenderTo renders the SIP request to the given writer.
@@ -67,29 +66,35 @@ func (req *Request) RenderTo(w io.Writer, opts *RenderOptions) (num int, err err
 
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
+
 	cw.Call(func(w io.Writer) (int, error) {
-		return errtrace.Wrap2(req.renderStartLine(w, opts))
+		return errors.Wrap2(req.renderStartLine(w, opts))
 	})
 	cw.Fprint("\r\n")
 	cw.Call(func(w io.Writer) (int, error) {
-		return errtrace.Wrap2(renderHdrs(w, req.Headers, opts))
+		return errors.Wrap2(renderHdrs(w, req.Headers, opts))
 	})
 	cw.Fprint("\r\n")
-	cw.Write(req.Body)
-	return errtrace.Wrap2(cw.Result())
+	cw.Write(req.Body) //nolint:errcheck
+
+	return errors.Wrap2(cw.Result())
 }
 
 func (req *Request) renderStartLine(w io.Writer, opts *RenderOptions) (num int, err error) {
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
+
 	cw.Fprint(req.Method, " ")
+
 	if req.URI != nil {
 		cw.Call(func(w io.Writer) (int, error) {
-			return errtrace.Wrap2(req.URI.RenderTo(w, opts))
+			return errors.Wrap2(req.URI.RenderTo(w, opts))
 		})
 	}
+
 	cw.Fprint(" ", req.Proto)
-	return errtrace.Wrap2(cw.Result())
+
+	return errors.Wrap2(cw.Result())
 }
 
 // Render renders the SIP request to a string.
@@ -97,9 +102,12 @@ func (req *Request) Render(opts *RenderOptions) string {
 	if req == nil {
 		return ""
 	}
+
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
+
 	req.RenderTo(sb, opts) //nolint:errcheck
+
 	return sb.String()
 }
 
@@ -108,10 +116,12 @@ func (req *Request) String() string {
 	if req == nil {
 		return sNilTag
 	}
+
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
 	// TODO make a better short representation of the request
 	req.renderStartLine(sb, nil) //nolint:errcheck
+
 	return sb.String()
 }
 
@@ -123,19 +133,27 @@ func (req *Request) Format(f fmt.State, verb rune) {
 			req.RenderTo(f, nil) //nolint:errcheck
 			return
 		}
-		f.Write([]byte(req.String()))
+
+		f.Write([]byte(req.String())) //nolint:errcheck
+
 		return
 	case 'q':
 		if f.Flag('+') {
 			fmt.Fprint(f, strconv.Quote(req.Render(nil)))
 			return
 		}
-		f.Write([]byte(strconv.Quote(req.String())))
+
+		f.Write([]byte(strconv.Quote(req.String()))) //nolint:errcheck
+
 		return
 	default:
-		type hideMethods Request
-		type Request hideMethods
+		type (
+			hideMethods Request
+			Request     hideMethods
+		)
+
 		fmt.Fprintf(f, fmt.FormatString(f, verb), (*Request)(req))
+
 		return
 	}
 }
@@ -143,25 +161,30 @@ func (req *Request) Format(f fmt.State, verb rune) {
 // LogValue implements [slog.LogValuer] for structured logging.
 func (req *Request) LogValue() slog.Value {
 	if req == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
 
 	attrs := make([]slog.Attr, 0, 7)
+
 	attrs = append(attrs, slog.String("method", string(req.Method)), slog.Any("uri", req.URI))
 	if hop, ok := util.SeqFirst(req.Headers.Via()); ok {
-		attrs = append(attrs, slog.Any("Via", hop))
+		attrs = append(attrs, slog.Any("via", hop))
 	}
+
 	if from, ok := req.Headers.From(); ok {
-		attrs = append(attrs, slog.Any("From", from))
+		attrs = append(attrs, slog.Any("from", from))
 	}
+
 	if to, ok := req.Headers.To(); ok {
-		attrs = append(attrs, slog.Any("To", to))
+		attrs = append(attrs, slog.Any("to", to))
 	}
+
 	if callID, ok := req.Headers.CallID(); ok {
-		attrs = append(attrs, slog.Any("Call-ID", callID))
+		attrs = append(attrs, slog.Any("call_id", callID))
 	}
+
 	if cseq, ok := req.Headers.CSeq(); ok {
-		attrs = append(attrs, slog.Any("CSeq", cseq))
+		attrs = append(attrs, slog.Any("cseq", cseq))
 	}
 
 	return slog.GroupValue(attrs...)
@@ -177,6 +200,7 @@ func (req *Request) Clone() Message {
 	req2.URI = types.Clone[URI](req.URI)
 	req2.Headers = req.Headers.Clone()
 	req2.Body = slices.Clone(req.Body)
+
 	return &req2
 }
 
@@ -210,61 +234,71 @@ func (req *Request) IsValid() bool {
 	return req.Validate() == nil
 }
 
-var reqMandatoryHdrs = map[HeaderName]bool{
-	"Via":     true,
-	"From":    true,
-	"To":      true,
-	"Call-ID": true,
-	"CSeq":    true,
+var reqMandatoryHdrs = map[HeaderName]struct{}{
+	"Via":     {},
+	"From":    {},
+	"To":      {},
+	"Call-ID": {},
+	"CSeq":    {},
 }
 
 // Validate validates the request and returns an error if invalid.
 func (req *Request) Validate() error {
 	if req == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid request"))
+		return errors.NewInvalidArgumentErrorWrap("nil request")
 	}
 
 	errs := make([]error, 0, 10)
-
 	if !req.Method.IsValid() {
-		errs = append(errs, errorutil.Errorf("invalid method %q", req.Method))
+		errs = append(errs, errors.Errorf("invalid method %q", req.Method))
 	}
+
 	if !types.IsValid(req.URI) {
-		errs = append(errs, errorutil.Errorf("invalid URI %q", req.URI))
+		errs = append(errs, errors.Errorf("invalid URI %q", req.URI))
 	}
+
 	if !req.Proto.IsValid() {
-		errs = append(errs, errorutil.Errorf("invalid protocol %q", req.Proto))
+		errs = append(errs, errors.Errorf("invalid protocol %q", req.Proto))
 	}
+
 	if err := validateHdrs(req.Headers); err != nil {
 		errs = append(errs, err)
 	}
+
 	for n := range reqMandatoryHdrs {
 		if !req.Headers.Has(n) {
 			errs = append(errs, newMissHdrErr(n))
 		}
 	}
+
 	if ct, ok := req.Headers.ContentLength(); ok {
 		if ct, bl := int(ct), len(req.Body); ct != bl {
-			errs = append(errs, errorutil.Errorf("content length mismatch: got %d, want %d", ct, bl))
+			errs = append(errs, errors.Errorf("content length mismatch: got %d, want %d", ct, bl))
 		}
 	}
 
 	if len(errs) > 0 {
-		return errtrace.Wrap(NewInvalidMessageError(errorutil.Join(errs...)))
+		return errors.Wrap(newInvalidMsgErr(errors.Join(errs...)))
 	}
+
 	return nil
 }
 
 func (req *Request) UnmarshalJSON(data []byte) error {
+	if req == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil request")
+	}
+
 	var reqData struct {
 		Method  RequestMethod `json:"method"`
 		URI     string        `json:"uri"`
 		Proto   ProtoInfo     `json:"proto"`
 		Headers Headers       `json:"headers"`
-		Body    []byte        `json:"body"`
+		Body    []byte        `json:"body,omitempty"`
 	}
 	if err := json.Unmarshal(data, &reqData); err != nil {
-		return errtrace.Wrap(err)
+		*req = Request{}
+		return errors.Wrap(err)
 	}
 
 	req.Method = reqData.Method
@@ -273,14 +307,13 @@ func (req *Request) UnmarshalJSON(data []byte) error {
 	req.Body = reqData.Body
 
 	if reqData.URI != "" {
-		u, err := ParseURI(reqData.URI)
-		if err != nil {
-			return errtrace.Wrap(fmt.Errorf("parse URI: %w", err))
+		if u, err := ParseURI(reqData.URI); err == nil {
+			req.URI = u
 		}
-		req.URI = u
 	} else {
 		req.URI = nil
 	}
+
 	return nil
 }
 
@@ -288,7 +321,7 @@ type ResponseOptions struct {
 	Reason   ResponseReason `json:"reason,omitempty"`
 	Headers  Headers        `json:"headers,omitempty"`
 	Body     []byte         `json:"body,omitempty"`
-	LocalTag string         `json:"loc_tag,omitempty"`
+	LocalTag string         `json:"local_tag,omitempty"`
 }
 
 func (o *ResponseOptions) reason() ResponseReason {
@@ -320,23 +353,24 @@ func (o *ResponseOptions) locTag() string {
 }
 
 var (
-	reqCopyHdrsMap = map[HeaderName]bool{
-		"Via":       true,
-		"From":      true,
-		"To":        true,
-		"Call-ID":   true,
-		"CSeq":      true,
-		"Timestamp": true,
+	reqCopyHdrsMap = map[HeaderName]struct{}{
+		"Via":       {},
+		"From":      {},
+		"To":        {},
+		"Call-ID":   {},
+		"CSeq":      {},
+		"Timestamp": {},
 	}
 	reqCopyHdrsSlice = slices.Collect(maps.Keys(reqCopyHdrsMap))
 )
 
 func (req *Request) NewResponse(sts ResponseStatus, opts *ResponseOptions) (*Response, error) {
 	if req == nil {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid request"))
+		return nil, errors.NewInvalidArgumentErrorWrap("nil request")
 	}
+
 	if req.Method.Equal(RequestMethodAck) {
-		return nil, errtrace.Wrap(NewInvalidArgumentError(ErrMethodNotAllowed))
+		return nil, errors.NewInvalidArgumentErrorWrap(ErrMethodNotAllowed)
 	}
 
 	res := &Response{
@@ -352,15 +386,19 @@ func (req *Request) NewResponse(sts ResponseStatus, opts *ResponseOptions) (*Res
 			if to.Params == nil {
 				to.Params = make(Values)
 			}
+
 			to.Params.Set("tag", opts.locTag())
 		}
 	}
+
 	for n, hs := range opts.headers() {
-		if reqCopyHdrsMap[n] || len(hs) == 0 {
+		if _, ok := reqCopyHdrsMap[n]; ok || len(hs) == 0 {
 			continue
 		}
+
 		res.Headers.Append(hs[0], hs[1:]...)
 	}
+
 	return res, nil
 }
 
@@ -368,27 +406,27 @@ func (req *Request) NewResponse(sts ResponseStatus, opts *ResponseOptions) (*Res
 // All fields are optional, default values are used if zero.
 type RequestOptions struct {
 	// Transport is the transport protocol to use. Default is "UDP".
-	Transport TransportProto
+	Transport TransportProto `json:"transport,omitempty"`
 	// Branch is the branch parameter to use. Default is generated using [GenerateBranch].
-	Branch string
+	Branch string `json:"branch,omitempty"`
 	// LocalTag is the tag used in From header. Default is generated using [GenerateTag].
-	LocalTag string
+	LocalTag string `json:"local_tag,omitempty"`
 	// RemoteTag is the tag used in To header. Default is empty.
-	RemoteTag string
+	RemoteTag string `json:"remote_tag,omitempty"`
 	// CallID is the Call-ID to use. Default is generated using [GenerateCallID].
-	CallID string
+	CallID string `json:"call_id,omitempty"`
 	// SeqNum is the sequence number to be used in CSeq header. Default is 1.
-	SeqNum uint
+	SeqNum uint `json:"seq_num,omitempty"`
 	// MaxForwards used in Max-Forwards header. Default is 70.
-	MaxForwards uint
+	MaxForwards uint `json:"max_forwards,omitempty"`
 	// Headers are additional headers to be added to the request.
-	Headers Headers
+	Headers Headers `json:"headers,omitempty"`
 	// Body is the body of the request.
 	// It is responsibility of the caller to set the Content-Type header if the body is not empty.
-	Body []byte
-	// AddRPort adds the "rport" parameter in the Via header. Default is false.
+	Body []byte `json:"body,omitempty"`
+	// RPort adds the "rport" parameter in the Via header. Default is false.
 	// RFC 3581 Section 3.
-	AddRPort bool
+	RPort bool `json:"rport,omitempty"`
 }
 
 func (o *RequestOptions) transp() TransportProto {
@@ -454,37 +492,40 @@ func (o *RequestOptions) body() []byte {
 	return o.Body
 }
 
-func (o *RequestOptions) addRPort() bool {
-	return o != nil && o.AddRPort
+func (o *RequestOptions) rport() bool {
+	return o != nil && o.RPort
 }
 
 // NewRequest is a helper function to create a minimally valid SIP request.
 // The returned request has all mandatory headers and parameters set following the rules of RFC 3261 Section 8.1.1.
-func NewRequest(mtd RequestMethod, ruri, from, to URI, opts *RequestOptions) (*Request, error) {
+func NewRequest(mtd RequestMethod, ruri, furi, turi URI, opts *RequestOptions) (*Request, error) {
 	if !mtd.IsValid() {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid request method"))
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid request method %q", mtd)
 	}
+
 	if !ruri.IsValid() {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid request URI"))
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid request URI %q", ruri)
 	}
-	if !from.IsValid() {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid from URI"))
+
+	if !furi.IsValid() {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid from URI %q", furi)
 	}
-	if !to.IsValid() {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid to URI"))
+
+	if !turi.IsValid() {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid to URI %q", turi)
 	}
 
 	via := header.ViaHop{
 		Proto:     protoVer20,
 		Transport: opts.transp(),
-		Addr:      Host(util.RandString(8) + ".invalid"), // will be replaced by the transport
+		Addr:      AddrFromHost(util.RandString(8) + ".invalid"), // will be replaced by the transport
 		Params:    make(Values).Set("branch", opts.branch()),
 	}
-	if opts.addRPort() {
+	if opts.rport() {
 		via.Params.Set("rport", "")
 	}
 
-	toHdr := &header.To{URI: to}
+	toHdr := &header.To{URI: turi}
 	if opts.rmtTag() != "" {
 		toHdr.Params = make(Values).Set("tag", opts.rmtTag())
 	}
@@ -496,7 +537,7 @@ func NewRequest(mtd RequestMethod, ruri, from, to URI, opts *RequestOptions) (*R
 		Headers: make(Headers).
 			Set(header.Via{via}).
 			Set(&header.From{
-				URI:    from,
+				URI:    furi,
 				Params: make(Values).Set("tag", opts.locTag()),
 			}).
 			Set(toHdr).
@@ -506,11 +547,13 @@ func NewRequest(mtd RequestMethod, ruri, from, to URI, opts *RequestOptions) (*R
 		Body: opts.body(),
 	}
 	for n, hs := range opts.headers() {
-		if reqMandatoryHdrs[n] || len(hs) == 0 {
+		if _, ok := reqMandatoryHdrs[n]; ok || len(hs) == 0 {
 			continue
 		}
+
 		req.Headers.Append(hs[0], hs[1:]...)
 	}
+
 	return req, nil
 }
 
@@ -524,27 +567,31 @@ func NewInboundRequestEnvelope(
 	laddr, raddr netip.AddrPort,
 ) (*InboundRequestEnvelope, error) {
 	if req == nil {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid request"))
-	}
-	if tp == "" {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid transport protocol"))
-	}
-	if !laddr.IsValid() {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid local address"))
-	}
-	if !raddr.IsValid() {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid remote address"))
+		return nil, errors.NewInvalidArgumentErrorWrap("nil request")
 	}
 
-	me := &inboundMessageEnvelope[*Request]{
-		msgTime: time.Now(),
-		data:    new(MessageMetadata),
+	if !tp.IsValid() {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid transport protocol %q", tp)
 	}
-	me.msg.Store(req)
-	me.tp.Store(tp)
-	me.locAddr.Store(laddr)
-	me.rmtAddr.Store(raddr)
-	return &InboundRequestEnvelope{me}, nil
+
+	if !laddr.IsValid() {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid local address %q", laddr)
+	}
+
+	if !raddr.IsValid() {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid remote address %q", raddr)
+	}
+
+	r := &inboundMessageEnvelope[*Request]{
+		msg:     req,
+		msgTime: time.Now(),
+		meta:    new(MessageMetadata),
+	}
+	r.tp.Store(tp)
+	r.laddr.Store(netutil.UnmapAddrPort(laddr))
+	r.raddr.Store(netutil.UnmapAddrPort(raddr))
+
+	return &InboundRequestEnvelope{r}, nil
 }
 
 func (r *InboundRequestEnvelope) Message() *Request {
@@ -568,6 +615,13 @@ func (r *InboundRequestEnvelope) Body() []byte {
 	return r.inboundMessageEnvelope.Body()
 }
 
+func (r *InboundRequestEnvelope) MessageTime() time.Time {
+	if r == nil {
+		return time.Time{}
+	}
+	return r.inboundMessageEnvelope.MessageTime()
+}
+
 func (r *InboundRequestEnvelope) Transport() TransportProto {
 	if r == nil {
 		return ""
@@ -577,23 +631,16 @@ func (r *InboundRequestEnvelope) Transport() TransportProto {
 
 func (r *InboundRequestEnvelope) LocalAddr() netip.AddrPort {
 	if r == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return r.inboundMessageEnvelope.LocalAddr()
 }
 
 func (r *InboundRequestEnvelope) RemoteAddr() netip.AddrPort {
 	if r == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return r.inboundMessageEnvelope.RemoteAddr()
-}
-
-func (r *InboundRequestEnvelope) MessageTime() time.Time {
-	if r == nil {
-		return zeroTime
-	}
-	return r.inboundMessageEnvelope.MessageTime()
 }
 
 func (r *InboundRequestEnvelope) Metadata() *MessageMetadata {
@@ -607,14 +654,14 @@ func (r *InboundRequestEnvelope) Method() RequestMethod {
 	if r == nil {
 		return ""
 	}
-	return r.message().Method
+	return r.msg.Method
 }
 
 func (r *InboundRequestEnvelope) URI() URI {
 	if r == nil {
 		return nil
 	}
-	return r.message().URI.Clone()
+	return r.msg.URI.Clone()
 }
 
 var reqTimeDataKey = "sip.request_time"
@@ -624,22 +671,24 @@ func (r *InboundRequestEnvelope) NewResponse(
 	opts *ResponseOptions,
 ) (*OutboundResponseEnvelope, error) {
 	if r == nil {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid request"))
+		return nil, errors.NewInvalidArgumentErrorWrap("nil envelope")
 	}
 
-	msg, err := r.message().NewResponse(sts, opts)
+	msg, err := r.msg.NewResponse(sts, opts)
 	if err != nil {
-		return nil, errtrace.Wrap(err)
+		return nil, errors.Wrap(err)
 	}
 
 	res, err := NewOutboundResponseEnvelope(msg)
 	if err != nil {
-		return nil, errtrace.Wrap(err)
+		return nil, errors.Wrap(err)
 	}
+
 	res.tp.Store(r.transport())
-	res.locAddr.Store(r.localAddr())
-	res.rmtAddr.Store(r.remoteAddr())
-	res.data.Set(reqTimeDataKey, r.msgTime)
+	res.laddr.Store(r.localAddr())
+	res.raddr.Store(r.remoteAddr())
+	res.meta.Set(reqTimeDataKey, r.msgTime)
+
 	return res, nil
 }
 
@@ -647,7 +696,7 @@ func (r *InboundRequestEnvelope) RenderTo(w io.Writer, opts *RenderOptions) (int
 	if r == nil {
 		return 0, nil
 	}
-	return errtrace.Wrap2(r.inboundMessageEnvelope.RenderTo(w, opts))
+	return errors.Wrap2(r.inboundMessageEnvelope.RenderTo(w, opts))
 }
 
 func (r *InboundRequestEnvelope) Render(opts *RenderOptions) string {
@@ -661,21 +710,23 @@ func (r *InboundRequestEnvelope) String() string {
 	if r == nil {
 		return sNilTag
 	}
-	return r.message().String()
+	return r.msg.String()
 }
 
 func (r *InboundRequestEnvelope) Format(f fmt.State, verb rune) {
 	if r == nil {
-		f.Write(bNilTag)
+		f.Write(bNilTag) //nolint:errcheck
 		return
 	}
-	r.message().Format(f, verb)
+
+	r.msg.Format(f, verb)
 }
 
 func (r *InboundRequestEnvelope) Clone() Message {
 	if r == nil {
 		return nil
 	}
+
 	return &InboundRequestEnvelope{
 		r.inboundMessageEnvelope.Clone().(*inboundMessageEnvelope[*Request]), //nolint:forcetypeassert
 	}
@@ -685,9 +736,11 @@ func (r *InboundRequestEnvelope) Equal(v any) bool {
 	if r == nil {
 		return v == nil
 	}
+
 	if other, ok := v.(*InboundRequestEnvelope); ok {
 		return r.inboundMessageEnvelope.Equal(other.inboundMessageEnvelope)
 	}
+
 	return false
 }
 
@@ -700,28 +753,38 @@ func (r *InboundRequestEnvelope) IsValid() bool {
 
 func (r *InboundRequestEnvelope) Validate() error {
 	if r == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid request"))
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
 	}
-	return errtrace.Wrap(r.inboundMessageEnvelope.Validate())
+	return errors.Wrap(r.inboundMessageEnvelope.Validate())
 }
 
 func (r *InboundRequestEnvelope) MarshalJSON() ([]byte, error) {
 	if r == nil {
 		return jsonNull, nil
 	}
-	return errtrace.Wrap2(r.inboundMessageEnvelope.MarshalJSON())
+	return errors.Wrap2(r.inboundMessageEnvelope.MarshalJSON())
 }
 
 func (r *InboundRequestEnvelope) UnmarshalJSON(data []byte) error {
+	if r == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
+	}
+
 	if r.inboundMessageEnvelope == nil {
 		r.inboundMessageEnvelope = new(inboundMessageEnvelope[*Request])
 	}
-	return errtrace.Wrap(r.inboundMessageEnvelope.UnmarshalJSON(data))
+
+	if err := r.inboundMessageEnvelope.UnmarshalJSON(data); err != nil {
+		*r = InboundRequestEnvelope{}
+		return errors.Wrap(err)
+	}
+
+	return nil
 }
 
 func (r *InboundRequestEnvelope) LogValue() slog.Value {
 	if r == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
 	return r.inboundMessageEnvelope.LogValue()
 }
@@ -732,14 +795,15 @@ type OutboundRequestEnvelope struct {
 
 func NewOutboundRequestEnvelope(req *Request) (*OutboundRequestEnvelope, error) {
 	if req == nil {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid request"))
+		return nil, errors.NewInvalidArgumentErrorWrap("nil request")
 	}
 
 	me := &messageEnvelope[*Request]{
+		msg:     req,
 		msgTime: time.Now(),
-		data:    new(MessageMetadata),
+		meta:    new(MessageMetadata),
 	}
-	me.msg.Store(req)
+
 	return &OutboundRequestEnvelope{
 		&outboundMessageEnvelope[*Request]{
 			messageEnvelope: me,
@@ -758,6 +822,7 @@ func (r *OutboundRequestEnvelope) AccessMessage(update func(*Request)) {
 	if r == nil {
 		return
 	}
+
 	r.outboundMessageEnvelope.AccessMessage(update)
 }
 
@@ -775,6 +840,13 @@ func (r *OutboundRequestEnvelope) Body() []byte {
 	return r.outboundMessageEnvelope.Body()
 }
 
+func (r *OutboundRequestEnvelope) MessageTime() time.Time {
+	if r == nil {
+		return time.Time{}
+	}
+	return r.outboundMessageEnvelope.MessageTime()
+}
+
 func (r *OutboundRequestEnvelope) Transport() TransportProto {
 	if r == nil {
 		return ""
@@ -786,12 +858,13 @@ func (r *OutboundRequestEnvelope) SetTransport(tp TransportProto) {
 	if r == nil {
 		return
 	}
+
 	r.outboundMessageEnvelope.SetTransport(tp)
 }
 
 func (r *OutboundRequestEnvelope) LocalAddr() netip.AddrPort {
 	if r == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return r.outboundMessageEnvelope.LocalAddr()
 }
@@ -800,12 +873,13 @@ func (r *OutboundRequestEnvelope) SetLocalAddr(addr netip.AddrPort) {
 	if r == nil {
 		return
 	}
-	r.outboundMessageEnvelope.SetLocalAddr(addr)
+
+	r.outboundMessageEnvelope.SetLocalAddr(netutil.UnmapAddrPort(addr))
 }
 
 func (r *OutboundRequestEnvelope) RemoteAddr() netip.AddrPort {
 	if r == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return r.outboundMessageEnvelope.RemoteAddr()
 }
@@ -814,14 +888,8 @@ func (r *OutboundRequestEnvelope) SetRemoteAddr(addr netip.AddrPort) {
 	if r == nil {
 		return
 	}
-	r.outboundMessageEnvelope.SetRemoteAddr(addr)
-}
 
-func (r *OutboundRequestEnvelope) MessageTime() time.Time {
-	if r == nil {
-		return zeroTime
-	}
-	return r.outboundMessageEnvelope.MessageTime()
+	r.outboundMessageEnvelope.SetRemoteAddr(netutil.UnmapAddrPort(addr))
 }
 
 func (r *OutboundRequestEnvelope) Metadata() *MessageMetadata {
@@ -838,7 +906,8 @@ func (r *OutboundRequestEnvelope) Method() RequestMethod {
 
 	r.msgMu.RLock()
 	defer r.msgMu.RUnlock()
-	return r.message().Method
+
+	return r.msg.Method
 }
 
 func (r *OutboundRequestEnvelope) URI() URI {
@@ -848,14 +917,15 @@ func (r *OutboundRequestEnvelope) URI() URI {
 
 	r.msgMu.RLock()
 	defer r.msgMu.RUnlock()
-	return r.message().URI.Clone()
+
+	return r.msg.URI.Clone()
 }
 
 func (r *OutboundRequestEnvelope) RenderTo(w io.Writer, opts *RenderOptions) (int, error) {
 	if r == nil {
 		return 0, nil
 	}
-	return errtrace.Wrap2(r.outboundMessageEnvelope.RenderTo(w, opts))
+	return errors.Wrap2(r.outboundMessageEnvelope.RenderTo(w, opts))
 }
 
 func (r *OutboundRequestEnvelope) Render(opts *RenderOptions) string {
@@ -872,24 +942,27 @@ func (r *OutboundRequestEnvelope) String() string {
 
 	r.msgMu.RLock()
 	defer r.msgMu.RUnlock()
-	return r.message().String()
+
+	return r.msg.String()
 }
 
 func (r *OutboundRequestEnvelope) Format(f fmt.State, verb rune) {
 	if r == nil {
-		f.Write(bNilTag)
+		f.Write(bNilTag) //nolint:errcheck
 		return
 	}
 
 	r.msgMu.RLock()
 	defer r.msgMu.RUnlock()
-	r.message().Format(f, verb)
+
+	r.msg.Format(f, verb)
 }
 
 func (r *OutboundRequestEnvelope) Clone() Message {
 	if r == nil {
 		return nil
 	}
+
 	return &OutboundRequestEnvelope{
 		r.outboundMessageEnvelope.Clone().(*outboundMessageEnvelope[*Request]), //nolint:forcetypeassert
 	}
@@ -899,9 +972,11 @@ func (r *OutboundRequestEnvelope) Equal(v any) bool {
 	if r == nil {
 		return v == nil
 	}
+
 	if other, ok := v.(*OutboundRequestEnvelope); ok {
 		return r.outboundMessageEnvelope.Equal(other.outboundMessageEnvelope)
 	}
+
 	return false
 }
 
@@ -914,28 +989,41 @@ func (r *OutboundRequestEnvelope) IsValid() bool {
 
 func (r *OutboundRequestEnvelope) Validate() error {
 	if r == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid request"))
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
 	}
-	return errtrace.Wrap(r.outboundMessageEnvelope.Validate())
+	return errors.Wrap(r.outboundMessageEnvelope.Validate())
 }
 
 func (r *OutboundRequestEnvelope) MarshalJSON() ([]byte, error) {
 	if r == nil {
 		return jsonNull, nil
 	}
-	return errtrace.Wrap2(r.outboundMessageEnvelope.MarshalJSON())
+	return errors.Wrap2(r.outboundMessageEnvelope.MarshalJSON())
 }
 
 func (r *OutboundRequestEnvelope) UnmarshalJSON(data []byte) error {
+	if r == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
+	}
+
 	if r.outboundMessageEnvelope == nil {
 		r.outboundMessageEnvelope = new(outboundMessageEnvelope[*Request])
 	}
-	return errtrace.Wrap(r.outboundMessageEnvelope.UnmarshalJSON(data))
+
+	r.msgMu.Lock()
+	defer r.msgMu.Unlock()
+
+	if err := r.unmarshalUnsafe(data); err != nil {
+		*r = OutboundRequestEnvelope{}
+		return errors.Wrap(err)
+	}
+
+	return nil
 }
 
 func (r *OutboundRequestEnvelope) LogValue() slog.Value {
 	if r == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
 	return r.outboundMessageEnvelope.LogValue()
 }
@@ -949,7 +1037,7 @@ type RequestReceiver interface {
 type RequestReceiverFunc func(ctx context.Context, req *InboundRequestEnvelope) error
 
 func (fn RequestReceiverFunc) RecvRequest(ctx context.Context, req *InboundRequestEnvelope) error {
-	return fn(ctx, req) //errtrace:skip
+	return errors.Wrap(fn(ctx, req))
 }
 
 // RequestSender is an interface for sending requests.
@@ -970,13 +1058,13 @@ func (fn RequestSenderFunc) SendRequest(
 	req *OutboundRequestEnvelope,
 	opts *SendRequestOptions,
 ) error {
-	return fn(ctx, req, opts) //errtrace:skip
+	return errors.Wrap(fn(ctx, req, opts))
 }
 
 // SendRequestOptions are options for sending a request.
 type SendRequestOptions struct {
 	// Timeout is the timeout for the request sending process.
-	// If zero, the default timeout 1m is used.
+	// If zero, the default timeout [MessageWriteTimeout] is used.
 	Timeout time.Duration `json:"timeout,omitempty"`
 	// RenderCompact is the flag that indicates whether the message should be rendered in compact form.
 	// See [RenderOptions] for more details.
@@ -986,7 +1074,7 @@ type SendRequestOptions struct {
 
 func (o *SendRequestOptions) timeout() time.Duration {
 	if o == nil || o.Timeout == 0 {
-		return msgSendTimeout
+		return ConnWriteTimeout
 	}
 	return o.Timeout
 }
@@ -995,6 +1083,7 @@ func (o *SendRequestOptions) rendOpts() *RenderOptions {
 	if o == nil {
 		return nil
 	}
+
 	return &RenderOptions{
 		Compact: o.RenderCompact,
 	}
@@ -1004,6 +1093,8 @@ func cloneSendReqOpts(opts *SendRequestOptions) *SendRequestOptions {
 	if opts == nil {
 		return nil
 	}
+
 	newOpts := *opts
+
 	return &newOpts
 }

@@ -1,12 +1,17 @@
 package sip
 
-//go:generate errtrace -w .
-
 import (
-	"braces.dev/errtrace"
+	"net"
 
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
+)
+
+// Common errors.
+const (
+	ErrInvalidArgument               = errors.ErrInvalidArgument
+	ErrActionNotAllowed errors.Error = "action not allowed"
 )
 
 // RenderOptions represents options for rendering SIP messages.
@@ -26,16 +31,18 @@ func ProtoVer20() ProtoInfo { return protoVer20 }
 // See [types.Addr].
 type Addr = types.Addr
 
-// Host returns an [Addr] containing the provided host and no port.
-func Host(host string) Addr { return types.Host(host) }
+// AddrFromHost returns an [Addr] containing the provided host and no port.
+func AddrFromHost(host string) Addr { return types.AddrFromHost(host) }
 
-// HostPort returns an [Addr] containing the provided host and port.
-func HostPort(host string, port uint16) Addr { return types.HostPort(host, port) }
+// AddrFromHostPort returns an [Addr] containing the provided host and port.
+func AddrFromHostPort(host string, port uint16) Addr { return types.AddrFromHostPort(host, port) }
+
+func AddrFromIP(ip net.IP) Addr { return types.AddrFromIP(ip) }
+
+func AddrFromIPPort(ip net.IP, port uint16) Addr { return types.AddrFromIPPort(ip, port) }
 
 // ParseAddr parses a "host[:port]" string into an [Addr].
-func ParseAddr(s string) (Addr, error) {
-	return errtrace.Wrap2(types.ParseAddr(s))
-}
+func ParseAddr(s string) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }
 
 // Values represents a map of string keys to string values.
 // See [types.Values].
@@ -49,6 +56,7 @@ func GenerateTag(length uint) string {
 	if length > 0 {
 		l = int(length)
 	}
+
 	return util.RandStringLC(l)
 }
 
@@ -60,9 +68,11 @@ func GenerateCallID(length uint, host string) string {
 	if length > 0 {
 		l = int(length)
 	}
+
 	if len(host) > 0 {
 		return util.RandStringLC(l) + "@" + host
 	}
+
 	return util.RandStringLC(l)
 }
 
@@ -77,6 +87,7 @@ func GenerateBranch(length uint) string {
 	if length > 0 {
 		l = int(length)
 	}
+
 	return MagicCookie + "." + util.RandStringLC(l)
 }
 

@@ -1,15 +1,12 @@
 // Package types contains common types used across the sip package.
 package types
 
-//go:generate errtrace -w .
-
 import (
 	"io"
 
-	"braces.dev/errtrace"
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/ghettovoice/gosip/internal/errorutil"
+	"github.com/ghettovoice/gosip/internal/errors"
 )
 
 type ContextKey string
@@ -47,9 +44,10 @@ type Validatable interface {
 func Validate(v any) error {
 	vv, ok := v.(Validatable)
 	if !ok {
-		return errtrace.Wrap(errorutil.NewInvalidArgumentError("%T does not implement types.Validatable", v))
+		return errors.NewInvalidArgumentErrorWrap("%T does not implement types.Validatable", v)
 	}
-	return errtrace.Wrap(vv.Validate())
+
+	return errors.Wrap(vv.Validate())
 }
 
 type Equalable interface {
@@ -70,10 +68,13 @@ func Clone[T any](v any) T {
 	if v1, ok := v.(Cloneable[T]); ok {
 		return v1.Clone()
 	}
+
 	if v == nil {
 		var zero T
 		return zero
 	}
+
 	v1, _ := v.(T)
+
 	return v1
 }

@@ -73,42 +73,42 @@ func TestParse(t *testing.T) {
 		{"tel with spaces", "tel:+1 (22) 333-44-55", nil, grammar.ErrMalformedInput},
 		{"tel with invalid param", "tel:+1(22)333-44-55;fi%20ld=qwe", nil, grammar.ErrMalformedInput},
 
-		{"sip with host only", "sip:EXAMPLE-abc.qwe.com", &uri.SIP{Addr: uri.Host("EXAMPLE-abc.qwe.com")}, nil},
-		{"sips with host only", "sips:example.com", &uri.SIP{Secured: true, Addr: uri.Host("example.com")}, nil},
+		{"sip with host only", "sip:EXAMPLE-abc.qwe.com", &uri.SIP{Addr: uri.AddrFromHost("EXAMPLE-abc.qwe.com")}, nil},
+		{"sips with host only", "sips:example.com", &uri.SIP{Secured: true, Addr: uri.AddrFromHost("example.com")}, nil},
 		{"sip with invalid host", "sip:example#.com", &uri.SIP{}, grammar.ErrMalformedInput},
-		{"sip with host and port", "sip:example.com:5060", &uri.SIP{Addr: uri.HostPort("example.com", 5060)}, nil},
+		{"sip with host and port", "sip:example.com:5060", &uri.SIP{Addr: uri.AddrFromHostPort("example.com", 5060)}, nil},
 		{"sip with empty host", "sip::5060", nil, grammar.ErrMalformedInput},
-		{"sip with IPv4 and port", "sip:127.0.0.1:5060", &uri.SIP{Addr: uri.HostPort("127.0.0.1", 5060)}, nil},
-		{"sip with IPv6 and port", "sip:[2001:db8::9:1]:5060", &uri.SIP{Addr: uri.HostPort("2001:db8::9:1", 5060)}, nil},
+		{"sip with IPv4 and port", "sip:127.0.0.1:5060", &uri.SIP{Addr: uri.AddrFromHostPort("127.0.0.1", 5060)}, nil},
+		{"sip with IPv6 and port", "sip:[2001:db8::9:1]:5060", &uri.SIP{Addr: uri.AddrFromHostPort("2001:db8::9:1", 5060)}, nil},
 		{"sip with missed port", "sip:127.0.0.1:?priority=urgent", nil, grammar.ErrMalformedInput},
 		{
 			"sip with user info",
 			"sip:admin@example.com:5060",
-			&uri.SIP{User: uri.User("admin"), Addr: uri.HostPort("example.com", 5060)},
+			&uri.SIP{User: uri.User("admin"), Addr: uri.AddrFromHostPort("example.com", 5060)},
 			nil,
 		},
 		{
 			"sip with user special chars",
 			"sip:%40dmin@example.com",
-			&uri.SIP{User: uri.User("@dmin"), Addr: uri.Host("example.com")},
+			&uri.SIP{User: uri.User("@dmin"), Addr: uri.AddrFromHost("example.com")},
 			nil,
 		},
 		{
 			"sip with user and empty password",
 			"sip:admin:@example.com",
-			&uri.SIP{User: uri.UserPassword("admin", ""), Addr: uri.Host("example.com")},
+			&uri.SIP{User: uri.UserPassword("admin", ""), Addr: uri.AddrFromHost("example.com")},
 			nil,
 		},
 		{
 			"sip with user and password",
 			"sip:admin:qw3rty!+@example.com",
-			&uri.SIP{User: uri.UserPassword("admin", "qw3rty!+"), Addr: uri.Host("example.com")},
+			&uri.SIP{User: uri.UserPassword("admin", "qw3rty!+"), Addr: uri.AddrFromHost("example.com")},
 			nil,
 		},
 		{
 			"sip with user encoded params",
 			"sip:admin;field=value@example.com",
-			&uri.SIP{User: uri.User("admin;field=value"), Addr: uri.Host("example.com")},
+			&uri.SIP{User: uri.User("admin;field=value"), Addr: uri.AddrFromHost("example.com")},
 			nil,
 		},
 		{"sip with invalid user", "sip::passwd@example.com", nil, grammar.ErrMalformedInput},
@@ -117,7 +117,7 @@ func TestParse(t *testing.T) {
 			"sip:admin@example.com;Transport=TCP;user=any;method=INVITE;maddr=127.0.0.1;ttl=50;lr;foo=bar;method=refer;foo%3D=b%40r",
 			&uri.SIP{
 				User: uri.User("admin"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Append("transport", "TCP").
 					Append("user", "any").
@@ -136,7 +136,7 @@ func TestParse(t *testing.T) {
 			"sip:+1-222-333;field=qwerty@example.com;user=phone",
 			&uri.SIP{
 				User:   uri.User("+1-222-333;field=qwerty"),
-				Addr:   uri.Host("example.com"),
+				Addr:   uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).Set("user", "phone"),
 			},
 			nil,
@@ -147,7 +147,7 @@ func TestParse(t *testing.T) {
 			"sip:admin@example.com?subject=hello%20world&to=admin%40example.com&body=QWERTY&to=root%40example.org",
 			&uri.SIP{
 				User: uri.User("admin"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Headers: make(uri.Values).
 					Append("subject", "hello world").
 					Append("to", "admin@example.com").
@@ -172,10 +172,12 @@ func TestParse(t *testing.T) {
 			case []byte:
 				got, gotErr = uri.Parse(in)
 			}
+
 			if c.wantErr == nil {
 				if gotErr != nil {
 					t.Fatalf("sip.Parse(%q) error = %v, want nil", fmt.Sprintf("%v", c.input), gotErr)
 				}
+
 				if diff := cmp.Diff(got, c.wantURI); diff != "" {
 					t.Errorf("uri.Parse(%q) = %+v, want %+v\ndiff (-got +want):\n%v",
 						fmt.Sprintf("%v", c.input), got, c.wantURI, diff,

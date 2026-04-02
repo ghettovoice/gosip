@@ -11,10 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"braces.dev/errtrace"
-
-	"github.com/ghettovoice/gosip/internal/errorutil"
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/netutil"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 )
@@ -119,7 +118,7 @@ type Response struct {
 	Reason  ResponseReason `json:"reason"`
 	Proto   ProtoInfo      `json:"proto"`
 	Headers Headers        `json:"headers"`
-	Body    []byte         `json:"body"`
+	Body    []byte         `json:"body,omitempty"`
 }
 
 // RenderTo renders the SIP response to the given writer.
@@ -130,14 +129,16 @@ func (res *Response) RenderTo(w io.Writer, opts *RenderOptions) (num int, err er
 
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
+
 	cw.Call(res.renderStartLine)
 	cw.Fprint("\r\n")
 	cw.Call(func(w io.Writer) (int, error) {
-		return errtrace.Wrap2(renderHdrs(w, res.Headers, opts))
+		return errors.Wrap2(renderHdrs(w, res.Headers, opts))
 	})
 	cw.Fprint("\r\n")
-	cw.Write(res.Body)
-	return errtrace.Wrap2(cw.Result())
+	cw.Write(res.Body) //nolint:errcheck
+
+	return errors.Wrap2(cw.Result())
 }
 
 func (res *Response) renderStartLine(w io.Writer) (num int, err error) {
@@ -145,7 +146,8 @@ func (res *Response) renderStartLine(w io.Writer) (num int, err error) {
 	if rsn == "" {
 		rsn = res.Status.Reason()
 	}
-	return errtrace.Wrap2(fmt.Fprint(w, res.Proto, " ", uint(res.Status), " ", rsn))
+
+	return errors.Wrap2(fmt.Fprint(w, res.Proto, " ", uint(res.Status), " ", rsn))
 }
 
 // Render renders the SIP response to a string.
@@ -153,9 +155,12 @@ func (res *Response) Render(opts *RenderOptions) string {
 	if res == nil {
 		return ""
 	}
+
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
+
 	res.RenderTo(sb, opts) //nolint:errcheck
+
 	return sb.String()
 }
 
@@ -164,10 +169,12 @@ func (res *Response) String() string {
 	if res == nil {
 		return sNilTag
 	}
+
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
 	// TODO make a better short representation of the response
 	res.renderStartLine(sb) //nolint:errcheck
+
 	return sb.String()
 }
 
@@ -179,19 +186,27 @@ func (res *Response) Format(f fmt.State, verb rune) {
 			res.RenderTo(f, nil) //nolint:errcheck
 			return
 		}
-		f.Write([]byte(res.String()))
+
+		f.Write([]byte(res.String())) //nolint:errcheck
+
 		return
 	case 'q':
 		if f.Flag('+') {
 			fmt.Fprint(f, strconv.Quote(res.Render(nil)))
 			return
 		}
-		f.Write([]byte(strconv.Quote(res.String())))
+
+		f.Write([]byte(strconv.Quote(res.String()))) //nolint:errcheck
+
 		return
 	default:
-		type hideMethods Response
-		type Response hideMethods
+		type (
+			hideMethods Response
+			Response    hideMethods
+		)
+
 		fmt.Fprintf(f, fmt.FormatString(f, verb), (*Response)(res))
+
 		return
 	}
 }
@@ -199,25 +214,30 @@ func (res *Response) Format(f fmt.State, verb rune) {
 // LogValue implements [slog.LogValuer] for structured logging.
 func (res *Response) LogValue() slog.Value {
 	if res == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
 
 	attrs := make([]slog.Attr, 0, 7)
+
 	attrs = append(attrs, slog.Int("status", int(res.Status)), slog.String("reason", string(res.Reason)))
 	if hop, ok := util.SeqFirst(res.Headers.Via()); ok {
-		attrs = append(attrs, slog.Any("Via", hop))
+		attrs = append(attrs, slog.Any("via", hop))
 	}
+
 	if from, ok := res.Headers.From(); ok {
-		attrs = append(attrs, slog.Any("From", from))
+		attrs = append(attrs, slog.Any("from", from))
 	}
+
 	if to, ok := res.Headers.To(); ok {
-		attrs = append(attrs, slog.Any("To", to))
+		attrs = append(attrs, slog.Any("to", to))
 	}
+
 	if callID, ok := res.Headers.CallID(); ok {
-		attrs = append(attrs, slog.Any("Call-ID", callID))
+		attrs = append(attrs, slog.Any("call-id", callID))
 	}
+
 	if cseq, ok := res.Headers.CSeq(); ok {
-		attrs = append(attrs, slog.Any("CSeq", cseq))
+		attrs = append(attrs, slog.Any("cseq", cseq))
 	}
 
 	return slog.GroupValue(attrs...)
@@ -232,6 +252,7 @@ func (res *Response) Clone() Message {
 	res2 := *res
 	res2.Headers = res.Headers.Clone()
 	res2.Body = slices.Clone(res.Body)
+
 	return &res2
 }
 
@@ -265,64 +286,75 @@ func (res *Response) IsValid() bool {
 	return res.Validate() == nil
 }
 
-var resMandatoryHdrs = map[HeaderName]bool{
-	"Via":     true,
-	"From":    true,
-	"To":      true,
-	"Call-ID": true,
-	"CSeq":    true,
+var resMandatoryHdrs = map[HeaderName]struct{}{
+	"Via":     {},
+	"From":    {},
+	"To":      {},
+	"Call-ID": {},
+	"CSeq":    {},
 }
 
 // Validate validates the response and returns an error if invalid.
 func (res *Response) Validate() error {
 	if res == nil {
-		return errtrace.Wrap(NewInvalidMessageError("invalid response"))
+		return errors.NewInvalidArgumentErrorWrap("nil response")
 	}
 
-	errs := make([]error, 0, 9)
-
+	errs := make([]error, 0, 11)
 	if !res.Status.IsValid() {
-		errs = append(errs, errorutil.Errorf("invalid status %v", res.Status))
+		errs = append(errs, errors.Errorf("invalid status %v", res.Status))
 	}
+
 	if !res.Reason.IsValid() {
-		errs = append(errs, errorutil.Errorf("invalid reason %q", res.Reason))
+		errs = append(errs, errors.Errorf("invalid reason %q", res.Reason))
 	}
+
 	if !res.Proto.IsValid() {
-		errs = append(errs, errorutil.Errorf("invalid protocol %q", res.Proto))
+		errs = append(errs, errors.Errorf("invalid protocol %q", res.Proto))
 	}
+
 	if err := validateHdrs(res.Headers); err != nil {
 		errs = append(errs, err)
 	}
+
 	for n := range resMandatoryHdrs {
 		if !res.Headers.Has(n) {
 			errs = append(errs, newMissHdrErr(n))
 		}
 	}
+
 	if cseq, ok := res.Headers.CSeq(); ok && cseq.Method.Equal(RequestMethodAck) {
-		errs = append(errs, fmt.Errorf("invalid header %q: %w", cseq.CanonicName(), ErrMethodNotAllowed))
+		errs = append(errs, errors.Errorf("invalid header %q: %w", cseq.CanonicName(), ErrMethodNotAllowed))
 	}
+
 	if ct, ok := res.Headers.ContentLength(); ok {
 		if ct, bl := int(ct), len(res.Body); ct != bl {
-			errs = append(errs, errorutil.Errorf("content length mismatch: got %d, want %d", ct, bl))
+			errs = append(errs, errors.Errorf("content length mismatch: got %d, want %d", ct, bl))
 		}
 	}
 
 	if len(errs) > 0 {
-		return errtrace.Wrap(NewInvalidMessageError(errorutil.Join(errs...)))
+		return errors.Wrap(newInvalidMsgErr(errors.Join(errs...)))
 	}
+
 	return nil
 }
 
 func (res *Response) UnmarshalJSON(data []byte) error {
+	if res == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil response")
+	}
+
 	var resData struct {
 		Status  ResponseStatus `json:"status"`
 		Reason  ResponseReason `json:"reason"`
 		Proto   ProtoInfo      `json:"proto"`
 		Headers Headers        `json:"headers"`
-		Body    []byte         `json:"body"`
+		Body    []byte         `json:"body,omitempty"`
 	}
 	if err := json.Unmarshal(data, &resData); err != nil {
-		return errtrace.Wrap(err)
+		*res = Response{}
+		return errors.Wrap(err)
 	}
 
 	res.Status = resData.Status
@@ -330,6 +362,7 @@ func (res *Response) UnmarshalJSON(data []byte) error {
 	res.Proto = resData.Proto
 	res.Headers = resData.Headers
 	res.Body = resData.Body
+
 	return nil
 }
 
@@ -343,27 +376,31 @@ func NewInboundResponseEnvelope(
 	laddr, raddr netip.AddrPort,
 ) (*InboundResponseEnvelope, error) {
 	if res == nil {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid response"))
-	}
-	if tp == "" {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid transport protocol"))
-	}
-	if !laddr.IsValid() {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid local address"))
-	}
-	if !raddr.IsValid() {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid remote address"))
+		return nil, errors.NewInvalidArgumentErrorWrap("nil response")
 	}
 
-	me := &inboundMessageEnvelope[*Response]{
-		msgTime: time.Now(),
-		data:    new(MessageMetadata),
+	if !tp.IsValid() {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid transport protocol %q", tp)
 	}
-	me.msg.Store(res)
-	me.tp.Store(tp)
-	me.locAddr.Store(laddr)
-	me.rmtAddr.Store(raddr)
-	return &InboundResponseEnvelope{me}, nil
+
+	if !laddr.IsValid() {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid local address %q", laddr)
+	}
+
+	if !raddr.IsValid() {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid remote address %q", raddr)
+	}
+
+	r := &inboundMessageEnvelope[*Response]{
+		msg:     res,
+		msgTime: time.Now(),
+		meta:    new(MessageMetadata),
+	}
+	r.tp.Store(tp)
+	r.laddr.Store(netutil.UnmapAddrPort(laddr))
+	r.raddr.Store(netutil.UnmapAddrPort(raddr))
+
+	return &InboundResponseEnvelope{r}, nil
 }
 
 func (r *InboundResponseEnvelope) Message() *Response {
@@ -387,6 +424,13 @@ func (r *InboundResponseEnvelope) Body() []byte {
 	return r.inboundMessageEnvelope.Body()
 }
 
+func (r *InboundResponseEnvelope) MessageTime() time.Time {
+	if r == nil {
+		return time.Time{}
+	}
+	return r.inboundMessageEnvelope.MessageTime()
+}
+
 func (r *InboundResponseEnvelope) Transport() TransportProto {
 	if r == nil {
 		return ""
@@ -396,23 +440,16 @@ func (r *InboundResponseEnvelope) Transport() TransportProto {
 
 func (r *InboundResponseEnvelope) LocalAddr() netip.AddrPort {
 	if r == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return r.inboundMessageEnvelope.LocalAddr()
 }
 
 func (r *InboundResponseEnvelope) RemoteAddr() netip.AddrPort {
 	if r == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return r.inboundMessageEnvelope.RemoteAddr()
-}
-
-func (r *InboundResponseEnvelope) MessageTime() time.Time {
-	if r == nil {
-		return zeroTime
-	}
-	return r.inboundMessageEnvelope.MessageTime()
 }
 
 func (r *InboundResponseEnvelope) Metadata() *MessageMetadata {
@@ -426,21 +463,21 @@ func (r *InboundResponseEnvelope) Status() ResponseStatus {
 	if r == nil {
 		return 0
 	}
-	return r.message().Status
+	return r.msg.Status
 }
 
 func (r *InboundResponseEnvelope) Reason() ResponseReason {
 	if r == nil {
 		return ""
 	}
-	return r.message().Reason
+	return r.msg.Reason
 }
 
 func (r *InboundResponseEnvelope) RenderTo(w io.Writer, opts *RenderOptions) (int, error) {
 	if r == nil {
 		return 0, nil
 	}
-	return errtrace.Wrap2(r.inboundMessageEnvelope.RenderTo(w, opts))
+	return errors.Wrap2(r.inboundMessageEnvelope.RenderTo(w, opts))
 }
 
 func (r *InboundResponseEnvelope) Render(opts *RenderOptions) string {
@@ -454,21 +491,23 @@ func (r *InboundResponseEnvelope) String() string {
 	if r == nil {
 		return sNilTag
 	}
-	return r.message().String()
+	return r.msg.String()
 }
 
 func (r *InboundResponseEnvelope) Format(f fmt.State, verb rune) {
 	if r == nil {
-		f.Write(bNilTag)
+		f.Write(bNilTag) //nolint:errcheck
 		return
 	}
-	r.message().Format(f, verb)
+
+	r.msg.Format(f, verb)
 }
 
 func (r *InboundResponseEnvelope) Clone() Message {
 	if r == nil {
 		return nil
 	}
+
 	return &InboundResponseEnvelope{
 		r.inboundMessageEnvelope.Clone().(*inboundMessageEnvelope[*Response]), //nolint:forcetypeassert
 	}
@@ -478,9 +517,11 @@ func (r *InboundResponseEnvelope) Equal(v any) bool {
 	if r == nil {
 		return v == nil
 	}
+
 	if other, ok := v.(*InboundResponseEnvelope); ok {
 		return r.inboundMessageEnvelope.Equal(other.inboundMessageEnvelope)
 	}
+
 	return false
 }
 
@@ -493,28 +534,38 @@ func (r *InboundResponseEnvelope) IsValid() bool {
 
 func (r *InboundResponseEnvelope) Validate() error {
 	if r == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid response"))
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
 	}
-	return errtrace.Wrap(r.inboundMessageEnvelope.Validate())
+	return errors.Wrap(r.inboundMessageEnvelope.Validate())
 }
 
 func (r *InboundResponseEnvelope) MarshalJSON() ([]byte, error) {
 	if r == nil {
 		return jsonNull, nil
 	}
-	return errtrace.Wrap2(r.inboundMessageEnvelope.MarshalJSON())
+	return errors.Wrap2(r.inboundMessageEnvelope.MarshalJSON())
 }
 
 func (r *InboundResponseEnvelope) UnmarshalJSON(data []byte) error {
+	if r == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
+	}
+
 	if r.inboundMessageEnvelope == nil {
 		r.inboundMessageEnvelope = new(inboundMessageEnvelope[*Response])
 	}
-	return errtrace.Wrap(r.inboundMessageEnvelope.UnmarshalJSON(data))
+
+	if err := r.inboundMessageEnvelope.UnmarshalJSON(data); err != nil {
+		*r = InboundResponseEnvelope{}
+		return errors.Wrap(err)
+	}
+
+	return nil
 }
 
 func (r *InboundResponseEnvelope) LogValue() slog.Value {
 	if r == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
 	return r.inboundMessageEnvelope.LogValue()
 }
@@ -525,14 +576,15 @@ type OutboundResponseEnvelope struct {
 
 func NewOutboundResponseEnvelope(res *Response) (*OutboundResponseEnvelope, error) {
 	if res == nil {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid response"))
+		return nil, errors.NewInvalidArgumentErrorWrap("nil response")
 	}
 
 	me := &messageEnvelope[*Response]{
+		msg:     res,
 		msgTime: time.Now(),
-		data:    new(MessageMetadata),
+		meta:    new(MessageMetadata),
 	}
-	me.msg.Store(res)
+
 	return &OutboundResponseEnvelope{
 		&outboundMessageEnvelope[*Response]{
 			messageEnvelope: me,
@@ -551,6 +603,7 @@ func (r *OutboundResponseEnvelope) AccessMessage(update func(*Response)) {
 	if r == nil {
 		return
 	}
+
 	r.outboundMessageEnvelope.AccessMessage(update)
 }
 
@@ -568,6 +621,13 @@ func (r *OutboundResponseEnvelope) Body() []byte {
 	return r.outboundMessageEnvelope.Body()
 }
 
+func (r *OutboundResponseEnvelope) MessageTime() time.Time {
+	if r == nil {
+		return time.Time{}
+	}
+	return r.outboundMessageEnvelope.MessageTime()
+}
+
 func (r *OutboundResponseEnvelope) Transport() TransportProto {
 	if r == nil {
 		return ""
@@ -579,12 +639,13 @@ func (r *OutboundResponseEnvelope) SetTransport(tp TransportProto) {
 	if r == nil {
 		return
 	}
+
 	r.outboundMessageEnvelope.SetTransport(tp)
 }
 
 func (r *OutboundResponseEnvelope) LocalAddr() netip.AddrPort {
 	if r == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return r.outboundMessageEnvelope.LocalAddr()
 }
@@ -593,12 +654,13 @@ func (r *OutboundResponseEnvelope) SetLocalAddr(addr netip.AddrPort) {
 	if r == nil {
 		return
 	}
-	r.outboundMessageEnvelope.SetLocalAddr(addr)
+
+	r.outboundMessageEnvelope.SetLocalAddr(netutil.UnmapAddrPort(addr))
 }
 
 func (r *OutboundResponseEnvelope) RemoteAddr() netip.AddrPort {
 	if r == nil {
-		return zeroAddrPort
+		return netip.AddrPort{}
 	}
 	return r.outboundMessageEnvelope.RemoteAddr()
 }
@@ -607,14 +669,8 @@ func (r *OutboundResponseEnvelope) SetRemoteAddr(addr netip.AddrPort) {
 	if r == nil {
 		return
 	}
-	r.outboundMessageEnvelope.SetRemoteAddr(addr)
-}
 
-func (r *OutboundResponseEnvelope) MessageTime() time.Time {
-	if r == nil {
-		return zeroTime
-	}
-	return r.outboundMessageEnvelope.MessageTime()
+	r.outboundMessageEnvelope.SetRemoteAddr(netutil.UnmapAddrPort(addr))
 }
 
 func (r *OutboundResponseEnvelope) Metadata() *MessageMetadata {
@@ -631,7 +687,8 @@ func (r *OutboundResponseEnvelope) Status() ResponseStatus {
 
 	r.msgMu.RLock()
 	defer r.msgMu.RUnlock()
-	return r.message().Status
+
+	return r.msg.Status
 }
 
 func (r *OutboundResponseEnvelope) Reason() ResponseReason {
@@ -641,14 +698,15 @@ func (r *OutboundResponseEnvelope) Reason() ResponseReason {
 
 	r.msgMu.RLock()
 	defer r.msgMu.RUnlock()
-	return r.message().Reason
+
+	return r.msg.Reason
 }
 
 func (r *OutboundResponseEnvelope) RenderTo(w io.Writer, opts *RenderOptions) (int, error) {
 	if r == nil {
 		return 0, nil
 	}
-	return errtrace.Wrap2(r.outboundMessageEnvelope.RenderTo(w, opts))
+	return errors.Wrap2(r.outboundMessageEnvelope.RenderTo(w, opts))
 }
 
 func (r *OutboundResponseEnvelope) Render(opts *RenderOptions) string {
@@ -665,24 +723,27 @@ func (r *OutboundResponseEnvelope) String() string {
 
 	r.msgMu.RLock()
 	defer r.msgMu.RUnlock()
-	return r.message().String()
+
+	return r.msg.String()
 }
 
 func (r *OutboundResponseEnvelope) Format(f fmt.State, verb rune) {
 	if r == nil {
-		f.Write(bNilTag)
+		f.Write(bNilTag) //nolint:errcheck
 		return
 	}
 
 	r.msgMu.RLock()
 	defer r.msgMu.RUnlock()
-	r.message().Format(f, verb)
+
+	r.msg.Format(f, verb)
 }
 
 func (r *OutboundResponseEnvelope) Clone() Message {
 	if r == nil {
 		return nil
 	}
+
 	return &OutboundResponseEnvelope{
 		r.outboundMessageEnvelope.Clone().(*outboundMessageEnvelope[*Response]), //nolint:forcetypeassert
 	}
@@ -692,9 +753,11 @@ func (r *OutboundResponseEnvelope) Equal(v any) bool {
 	if r == nil {
 		return v == nil
 	}
+
 	if other, ok := v.(*OutboundResponseEnvelope); ok {
 		return r.outboundMessageEnvelope.Equal(other.outboundMessageEnvelope)
 	}
+
 	return false
 }
 
@@ -707,28 +770,41 @@ func (r *OutboundResponseEnvelope) IsValid() bool {
 
 func (r *OutboundResponseEnvelope) Validate() error {
 	if r == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid response"))
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
 	}
-	return errtrace.Wrap(r.outboundMessageEnvelope.Validate())
+	return errors.Wrap(r.outboundMessageEnvelope.Validate())
 }
 
 func (r *OutboundResponseEnvelope) MarshalJSON() ([]byte, error) {
 	if r == nil {
 		return jsonNull, nil
 	}
-	return errtrace.Wrap2(r.outboundMessageEnvelope.MarshalJSON())
+	return errors.Wrap2(r.outboundMessageEnvelope.MarshalJSON())
 }
 
 func (r *OutboundResponseEnvelope) UnmarshalJSON(data []byte) error {
+	if r == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil envelope")
+	}
+
 	if r.outboundMessageEnvelope == nil {
 		r.outboundMessageEnvelope = new(outboundMessageEnvelope[*Response])
 	}
-	return errtrace.Wrap(r.outboundMessageEnvelope.UnmarshalJSON(data))
+
+	r.msgMu.Lock()
+	defer r.msgMu.Unlock()
+
+	if err := r.unmarshalUnsafe(data); err != nil {
+		*r = OutboundResponseEnvelope{}
+		return errors.Wrap(err)
+	}
+
+	return nil
 }
 
 func (r *OutboundResponseEnvelope) LogValue() slog.Value {
 	if r == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
 	return r.outboundMessageEnvelope.LogValue()
 }
@@ -742,7 +818,7 @@ type ResponseReceiver interface {
 type ResponseReceiverFunc func(ctx context.Context, res *InboundResponseEnvelope) error
 
 func (fn ResponseReceiverFunc) RecvResponse(ctx context.Context, res *InboundResponseEnvelope) error {
-	return fn(ctx, res) //errtrace:skip
+	return errors.Wrap(fn(ctx, res))
 }
 
 type ResponseSender interface {
@@ -765,13 +841,13 @@ func (fn ResponseSenderFunc) SendResponse(
 	res *OutboundResponseEnvelope,
 	opts *SendResponseOptions,
 ) error {
-	return fn(ctx, res, opts) //errtrace:skip
+	return errors.Wrap(fn(ctx, res, opts))
 }
 
 // SendResponseOptions are options for sending a response.
 type SendResponseOptions struct {
 	// Timeout is the timeout for the response sending process.
-	// If zero, the default timeout 1m is used.
+	// If zero, the default timeout [MessageWriteTimeout] is used.
 	Timeout time.Duration `json:"timeout,omitempty"`
 	// RenderCompact is the flag that indicates whether the message should be rendered in compact form.
 	// See [RenderOptions] for more details.
@@ -780,7 +856,7 @@ type SendResponseOptions struct {
 
 func (o *SendResponseOptions) timeout() time.Duration {
 	if o == nil || o.Timeout == 0 {
-		return msgSendTimeout
+		return ConnWriteTimeout
 	}
 	return o.Timeout
 }
@@ -789,6 +865,7 @@ func (o *SendResponseOptions) rendOpts() *RenderOptions {
 	if o == nil {
 		return nil
 	}
+
 	return &RenderOptions{
 		Compact: o.RenderCompact,
 	}
@@ -798,6 +875,28 @@ func cloneSendResOpts(opts *SendResponseOptions) *SendResponseOptions {
 	if opts == nil {
 		return nil
 	}
+
 	newOpts := *opts
+
 	return &newOpts
+}
+
+// RespondOptions are options for respond helper functions.
+type RespondOptions struct {
+	*ResponseOptions     `json:"response_options,omitempty"`
+	*SendResponseOptions `json:"send_response_options,omitempty"`
+}
+
+func (o *RespondOptions) resOpts() *ResponseOptions {
+	if o == nil {
+		return nil
+	}
+	return o.ResponseOptions
+}
+
+func (o *RespondOptions) sendOpts() *SendResponseOptions {
+	if o == nil {
+		return nil
+	}
+	return o.SendResponseOptions
 }

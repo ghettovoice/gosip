@@ -16,6 +16,7 @@ func (vals Values) First(key string) (string, bool) {
 	if len(v) == 0 {
 		return "", false
 	}
+
 	return v[0], true
 }
 
@@ -24,6 +25,7 @@ func (vals Values) Last(key string) (string, bool) {
 	if len(v) == 0 {
 		return "", false
 	}
+
 	return v[len(v)-1], true
 }
 
@@ -45,8 +47,8 @@ func (vals Values) Prepend(key, value string) Values {
 	return vals
 }
 
-// Del deletes the values associated with the key.
-func (vals Values) Del(key string) Values {
+// Delete deletes the values associated with the key.
+func (vals Values) Delete(key string) Values {
 	delete(vals, util.LCase(key))
 	return vals
 }
@@ -70,8 +72,10 @@ func (vals Values) Clone() Values {
 		if vals2 == nil {
 			vals2 = make(Values, len(vals))
 		}
+
 		vals2[k] = make([]string, len(vs))
 		copy(vals2[k], vs)
 	}
+
 	return vals2
 }

@@ -12,6 +12,7 @@ func Unescape[T ~string | ~[]byte](s T) T {
 
 	var b bytes.Buffer
 	b.Grow(len(s))
+
 	for i := 0; i < len(s); i++ {
 		if s[i] == '%' && i+2 <= len(s) && ishex(s[i+1]) && ishex(s[i+2]) {
 			b.WriteByte(unhex(s[i+1])<<4 | unhex(s[i+2]))
@@ -20,6 +21,7 @@ func Unescape[T ~string | ~[]byte](s T) T {
 			b.WriteByte(s[i])
 		}
 	}
+
 	return T(b.Bytes())
 }
 
@@ -35,6 +37,7 @@ func Escape[T ~string | ~[]byte](s T, shouldEscape func(c byte) bool) T {
 
 	var b bytes.Buffer
 	b.Grow(len(s))
+
 	for i := 0; i < len(s); i++ {
 		switch {
 		case s[i] == '%' && i+2 <= len(s) && ishex(s[i+1]) && ishex(s[i+2]):
@@ -50,6 +53,7 @@ func Escape[T ~string | ~[]byte](s T, shouldEscape func(c byte) bool) T {
 			b.WriteByte(s[i])
 		}
 	}
+
 	return T(b.Bytes())
 }
 
@@ -64,6 +68,7 @@ func ishex(c byte) bool {
 	case 'A' <= c && c <= 'F':
 		return true
 	}
+
 	return false
 }
 
@@ -76,6 +81,7 @@ func unhex(c byte) byte {
 	case 'A' <= c && c <= 'F':
 		return c - 'A' + 10
 	}
+
 	return 0
 }
 

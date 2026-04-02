@@ -1229,7 +1229,7 @@ func (desc *OperatorsDescr) ACKm(in []byte, pos uint, ns *abnf.Nodes) error {
 	desc.ackmOnce.Do(func() {
 		desc.ackm = abnf.Literal("ACKm", []byte{65, 67, 75})
 	})
-	return desc.ackm(in, pos, ns) //errtrace:skip
+	return desc.ackm(in, pos, ns)
 }
 
 // AbsPath operator: abs-path = "/" path-segments
@@ -1241,7 +1241,7 @@ func (desc *OperatorsDescr) AbsPath(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.PathSegments,
 		)
 	})
-	return desc.absPath(in, pos, ns) //errtrace:skip
+	return desc.absPath(in, pos, ns)
 }
 
 // AbsoluteURI operator: absoluteURI = scheme ":" ( hier-part / opaque-part )
@@ -1258,7 +1258,7 @@ func (desc *OperatorsDescr) AbsoluteURI(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.absoluteuri(in, pos, ns) //errtrace:skip
+	return desc.absoluteuri(in, pos, ns)
 }
 
 // Accept operator: Accept = "Accept" HCOLON [ accept-range *(COMMA accept-range) ]
@@ -1285,7 +1285,7 @@ func (desc *OperatorsDescr) Accept(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.accept(in, pos, ns) //errtrace:skip
+	return desc.accept(in, pos, ns)
 }
 
 // AcceptEncoding operator: Accept-Encoding = "Accept-Encoding" HCOLON [ encoding *(COMMA encoding) ]
@@ -1312,7 +1312,7 @@ func (desc *OperatorsDescr) AcceptEncoding(in []byte, pos uint, ns *abnf.Nodes) 
 			),
 		)
 	})
-	return desc.acceptEncoding(in, pos, ns) //errtrace:skip
+	return desc.acceptEncoding(in, pos, ns)
 }
 
 // AcceptLanguage operator: Accept-Language = "Accept-Language" HCOLON [ language *(COMMA language) ]
@@ -1339,7 +1339,7 @@ func (desc *OperatorsDescr) AcceptLanguage(in []byte, pos uint, ns *abnf.Nodes) 
 			),
 		)
 	})
-	return desc.acceptLanguage(in, pos, ns) //errtrace:skip
+	return desc.acceptLanguage(in, pos, ns)
 }
 
 // AcceptParam operator: accept-param = ("q" EQUAL qvalue) / generic-param
@@ -1356,7 +1356,7 @@ func (desc *OperatorsDescr) AcceptParam(in []byte, pos uint, ns *abnf.Nodes) err
 			desc.GenericParam,
 		)
 	})
-	return desc.acceptParam(in, pos, ns) //errtrace:skip
+	return desc.acceptParam(in, pos, ns)
 }
 
 // AcceptRange operator: accept-range = media-range *(SEMI accept-param)
@@ -1375,7 +1375,7 @@ func (desc *OperatorsDescr) AcceptRange(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.acceptRange(in, pos, ns) //errtrace:skip
+	return desc.acceptRange(in, pos, ns)
 }
 
 // AddrSpec operator: addr-spec = SIP-URI / SIPS-URI / absoluteURI
@@ -1388,7 +1388,7 @@ func (desc *OperatorsDescr) AddrSpec(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.AbsoluteURI,
 		)
 	})
-	return desc.addrSpec(in, pos, ns) //errtrace:skip
+	return desc.addrSpec(in, pos, ns)
 }
 
 // Ainfo operator: ainfo = nextnonce / message-qop / response-auth / cnonce / nonce-count
@@ -1403,7 +1403,7 @@ func (desc *OperatorsDescr) Ainfo(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.NonceCount,
 		)
 	})
-	return desc.ainfo(in, pos, ns) //errtrace:skip
+	return desc.ainfo(in, pos, ns)
 }
 
 // AlertInfo operator: Alert-Info = "Alert-Info" HCOLON alert-param *(COMMA alert-param)
@@ -1424,7 +1424,7 @@ func (desc *OperatorsDescr) AlertInfo(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.alertInfo(in, pos, ns) //errtrace:skip
+	return desc.alertInfo(in, pos, ns)
 }
 
 // AlertParam operator: alert-param = LAQUOT absoluteURI RAQUOT *( SEMI generic-param )
@@ -1445,7 +1445,7 @@ func (desc *OperatorsDescr) AlertParam(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.alertParam(in, pos, ns) //errtrace:skip
+	return desc.alertParam(in, pos, ns)
 }
 
 // Algorithm operator: algorithm = "algorithm" EQUAL ( "MD5" / "MD5-sess" / token )
@@ -1463,7 +1463,7 @@ func (desc *OperatorsDescr) Algorithm(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.algorithm(in, pos, ns) //errtrace:skip
+	return desc.algorithm(in, pos, ns)
 }
 
 // Allow operator: Allow = "Allow" HCOLON [Method *(COMMA Method)]
@@ -1490,7 +1490,7 @@ func (desc *OperatorsDescr) Allow(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.allow(in, pos, ns) //errtrace:skip
+	return desc.allow(in, pos, ns)
 }
 
 // Alphanum operator: alphanum = ALPHA / DIGIT
@@ -1502,7 +1502,7 @@ func (desc *OperatorsDescr) Alphanum(in []byte, pos uint, ns *abnf.Nodes) error 
 			abnf_core.Operators().DIGIT,
 		)
 	})
-	return desc.alphanum(in, pos, ns) //errtrace:skip
+	return desc.alphanum(in, pos, ns)
 }
 
 // AuthParam operator: auth-param = auth-param-name EQUAL ( token / quoted-string )
@@ -1519,7 +1519,7 @@ func (desc *OperatorsDescr) AuthParam(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.authParam(in, pos, ns) //errtrace:skip
+	return desc.authParam(in, pos, ns)
 }
 
 // AuthParamName operator: auth-param-name = token
@@ -1530,7 +1530,7 @@ func (desc *OperatorsDescr) AuthParamName(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.Token,
 		)
 	})
-	return desc.authParamName(in, pos, ns) //errtrace:skip
+	return desc.authParamName(in, pos, ns)
 }
 
 // AuthScheme operator: auth-scheme = token
@@ -1541,7 +1541,7 @@ func (desc *OperatorsDescr) AuthScheme(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.Token,
 		)
 	})
-	return desc.authScheme(in, pos, ns) //errtrace:skip
+	return desc.authScheme(in, pos, ns)
 }
 
 // AuthenticationInfo operator: Authentication-Info = "Authentication-Info" HCOLON ainfo *(COMMA ainfo)
@@ -1562,7 +1562,7 @@ func (desc *OperatorsDescr) AuthenticationInfo(in []byte, pos uint, ns *abnf.Nod
 			),
 		)
 	})
-	return desc.authenticationInfo(in, pos, ns) //errtrace:skip
+	return desc.authenticationInfo(in, pos, ns)
 }
 
 // Authority operator: authority = srvr / reg-name
@@ -1574,7 +1574,7 @@ func (desc *OperatorsDescr) Authority(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.RegName,
 		)
 	})
-	return desc.authority(in, pos, ns) //errtrace:skip
+	return desc.authority(in, pos, ns)
 }
 
 // Authorization operator: Authorization = "Authorization" HCOLON credentials
@@ -1587,7 +1587,7 @@ func (desc *OperatorsDescr) Authorization(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.Credentials,
 		)
 	})
-	return desc.authorization(in, pos, ns) //errtrace:skip
+	return desc.authorization(in, pos, ns)
 }
 
 // AuthzServer operator: authz-server = absoluteURI
@@ -1598,7 +1598,7 @@ func (desc *OperatorsDescr) AuthzServer(in []byte, pos uint, ns *abnf.Nodes) err
 			desc.AbsoluteURI,
 		)
 	})
-	return desc.authzServer(in, pos, ns) //errtrace:skip
+	return desc.authzServer(in, pos, ns)
 }
 
 // AuthzServerParam operator: authz-server-param = "authz_server" EQUAL DQUOTE authz-server DQUOTE
@@ -1613,7 +1613,7 @@ func (desc *OperatorsDescr) AuthzServerParam(in []byte, pos uint, ns *abnf.Nodes
 			abnf_core.Operators().DQUOTE,
 		)
 	})
-	return desc.authzServerParam(in, pos, ns) //errtrace:skip
+	return desc.authzServerParam(in, pos, ns)
 }
 
 // BYEm operator: BYEm = %x42.59.45
@@ -1621,7 +1621,7 @@ func (desc *OperatorsDescr) BYEm(in []byte, pos uint, ns *abnf.Nodes) error {
 	desc.byemOnce.Do(func() {
 		desc.byem = abnf.Literal("BYEm", []byte{66, 89, 69})
 	})
-	return desc.byem(in, pos, ns) //errtrace:skip
+	return desc.byem(in, pos, ns)
 }
 
 // BearerCln operator: bearer-cln = realm / scope-param / authz-server-param / error-param / auth-param
@@ -1636,7 +1636,7 @@ func (desc *OperatorsDescr) BearerCln(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.AuthParam,
 		)
 	})
-	return desc.bearerCln(in, pos, ns) //errtrace:skip
+	return desc.bearerCln(in, pos, ns)
 }
 
 // BearerResponse operator: bearer-response = 1*VSCHAR
@@ -1647,7 +1647,7 @@ func (desc *OperatorsDescr) BearerResponse(in []byte, pos uint, ns *abnf.Nodes) 
 			desc.VSCHAR,
 		)
 	})
-	return desc.bearerResponse(in, pos, ns) //errtrace:skip
+	return desc.bearerResponse(in, pos, ns)
 }
 
 // CANCELm operator: CANCELm = %x43.41.4E.43.45.4C
@@ -1655,7 +1655,7 @@ func (desc *OperatorsDescr) CANCELm(in []byte, pos uint, ns *abnf.Nodes) error {
 	desc.cancelmOnce.Do(func() {
 		desc.cancelm = abnf.Literal("CANCELm", []byte{67, 65, 78, 67, 69, 76})
 	})
-	return desc.cancelm(in, pos, ns) //errtrace:skip
+	return desc.cancelm(in, pos, ns)
 }
 
 // COLON operator: COLON = SWS ":" SWS
@@ -1668,7 +1668,7 @@ func (desc *OperatorsDescr) COLON(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.colon(in, pos, ns) //errtrace:skip
+	return desc.colon(in, pos, ns)
 }
 
 // COMMA operator: COMMA = SWS "," SWS
@@ -1681,7 +1681,7 @@ func (desc *OperatorsDescr) COMMA(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.comma(in, pos, ns) //errtrace:skip
+	return desc.comma(in, pos, ns)
 }
 
 // CPExpires operator: c-p-expires = "expires" EQUAL delta-seconds
@@ -1694,7 +1694,7 @@ func (desc *OperatorsDescr) CPExpires(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.DeltaSeconds,
 		)
 	})
-	return desc.cPExpires(in, pos, ns) //errtrace:skip
+	return desc.cPExpires(in, pos, ns)
 }
 
 // CPQ operator: c-p-q = "q" EQUAL qvalue
@@ -1707,7 +1707,7 @@ func (desc *OperatorsDescr) CPQ(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Qvalue,
 		)
 	})
-	return desc.cPQ(in, pos, ns) //errtrace:skip
+	return desc.cPQ(in, pos, ns)
 }
 
 // CSeq operator: CSeq = "CSeq" HCOLON 1*DIGIT LWS Method
@@ -1725,7 +1725,7 @@ func (desc *OperatorsDescr) CSeq(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Method,
 		)
 	})
-	return desc.cseq(in, pos, ns) //errtrace:skip
+	return desc.cseq(in, pos, ns)
 }
 
 // CallID operator: Call-ID = ( "Call-ID" / "i" ) HCOLON callid
@@ -1742,7 +1742,7 @@ func (desc *OperatorsDescr) CallID(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Callid,
 		)
 	})
-	return desc.callID(in, pos, ns) //errtrace:skip
+	return desc.callID(in, pos, ns)
 }
 
 // CallInfo operator: Call-Info = "Call-Info" HCOLON info *(COMMA info)
@@ -1763,7 +1763,7 @@ func (desc *OperatorsDescr) CallInfo(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.callInfo(in, pos, ns) //errtrace:skip
+	return desc.callInfo(in, pos, ns)
 }
 
 // Callid operator: callid = word [ "@" word ]
@@ -1782,7 +1782,7 @@ func (desc *OperatorsDescr) Callid(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.callid(in, pos, ns) //errtrace:skip
+	return desc.callid(in, pos, ns)
 }
 
 // Challenge operator: challenge = ("Digest" LWS digest-cln *(COMMA digest-cln)) / ("Bearer" LWS bearer-cln *(COMMA bearer-cln)) ; RFC 8898 patch / other-challenge
@@ -1821,7 +1821,7 @@ func (desc *OperatorsDescr) Challenge(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.OtherChallenge,
 		)
 	})
-	return desc.challenge(in, pos, ns) //errtrace:skip
+	return desc.challenge(in, pos, ns)
 }
 
 // ClientError operator: Client-Error = "400" ; Bad Request / "401" ; Unauthorized / "402" ; Payment Required / "403" ; Forbidden / "404" ; Not Found / "405" ; Method Not Allowed / "406" ; Not Acceptable / "407" ; Proxy Authentication Required / "408" ; Request Timeout / "410" ; Gone / "413" ; Request Entity Too Large / "414" ; Request-URI Too Large / "415" ; Unsupported Media Type / "416" ; Unsupported URI Scheme / "420" ; Bad Extension / "421" ; Extension Required / "423" ; Interval Too Brief / "480" ; Temporarily not available / "481" ; Call Leg/Transaction Does Not Exist / "482" ; Loop Detected / "483" ; Too Many Hops / "484" ; Address Incomplete / "485" ; Ambiguous / "486" ; Busy Here / "487" ; Request Terminated / "488" ; Not Acceptable Here / "491" ; Request Pending / "493"
@@ -1859,7 +1859,7 @@ func (desc *OperatorsDescr) ClientError(in []byte, pos uint, ns *abnf.Nodes) err
 			abnf.Literal("\"493\"", []byte{52, 57, 51}),
 		)
 	})
-	return desc.clientError(in, pos, ns) //errtrace:skip
+	return desc.clientError(in, pos, ns)
 }
 
 // Cnonce operator: cnonce = "cnonce" EQUAL cnonce-value
@@ -1872,7 +1872,7 @@ func (desc *OperatorsDescr) Cnonce(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.CnonceValue,
 		)
 	})
-	return desc.cnonce(in, pos, ns) //errtrace:skip
+	return desc.cnonce(in, pos, ns)
 }
 
 // CnonceValue operator: cnonce-value = nonce-value
@@ -1883,7 +1883,7 @@ func (desc *OperatorsDescr) CnonceValue(in []byte, pos uint, ns *abnf.Nodes) err
 			desc.NonceValue,
 		)
 	})
-	return desc.cnonceValue(in, pos, ns) //errtrace:skip
+	return desc.cnonceValue(in, pos, ns)
 }
 
 // Codings operator: codings = content-coding / "*"
@@ -1895,7 +1895,7 @@ func (desc *OperatorsDescr) Codings(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Literal("\"*\"", []byte{42}),
 		)
 	})
-	return desc.codings(in, pos, ns) //errtrace:skip
+	return desc.codings(in, pos, ns)
 }
 
 // Comment operator: comment = LPAREN *(ctext / quoted-pair) RPAREN
@@ -1915,7 +1915,7 @@ func (desc *OperatorsDescr) Comment(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.RPAREN,
 		)
 	})
-	return desc.comment(in, pos, ns) //errtrace:skip
+	return desc.comment(in, pos, ns)
 }
 
 // CompositeType operator: composite-type = "message" / "multipart" / extension-token
@@ -1928,7 +1928,7 @@ func (desc *OperatorsDescr) CompositeType(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.ExtensionToken,
 		)
 	})
-	return desc.compositeType(in, pos, ns) //errtrace:skip
+	return desc.compositeType(in, pos, ns)
 }
 
 // Contact operator: Contact = ("Contact" / "m" ) HCOLON ( STAR / (contact-param *(COMMA contact-param)))
@@ -1960,7 +1960,7 @@ func (desc *OperatorsDescr) Contact(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.contact(in, pos, ns) //errtrace:skip
+	return desc.contact(in, pos, ns)
 }
 
 // ContactExtension operator: contact-extension = generic-param
@@ -1971,7 +1971,7 @@ func (desc *OperatorsDescr) ContactExtension(in []byte, pos uint, ns *abnf.Nodes
 			desc.GenericParam,
 		)
 	})
-	return desc.contactExtension(in, pos, ns) //errtrace:skip
+	return desc.contactExtension(in, pos, ns)
 }
 
 // ContactParam operator: contact-param = (name-addr / addr-spec) *(SEMI contact-params)
@@ -1994,7 +1994,7 @@ func (desc *OperatorsDescr) ContactParam(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.contactParam(in, pos, ns) //errtrace:skip
+	return desc.contactParam(in, pos, ns)
 }
 
 // ContactParams operator: contact-params = c-p-q / c-p-expires / contact-extension
@@ -2007,7 +2007,7 @@ func (desc *OperatorsDescr) ContactParams(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.ContactExtension,
 		)
 	})
-	return desc.contactParams(in, pos, ns) //errtrace:skip
+	return desc.contactParams(in, pos, ns)
 }
 
 // ContentCoding operator: content-coding = token
@@ -2018,7 +2018,7 @@ func (desc *OperatorsDescr) ContentCoding(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.Token,
 		)
 	})
-	return desc.contentCoding(in, pos, ns) //errtrace:skip
+	return desc.contentCoding(in, pos, ns)
 }
 
 // ContentDisposition operator: Content-Disposition = "Content-Disposition" HCOLON disp-type *( SEMI disp-param )
@@ -2039,7 +2039,7 @@ func (desc *OperatorsDescr) ContentDisposition(in []byte, pos uint, ns *abnf.Nod
 			),
 		)
 	})
-	return desc.contentDisposition(in, pos, ns) //errtrace:skip
+	return desc.contentDisposition(in, pos, ns)
 }
 
 // ContentEncoding operator: Content-Encoding = ( "Content-Encoding" / "e" ) HCOLON content-coding *(COMMA content-coding)
@@ -2064,7 +2064,7 @@ func (desc *OperatorsDescr) ContentEncoding(in []byte, pos uint, ns *abnf.Nodes)
 			),
 		)
 	})
-	return desc.contentEncoding(in, pos, ns) //errtrace:skip
+	return desc.contentEncoding(in, pos, ns)
 }
 
 // ContentLanguage operator: Content-Language = "Content-Language" HCOLON language-tag *(COMMA language-tag)
@@ -2085,7 +2085,7 @@ func (desc *OperatorsDescr) ContentLanguage(in []byte, pos uint, ns *abnf.Nodes)
 			),
 		)
 	})
-	return desc.contentLanguage(in, pos, ns) //errtrace:skip
+	return desc.contentLanguage(in, pos, ns)
 }
 
 // ContentLength operator: Content-Length = ( "Content-Length" / "l" ) HCOLON 1*DIGIT
@@ -2105,7 +2105,7 @@ func (desc *OperatorsDescr) ContentLength(in []byte, pos uint, ns *abnf.Nodes) e
 			),
 		)
 	})
-	return desc.contentLength(in, pos, ns) //errtrace:skip
+	return desc.contentLength(in, pos, ns)
 }
 
 // ContentType operator: Content-Type = ( "Content-Type" / "c" ) HCOLON media-type
@@ -2122,7 +2122,7 @@ func (desc *OperatorsDescr) ContentType(in []byte, pos uint, ns *abnf.Nodes) err
 			desc.MediaType,
 		)
 	})
-	return desc.contentType(in, pos, ns) //errtrace:skip
+	return desc.contentType(in, pos, ns)
 }
 
 // Credentials operator: credentials = ("Digest" LWS digest-response) / ("Bearer" LWS bearer-response) ; RFC 8898 patch / other-response
@@ -2145,7 +2145,7 @@ func (desc *OperatorsDescr) Credentials(in []byte, pos uint, ns *abnf.Nodes) err
 			desc.OtherResponse,
 		)
 	})
-	return desc.credentials(in, pos, ns) //errtrace:skip
+	return desc.credentials(in, pos, ns)
 }
 
 // Ctext operator: ctext = %x21-27 / %x2A-5B / %x5D-7E / UTF8-NONASCII / LWS
@@ -2160,7 +2160,7 @@ func (desc *OperatorsDescr) Ctext(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.LWS,
 		)
 	})
-	return desc.ctext(in, pos, ns) //errtrace:skip
+	return desc.ctext(in, pos, ns)
 }
 
 // Date operator: Date = "Date" HCOLON SIP-date
@@ -2173,7 +2173,7 @@ func (desc *OperatorsDescr) Date(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SIPDate,
 		)
 	})
-	return desc.date(in, pos, ns) //errtrace:skip
+	return desc.date(in, pos, ns)
 }
 
 // Date1 operator: date1 = 2DIGIT SP month SP 4DIGIT
@@ -2196,7 +2196,7 @@ func (desc *OperatorsDescr) Date1(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.date1(in, pos, ns) //errtrace:skip
+	return desc.date1(in, pos, ns)
 }
 
 // DecOctet operator: dec-octet = DIGIT ; 0-9 / %x31-39 DIGIT ; 10-99 / "1" 2DIGIT ; 100-199 / "2" %x30-34 DIGIT ; 200-249 / "25" %x30-35
@@ -2232,7 +2232,7 @@ func (desc *OperatorsDescr) DecOctet(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.decOctet(in, pos, ns) //errtrace:skip
+	return desc.decOctet(in, pos, ns)
 }
 
 // Delay operator: delay = *(DIGIT) [ "." *(DIGIT) ]
@@ -2257,7 +2257,7 @@ func (desc *OperatorsDescr) Delay(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.delay(in, pos, ns) //errtrace:skip
+	return desc.delay(in, pos, ns)
 }
 
 // DeltaSeconds operator: delta-seconds = 1*DIGIT
@@ -2268,7 +2268,7 @@ func (desc *OperatorsDescr) DeltaSeconds(in []byte, pos uint, ns *abnf.Nodes) er
 			abnf_core.Operators().DIGIT,
 		)
 	})
-	return desc.deltaSeconds(in, pos, ns) //errtrace:skip
+	return desc.deltaSeconds(in, pos, ns)
 }
 
 // DigResp operator: dig-resp = username / realm / nonce / digest-uri / dresponse / algorithm / cnonce / opaque / message-qop / nonce-count / auth-param
@@ -2289,7 +2289,7 @@ func (desc *OperatorsDescr) DigResp(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.AuthParam,
 		)
 	})
-	return desc.digResp(in, pos, ns) //errtrace:skip
+	return desc.digResp(in, pos, ns)
 }
 
 // DigestCln operator: digest-cln = realm / domain / nonce / opaque / stale / algorithm / qop-options / auth-param
@@ -2307,7 +2307,7 @@ func (desc *OperatorsDescr) DigestCln(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.AuthParam,
 		)
 	})
-	return desc.digestCln(in, pos, ns) //errtrace:skip
+	return desc.digestCln(in, pos, ns)
 }
 
 // DigestResponse operator: digest-response = dig-resp *(COMMA dig-resp)
@@ -2326,7 +2326,7 @@ func (desc *OperatorsDescr) DigestResponse(in []byte, pos uint, ns *abnf.Nodes) 
 			),
 		)
 	})
-	return desc.digestResponse(in, pos, ns) //errtrace:skip
+	return desc.digestResponse(in, pos, ns)
 }
 
 // DigestUri operator: digest-uri = "uri" EQUAL LDQUOT digest-uri-value RDQUOT
@@ -2341,7 +2341,7 @@ func (desc *OperatorsDescr) DigestUri(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.RDQUOT,
 		)
 	})
-	return desc.digestUri(in, pos, ns) //errtrace:skip
+	return desc.digestUri(in, pos, ns)
 }
 
 // DigestUriValue operator: digest-uri-value = request-uri
@@ -2352,7 +2352,7 @@ func (desc *OperatorsDescr) DigestUriValue(in []byte, pos uint, ns *abnf.Nodes) 
 			desc.RequestUri,
 		)
 	})
-	return desc.digestUriValue(in, pos, ns) //errtrace:skip
+	return desc.digestUriValue(in, pos, ns)
 }
 
 // DiscreteType operator: discrete-type = "text" / "image" / "audio" / "video" / "application" / extension-token
@@ -2368,7 +2368,7 @@ func (desc *OperatorsDescr) DiscreteType(in []byte, pos uint, ns *abnf.Nodes) er
 			desc.ExtensionToken,
 		)
 	})
-	return desc.discreteType(in, pos, ns) //errtrace:skip
+	return desc.discreteType(in, pos, ns)
 }
 
 // DispExtensionToken operator: disp-extension-token = token
@@ -2379,7 +2379,7 @@ func (desc *OperatorsDescr) DispExtensionToken(in []byte, pos uint, ns *abnf.Nod
 			desc.Token,
 		)
 	})
-	return desc.dispExtensionToken(in, pos, ns) //errtrace:skip
+	return desc.dispExtensionToken(in, pos, ns)
 }
 
 // DispParam operator: disp-param = handling-param / generic-param
@@ -2391,7 +2391,7 @@ func (desc *OperatorsDescr) DispParam(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.GenericParam,
 		)
 	})
-	return desc.dispParam(in, pos, ns) //errtrace:skip
+	return desc.dispParam(in, pos, ns)
 }
 
 // DispType operator: disp-type = "render" / "session" / "icon" / "alert" / disp-extension-token
@@ -2406,7 +2406,7 @@ func (desc *OperatorsDescr) DispType(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.DispExtensionToken,
 		)
 	})
-	return desc.dispType(in, pos, ns) //errtrace:skip
+	return desc.dispType(in, pos, ns)
 }
 
 // DisplayName operator: display-name = *(token LWS)/ quoted-string
@@ -2425,7 +2425,7 @@ func (desc *OperatorsDescr) DisplayName(in []byte, pos uint, ns *abnf.Nodes) err
 			desc.QuotedString,
 		)
 	})
-	return desc.displayName(in, pos, ns) //errtrace:skip
+	return desc.displayName(in, pos, ns)
 }
 
 // Domain operator: domain = "domain" EQUAL LDQUOT URI *( 1*SP URI ) RDQUOT
@@ -2451,7 +2451,7 @@ func (desc *OperatorsDescr) Domain(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.RDQUOT,
 		)
 	})
-	return desc.domain(in, pos, ns) //errtrace:skip
+	return desc.domain(in, pos, ns)
 }
 
 // Domainlabel operator: domainlabel = alphanum / alphanum *( alphanum / "-" ) alphanum
@@ -2475,7 +2475,7 @@ func (desc *OperatorsDescr) Domainlabel(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.domainlabel(in, pos, ns) //errtrace:skip
+	return desc.domainlabel(in, pos, ns)
 }
 
 // Dresponse operator: dresponse = "response" EQUAL request-digest
@@ -2488,7 +2488,7 @@ func (desc *OperatorsDescr) Dresponse(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.RequestDigest,
 		)
 	})
-	return desc.dresponse(in, pos, ns) //errtrace:skip
+	return desc.dresponse(in, pos, ns)
 }
 
 // EQUAL operator: EQUAL = SWS "=" SWS
@@ -2501,7 +2501,7 @@ func (desc *OperatorsDescr) EQUAL(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.equal(in, pos, ns) //errtrace:skip
+	return desc.equal(in, pos, ns)
 }
 
 // Encoding operator: encoding = codings *(SEMI accept-param)
@@ -2520,7 +2520,7 @@ func (desc *OperatorsDescr) Encoding(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.encoding(in, pos, ns) //errtrace:skip
+	return desc.encoding(in, pos, ns)
 }
 
 // Error operator: error = 1*NQSCHAR
@@ -2531,7 +2531,7 @@ func (desc *OperatorsDescr) Error(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.NQSCHAR,
 		)
 	})
-	return desc.error(in, pos, ns) //errtrace:skip
+	return desc.error(in, pos, ns)
 }
 
 // ErrorInfo operator: Error-Info = "Error-Info" HCOLON error-uri *(COMMA error-uri)
@@ -2552,7 +2552,7 @@ func (desc *OperatorsDescr) ErrorInfo(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.errorInfo(in, pos, ns) //errtrace:skip
+	return desc.errorInfo(in, pos, ns)
 }
 
 // ErrorParam operator: error-param = "error" EQUAL DQUOTE error DQUOTE
@@ -2567,7 +2567,7 @@ func (desc *OperatorsDescr) ErrorParam(in []byte, pos uint, ns *abnf.Nodes) erro
 			abnf_core.Operators().DQUOTE,
 		)
 	})
-	return desc.errorParam(in, pos, ns) //errtrace:skip
+	return desc.errorParam(in, pos, ns)
 }
 
 // ErrorUri operator: error-uri = LAQUOT absoluteURI RAQUOT *( SEMI generic-param )
@@ -2588,7 +2588,7 @@ func (desc *OperatorsDescr) ErrorUri(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.errorUri(in, pos, ns) //errtrace:skip
+	return desc.errorUri(in, pos, ns)
 }
 
 // Escaped operator: escaped = "%" HEXDIG HEXDIG
@@ -2601,7 +2601,7 @@ func (desc *OperatorsDescr) Escaped(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf_core.Operators().HEXDIG,
 		)
 	})
-	return desc.escaped(in, pos, ns) //errtrace:skip
+	return desc.escaped(in, pos, ns)
 }
 
 // Expires operator: Expires = "Expires" HCOLON delta-seconds
@@ -2614,7 +2614,7 @@ func (desc *OperatorsDescr) Expires(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.DeltaSeconds,
 		)
 	})
-	return desc.expires(in, pos, ns) //errtrace:skip
+	return desc.expires(in, pos, ns)
 }
 
 // ExtensionCode operator: extension-code = 3DIGIT
@@ -2626,7 +2626,7 @@ func (desc *OperatorsDescr) ExtensionCode(in []byte, pos uint, ns *abnf.Nodes) e
 			abnf_core.Operators().DIGIT,
 		)
 	})
-	return desc.extensionCode(in, pos, ns) //errtrace:skip
+	return desc.extensionCode(in, pos, ns)
 }
 
 // ExtensionHeader operator: extension-header = header-name HCOLON header-value
@@ -2639,7 +2639,7 @@ func (desc *OperatorsDescr) ExtensionHeader(in []byte, pos uint, ns *abnf.Nodes)
 			desc.HeaderValue,
 		)
 	})
-	return desc.extensionHeader(in, pos, ns) //errtrace:skip
+	return desc.extensionHeader(in, pos, ns)
 }
 
 // ExtensionMethod operator: extension-method = token
@@ -2650,7 +2650,7 @@ func (desc *OperatorsDescr) ExtensionMethod(in []byte, pos uint, ns *abnf.Nodes)
 			desc.Token,
 		)
 	})
-	return desc.extensionMethod(in, pos, ns) //errtrace:skip
+	return desc.extensionMethod(in, pos, ns)
 }
 
 // ExtensionToken operator: extension-token = ietf-token / x-token
@@ -2662,7 +2662,7 @@ func (desc *OperatorsDescr) ExtensionToken(in []byte, pos uint, ns *abnf.Nodes) 
 			desc.XToken,
 		)
 	})
-	return desc.extensionToken(in, pos, ns) //errtrace:skip
+	return desc.extensionToken(in, pos, ns)
 }
 
 // From operator: From = ( "From" / "f" ) HCOLON from-spec
@@ -2679,7 +2679,7 @@ func (desc *OperatorsDescr) From(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.FromSpec,
 		)
 	})
-	return desc.from(in, pos, ns) //errtrace:skip
+	return desc.from(in, pos, ns)
 }
 
 // FromParam operator: from-param = tag-param / generic-param
@@ -2691,7 +2691,7 @@ func (desc *OperatorsDescr) FromParam(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.GenericParam,
 		)
 	})
-	return desc.fromParam(in, pos, ns) //errtrace:skip
+	return desc.fromParam(in, pos, ns)
 }
 
 // FromSpec operator: from-spec = ( name-addr / addr-spec ) *( SEMI from-param )
@@ -2714,7 +2714,7 @@ func (desc *OperatorsDescr) FromSpec(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.fromSpec(in, pos, ns) //errtrace:skip
+	return desc.fromSpec(in, pos, ns)
 }
 
 // GenValue operator: gen-value = token / host / quoted-string
@@ -2727,7 +2727,7 @@ func (desc *OperatorsDescr) GenValue(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.QuotedString,
 		)
 	})
-	return desc.genValue(in, pos, ns) //errtrace:skip
+	return desc.genValue(in, pos, ns)
 }
 
 // GenericParam operator: generic-param = token [ EQUAL gen-value ]
@@ -2746,7 +2746,7 @@ func (desc *OperatorsDescr) GenericParam(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.genericParam(in, pos, ns) //errtrace:skip
+	return desc.genericParam(in, pos, ns)
 }
 
 // GlobalFailure operator: Global-Failure = "600" ; Busy Everywhere / "603" ; Decline / "604" ; Does not exist anywhere / "606"
@@ -2760,7 +2760,7 @@ func (desc *OperatorsDescr) GlobalFailure(in []byte, pos uint, ns *abnf.Nodes) e
 			abnf.Literal("\"606\"", []byte{54, 48, 54}),
 		)
 	})
-	return desc.globalFailure(in, pos, ns) //errtrace:skip
+	return desc.globalFailure(in, pos, ns)
 }
 
 // H16 operator: h16 = 1*4HEXDIG
@@ -2773,7 +2773,7 @@ func (desc *OperatorsDescr) H16(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf_core.Operators().HEXDIG,
 		)
 	})
-	return desc.h16(in, pos, ns) //errtrace:skip
+	return desc.h16(in, pos, ns)
 }
 
 // HCOLON operator: HCOLON = *( SP / HTAB ) ":" SWS
@@ -2793,7 +2793,7 @@ func (desc *OperatorsDescr) HCOLON(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.hcolon(in, pos, ns) //errtrace:skip
+	return desc.hcolon(in, pos, ns)
 }
 
 // HandlingParam operator: handling-param = "handling" EQUAL ( "optional" / "required" / other-handling )
@@ -2811,7 +2811,7 @@ func (desc *OperatorsDescr) HandlingParam(in []byte, pos uint, ns *abnf.Nodes) e
 			),
 		)
 	})
-	return desc.handlingParam(in, pos, ns) //errtrace:skip
+	return desc.handlingParam(in, pos, ns)
 }
 
 // Header operator: header = hname "=" hvalue
@@ -2824,7 +2824,7 @@ func (desc *OperatorsDescr) Header(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Hvalue,
 		)
 	})
-	return desc.header(in, pos, ns) //errtrace:skip
+	return desc.header(in, pos, ns)
 }
 
 // HeaderName operator: header-name = token
@@ -2835,7 +2835,7 @@ func (desc *OperatorsDescr) HeaderName(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.Token,
 		)
 	})
-	return desc.headerName(in, pos, ns) //errtrace:skip
+	return desc.headerName(in, pos, ns)
 }
 
 // HeaderValue operator: header-value = *(TEXT-UTF8char / UTF8-CONT / LWS)
@@ -2851,7 +2851,7 @@ func (desc *OperatorsDescr) HeaderValue(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.headerValue(in, pos, ns) //errtrace:skip
+	return desc.headerValue(in, pos, ns)
 }
 
 // Headers operator: headers = "?" header *( "&" header )
@@ -2871,7 +2871,7 @@ func (desc *OperatorsDescr) Headers(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.headers(in, pos, ns) //errtrace:skip
+	return desc.headers(in, pos, ns)
 }
 
 // HierPart operator: hier-part = ( net-path / abs-path ) [ "?" query ]
@@ -2894,7 +2894,7 @@ func (desc *OperatorsDescr) HierPart(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.hierPart(in, pos, ns) //errtrace:skip
+	return desc.hierPart(in, pos, ns)
 }
 
 // Hname operator: hname = 1*( hnv-unreserved / unreserved / escaped )
@@ -2910,7 +2910,7 @@ func (desc *OperatorsDescr) Hname(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.hname(in, pos, ns) //errtrace:skip
+	return desc.hname(in, pos, ns)
 }
 
 // HnvUnreserved operator: hnv-unreserved = "[" / "]" / "/" / "?" / ":" / "+" / "$"
@@ -2927,7 +2927,7 @@ func (desc *OperatorsDescr) HnvUnreserved(in []byte, pos uint, ns *abnf.Nodes) e
 			abnf.Literal("\"$\"", []byte{36}),
 		)
 	})
-	return desc.hnvUnreserved(in, pos, ns) //errtrace:skip
+	return desc.hnvUnreserved(in, pos, ns)
 }
 
 // Host operator: host = hostname / IPv4address / IPv6reference
@@ -2940,7 +2940,7 @@ func (desc *OperatorsDescr) Host(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.IPv6reference,
 		)
 	})
-	return desc.host(in, pos, ns) //errtrace:skip
+	return desc.host(in, pos, ns)
 }
 
 // Hostname operator: hostname = *( domainlabel "." ) toplabel [ "." ]
@@ -2963,7 +2963,7 @@ func (desc *OperatorsDescr) Hostname(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.hostname(in, pos, ns) //errtrace:skip
+	return desc.hostname(in, pos, ns)
 }
 
 // Hostport operator: hostport = host [ ":" port ]
@@ -2982,7 +2982,7 @@ func (desc *OperatorsDescr) Hostport(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.hostport(in, pos, ns) //errtrace:skip
+	return desc.hostport(in, pos, ns)
 }
 
 // Hvalue operator: hvalue = *( hnv-unreserved / unreserved / escaped )
@@ -2998,7 +2998,7 @@ func (desc *OperatorsDescr) Hvalue(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.hvalue(in, pos, ns) //errtrace:skip
+	return desc.hvalue(in, pos, ns)
 }
 
 // INVITEm operator: INVITEm = %x49.4E.56.49.54.45
@@ -3006,7 +3006,7 @@ func (desc *OperatorsDescr) INVITEm(in []byte, pos uint, ns *abnf.Nodes) error {
 	desc.invitemOnce.Do(func() {
 		desc.invitem = abnf.Literal("INVITEm", []byte{73, 78, 86, 73, 84, 69})
 	})
-	return desc.invitem(in, pos, ns) //errtrace:skip
+	return desc.invitem(in, pos, ns)
 }
 
 // IPv4address operator: IPv4address = dec-octet "." dec-octet "." dec-octet "." dec-octet
@@ -3023,7 +3023,7 @@ func (desc *OperatorsDescr) IPv4address(in []byte, pos uint, ns *abnf.Nodes) err
 			desc.DecOctet,
 		)
 	})
-	return desc.ipv4address(in, pos, ns) //errtrace:skip
+	return desc.ipv4address(in, pos, ns)
 }
 
 // IPv6address operator: IPv6address = 6( h16 ":" ) ls32 / "::" 5( h16 ":" ) ls32 / [ h16 ] "::" 4( h16 ":" ) ls32 / [ *1( h16 ":" ) h16 ] "::" 3( h16 ":" ) ls32 / [ *2( h16 ":" ) h16 ] "::" 2( h16 ":" ) ls32 / [ *3( h16 ":" ) h16 ] "::" h16 ":" ls32 / [ *4( h16 ":" ) h16 ] "::" ls32 / [ *5( h16 ":" ) h16 ] "::" h16 / [ *6( h16 ":" ) h16 ] "::"
@@ -3229,7 +3229,7 @@ func (desc *OperatorsDescr) IPv6address(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.ipv6address(in, pos, ns) //errtrace:skip
+	return desc.ipv6address(in, pos, ns)
 }
 
 // IPv6reference operator: IPv6reference = "[" IPv6address "]"
@@ -3242,7 +3242,7 @@ func (desc *OperatorsDescr) IPv6reference(in []byte, pos uint, ns *abnf.Nodes) e
 			abnf.Literal("\"]\"", []byte{93}),
 		)
 	})
-	return desc.ipv6reference(in, pos, ns) //errtrace:skip
+	return desc.ipv6reference(in, pos, ns)
 }
 
 // IanaToken operator: iana-token = token
@@ -3253,7 +3253,7 @@ func (desc *OperatorsDescr) IanaToken(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Token,
 		)
 	})
-	return desc.ianaToken(in, pos, ns) //errtrace:skip
+	return desc.ianaToken(in, pos, ns)
 }
 
 // IetfToken operator: ietf-token = token
@@ -3264,7 +3264,7 @@ func (desc *OperatorsDescr) IetfToken(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Token,
 		)
 	})
-	return desc.ietfToken(in, pos, ns) //errtrace:skip
+	return desc.ietfToken(in, pos, ns)
 }
 
 // InReplyTo operator: In-Reply-To = "In-Reply-To" HCOLON callid *(COMMA callid)
@@ -3285,7 +3285,7 @@ func (desc *OperatorsDescr) InReplyTo(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.inReplyTo(in, pos, ns) //errtrace:skip
+	return desc.inReplyTo(in, pos, ns)
 }
 
 // Info operator: info = LAQUOT absoluteURI RAQUOT *( SEMI info-param)
@@ -3306,7 +3306,7 @@ func (desc *OperatorsDescr) Info(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.info(in, pos, ns) //errtrace:skip
+	return desc.info(in, pos, ns)
 }
 
 // InfoParam operator: info-param = ( "purpose" EQUAL ( "icon" / "info" / "card" / token ) ) / generic-param
@@ -3329,7 +3329,7 @@ func (desc *OperatorsDescr) InfoParam(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.GenericParam,
 		)
 	})
-	return desc.infoParam(in, pos, ns) //errtrace:skip
+	return desc.infoParam(in, pos, ns)
 }
 
 // Informational operator: Informational = "100" ; Trying / "180" ; Ringing / "181" ; Call Is Being Forwarded / "182" ; Queued / "183"
@@ -3344,7 +3344,7 @@ func (desc *OperatorsDescr) Informational(in []byte, pos uint, ns *abnf.Nodes) e
 			abnf.Literal("\"183\"", []byte{49, 56, 51}),
 		)
 	})
-	return desc.informational(in, pos, ns) //errtrace:skip
+	return desc.informational(in, pos, ns)
 }
 
 // LAQUOT operator: LAQUOT = SWS "<"
@@ -3356,7 +3356,7 @@ func (desc *OperatorsDescr) LAQUOT(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Literal("\"<\"", []byte{60}),
 		)
 	})
-	return desc.laquot(in, pos, ns) //errtrace:skip
+	return desc.laquot(in, pos, ns)
 }
 
 // LDQUOT operator: LDQUOT = SWS DQUOTE
@@ -3368,7 +3368,7 @@ func (desc *OperatorsDescr) LDQUOT(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf_core.Operators().DQUOTE,
 		)
 	})
-	return desc.ldquot(in, pos, ns) //errtrace:skip
+	return desc.ldquot(in, pos, ns)
 }
 
 // LHEX operator: LHEX = DIGIT / %x61-66
@@ -3380,7 +3380,7 @@ func (desc *OperatorsDescr) LHEX(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Range("%x61-66", []byte{97}, []byte{102}),
 		)
 	})
-	return desc.lhex(in, pos, ns) //errtrace:skip
+	return desc.lhex(in, pos, ns)
 }
 
 // LPAREN operator: LPAREN = SWS "(" SWS
@@ -3393,7 +3393,7 @@ func (desc *OperatorsDescr) LPAREN(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.lparen(in, pos, ns) //errtrace:skip
+	return desc.lparen(in, pos, ns)
 }
 
 // LWS operator: LWS = [*WSP CRLF] 1*WSP
@@ -3418,7 +3418,7 @@ func (desc *OperatorsDescr) LWS(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.lws(in, pos, ns) //errtrace:skip
+	return desc.lws(in, pos, ns)
 }
 
 // Language operator: language = language-range *(SEMI accept-param)
@@ -3437,7 +3437,7 @@ func (desc *OperatorsDescr) Language(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.language(in, pos, ns) //errtrace:skip
+	return desc.language(in, pos, ns)
 }
 
 // LanguageRange operator: language-range = ( 1*8ALPHA *( "-" 1*8ALPHA ) ) / "*"
@@ -3470,7 +3470,7 @@ func (desc *OperatorsDescr) LanguageRange(in []byte, pos uint, ns *abnf.Nodes) e
 			abnf.Literal("\"*\"", []byte{42}),
 		)
 	})
-	return desc.languageRange(in, pos, ns) //errtrace:skip
+	return desc.languageRange(in, pos, ns)
 }
 
 // LanguageTag operator: language-tag = primary-tag *( "-" subtag )
@@ -3489,7 +3489,7 @@ func (desc *OperatorsDescr) LanguageTag(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.languageTag(in, pos, ns) //errtrace:skip
+	return desc.languageTag(in, pos, ns)
 }
 
 // LrParam operator: lr-param = "lr"
@@ -3497,7 +3497,7 @@ func (desc *OperatorsDescr) LrParam(in []byte, pos uint, ns *abnf.Nodes) error {
 	desc.lrParamOnce.Do(func() {
 		desc.lrParam = abnf.Literal("lr-param", []byte{108, 114})
 	})
-	return desc.lrParam(in, pos, ns) //errtrace:skip
+	return desc.lrParam(in, pos, ns)
 }
 
 // Ls32 operator: ls32 = ( h16 ":" h16 ) / IPv4address
@@ -3514,7 +3514,7 @@ func (desc *OperatorsDescr) Ls32(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.IPv4address,
 		)
 	})
-	return desc.ls32(in, pos, ns) //errtrace:skip
+	return desc.ls32(in, pos, ns)
 }
 
 // MAttribute operator: m-attribute = token
@@ -3525,7 +3525,7 @@ func (desc *OperatorsDescr) MAttribute(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.Token,
 		)
 	})
-	return desc.mAttribute(in, pos, ns) //errtrace:skip
+	return desc.mAttribute(in, pos, ns)
 }
 
 // MIMEVersion operator: MIME-Version = "MIME-Version" HCOLON 1*DIGIT "." 1*DIGIT
@@ -3546,7 +3546,7 @@ func (desc *OperatorsDescr) MIMEVersion(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.mimeVersion(in, pos, ns) //errtrace:skip
+	return desc.mimeVersion(in, pos, ns)
 }
 
 // MParameter operator: m-parameter = m-attribute EQUAL m-value
@@ -3559,7 +3559,7 @@ func (desc *OperatorsDescr) MParameter(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.MValue,
 		)
 	})
-	return desc.mParameter(in, pos, ns) //errtrace:skip
+	return desc.mParameter(in, pos, ns)
 }
 
 // MSubtype operator: m-subtype = extension-token / iana-token
@@ -3571,7 +3571,7 @@ func (desc *OperatorsDescr) MSubtype(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.IanaToken,
 		)
 	})
-	return desc.mSubtype(in, pos, ns) //errtrace:skip
+	return desc.mSubtype(in, pos, ns)
 }
 
 // MType operator: m-type = discrete-type / composite-type
@@ -3583,7 +3583,7 @@ func (desc *OperatorsDescr) MType(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.CompositeType,
 		)
 	})
-	return desc.mType(in, pos, ns) //errtrace:skip
+	return desc.mType(in, pos, ns)
 }
 
 // MValue operator: m-value = token / quoted-string
@@ -3595,7 +3595,7 @@ func (desc *OperatorsDescr) MValue(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.QuotedString,
 		)
 	})
-	return desc.mValue(in, pos, ns) //errtrace:skip
+	return desc.mValue(in, pos, ns)
 }
 
 // MaddrParam operator: maddr-param = "maddr=" host
@@ -3607,7 +3607,7 @@ func (desc *OperatorsDescr) MaddrParam(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.Host,
 		)
 	})
-	return desc.maddrParam(in, pos, ns) //errtrace:skip
+	return desc.maddrParam(in, pos, ns)
 }
 
 // Mark operator: mark = "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")"
@@ -3626,7 +3626,7 @@ func (desc *OperatorsDescr) Mark(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Literal("\")\"", []byte{41}),
 		)
 	})
-	return desc.mark(in, pos, ns) //errtrace:skip
+	return desc.mark(in, pos, ns)
 }
 
 // MaxForwards operator: Max-Forwards = "Max-Forwards" HCOLON 1*DIGIT
@@ -3642,7 +3642,7 @@ func (desc *OperatorsDescr) MaxForwards(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.maxForwards(in, pos, ns) //errtrace:skip
+	return desc.maxForwards(in, pos, ns)
 }
 
 // MediaRange operator: media-range = ( "*/*" / ( m-type SLASH "*" ) / ( m-type SLASH m-subtype ) ) *( SEMI m-parameter )
@@ -3676,7 +3676,7 @@ func (desc *OperatorsDescr) MediaRange(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.mediaRange(in, pos, ns) //errtrace:skip
+	return desc.mediaRange(in, pos, ns)
 }
 
 // MediaType operator: media-type = m-type SLASH m-subtype *(SEMI m-parameter)
@@ -3697,7 +3697,7 @@ func (desc *OperatorsDescr) MediaType(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.mediaType(in, pos, ns) //errtrace:skip
+	return desc.mediaType(in, pos, ns)
 }
 
 // MessageBody operator: message-body = *OCTET
@@ -3708,7 +3708,7 @@ func (desc *OperatorsDescr) MessageBody(in []byte, pos uint, ns *abnf.Nodes) err
 			abnf_core.Operators().OCTET,
 		)
 	})
-	return desc.messageBody(in, pos, ns) //errtrace:skip
+	return desc.messageBody(in, pos, ns)
 }
 
 // MessageHeader operator: message-header = (Accept / Accept-Encoding / Accept-Language / Alert-Info / Allow / Authentication-Info / Authorization / Call-ID / Call-Info / Contact / Content-Disposition / Content-Encoding / Content-Language / Content-Length / Content-Type / CSeq / Date / Error-Info / Expires / From / In-Reply-To / Max-Forwards / MIME-Version / Min-Expires / Organization / Priority / Proxy-Authenticate / Proxy-Authorization / Proxy-Require / Record-Route / Reply-To / Require / Retry-After / Route / Server / Subject / Supported / Timestamp / To / Unsupported / User-Agent / Via / Warning / WWW-Authenticate / extension-header) CRLF
@@ -3767,7 +3767,7 @@ func (desc *OperatorsDescr) MessageHeader(in []byte, pos uint, ns *abnf.Nodes) e
 			abnf_core.Operators().CRLF,
 		)
 	})
-	return desc.messageHeader(in, pos, ns) //errtrace:skip
+	return desc.messageHeader(in, pos, ns)
 }
 
 // MessageQop operator: message-qop = "qop" EQUAL qop-value
@@ -3780,7 +3780,7 @@ func (desc *OperatorsDescr) MessageQop(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.QopValue,
 		)
 	})
-	return desc.messageQop(in, pos, ns) //errtrace:skip
+	return desc.messageQop(in, pos, ns)
 }
 
 // Method operator: Method = INVITEm / ACKm / OPTIONSm / BYEm / CANCELm / REGISTERm / extension-method
@@ -3797,7 +3797,7 @@ func (desc *OperatorsDescr) Method(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.ExtensionMethod,
 		)
 	})
-	return desc.method(in, pos, ns) //errtrace:skip
+	return desc.method(in, pos, ns)
 }
 
 // MethodParam operator: method-param = "method=" Method
@@ -3809,7 +3809,7 @@ func (desc *OperatorsDescr) MethodParam(in []byte, pos uint, ns *abnf.Nodes) err
 			desc.Method,
 		)
 	})
-	return desc.methodParam(in, pos, ns) //errtrace:skip
+	return desc.methodParam(in, pos, ns)
 }
 
 // MinExpires operator: Min-Expires = "Min-Expires" HCOLON delta-seconds
@@ -3822,7 +3822,7 @@ func (desc *OperatorsDescr) MinExpires(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.DeltaSeconds,
 		)
 	})
-	return desc.minExpires(in, pos, ns) //errtrace:skip
+	return desc.minExpires(in, pos, ns)
 }
 
 // Month operator: month = "Jan" / "Feb" / "Mar" / "Apr" / "May" / "Jun" / "Jul" / "Aug" / "Sep" / "Oct" / "Nov" / "Dec"
@@ -3844,7 +3844,7 @@ func (desc *OperatorsDescr) Month(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Literal("\"Dec\"", []byte{68, 101, 99}),
 		)
 	})
-	return desc.month(in, pos, ns) //errtrace:skip
+	return desc.month(in, pos, ns)
 }
 
 // NQCHAR operator: NQCHAR = %x21 / %x23-5B / %x5D-7E
@@ -3857,7 +3857,7 @@ func (desc *OperatorsDescr) NQCHAR(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Range("%x5D-7E", []byte{93}, []byte{126}),
 		)
 	})
-	return desc.nqchar(in, pos, ns) //errtrace:skip
+	return desc.nqchar(in, pos, ns)
 }
 
 // NQSCHAR operator: NQSCHAR = %x20-21 / %x23-5B / %x5D-7E
@@ -3870,7 +3870,7 @@ func (desc *OperatorsDescr) NQSCHAR(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Range("%x5D-7E", []byte{93}, []byte{126}),
 		)
 	})
-	return desc.nqschar(in, pos, ns) //errtrace:skip
+	return desc.nqschar(in, pos, ns)
 }
 
 // NameAddr operator: name-addr = [ display-name ] LAQUOT addr-spec RAQUOT
@@ -3887,7 +3887,7 @@ func (desc *OperatorsDescr) NameAddr(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.RAQUOT,
 		)
 	})
-	return desc.nameAddr(in, pos, ns) //errtrace:skip
+	return desc.nameAddr(in, pos, ns)
 }
 
 // NcValue operator: nc-value = 8LHEX
@@ -3899,7 +3899,7 @@ func (desc *OperatorsDescr) NcValue(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.LHEX,
 		)
 	})
-	return desc.ncValue(in, pos, ns) //errtrace:skip
+	return desc.ncValue(in, pos, ns)
 }
 
 // NetPath operator: net-path = "//" authority [ abs-path ]
@@ -3915,7 +3915,7 @@ func (desc *OperatorsDescr) NetPath(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.netPath(in, pos, ns) //errtrace:skip
+	return desc.netPath(in, pos, ns)
 }
 
 // Nextnonce operator: nextnonce = "nextnonce" EQUAL nonce-value
@@ -3928,7 +3928,7 @@ func (desc *OperatorsDescr) Nextnonce(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.NonceValue,
 		)
 	})
-	return desc.nextnonce(in, pos, ns) //errtrace:skip
+	return desc.nextnonce(in, pos, ns)
 }
 
 // Nonce operator: nonce = "nonce" EQUAL nonce-value
@@ -3941,7 +3941,7 @@ func (desc *OperatorsDescr) Nonce(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.NonceValue,
 		)
 	})
-	return desc.nonce(in, pos, ns) //errtrace:skip
+	return desc.nonce(in, pos, ns)
 }
 
 // NonceCount operator: nonce-count = "nc" EQUAL nc-value
@@ -3954,7 +3954,7 @@ func (desc *OperatorsDescr) NonceCount(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.NcValue,
 		)
 	})
-	return desc.nonceCount(in, pos, ns) //errtrace:skip
+	return desc.nonceCount(in, pos, ns)
 }
 
 // NonceValue operator: nonce-value = quoted-string
@@ -3965,7 +3965,7 @@ func (desc *OperatorsDescr) NonceValue(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.QuotedString,
 		)
 	})
-	return desc.nonceValue(in, pos, ns) //errtrace:skip
+	return desc.nonceValue(in, pos, ns)
 }
 
 // OPTIONSm operator: OPTIONSm = %x4F.50.54.49.4F.4E.53
@@ -3973,7 +3973,7 @@ func (desc *OperatorsDescr) OPTIONSm(in []byte, pos uint, ns *abnf.Nodes) error 
 	desc.optionsmOnce.Do(func() {
 		desc.optionsm = abnf.Literal("OPTIONSm", []byte{79, 80, 84, 73, 79, 78, 83})
 	})
-	return desc.optionsm(in, pos, ns) //errtrace:skip
+	return desc.optionsm(in, pos, ns)
 }
 
 // Opaque operator: opaque = "opaque" EQUAL quoted-string
@@ -3986,7 +3986,7 @@ func (desc *OperatorsDescr) Opaque(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.QuotedString,
 		)
 	})
-	return desc.opaque(in, pos, ns) //errtrace:skip
+	return desc.opaque(in, pos, ns)
 }
 
 // OpaquePart operator: opaque-part = uric-no-slash *uric
@@ -4001,7 +4001,7 @@ func (desc *OperatorsDescr) OpaquePart(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.opaquePart(in, pos, ns) //errtrace:skip
+	return desc.opaquePart(in, pos, ns)
 }
 
 // OptionTag operator: option-tag = token
@@ -4012,7 +4012,7 @@ func (desc *OperatorsDescr) OptionTag(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Token,
 		)
 	})
-	return desc.optionTag(in, pos, ns) //errtrace:skip
+	return desc.optionTag(in, pos, ns)
 }
 
 // Organization operator: Organization = "Organization" HCOLON [TEXT-UTF8-TRIM]
@@ -4028,7 +4028,7 @@ func (desc *OperatorsDescr) Organization(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.organization(in, pos, ns) //errtrace:skip
+	return desc.organization(in, pos, ns)
 }
 
 // OtherChallenge operator: other-challenge = auth-scheme LWS auth-param *(COMMA auth-param)
@@ -4049,7 +4049,7 @@ func (desc *OperatorsDescr) OtherChallenge(in []byte, pos uint, ns *abnf.Nodes) 
 			),
 		)
 	})
-	return desc.otherChallenge(in, pos, ns) //errtrace:skip
+	return desc.otherChallenge(in, pos, ns)
 }
 
 // OtherHandling operator: other-handling = token
@@ -4060,7 +4060,7 @@ func (desc *OperatorsDescr) OtherHandling(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.Token,
 		)
 	})
-	return desc.otherHandling(in, pos, ns) //errtrace:skip
+	return desc.otherHandling(in, pos, ns)
 }
 
 // OtherParam operator: other-param = pname [ "=" pvalue ]
@@ -4079,7 +4079,7 @@ func (desc *OperatorsDescr) OtherParam(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.otherParam(in, pos, ns) //errtrace:skip
+	return desc.otherParam(in, pos, ns)
 }
 
 // OtherPriority operator: other-priority = token
@@ -4090,7 +4090,7 @@ func (desc *OperatorsDescr) OtherPriority(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.Token,
 		)
 	})
-	return desc.otherPriority(in, pos, ns) //errtrace:skip
+	return desc.otherPriority(in, pos, ns)
 }
 
 // OtherResponse operator: other-response = auth-scheme LWS auth-param *(COMMA auth-param)
@@ -4111,7 +4111,7 @@ func (desc *OperatorsDescr) OtherResponse(in []byte, pos uint, ns *abnf.Nodes) e
 			),
 		)
 	})
-	return desc.otherResponse(in, pos, ns) //errtrace:skip
+	return desc.otherResponse(in, pos, ns)
 }
 
 // OtherTransport operator: other-transport = token
@@ -4122,7 +4122,7 @@ func (desc *OperatorsDescr) OtherTransport(in []byte, pos uint, ns *abnf.Nodes) 
 			desc.Token,
 		)
 	})
-	return desc.otherTransport(in, pos, ns) //errtrace:skip
+	return desc.otherTransport(in, pos, ns)
 }
 
 // OtherUser operator: other-user = token
@@ -4133,7 +4133,7 @@ func (desc *OperatorsDescr) OtherUser(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Token,
 		)
 	})
-	return desc.otherUser(in, pos, ns) //errtrace:skip
+	return desc.otherUser(in, pos, ns)
 }
 
 // Param operator: param = *pchar
@@ -4144,7 +4144,7 @@ func (desc *OperatorsDescr) Param(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Pchar,
 		)
 	})
-	return desc.param(in, pos, ns) //errtrace:skip
+	return desc.param(in, pos, ns)
 }
 
 // ParamUnreserved operator: param-unreserved = "[" / "]" / "/" / ":" / "&" / "+" / "$"
@@ -4161,7 +4161,7 @@ func (desc *OperatorsDescr) ParamUnreserved(in []byte, pos uint, ns *abnf.Nodes)
 			abnf.Literal("\"$\"", []byte{36}),
 		)
 	})
-	return desc.paramUnreserved(in, pos, ns) //errtrace:skip
+	return desc.paramUnreserved(in, pos, ns)
 }
 
 // Paramchar operator: paramchar = param-unreserved / unreserved / escaped
@@ -4174,7 +4174,7 @@ func (desc *OperatorsDescr) Paramchar(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Escaped,
 		)
 	})
-	return desc.paramchar(in, pos, ns) //errtrace:skip
+	return desc.paramchar(in, pos, ns)
 }
 
 // Password operator: password = *( unreserved / escaped / "&" / "=" / "+" / "$" / "," )
@@ -4194,7 +4194,7 @@ func (desc *OperatorsDescr) Password(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.password(in, pos, ns) //errtrace:skip
+	return desc.password(in, pos, ns)
 }
 
 // PathSegments operator: path-segments = segment *( "/" segment )
@@ -4213,7 +4213,7 @@ func (desc *OperatorsDescr) PathSegments(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.pathSegments(in, pos, ns) //errtrace:skip
+	return desc.pathSegments(in, pos, ns)
 }
 
 // Pchar operator: pchar = unreserved / escaped / ":" / "@" / "&" / "=" / "+" / "$" / ","
@@ -4232,7 +4232,7 @@ func (desc *OperatorsDescr) Pchar(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Literal("\",\"", []byte{44}),
 		)
 	})
-	return desc.pchar(in, pos, ns) //errtrace:skip
+	return desc.pchar(in, pos, ns)
 }
 
 // Pname operator: pname = 1*paramchar
@@ -4243,7 +4243,7 @@ func (desc *OperatorsDescr) Pname(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Paramchar,
 		)
 	})
-	return desc.pname(in, pos, ns) //errtrace:skip
+	return desc.pname(in, pos, ns)
 }
 
 // Port operator: port = 1*DIGIT
@@ -4254,7 +4254,7 @@ func (desc *OperatorsDescr) Port(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf_core.Operators().DIGIT,
 		)
 	})
-	return desc.port(in, pos, ns) //errtrace:skip
+	return desc.port(in, pos, ns)
 }
 
 // PrimaryTag operator: primary-tag = 1*8ALPHA
@@ -4267,7 +4267,7 @@ func (desc *OperatorsDescr) PrimaryTag(in []byte, pos uint, ns *abnf.Nodes) erro
 			abnf_core.Operators().ALPHA,
 		)
 	})
-	return desc.primaryTag(in, pos, ns) //errtrace:skip
+	return desc.primaryTag(in, pos, ns)
 }
 
 // Priority operator: Priority = "Priority" HCOLON priority-value
@@ -4280,7 +4280,7 @@ func (desc *OperatorsDescr) Priority(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.PriorityValue,
 		)
 	})
-	return desc.priority(in, pos, ns) //errtrace:skip
+	return desc.priority(in, pos, ns)
 }
 
 // PriorityValue operator: priority-value = "emergency" / "urgent" / "normal" / "non-urgent" / other-priority
@@ -4295,7 +4295,7 @@ func (desc *OperatorsDescr) PriorityValue(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.OtherPriority,
 		)
 	})
-	return desc.priorityValue(in, pos, ns) //errtrace:skip
+	return desc.priorityValue(in, pos, ns)
 }
 
 // Product operator: product = token [SLASH product-version]
@@ -4314,7 +4314,7 @@ func (desc *OperatorsDescr) Product(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.product(in, pos, ns) //errtrace:skip
+	return desc.product(in, pos, ns)
 }
 
 // ProductVersion operator: product-version = token
@@ -4325,7 +4325,7 @@ func (desc *OperatorsDescr) ProductVersion(in []byte, pos uint, ns *abnf.Nodes) 
 			desc.Token,
 		)
 	})
-	return desc.productVersion(in, pos, ns) //errtrace:skip
+	return desc.productVersion(in, pos, ns)
 }
 
 // ProtocolName operator: protocol-name = "SIP" / token
@@ -4337,7 +4337,7 @@ func (desc *OperatorsDescr) ProtocolName(in []byte, pos uint, ns *abnf.Nodes) er
 			desc.Token,
 		)
 	})
-	return desc.protocolName(in, pos, ns) //errtrace:skip
+	return desc.protocolName(in, pos, ns)
 }
 
 // ProtocolVersion operator: protocol-version = token
@@ -4348,7 +4348,7 @@ func (desc *OperatorsDescr) ProtocolVersion(in []byte, pos uint, ns *abnf.Nodes)
 			desc.Token,
 		)
 	})
-	return desc.protocolVersion(in, pos, ns) //errtrace:skip
+	return desc.protocolVersion(in, pos, ns)
 }
 
 // ProxyAuthenticate operator: Proxy-Authenticate = "Proxy-Authenticate" HCOLON challenge
@@ -4361,7 +4361,7 @@ func (desc *OperatorsDescr) ProxyAuthenticate(in []byte, pos uint, ns *abnf.Node
 			desc.Challenge,
 		)
 	})
-	return desc.proxyAuthenticate(in, pos, ns) //errtrace:skip
+	return desc.proxyAuthenticate(in, pos, ns)
 }
 
 // ProxyAuthorization operator: Proxy-Authorization = "Proxy-Authorization" HCOLON credentials
@@ -4374,7 +4374,7 @@ func (desc *OperatorsDescr) ProxyAuthorization(in []byte, pos uint, ns *abnf.Nod
 			desc.Credentials,
 		)
 	})
-	return desc.proxyAuthorization(in, pos, ns) //errtrace:skip
+	return desc.proxyAuthorization(in, pos, ns)
 }
 
 // ProxyRequire operator: Proxy-Require = "Proxy-Require" HCOLON option-tag *(COMMA option-tag)
@@ -4395,7 +4395,7 @@ func (desc *OperatorsDescr) ProxyRequire(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.proxyRequire(in, pos, ns) //errtrace:skip
+	return desc.proxyRequire(in, pos, ns)
 }
 
 // Pseudonym operator: pseudonym = token
@@ -4406,7 +4406,7 @@ func (desc *OperatorsDescr) Pseudonym(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Token,
 		)
 	})
-	return desc.pseudonym(in, pos, ns) //errtrace:skip
+	return desc.pseudonym(in, pos, ns)
 }
 
 // Pvalue operator: pvalue = 1*paramchar
@@ -4417,7 +4417,7 @@ func (desc *OperatorsDescr) Pvalue(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Paramchar,
 		)
 	})
-	return desc.pvalue(in, pos, ns) //errtrace:skip
+	return desc.pvalue(in, pos, ns)
 }
 
 // Qdtext operator: qdtext = LWS / %x21 / %x23-5B / %x5D-7E / UTF8-NONASCII
@@ -4432,7 +4432,7 @@ func (desc *OperatorsDescr) Qdtext(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.UTF8NONASCII,
 		)
 	})
-	return desc.qdtext(in, pos, ns) //errtrace:skip
+	return desc.qdtext(in, pos, ns)
 }
 
 // QopOptions operator: qop-options = "qop" EQUAL LDQUOT qop-value *("," qop-value) RDQUOT
@@ -4455,7 +4455,7 @@ func (desc *OperatorsDescr) QopOptions(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.RDQUOT,
 		)
 	})
-	return desc.qopOptions(in, pos, ns) //errtrace:skip
+	return desc.qopOptions(in, pos, ns)
 }
 
 // QopValue operator: qop-value = "auth" / "auth-int" / token
@@ -4468,7 +4468,7 @@ func (desc *OperatorsDescr) QopValue(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.Token,
 		)
 	})
-	return desc.qopValue(in, pos, ns) //errtrace:skip
+	return desc.qopValue(in, pos, ns)
 }
 
 // Query operator: query = *uric
@@ -4479,7 +4479,7 @@ func (desc *OperatorsDescr) Query(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Uric,
 		)
 	})
-	return desc.query(in, pos, ns) //errtrace:skip
+	return desc.query(in, pos, ns)
 }
 
 // QuotedPair operator: quoted-pair = "\" (%x00-09 / %x0B-0C / %x0E-7F)
@@ -4496,7 +4496,7 @@ func (desc *OperatorsDescr) QuotedPair(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.quotedPair(in, pos, ns) //errtrace:skip
+	return desc.quotedPair(in, pos, ns)
 }
 
 // QuotedString operator: quoted-string = SWS DQUOTE *(qdtext / quoted-pair ) DQUOTE
@@ -4517,7 +4517,7 @@ func (desc *OperatorsDescr) QuotedString(in []byte, pos uint, ns *abnf.Nodes) er
 			abnf_core.Operators().DQUOTE,
 		)
 	})
-	return desc.quotedString(in, pos, ns) //errtrace:skip
+	return desc.quotedString(in, pos, ns)
 }
 
 // Qvalue operator: qvalue = ( "0" [ "." 0*3DIGIT ] ) / ( "1" [ "." 0*3("0") ] )
@@ -4561,7 +4561,7 @@ func (desc *OperatorsDescr) Qvalue(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.qvalue(in, pos, ns) //errtrace:skip
+	return desc.qvalue(in, pos, ns)
 }
 
 // RAQUOT operator: RAQUOT = ">" SWS
@@ -4573,7 +4573,7 @@ func (desc *OperatorsDescr) RAQUOT(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.raquot(in, pos, ns) //errtrace:skip
+	return desc.raquot(in, pos, ns)
 }
 
 // RDQUOT operator: RDQUOT = DQUOTE SWS
@@ -4585,7 +4585,7 @@ func (desc *OperatorsDescr) RDQUOT(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.rdquot(in, pos, ns) //errtrace:skip
+	return desc.rdquot(in, pos, ns)
 }
 
 // REGISTERm operator: REGISTERm = %x52.45.47.49.53.54.45.52
@@ -4593,7 +4593,7 @@ func (desc *OperatorsDescr) REGISTERm(in []byte, pos uint, ns *abnf.Nodes) error
 	desc.registermOnce.Do(func() {
 		desc.registerm = abnf.Literal("REGISTERm", []byte{82, 69, 71, 73, 83, 84, 69, 82})
 	})
-	return desc.registerm(in, pos, ns) //errtrace:skip
+	return desc.registerm(in, pos, ns)
 }
 
 // RPAREN operator: RPAREN = SWS ")" SWS
@@ -4606,7 +4606,7 @@ func (desc *OperatorsDescr) RPAREN(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.rparen(in, pos, ns) //errtrace:skip
+	return desc.rparen(in, pos, ns)
 }
 
 // Realm operator: realm = "realm" EQUAL realm-value
@@ -4619,7 +4619,7 @@ func (desc *OperatorsDescr) Realm(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.RealmValue,
 		)
 	})
-	return desc.realm(in, pos, ns) //errtrace:skip
+	return desc.realm(in, pos, ns)
 }
 
 // RealmValue operator: realm-value = quoted-string
@@ -4630,7 +4630,7 @@ func (desc *OperatorsDescr) RealmValue(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.QuotedString,
 		)
 	})
-	return desc.realmValue(in, pos, ns) //errtrace:skip
+	return desc.realmValue(in, pos, ns)
 }
 
 // ReasonPhrase operator: Reason-Phrase = *(reserved / unreserved / escaped / UTF8-NONASCII / UTF8-CONT / SP / HTAB)
@@ -4650,7 +4650,7 @@ func (desc *OperatorsDescr) ReasonPhrase(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.reasonPhrase(in, pos, ns) //errtrace:skip
+	return desc.reasonPhrase(in, pos, ns)
 }
 
 // RecRoute operator: rec-route = name-addr *( SEMI rr-param )
@@ -4669,7 +4669,7 @@ func (desc *OperatorsDescr) RecRoute(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.recRoute(in, pos, ns) //errtrace:skip
+	return desc.recRoute(in, pos, ns)
 }
 
 // RecordRoute operator: Record-Route = "Record-Route" HCOLON rec-route *(COMMA rec-route)
@@ -4690,7 +4690,7 @@ func (desc *OperatorsDescr) RecordRoute(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.recordRoute(in, pos, ns) //errtrace:skip
+	return desc.recordRoute(in, pos, ns)
 }
 
 // Redirection operator: Redirection = "300" ; Multiple Choices / "301" ; Moved Permanently / "302" ; Moved Temporarily / "305" ; Use Proxy / "380"
@@ -4705,7 +4705,7 @@ func (desc *OperatorsDescr) Redirection(in []byte, pos uint, ns *abnf.Nodes) err
 			abnf.Literal("\"380\"", []byte{51, 56, 48}),
 		)
 	})
-	return desc.redirection(in, pos, ns) //errtrace:skip
+	return desc.redirection(in, pos, ns)
 }
 
 // RegName operator: reg-name = 1*( unreserved / escaped / "$" / "," / ";" / ":" / "@" / "&" / "=" / "+" )
@@ -4728,7 +4728,7 @@ func (desc *OperatorsDescr) RegName(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.regName(in, pos, ns) //errtrace:skip
+	return desc.regName(in, pos, ns)
 }
 
 // ReplyTo operator: Reply-To = "Reply-To" HCOLON rplyto-spec
@@ -4741,7 +4741,7 @@ func (desc *OperatorsDescr) ReplyTo(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.RplytoSpec,
 		)
 	})
-	return desc.replyTo(in, pos, ns) //errtrace:skip
+	return desc.replyTo(in, pos, ns)
 }
 
 // Request operator: Request = Request-Line *( message-header ) CRLF [ message-body ]
@@ -4761,7 +4761,7 @@ func (desc *OperatorsDescr) Request(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.request(in, pos, ns) //errtrace:skip
+	return desc.request(in, pos, ns)
 }
 
 // RequestDigest operator: request-digest = LDQUOT 32LHEX RDQUOT
@@ -4778,7 +4778,7 @@ func (desc *OperatorsDescr) RequestDigest(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.RDQUOT,
 		)
 	})
-	return desc.requestDigest(in, pos, ns) //errtrace:skip
+	return desc.requestDigest(in, pos, ns)
 }
 
 // RequestLine operator: Request-Line = Method SP Request-URI SP SIP-Version CRLF
@@ -4794,7 +4794,7 @@ func (desc *OperatorsDescr) RequestLine(in []byte, pos uint, ns *abnf.Nodes) err
 			abnf_core.Operators().CRLF,
 		)
 	})
-	return desc.requestLine(in, pos, ns) //errtrace:skip
+	return desc.requestLine(in, pos, ns)
 }
 
 // RequestURI operator: Request-URI = SIP-URI / SIPS-URI / absoluteURI
@@ -4807,7 +4807,7 @@ func (desc *OperatorsDescr) RequestURI(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.AbsoluteURI,
 		)
 	})
-	return desc.requestURI(in, pos, ns) //errtrace:skip
+	return desc.requestURI(in, pos, ns)
 }
 
 // RequestUri operator: request-uri = Request-URI
@@ -4818,7 +4818,7 @@ func (desc *OperatorsDescr) RequestUri(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.RequestURI,
 		)
 	})
-	return desc.requestUri(in, pos, ns) //errtrace:skip
+	return desc.requestUri(in, pos, ns)
 }
 
 // Require operator: Require = "Require" HCOLON option-tag *(COMMA option-tag)
@@ -4839,7 +4839,7 @@ func (desc *OperatorsDescr) Require(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.require(in, pos, ns) //errtrace:skip
+	return desc.require(in, pos, ns)
 }
 
 // Reserved operator: reserved = ";" / "/" / "?" / ":" / "@" / "&" / "=" / "+" / "$" / ","
@@ -4859,7 +4859,7 @@ func (desc *OperatorsDescr) Reserved(in []byte, pos uint, ns *abnf.Nodes) error 
 			abnf.Literal("\",\"", []byte{44}),
 		)
 	})
-	return desc.reserved(in, pos, ns) //errtrace:skip
+	return desc.reserved(in, pos, ns)
 }
 
 // Response operator: Response = Status-Line *( message-header ) CRLF [ message-body ]
@@ -4879,7 +4879,7 @@ func (desc *OperatorsDescr) Response(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.response(in, pos, ns) //errtrace:skip
+	return desc.response(in, pos, ns)
 }
 
 // ResponseAuth operator: response-auth = "rspauth" EQUAL response-digest
@@ -4892,7 +4892,7 @@ func (desc *OperatorsDescr) ResponseAuth(in []byte, pos uint, ns *abnf.Nodes) er
 			desc.ResponseDigest,
 		)
 	})
-	return desc.responseAuth(in, pos, ns) //errtrace:skip
+	return desc.responseAuth(in, pos, ns)
 }
 
 // ResponseDigest operator: response-digest = LDQUOT *LHEX RDQUOT
@@ -4908,7 +4908,7 @@ func (desc *OperatorsDescr) ResponseDigest(in []byte, pos uint, ns *abnf.Nodes) 
 			desc.RDQUOT,
 		)
 	})
-	return desc.responseDigest(in, pos, ns) //errtrace:skip
+	return desc.responseDigest(in, pos, ns)
 }
 
 // ResponsePort operator: response-port = "rport" [EQUAL 1*DIGIT]
@@ -4930,7 +4930,7 @@ func (desc *OperatorsDescr) ResponsePort(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.responsePort(in, pos, ns) //errtrace:skip
+	return desc.responsePort(in, pos, ns)
 }
 
 // RetryAfter operator: Retry-After = "Retry-After" HCOLON delta-seconds [ comment ] *( SEMI retry-param )
@@ -4955,7 +4955,7 @@ func (desc *OperatorsDescr) RetryAfter(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.retryAfter(in, pos, ns) //errtrace:skip
+	return desc.retryAfter(in, pos, ns)
 }
 
 // RetryParam operator: retry-param = ("duration" EQUAL delta-seconds) / generic-param
@@ -4972,7 +4972,7 @@ func (desc *OperatorsDescr) RetryParam(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.GenericParam,
 		)
 	})
-	return desc.retryParam(in, pos, ns) //errtrace:skip
+	return desc.retryParam(in, pos, ns)
 }
 
 // Rfc1123Date operator: rfc1123-date = wkday "," SP date1 SP time SP "GMT"
@@ -4990,7 +4990,7 @@ func (desc *OperatorsDescr) Rfc1123Date(in []byte, pos uint, ns *abnf.Nodes) err
 			abnf.Literal("\"GMT\"", []byte{71, 77, 84}),
 		)
 	})
-	return desc.rfc1123Date(in, pos, ns) //errtrace:skip
+	return desc.rfc1123Date(in, pos, ns)
 }
 
 // Route operator: Route = "Route" HCOLON route-param *(COMMA route-param)
@@ -5011,7 +5011,7 @@ func (desc *OperatorsDescr) Route(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.route(in, pos, ns) //errtrace:skip
+	return desc.route(in, pos, ns)
 }
 
 // RouteParam operator: route-param = name-addr *( SEMI rr-param )
@@ -5030,7 +5030,7 @@ func (desc *OperatorsDescr) RouteParam(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.routeParam(in, pos, ns) //errtrace:skip
+	return desc.routeParam(in, pos, ns)
 }
 
 // RplytoParam operator: rplyto-param = generic-param
@@ -5041,7 +5041,7 @@ func (desc *OperatorsDescr) RplytoParam(in []byte, pos uint, ns *abnf.Nodes) err
 			desc.GenericParam,
 		)
 	})
-	return desc.rplytoParam(in, pos, ns) //errtrace:skip
+	return desc.rplytoParam(in, pos, ns)
 }
 
 // RplytoSpec operator: rplyto-spec = ( name-addr / addr-spec ) *( SEMI rplyto-param )
@@ -5064,7 +5064,7 @@ func (desc *OperatorsDescr) RplytoSpec(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.rplytoSpec(in, pos, ns) //errtrace:skip
+	return desc.rplytoSpec(in, pos, ns)
 }
 
 // RrParam operator: rr-param = generic-param
@@ -5075,7 +5075,7 @@ func (desc *OperatorsDescr) RrParam(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.GenericParam,
 		)
 	})
-	return desc.rrParam(in, pos, ns) //errtrace:skip
+	return desc.rrParam(in, pos, ns)
 }
 
 // SEMI operator: SEMI = SWS ";" SWS
@@ -5088,7 +5088,7 @@ func (desc *OperatorsDescr) SEMI(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.semi(in, pos, ns) //errtrace:skip
+	return desc.semi(in, pos, ns)
 }
 
 // SIPDate operator: SIP-date = rfc1123-date
@@ -5099,7 +5099,7 @@ func (desc *OperatorsDescr) SIPDate(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Rfc1123Date,
 		)
 	})
-	return desc.sipDate(in, pos, ns) //errtrace:skip
+	return desc.sipDate(in, pos, ns)
 }
 
 // SIPMessage operator: SIP-message = Request / Response
@@ -5111,7 +5111,7 @@ func (desc *OperatorsDescr) SIPMessage(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.Response,
 		)
 	})
-	return desc.sipMessage(in, pos, ns) //errtrace:skip
+	return desc.sipMessage(in, pos, ns)
 }
 
 // SIPSURI operator: SIPS-URI = "sips:" [ userinfo ] hostport uri-parameters [ headers ]
@@ -5132,7 +5132,7 @@ func (desc *OperatorsDescr) SIPSURI(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.sipsURI(in, pos, ns) //errtrace:skip
+	return desc.sipsURI(in, pos, ns)
 }
 
 // SIPURI operator: SIP-URI = "sip:" [ userinfo ] hostport uri-parameters [ headers ]
@@ -5153,7 +5153,7 @@ func (desc *OperatorsDescr) SIPURI(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.sipURI(in, pos, ns) //errtrace:skip
+	return desc.sipURI(in, pos, ns)
 }
 
 // SIPVersion operator: SIP-Version = "SIP" "/" 1*DIGIT "." 1*DIGIT
@@ -5174,7 +5174,7 @@ func (desc *OperatorsDescr) SIPVersion(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.sipVersion(in, pos, ns) //errtrace:skip
+	return desc.sipVersion(in, pos, ns)
 }
 
 // SLASH operator: SLASH = SWS "/" SWS
@@ -5187,7 +5187,7 @@ func (desc *OperatorsDescr) SLASH(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.slash(in, pos, ns) //errtrace:skip
+	return desc.slash(in, pos, ns)
 }
 
 // STAR operator: STAR = SWS "*" SWS
@@ -5200,7 +5200,7 @@ func (desc *OperatorsDescr) STAR(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.SWS,
 		)
 	})
-	return desc.star(in, pos, ns) //errtrace:skip
+	return desc.star(in, pos, ns)
 }
 
 // SWS operator: SWS = [LWS]
@@ -5211,7 +5211,7 @@ func (desc *OperatorsDescr) SWS(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.LWS,
 		)
 	})
-	return desc.sws(in, pos, ns) //errtrace:skip
+	return desc.sws(in, pos, ns)
 }
 
 // Scheme operator: scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
@@ -5233,7 +5233,7 @@ func (desc *OperatorsDescr) Scheme(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.scheme(in, pos, ns) //errtrace:skip
+	return desc.scheme(in, pos, ns)
 }
 
 // Scope operator: scope = scope-token *( SP scope-token )
@@ -5252,7 +5252,7 @@ func (desc *OperatorsDescr) Scope(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.scope(in, pos, ns) //errtrace:skip
+	return desc.scope(in, pos, ns)
 }
 
 // ScopeParam operator: scope-param = "scope" EQUAL DQUOTE scope DQUOTE
@@ -5267,7 +5267,7 @@ func (desc *OperatorsDescr) ScopeParam(in []byte, pos uint, ns *abnf.Nodes) erro
 			abnf_core.Operators().DQUOTE,
 		)
 	})
-	return desc.scopeParam(in, pos, ns) //errtrace:skip
+	return desc.scopeParam(in, pos, ns)
 }
 
 // ScopeToken operator: scope-token = 1*NQCHAR
@@ -5278,7 +5278,7 @@ func (desc *OperatorsDescr) ScopeToken(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.NQCHAR,
 		)
 	})
-	return desc.scopeToken(in, pos, ns) //errtrace:skip
+	return desc.scopeToken(in, pos, ns)
 }
 
 // Segment operator: segment = *pchar *( ";" param )
@@ -5300,7 +5300,7 @@ func (desc *OperatorsDescr) Segment(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.segment(in, pos, ns) //errtrace:skip
+	return desc.segment(in, pos, ns)
 }
 
 // SentBy operator: sent-by = host [ COLON port ]
@@ -5319,7 +5319,7 @@ func (desc *OperatorsDescr) SentBy(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.sentBy(in, pos, ns) //errtrace:skip
+	return desc.sentBy(in, pos, ns)
 }
 
 // SentProtocol operator: sent-protocol = protocol-name SLASH protocol-version SLASH transport
@@ -5334,7 +5334,7 @@ func (desc *OperatorsDescr) SentProtocol(in []byte, pos uint, ns *abnf.Nodes) er
 			desc.Transport,
 		)
 	})
-	return desc.sentProtocol(in, pos, ns) //errtrace:skip
+	return desc.sentProtocol(in, pos, ns)
 }
 
 // Separators operator: separators = "(" / ")" / "<" / ">" / "@" / "," / ";" / ":" / "\" / DQUOTE / "/" / "[" / "]" / "?" / "=" / "{" / "}" / SP / HTAB
@@ -5363,7 +5363,7 @@ func (desc *OperatorsDescr) Separators(in []byte, pos uint, ns *abnf.Nodes) erro
 			abnf_core.Operators().HTAB,
 		)
 	})
-	return desc.separators(in, pos, ns) //errtrace:skip
+	return desc.separators(in, pos, ns)
 }
 
 // Server operator: Server = "Server" HCOLON server-val *(LWS server-val)
@@ -5384,7 +5384,7 @@ func (desc *OperatorsDescr) Server(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.server(in, pos, ns) //errtrace:skip
+	return desc.server(in, pos, ns)
 }
 
 // ServerError operator: Server-Error = "500" ; Internal Server Error / "501" ; Not Implemented / "502" ; Bad Gateway / "503" ; Service Unavailable / "504" ; Server Time-out / "505" ; SIP Version not supported / "513"
@@ -5401,7 +5401,7 @@ func (desc *OperatorsDescr) ServerError(in []byte, pos uint, ns *abnf.Nodes) err
 			abnf.Literal("\"513\"", []byte{53, 49, 51}),
 		)
 	})
-	return desc.serverError(in, pos, ns) //errtrace:skip
+	return desc.serverError(in, pos, ns)
 }
 
 // ServerVal operator: server-val = product / comment
@@ -5413,7 +5413,7 @@ func (desc *OperatorsDescr) ServerVal(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Comment,
 		)
 	})
-	return desc.serverVal(in, pos, ns) //errtrace:skip
+	return desc.serverVal(in, pos, ns)
 }
 
 // Srvr operator: srvr = [ [ userinfo "@" ] hostport ]
@@ -5435,7 +5435,7 @@ func (desc *OperatorsDescr) Srvr(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.srvr(in, pos, ns) //errtrace:skip
+	return desc.srvr(in, pos, ns)
 }
 
 // Stale operator: stale = "stale" EQUAL ( "true" / "false" )
@@ -5452,7 +5452,7 @@ func (desc *OperatorsDescr) Stale(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.stale(in, pos, ns) //errtrace:skip
+	return desc.stale(in, pos, ns)
 }
 
 // StatusCode operator: Status-Code = Informational / Redirection / Success / Client-Error / Server-Error / Global-Failure / extension-code
@@ -5469,7 +5469,7 @@ func (desc *OperatorsDescr) StatusCode(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.ExtensionCode,
 		)
 	})
-	return desc.statusCode(in, pos, ns) //errtrace:skip
+	return desc.statusCode(in, pos, ns)
 }
 
 // StatusLine operator: Status-Line = SIP-Version SP Status-Code SP Reason-Phrase CRLF
@@ -5485,7 +5485,7 @@ func (desc *OperatorsDescr) StatusLine(in []byte, pos uint, ns *abnf.Nodes) erro
 			abnf_core.Operators().CRLF,
 		)
 	})
-	return desc.statusLine(in, pos, ns) //errtrace:skip
+	return desc.statusLine(in, pos, ns)
 }
 
 // Subject operator: Subject = ( "Subject" / "s" ) HCOLON [TEXT-UTF8-TRIM]
@@ -5505,7 +5505,7 @@ func (desc *OperatorsDescr) Subject(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.subject(in, pos, ns) //errtrace:skip
+	return desc.subject(in, pos, ns)
 }
 
 // Subtag operator: subtag = 1*8ALPHA
@@ -5518,7 +5518,7 @@ func (desc *OperatorsDescr) Subtag(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf_core.Operators().ALPHA,
 		)
 	})
-	return desc.subtag(in, pos, ns) //errtrace:skip
+	return desc.subtag(in, pos, ns)
 }
 
 // Success operator: Success = "200"
@@ -5526,7 +5526,7 @@ func (desc *OperatorsDescr) Success(in []byte, pos uint, ns *abnf.Nodes) error {
 	desc.successOnce.Do(func() {
 		desc.success = abnf.Literal("Success", []byte{50, 48, 48})
 	})
-	return desc.success(in, pos, ns) //errtrace:skip
+	return desc.success(in, pos, ns)
 }
 
 // Supported operator: Supported = ( "Supported" / "k" ) HCOLON [option-tag *(COMMA option-tag)]
@@ -5557,7 +5557,7 @@ func (desc *OperatorsDescr) Supported(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.supported(in, pos, ns) //errtrace:skip
+	return desc.supported(in, pos, ns)
 }
 
 // TEXTUTF8TRIM operator: TEXT-UTF8-TRIM = 1*TEXT-UTF8char *(*LWS TEXT-UTF8char)
@@ -5582,7 +5582,7 @@ func (desc *OperatorsDescr) TEXTUTF8TRIM(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.textUTF8TRIM(in, pos, ns) //errtrace:skip
+	return desc.textUTF8TRIM(in, pos, ns)
 }
 
 // TEXTUTF8char operator: TEXT-UTF8char = %x21-7E / UTF8-NONASCII
@@ -5594,7 +5594,7 @@ func (desc *OperatorsDescr) TEXTUTF8char(in []byte, pos uint, ns *abnf.Nodes) er
 			desc.UTF8NONASCII,
 		)
 	})
-	return desc.textUTF8char(in, pos, ns) //errtrace:skip
+	return desc.textUTF8char(in, pos, ns)
 }
 
 // TagParam operator: tag-param = "tag" EQUAL token
@@ -5607,7 +5607,7 @@ func (desc *OperatorsDescr) TagParam(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.Token,
 		)
 	})
-	return desc.tagParam(in, pos, ns) //errtrace:skip
+	return desc.tagParam(in, pos, ns)
 }
 
 // Time operator: time = 2DIGIT ":" 2DIGIT ":" 2DIGIT
@@ -5634,7 +5634,7 @@ func (desc *OperatorsDescr) Time(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.time(in, pos, ns) //errtrace:skip
+	return desc.time(in, pos, ns)
 }
 
 // Timestamp operator: Timestamp = "Timestamp" HCOLON 1*(DIGIT) [ "." *(DIGIT) ] [ LWS delay ]
@@ -5669,7 +5669,7 @@ func (desc *OperatorsDescr) Timestamp(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.timestamp(in, pos, ns) //errtrace:skip
+	return desc.timestamp(in, pos, ns)
 }
 
 // To operator: To = ( "To" / "t" ) HCOLON ( name-addr / addr-spec ) *( SEMI to-param )
@@ -5698,7 +5698,7 @@ func (desc *OperatorsDescr) To(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.to(in, pos, ns) //errtrace:skip
+	return desc.to(in, pos, ns)
 }
 
 // ToParam operator: to-param = tag-param / generic-param
@@ -5710,7 +5710,7 @@ func (desc *OperatorsDescr) ToParam(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.GenericParam,
 		)
 	})
-	return desc.toParam(in, pos, ns) //errtrace:skip
+	return desc.toParam(in, pos, ns)
 }
 
 // Token operator: token = 1*(alphanum / "-" / "." / "!" / "%" / "*" / "_" / "+" / "`" / "'" / "~" )
@@ -5734,7 +5734,7 @@ func (desc *OperatorsDescr) Token(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.token(in, pos, ns) //errtrace:skip
+	return desc.token(in, pos, ns)
 }
 
 // Toplabel operator: toplabel = ALPHA / ALPHA *( alphanum / "-" ) alphanum
@@ -5758,7 +5758,7 @@ func (desc *OperatorsDescr) Toplabel(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.toplabel(in, pos, ns) //errtrace:skip
+	return desc.toplabel(in, pos, ns)
 }
 
 // Transport operator: transport = "UDP" / "TCP" / "TLS" / "SCTP" / other-transport
@@ -5773,7 +5773,7 @@ func (desc *OperatorsDescr) Transport(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.OtherTransport,
 		)
 	})
-	return desc.transport(in, pos, ns) //errtrace:skip
+	return desc.transport(in, pos, ns)
 }
 
 // TransportParam operator: transport-param = "transport=" ( "udp" / "tcp" / "sctp" / "tls" / other-transport)
@@ -5792,7 +5792,7 @@ func (desc *OperatorsDescr) TransportParam(in []byte, pos uint, ns *abnf.Nodes) 
 			),
 		)
 	})
-	return desc.transportParam(in, pos, ns) //errtrace:skip
+	return desc.transportParam(in, pos, ns)
 }
 
 // Ttl operator: ttl = 1*3DIGIT
@@ -5805,7 +5805,7 @@ func (desc *OperatorsDescr) Ttl(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf_core.Operators().DIGIT,
 		)
 	})
-	return desc.ttl(in, pos, ns) //errtrace:skip
+	return desc.ttl(in, pos, ns)
 }
 
 // TtlParam operator: ttl-param = "ttl=" ttl
@@ -5817,7 +5817,7 @@ func (desc *OperatorsDescr) TtlParam(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.Ttl,
 		)
 	})
-	return desc.ttlParam(in, pos, ns) //errtrace:skip
+	return desc.ttlParam(in, pos, ns)
 }
 
 // URI operator: URI = absoluteURI / abs-path
@@ -5829,7 +5829,7 @@ func (desc *OperatorsDescr) URI(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.AbsPath,
 		)
 	})
-	return desc.uri(in, pos, ns) //errtrace:skip
+	return desc.uri(in, pos, ns)
 }
 
 // UTF8CONT operator: UTF8-CONT = %x80-BF
@@ -5837,7 +5837,7 @@ func (desc *OperatorsDescr) UTF8CONT(in []byte, pos uint, ns *abnf.Nodes) error 
 	desc.utf8CONTOnce.Do(func() {
 		desc.utf8CONT = abnf.Range("UTF8-CONT", []byte{128}, []byte{191})
 	})
-	return desc.utf8CONT(in, pos, ns) //errtrace:skip
+	return desc.utf8CONT(in, pos, ns)
 }
 
 // UTF8NONASCII operator: UTF8-NONASCII = %xC0-DF 1UTF8-CONT / %xE0-EF 2UTF8-CONT / %xF0-F7 3UTF8-CONT / %xF8-Fb 4UTF8-CONT / %xFC-FD 5UTF8-CONT
@@ -5892,7 +5892,7 @@ func (desc *OperatorsDescr) UTF8NONASCII(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.utf8NONASCII(in, pos, ns) //errtrace:skip
+	return desc.utf8NONASCII(in, pos, ns)
 }
 
 // Unreserved operator: unreserved = alphanum / mark
@@ -5904,7 +5904,7 @@ func (desc *OperatorsDescr) Unreserved(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.Mark,
 		)
 	})
-	return desc.unreserved(in, pos, ns) //errtrace:skip
+	return desc.unreserved(in, pos, ns)
 }
 
 // Unsupported operator: Unsupported = "Unsupported" HCOLON option-tag *(COMMA option-tag)
@@ -5925,7 +5925,7 @@ func (desc *OperatorsDescr) Unsupported(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.unsupported(in, pos, ns) //errtrace:skip
+	return desc.unsupported(in, pos, ns)
 }
 
 // UriParameter operator: uri-parameter = transport-param / user-param / method-param / ttl-param / maddr-param / lr-param / other-param
@@ -5942,7 +5942,7 @@ func (desc *OperatorsDescr) UriParameter(in []byte, pos uint, ns *abnf.Nodes) er
 			desc.OtherParam,
 		)
 	})
-	return desc.uriParameter(in, pos, ns) //errtrace:skip
+	return desc.uriParameter(in, pos, ns)
 }
 
 // UriParameters operator: uri-parameters = *( ";" uri-parameter)
@@ -5957,7 +5957,7 @@ func (desc *OperatorsDescr) UriParameters(in []byte, pos uint, ns *abnf.Nodes) e
 			),
 		)
 	})
-	return desc.uriParameters(in, pos, ns) //errtrace:skip
+	return desc.uriParameters(in, pos, ns)
 }
 
 // Uric operator: uric = reserved / unreserved / escaped
@@ -5970,7 +5970,7 @@ func (desc *OperatorsDescr) Uric(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Escaped,
 		)
 	})
-	return desc.uric(in, pos, ns) //errtrace:skip
+	return desc.uric(in, pos, ns)
 }
 
 // UricNoSlash operator: uric-no-slash = unreserved / escaped / ";" / "?" / ":" / "@" / "&" / "=" / "+" / "$" / ","
@@ -5991,7 +5991,7 @@ func (desc *OperatorsDescr) UricNoSlash(in []byte, pos uint, ns *abnf.Nodes) err
 			abnf.Literal("\",\"", []byte{44}),
 		)
 	})
-	return desc.uricNoSlash(in, pos, ns) //errtrace:skip
+	return desc.uricNoSlash(in, pos, ns)
 }
 
 // User operator: user = 1*( unreserved / escaped / user-unreserved )
@@ -6007,7 +6007,7 @@ func (desc *OperatorsDescr) User(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.user(in, pos, ns) //errtrace:skip
+	return desc.user(in, pos, ns)
 }
 
 // UserAgent operator: User-Agent = "User-Agent" HCOLON server-val *(LWS server-val)
@@ -6028,7 +6028,7 @@ func (desc *OperatorsDescr) UserAgent(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.userAgent(in, pos, ns) //errtrace:skip
+	return desc.userAgent(in, pos, ns)
 }
 
 // UserParam operator: user-param = "user=" ( "phone" / "ip" / other-user)
@@ -6045,7 +6045,7 @@ func (desc *OperatorsDescr) UserParam(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.userParam(in, pos, ns) //errtrace:skip
+	return desc.userParam(in, pos, ns)
 }
 
 // UserUnreserved operator: user-unreserved = "&" / "=" / "+" / "$" / "," / ";" / "?" / "/"
@@ -6063,7 +6063,7 @@ func (desc *OperatorsDescr) UserUnreserved(in []byte, pos uint, ns *abnf.Nodes) 
 			abnf.Literal("\"/\"", []byte{47}),
 		)
 	})
-	return desc.userUnreserved(in, pos, ns) //errtrace:skip
+	return desc.userUnreserved(in, pos, ns)
 }
 
 // Userinfo operator: userinfo = user [ ":" password ] "@"
@@ -6083,7 +6083,7 @@ func (desc *OperatorsDescr) Userinfo(in []byte, pos uint, ns *abnf.Nodes) error 
 			abnf.Literal("\"@\"", []byte{64}),
 		)
 	})
-	return desc.userinfo(in, pos, ns) //errtrace:skip
+	return desc.userinfo(in, pos, ns)
 }
 
 // Username operator: username = "username" EQUAL username-value
@@ -6096,7 +6096,7 @@ func (desc *OperatorsDescr) Username(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.UsernameValue,
 		)
 	})
-	return desc.username(in, pos, ns) //errtrace:skip
+	return desc.username(in, pos, ns)
 }
 
 // UsernameValue operator: username-value = quoted-string
@@ -6107,7 +6107,7 @@ func (desc *OperatorsDescr) UsernameValue(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.QuotedString,
 		)
 	})
-	return desc.usernameValue(in, pos, ns) //errtrace:skip
+	return desc.usernameValue(in, pos, ns)
 }
 
 // VSCHAR operator: VSCHAR = %x20-7E
@@ -6115,7 +6115,7 @@ func (desc *OperatorsDescr) VSCHAR(in []byte, pos uint, ns *abnf.Nodes) error {
 	desc.vscharOnce.Do(func() {
 		desc.vschar = abnf.Range("VSCHAR", []byte{32}, []byte{126})
 	})
-	return desc.vschar(in, pos, ns) //errtrace:skip
+	return desc.vschar(in, pos, ns)
 }
 
 // Via operator: Via = ( "Via" / "v" ) HCOLON via-parm *(COMMA via-parm)
@@ -6140,7 +6140,7 @@ func (desc *OperatorsDescr) Via(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.via(in, pos, ns) //errtrace:skip
+	return desc.via(in, pos, ns)
 }
 
 // ViaBranch operator: via-branch = "branch" EQUAL token
@@ -6153,7 +6153,7 @@ func (desc *OperatorsDescr) ViaBranch(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Token,
 		)
 	})
-	return desc.viaBranch(in, pos, ns) //errtrace:skip
+	return desc.viaBranch(in, pos, ns)
 }
 
 // ViaExtension operator: via-extension = generic-param
@@ -6164,7 +6164,7 @@ func (desc *OperatorsDescr) ViaExtension(in []byte, pos uint, ns *abnf.Nodes) er
 			desc.GenericParam,
 		)
 	})
-	return desc.viaExtension(in, pos, ns) //errtrace:skip
+	return desc.viaExtension(in, pos, ns)
 }
 
 // ViaMaddr operator: via-maddr = "maddr" EQUAL host
@@ -6177,7 +6177,7 @@ func (desc *OperatorsDescr) ViaMaddr(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.Host,
 		)
 	})
-	return desc.viaMaddr(in, pos, ns) //errtrace:skip
+	return desc.viaMaddr(in, pos, ns)
 }
 
 // ViaParams operator: via-params = via-ttl / via-maddr / via-received / via-branch / response-port / via-extension
@@ -6193,7 +6193,7 @@ func (desc *OperatorsDescr) ViaParams(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.ViaExtension,
 		)
 	})
-	return desc.viaParams(in, pos, ns) //errtrace:skip
+	return desc.viaParams(in, pos, ns)
 }
 
 // ViaParm operator: via-parm = sent-protocol LWS sent-by *( SEMI via-params )
@@ -6214,7 +6214,7 @@ func (desc *OperatorsDescr) ViaParm(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.viaParm(in, pos, ns) //errtrace:skip
+	return desc.viaParm(in, pos, ns)
 }
 
 // ViaReceived operator: via-received = "received" EQUAL (IPv4address / IPv6address)
@@ -6231,7 +6231,7 @@ func (desc *OperatorsDescr) ViaReceived(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.viaReceived(in, pos, ns) //errtrace:skip
+	return desc.viaReceived(in, pos, ns)
 }
 
 // ViaTtl operator: via-ttl = "ttl" EQUAL ttl
@@ -6244,7 +6244,7 @@ func (desc *OperatorsDescr) ViaTtl(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Ttl,
 		)
 	})
-	return desc.viaTtl(in, pos, ns) //errtrace:skip
+	return desc.viaTtl(in, pos, ns)
 }
 
 // WWWAuthenticate operator: WWW-Authenticate = "WWW-Authenticate" HCOLON challenge
@@ -6257,7 +6257,7 @@ func (desc *OperatorsDescr) WWWAuthenticate(in []byte, pos uint, ns *abnf.Nodes)
 			desc.Challenge,
 		)
 	})
-	return desc.wwwAuthenticate(in, pos, ns) //errtrace:skip
+	return desc.wwwAuthenticate(in, pos, ns)
 }
 
 // WarnAgent operator: warn-agent = hostport / pseudonym
@@ -6269,7 +6269,7 @@ func (desc *OperatorsDescr) WarnAgent(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Pseudonym,
 		)
 	})
-	return desc.warnAgent(in, pos, ns) //errtrace:skip
+	return desc.warnAgent(in, pos, ns)
 }
 
 // WarnCode operator: warn-code = 3DIGIT
@@ -6281,7 +6281,7 @@ func (desc *OperatorsDescr) WarnCode(in []byte, pos uint, ns *abnf.Nodes) error 
 			abnf_core.Operators().DIGIT,
 		)
 	})
-	return desc.warnCode(in, pos, ns) //errtrace:skip
+	return desc.warnCode(in, pos, ns)
 }
 
 // WarnText operator: warn-text = quoted-string
@@ -6292,7 +6292,7 @@ func (desc *OperatorsDescr) WarnText(in []byte, pos uint, ns *abnf.Nodes) error 
 			desc.QuotedString,
 		)
 	})
-	return desc.warnText(in, pos, ns) //errtrace:skip
+	return desc.warnText(in, pos, ns)
 }
 
 // Warning operator: Warning = "Warning" HCOLON warning-value *(COMMA warning-value)
@@ -6313,7 +6313,7 @@ func (desc *OperatorsDescr) Warning(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.warning(in, pos, ns) //errtrace:skip
+	return desc.warning(in, pos, ns)
 }
 
 // WarningValue operator: warning-value = warn-code SP warn-agent SP warn-text
@@ -6328,7 +6328,7 @@ func (desc *OperatorsDescr) WarningValue(in []byte, pos uint, ns *abnf.Nodes) er
 			desc.WarnText,
 		)
 	})
-	return desc.warningValue(in, pos, ns) //errtrace:skip
+	return desc.warningValue(in, pos, ns)
 }
 
 // Wkday operator: wkday = "Mon" / "Tue" / "Wed" / "Thu" / "Fri" / "Sat" / "Sun"
@@ -6345,7 +6345,7 @@ func (desc *OperatorsDescr) Wkday(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Literal("\"Sun\"", []byte{83, 117, 110}),
 		)
 	})
-	return desc.wkday(in, pos, ns) //errtrace:skip
+	return desc.wkday(in, pos, ns)
 }
 
 // Word operator: word = 1*(alphanum / "-" / "." / "!" / "%" / "*" / "_" / "+" / "`" / "'" / "~" / "(" / ")" / "<" / ">" / ":" / "\" / DQUOTE / "/" / "[" / "]" / "?" / "{" / "}" )
@@ -6382,7 +6382,7 @@ func (desc *OperatorsDescr) Word(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.word(in, pos, ns) //errtrace:skip
+	return desc.word(in, pos, ns)
 }
 
 // XToken operator: x-token = "x-" token
@@ -6394,7 +6394,7 @@ func (desc *OperatorsDescr) XToken(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Token,
 		)
 	})
-	return desc.xToken(in, pos, ns) //errtrace:skip
+	return desc.xToken(in, pos, ns)
 }
 
 // RulesDescr defines rules descriptor that provides rules as methods.
@@ -6402,1480 +6402,1480 @@ type RulesDescr struct{}
 
 // ACKm rule: ACKm = %x41.43.4B
 func (*RulesDescr) ACKm(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ACKm(in, 0, ns) //errtrace:skip
+	return oprsDescr.ACKm(in, 0, ns)
 }
 
 // AbsPath rule: abs-path = "/" path-segments
 func (*RulesDescr) AbsPath(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AbsPath(in, 0, ns) //errtrace:skip
+	return oprsDescr.AbsPath(in, 0, ns)
 }
 
 // AbsoluteURI rule: absoluteURI = scheme ":" ( hier-part / opaque-part )
 func (*RulesDescr) AbsoluteURI(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AbsoluteURI(in, 0, ns) //errtrace:skip
+	return oprsDescr.AbsoluteURI(in, 0, ns)
 }
 
 // Accept rule: Accept = "Accept" HCOLON [ accept-range *(COMMA accept-range) ]
 func (*RulesDescr) Accept(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Accept(in, 0, ns) //errtrace:skip
+	return oprsDescr.Accept(in, 0, ns)
 }
 
 // AcceptEncoding rule: Accept-Encoding = "Accept-Encoding" HCOLON [ encoding *(COMMA encoding) ]
 func (*RulesDescr) AcceptEncoding(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AcceptEncoding(in, 0, ns) //errtrace:skip
+	return oprsDescr.AcceptEncoding(in, 0, ns)
 }
 
 // AcceptLanguage rule: Accept-Language = "Accept-Language" HCOLON [ language *(COMMA language) ]
 func (*RulesDescr) AcceptLanguage(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AcceptLanguage(in, 0, ns) //errtrace:skip
+	return oprsDescr.AcceptLanguage(in, 0, ns)
 }
 
 // AcceptParam rule: accept-param = ("q" EQUAL qvalue) / generic-param
 func (*RulesDescr) AcceptParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AcceptParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.AcceptParam(in, 0, ns)
 }
 
 // AcceptRange rule: accept-range = media-range *(SEMI accept-param)
 func (*RulesDescr) AcceptRange(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AcceptRange(in, 0, ns) //errtrace:skip
+	return oprsDescr.AcceptRange(in, 0, ns)
 }
 
 // AddrSpec rule: addr-spec = SIP-URI / SIPS-URI / absoluteURI
 func (*RulesDescr) AddrSpec(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AddrSpec(in, 0, ns) //errtrace:skip
+	return oprsDescr.AddrSpec(in, 0, ns)
 }
 
 // Ainfo rule: ainfo = nextnonce / message-qop / response-auth / cnonce / nonce-count
 func (*RulesDescr) Ainfo(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Ainfo(in, 0, ns) //errtrace:skip
+	return oprsDescr.Ainfo(in, 0, ns)
 }
 
 // AlertInfo rule: Alert-Info = "Alert-Info" HCOLON alert-param *(COMMA alert-param)
 func (*RulesDescr) AlertInfo(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AlertInfo(in, 0, ns) //errtrace:skip
+	return oprsDescr.AlertInfo(in, 0, ns)
 }
 
 // AlertParam rule: alert-param = LAQUOT absoluteURI RAQUOT *( SEMI generic-param )
 func (*RulesDescr) AlertParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AlertParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.AlertParam(in, 0, ns)
 }
 
 // Algorithm rule: algorithm = "algorithm" EQUAL ( "MD5" / "MD5-sess" / token )
 func (*RulesDescr) Algorithm(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Algorithm(in, 0, ns) //errtrace:skip
+	return oprsDescr.Algorithm(in, 0, ns)
 }
 
 // Allow rule: Allow = "Allow" HCOLON [Method *(COMMA Method)]
 func (*RulesDescr) Allow(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Allow(in, 0, ns) //errtrace:skip
+	return oprsDescr.Allow(in, 0, ns)
 }
 
 // Alphanum rule: alphanum = ALPHA / DIGIT
 func (*RulesDescr) Alphanum(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Alphanum(in, 0, ns) //errtrace:skip
+	return oprsDescr.Alphanum(in, 0, ns)
 }
 
 // AuthParam rule: auth-param = auth-param-name EQUAL ( token / quoted-string )
 func (*RulesDescr) AuthParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AuthParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.AuthParam(in, 0, ns)
 }
 
 // AuthParamName rule: auth-param-name = token
 func (*RulesDescr) AuthParamName(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AuthParamName(in, 0, ns) //errtrace:skip
+	return oprsDescr.AuthParamName(in, 0, ns)
 }
 
 // AuthScheme rule: auth-scheme = token
 func (*RulesDescr) AuthScheme(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AuthScheme(in, 0, ns) //errtrace:skip
+	return oprsDescr.AuthScheme(in, 0, ns)
 }
 
 // AuthenticationInfo rule: Authentication-Info = "Authentication-Info" HCOLON ainfo *(COMMA ainfo)
 func (*RulesDescr) AuthenticationInfo(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AuthenticationInfo(in, 0, ns) //errtrace:skip
+	return oprsDescr.AuthenticationInfo(in, 0, ns)
 }
 
 // Authority rule: authority = srvr / reg-name
 func (*RulesDescr) Authority(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Authority(in, 0, ns) //errtrace:skip
+	return oprsDescr.Authority(in, 0, ns)
 }
 
 // Authorization rule: Authorization = "Authorization" HCOLON credentials
 func (*RulesDescr) Authorization(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Authorization(in, 0, ns) //errtrace:skip
+	return oprsDescr.Authorization(in, 0, ns)
 }
 
 // AuthzServer rule: authz-server = absoluteURI
 func (*RulesDescr) AuthzServer(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AuthzServer(in, 0, ns) //errtrace:skip
+	return oprsDescr.AuthzServer(in, 0, ns)
 }
 
 // AuthzServerParam rule: authz-server-param = "authz_server" EQUAL DQUOTE authz-server DQUOTE
 func (*RulesDescr) AuthzServerParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.AuthzServerParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.AuthzServerParam(in, 0, ns)
 }
 
 // BYEm rule: BYEm = %x42.59.45
 func (*RulesDescr) BYEm(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.BYEm(in, 0, ns) //errtrace:skip
+	return oprsDescr.BYEm(in, 0, ns)
 }
 
 // BearerCln rule: bearer-cln = realm / scope-param / authz-server-param / error-param / auth-param
 func (*RulesDescr) BearerCln(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.BearerCln(in, 0, ns) //errtrace:skip
+	return oprsDescr.BearerCln(in, 0, ns)
 }
 
 // BearerResponse rule: bearer-response = 1*VSCHAR
 func (*RulesDescr) BearerResponse(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.BearerResponse(in, 0, ns) //errtrace:skip
+	return oprsDescr.BearerResponse(in, 0, ns)
 }
 
 // CANCELm rule: CANCELm = %x43.41.4E.43.45.4C
 func (*RulesDescr) CANCELm(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.CANCELm(in, 0, ns) //errtrace:skip
+	return oprsDescr.CANCELm(in, 0, ns)
 }
 
 // COLON rule: COLON = SWS ":" SWS
 func (*RulesDescr) COLON(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.COLON(in, 0, ns) //errtrace:skip
+	return oprsDescr.COLON(in, 0, ns)
 }
 
 // COMMA rule: COMMA = SWS "," SWS
 func (*RulesDescr) COMMA(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.COMMA(in, 0, ns) //errtrace:skip
+	return oprsDescr.COMMA(in, 0, ns)
 }
 
 // CPExpires rule: c-p-expires = "expires" EQUAL delta-seconds
 func (*RulesDescr) CPExpires(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.CPExpires(in, 0, ns) //errtrace:skip
+	return oprsDescr.CPExpires(in, 0, ns)
 }
 
 // CPQ rule: c-p-q = "q" EQUAL qvalue
 func (*RulesDescr) CPQ(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.CPQ(in, 0, ns) //errtrace:skip
+	return oprsDescr.CPQ(in, 0, ns)
 }
 
 // CSeq rule: CSeq = "CSeq" HCOLON 1*DIGIT LWS Method
 func (*RulesDescr) CSeq(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.CSeq(in, 0, ns) //errtrace:skip
+	return oprsDescr.CSeq(in, 0, ns)
 }
 
 // CallID rule: Call-ID = ( "Call-ID" / "i" ) HCOLON callid
 func (*RulesDescr) CallID(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.CallID(in, 0, ns) //errtrace:skip
+	return oprsDescr.CallID(in, 0, ns)
 }
 
 // CallInfo rule: Call-Info = "Call-Info" HCOLON info *(COMMA info)
 func (*RulesDescr) CallInfo(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.CallInfo(in, 0, ns) //errtrace:skip
+	return oprsDescr.CallInfo(in, 0, ns)
 }
 
 // Callid rule: callid = word [ "@" word ]
 func (*RulesDescr) Callid(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Callid(in, 0, ns) //errtrace:skip
+	return oprsDescr.Callid(in, 0, ns)
 }
 
 // Challenge rule: challenge = ("Digest" LWS digest-cln *(COMMA digest-cln)) / ("Bearer" LWS bearer-cln *(COMMA bearer-cln)) ; RFC 8898 patch / other-challenge
 func (*RulesDescr) Challenge(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Challenge(in, 0, ns) //errtrace:skip
+	return oprsDescr.Challenge(in, 0, ns)
 }
 
 // ClientError rule: Client-Error = "400" ; Bad Request / "401" ; Unauthorized / "402" ; Payment Required / "403" ; Forbidden / "404" ; Not Found / "405" ; Method Not Allowed / "406" ; Not Acceptable / "407" ; Proxy Authentication Required / "408" ; Request Timeout / "410" ; Gone / "413" ; Request Entity Too Large / "414" ; Request-URI Too Large / "415" ; Unsupported Media Type / "416" ; Unsupported URI Scheme / "420" ; Bad Extension / "421" ; Extension Required / "423" ; Interval Too Brief / "480" ; Temporarily not available / "481" ; Call Leg/Transaction Does Not Exist / "482" ; Loop Detected / "483" ; Too Many Hops / "484" ; Address Incomplete / "485" ; Ambiguous / "486" ; Busy Here / "487" ; Request Terminated / "488" ; Not Acceptable Here / "491" ; Request Pending / "493"
 func (*RulesDescr) ClientError(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ClientError(in, 0, ns) //errtrace:skip
+	return oprsDescr.ClientError(in, 0, ns)
 }
 
 // Cnonce rule: cnonce = "cnonce" EQUAL cnonce-value
 func (*RulesDescr) Cnonce(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Cnonce(in, 0, ns) //errtrace:skip
+	return oprsDescr.Cnonce(in, 0, ns)
 }
 
 // CnonceValue rule: cnonce-value = nonce-value
 func (*RulesDescr) CnonceValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.CnonceValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.CnonceValue(in, 0, ns)
 }
 
 // Codings rule: codings = content-coding / "*"
 func (*RulesDescr) Codings(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Codings(in, 0, ns) //errtrace:skip
+	return oprsDescr.Codings(in, 0, ns)
 }
 
 // Comment rule: comment = LPAREN *(ctext / quoted-pair) RPAREN
 func (*RulesDescr) Comment(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Comment(in, 0, ns) //errtrace:skip
+	return oprsDescr.Comment(in, 0, ns)
 }
 
 // CompositeType rule: composite-type = "message" / "multipart" / extension-token
 func (*RulesDescr) CompositeType(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.CompositeType(in, 0, ns) //errtrace:skip
+	return oprsDescr.CompositeType(in, 0, ns)
 }
 
 // Contact rule: Contact = ("Contact" / "m" ) HCOLON ( STAR / (contact-param *(COMMA contact-param)))
 func (*RulesDescr) Contact(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Contact(in, 0, ns) //errtrace:skip
+	return oprsDescr.Contact(in, 0, ns)
 }
 
 // ContactExtension rule: contact-extension = generic-param
 func (*RulesDescr) ContactExtension(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ContactExtension(in, 0, ns) //errtrace:skip
+	return oprsDescr.ContactExtension(in, 0, ns)
 }
 
 // ContactParam rule: contact-param = (name-addr / addr-spec) *(SEMI contact-params)
 func (*RulesDescr) ContactParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ContactParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.ContactParam(in, 0, ns)
 }
 
 // ContactParams rule: contact-params = c-p-q / c-p-expires / contact-extension
 func (*RulesDescr) ContactParams(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ContactParams(in, 0, ns) //errtrace:skip
+	return oprsDescr.ContactParams(in, 0, ns)
 }
 
 // ContentCoding rule: content-coding = token
 func (*RulesDescr) ContentCoding(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ContentCoding(in, 0, ns) //errtrace:skip
+	return oprsDescr.ContentCoding(in, 0, ns)
 }
 
 // ContentDisposition rule: Content-Disposition = "Content-Disposition" HCOLON disp-type *( SEMI disp-param )
 func (*RulesDescr) ContentDisposition(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ContentDisposition(in, 0, ns) //errtrace:skip
+	return oprsDescr.ContentDisposition(in, 0, ns)
 }
 
 // ContentEncoding rule: Content-Encoding = ( "Content-Encoding" / "e" ) HCOLON content-coding *(COMMA content-coding)
 func (*RulesDescr) ContentEncoding(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ContentEncoding(in, 0, ns) //errtrace:skip
+	return oprsDescr.ContentEncoding(in, 0, ns)
 }
 
 // ContentLanguage rule: Content-Language = "Content-Language" HCOLON language-tag *(COMMA language-tag)
 func (*RulesDescr) ContentLanguage(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ContentLanguage(in, 0, ns) //errtrace:skip
+	return oprsDescr.ContentLanguage(in, 0, ns)
 }
 
 // ContentLength rule: Content-Length = ( "Content-Length" / "l" ) HCOLON 1*DIGIT
 func (*RulesDescr) ContentLength(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ContentLength(in, 0, ns) //errtrace:skip
+	return oprsDescr.ContentLength(in, 0, ns)
 }
 
 // ContentType rule: Content-Type = ( "Content-Type" / "c" ) HCOLON media-type
 func (*RulesDescr) ContentType(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ContentType(in, 0, ns) //errtrace:skip
+	return oprsDescr.ContentType(in, 0, ns)
 }
 
 // Credentials rule: credentials = ("Digest" LWS digest-response) / ("Bearer" LWS bearer-response) ; RFC 8898 patch / other-response
 func (*RulesDescr) Credentials(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Credentials(in, 0, ns) //errtrace:skip
+	return oprsDescr.Credentials(in, 0, ns)
 }
 
 // Ctext rule: ctext = %x21-27 / %x2A-5B / %x5D-7E / UTF8-NONASCII / LWS
 func (*RulesDescr) Ctext(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Ctext(in, 0, ns) //errtrace:skip
+	return oprsDescr.Ctext(in, 0, ns)
 }
 
 // Date rule: Date = "Date" HCOLON SIP-date
 func (*RulesDescr) Date(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Date(in, 0, ns) //errtrace:skip
+	return oprsDescr.Date(in, 0, ns)
 }
 
 // Date1 rule: date1 = 2DIGIT SP month SP 4DIGIT
 func (*RulesDescr) Date1(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Date1(in, 0, ns) //errtrace:skip
+	return oprsDescr.Date1(in, 0, ns)
 }
 
 // DecOctet rule: dec-octet = DIGIT ; 0-9 / %x31-39 DIGIT ; 10-99 / "1" 2DIGIT ; 100-199 / "2" %x30-34 DIGIT ; 200-249 / "25" %x30-35
 func (*RulesDescr) DecOctet(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DecOctet(in, 0, ns) //errtrace:skip
+	return oprsDescr.DecOctet(in, 0, ns)
 }
 
 // Delay rule: delay = *(DIGIT) [ "." *(DIGIT) ]
 func (*RulesDescr) Delay(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Delay(in, 0, ns) //errtrace:skip
+	return oprsDescr.Delay(in, 0, ns)
 }
 
 // DeltaSeconds rule: delta-seconds = 1*DIGIT
 func (*RulesDescr) DeltaSeconds(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DeltaSeconds(in, 0, ns) //errtrace:skip
+	return oprsDescr.DeltaSeconds(in, 0, ns)
 }
 
 // DigResp rule: dig-resp = username / realm / nonce / digest-uri / dresponse / algorithm / cnonce / opaque / message-qop / nonce-count / auth-param
 func (*RulesDescr) DigResp(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DigResp(in, 0, ns) //errtrace:skip
+	return oprsDescr.DigResp(in, 0, ns)
 }
 
 // DigestCln rule: digest-cln = realm / domain / nonce / opaque / stale / algorithm / qop-options / auth-param
 func (*RulesDescr) DigestCln(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DigestCln(in, 0, ns) //errtrace:skip
+	return oprsDescr.DigestCln(in, 0, ns)
 }
 
 // DigestResponse rule: digest-response = dig-resp *(COMMA dig-resp)
 func (*RulesDescr) DigestResponse(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DigestResponse(in, 0, ns) //errtrace:skip
+	return oprsDescr.DigestResponse(in, 0, ns)
 }
 
 // DigestUri rule: digest-uri = "uri" EQUAL LDQUOT digest-uri-value RDQUOT
 func (*RulesDescr) DigestUri(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DigestUri(in, 0, ns) //errtrace:skip
+	return oprsDescr.DigestUri(in, 0, ns)
 }
 
 // DigestUriValue rule: digest-uri-value = request-uri
 func (*RulesDescr) DigestUriValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DigestUriValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.DigestUriValue(in, 0, ns)
 }
 
 // DiscreteType rule: discrete-type = "text" / "image" / "audio" / "video" / "application" / extension-token
 func (*RulesDescr) DiscreteType(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DiscreteType(in, 0, ns) //errtrace:skip
+	return oprsDescr.DiscreteType(in, 0, ns)
 }
 
 // DispExtensionToken rule: disp-extension-token = token
 func (*RulesDescr) DispExtensionToken(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DispExtensionToken(in, 0, ns) //errtrace:skip
+	return oprsDescr.DispExtensionToken(in, 0, ns)
 }
 
 // DispParam rule: disp-param = handling-param / generic-param
 func (*RulesDescr) DispParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DispParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.DispParam(in, 0, ns)
 }
 
 // DispType rule: disp-type = "render" / "session" / "icon" / "alert" / disp-extension-token
 func (*RulesDescr) DispType(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DispType(in, 0, ns) //errtrace:skip
+	return oprsDescr.DispType(in, 0, ns)
 }
 
 // DisplayName rule: display-name = *(token LWS)/ quoted-string
 func (*RulesDescr) DisplayName(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.DisplayName(in, 0, ns) //errtrace:skip
+	return oprsDescr.DisplayName(in, 0, ns)
 }
 
 // Domain rule: domain = "domain" EQUAL LDQUOT URI *( 1*SP URI ) RDQUOT
 func (*RulesDescr) Domain(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Domain(in, 0, ns) //errtrace:skip
+	return oprsDescr.Domain(in, 0, ns)
 }
 
 // Domainlabel rule: domainlabel = alphanum / alphanum *( alphanum / "-" ) alphanum
 func (*RulesDescr) Domainlabel(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Domainlabel(in, 0, ns) //errtrace:skip
+	return oprsDescr.Domainlabel(in, 0, ns)
 }
 
 // Dresponse rule: dresponse = "response" EQUAL request-digest
 func (*RulesDescr) Dresponse(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Dresponse(in, 0, ns) //errtrace:skip
+	return oprsDescr.Dresponse(in, 0, ns)
 }
 
 // EQUAL rule: EQUAL = SWS "=" SWS
 func (*RulesDescr) EQUAL(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.EQUAL(in, 0, ns) //errtrace:skip
+	return oprsDescr.EQUAL(in, 0, ns)
 }
 
 // Encoding rule: encoding = codings *(SEMI accept-param)
 func (*RulesDescr) Encoding(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Encoding(in, 0, ns) //errtrace:skip
+	return oprsDescr.Encoding(in, 0, ns)
 }
 
 // Error rule: error = 1*NQSCHAR
 func (*RulesDescr) Error(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Error(in, 0, ns) //errtrace:skip
+	return oprsDescr.Error(in, 0, ns)
 }
 
 // ErrorInfo rule: Error-Info = "Error-Info" HCOLON error-uri *(COMMA error-uri)
 func (*RulesDescr) ErrorInfo(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ErrorInfo(in, 0, ns) //errtrace:skip
+	return oprsDescr.ErrorInfo(in, 0, ns)
 }
 
 // ErrorParam rule: error-param = "error" EQUAL DQUOTE error DQUOTE
 func (*RulesDescr) ErrorParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ErrorParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.ErrorParam(in, 0, ns)
 }
 
 // ErrorUri rule: error-uri = LAQUOT absoluteURI RAQUOT *( SEMI generic-param )
 func (*RulesDescr) ErrorUri(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ErrorUri(in, 0, ns) //errtrace:skip
+	return oprsDescr.ErrorUri(in, 0, ns)
 }
 
 // Escaped rule: escaped = "%" HEXDIG HEXDIG
 func (*RulesDescr) Escaped(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Escaped(in, 0, ns) //errtrace:skip
+	return oprsDescr.Escaped(in, 0, ns)
 }
 
 // Expires rule: Expires = "Expires" HCOLON delta-seconds
 func (*RulesDescr) Expires(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Expires(in, 0, ns) //errtrace:skip
+	return oprsDescr.Expires(in, 0, ns)
 }
 
 // ExtensionCode rule: extension-code = 3DIGIT
 func (*RulesDescr) ExtensionCode(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ExtensionCode(in, 0, ns) //errtrace:skip
+	return oprsDescr.ExtensionCode(in, 0, ns)
 }
 
 // ExtensionHeader rule: extension-header = header-name HCOLON header-value
 func (*RulesDescr) ExtensionHeader(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ExtensionHeader(in, 0, ns) //errtrace:skip
+	return oprsDescr.ExtensionHeader(in, 0, ns)
 }
 
 // ExtensionMethod rule: extension-method = token
 func (*RulesDescr) ExtensionMethod(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ExtensionMethod(in, 0, ns) //errtrace:skip
+	return oprsDescr.ExtensionMethod(in, 0, ns)
 }
 
 // ExtensionToken rule: extension-token = ietf-token / x-token
 func (*RulesDescr) ExtensionToken(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ExtensionToken(in, 0, ns) //errtrace:skip
+	return oprsDescr.ExtensionToken(in, 0, ns)
 }
 
 // From rule: From = ( "From" / "f" ) HCOLON from-spec
 func (*RulesDescr) From(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.From(in, 0, ns) //errtrace:skip
+	return oprsDescr.From(in, 0, ns)
 }
 
 // FromParam rule: from-param = tag-param / generic-param
 func (*RulesDescr) FromParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.FromParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.FromParam(in, 0, ns)
 }
 
 // FromSpec rule: from-spec = ( name-addr / addr-spec ) *( SEMI from-param )
 func (*RulesDescr) FromSpec(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.FromSpec(in, 0, ns) //errtrace:skip
+	return oprsDescr.FromSpec(in, 0, ns)
 }
 
 // GenValue rule: gen-value = token / host / quoted-string
 func (*RulesDescr) GenValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.GenValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.GenValue(in, 0, ns)
 }
 
 // GenericParam rule: generic-param = token [ EQUAL gen-value ]
 func (*RulesDescr) GenericParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.GenericParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.GenericParam(in, 0, ns)
 }
 
 // GlobalFailure rule: Global-Failure = "600" ; Busy Everywhere / "603" ; Decline / "604" ; Does not exist anywhere / "606"
 func (*RulesDescr) GlobalFailure(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.GlobalFailure(in, 0, ns) //errtrace:skip
+	return oprsDescr.GlobalFailure(in, 0, ns)
 }
 
 // H16 rule: h16 = 1*4HEXDIG
 func (*RulesDescr) H16(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.H16(in, 0, ns) //errtrace:skip
+	return oprsDescr.H16(in, 0, ns)
 }
 
 // HCOLON rule: HCOLON = *( SP / HTAB ) ":" SWS
 func (*RulesDescr) HCOLON(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.HCOLON(in, 0, ns) //errtrace:skip
+	return oprsDescr.HCOLON(in, 0, ns)
 }
 
 // HandlingParam rule: handling-param = "handling" EQUAL ( "optional" / "required" / other-handling )
 func (*RulesDescr) HandlingParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.HandlingParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.HandlingParam(in, 0, ns)
 }
 
 // Header rule: header = hname "=" hvalue
 func (*RulesDescr) Header(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Header(in, 0, ns) //errtrace:skip
+	return oprsDescr.Header(in, 0, ns)
 }
 
 // HeaderName rule: header-name = token
 func (*RulesDescr) HeaderName(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.HeaderName(in, 0, ns) //errtrace:skip
+	return oprsDescr.HeaderName(in, 0, ns)
 }
 
 // HeaderValue rule: header-value = *(TEXT-UTF8char / UTF8-CONT / LWS)
 func (*RulesDescr) HeaderValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.HeaderValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.HeaderValue(in, 0, ns)
 }
 
 // Headers rule: headers = "?" header *( "&" header )
 func (*RulesDescr) Headers(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Headers(in, 0, ns) //errtrace:skip
+	return oprsDescr.Headers(in, 0, ns)
 }
 
 // HierPart rule: hier-part = ( net-path / abs-path ) [ "?" query ]
 func (*RulesDescr) HierPart(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.HierPart(in, 0, ns) //errtrace:skip
+	return oprsDescr.HierPart(in, 0, ns)
 }
 
 // Hname rule: hname = 1*( hnv-unreserved / unreserved / escaped )
 func (*RulesDescr) Hname(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Hname(in, 0, ns) //errtrace:skip
+	return oprsDescr.Hname(in, 0, ns)
 }
 
 // HnvUnreserved rule: hnv-unreserved = "[" / "]" / "/" / "?" / ":" / "+" / "$"
 func (*RulesDescr) HnvUnreserved(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.HnvUnreserved(in, 0, ns) //errtrace:skip
+	return oprsDescr.HnvUnreserved(in, 0, ns)
 }
 
 // Host rule: host = hostname / IPv4address / IPv6reference
 func (*RulesDescr) Host(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Host(in, 0, ns) //errtrace:skip
+	return oprsDescr.Host(in, 0, ns)
 }
 
 // Hostname rule: hostname = *( domainlabel "." ) toplabel [ "." ]
 func (*RulesDescr) Hostname(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Hostname(in, 0, ns) //errtrace:skip
+	return oprsDescr.Hostname(in, 0, ns)
 }
 
 // Hostport rule: hostport = host [ ":" port ]
 func (*RulesDescr) Hostport(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Hostport(in, 0, ns) //errtrace:skip
+	return oprsDescr.Hostport(in, 0, ns)
 }
 
 // Hvalue rule: hvalue = *( hnv-unreserved / unreserved / escaped )
 func (*RulesDescr) Hvalue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Hvalue(in, 0, ns) //errtrace:skip
+	return oprsDescr.Hvalue(in, 0, ns)
 }
 
 // INVITEm rule: INVITEm = %x49.4E.56.49.54.45
 func (*RulesDescr) INVITEm(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.INVITEm(in, 0, ns) //errtrace:skip
+	return oprsDescr.INVITEm(in, 0, ns)
 }
 
 // IPv4address rule: IPv4address = dec-octet "." dec-octet "." dec-octet "." dec-octet
 func (*RulesDescr) IPv4address(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.IPv4address(in, 0, ns) //errtrace:skip
+	return oprsDescr.IPv4address(in, 0, ns)
 }
 
 // IPv6address rule: IPv6address = 6( h16 ":" ) ls32 / "::" 5( h16 ":" ) ls32 / [ h16 ] "::" 4( h16 ":" ) ls32 / [ *1( h16 ":" ) h16 ] "::" 3( h16 ":" ) ls32 / [ *2( h16 ":" ) h16 ] "::" 2( h16 ":" ) ls32 / [ *3( h16 ":" ) h16 ] "::" h16 ":" ls32 / [ *4( h16 ":" ) h16 ] "::" ls32 / [ *5( h16 ":" ) h16 ] "::" h16 / [ *6( h16 ":" ) h16 ] "::"
 func (*RulesDescr) IPv6address(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.IPv6address(in, 0, ns) //errtrace:skip
+	return oprsDescr.IPv6address(in, 0, ns)
 }
 
 // IPv6reference rule: IPv6reference = "[" IPv6address "]"
 func (*RulesDescr) IPv6reference(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.IPv6reference(in, 0, ns) //errtrace:skip
+	return oprsDescr.IPv6reference(in, 0, ns)
 }
 
 // IanaToken rule: iana-token = token
 func (*RulesDescr) IanaToken(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.IanaToken(in, 0, ns) //errtrace:skip
+	return oprsDescr.IanaToken(in, 0, ns)
 }
 
 // IetfToken rule: ietf-token = token
 func (*RulesDescr) IetfToken(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.IetfToken(in, 0, ns) //errtrace:skip
+	return oprsDescr.IetfToken(in, 0, ns)
 }
 
 // InReplyTo rule: In-Reply-To = "In-Reply-To" HCOLON callid *(COMMA callid)
 func (*RulesDescr) InReplyTo(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.InReplyTo(in, 0, ns) //errtrace:skip
+	return oprsDescr.InReplyTo(in, 0, ns)
 }
 
 // Info rule: info = LAQUOT absoluteURI RAQUOT *( SEMI info-param)
 func (*RulesDescr) Info(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Info(in, 0, ns) //errtrace:skip
+	return oprsDescr.Info(in, 0, ns)
 }
 
 // InfoParam rule: info-param = ( "purpose" EQUAL ( "icon" / "info" / "card" / token ) ) / generic-param
 func (*RulesDescr) InfoParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.InfoParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.InfoParam(in, 0, ns)
 }
 
 // Informational rule: Informational = "100" ; Trying / "180" ; Ringing / "181" ; Call Is Being Forwarded / "182" ; Queued / "183"
 func (*RulesDescr) Informational(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Informational(in, 0, ns) //errtrace:skip
+	return oprsDescr.Informational(in, 0, ns)
 }
 
 // LAQUOT rule: LAQUOT = SWS "<"
 func (*RulesDescr) LAQUOT(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LAQUOT(in, 0, ns) //errtrace:skip
+	return oprsDescr.LAQUOT(in, 0, ns)
 }
 
 // LDQUOT rule: LDQUOT = SWS DQUOTE
 func (*RulesDescr) LDQUOT(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LDQUOT(in, 0, ns) //errtrace:skip
+	return oprsDescr.LDQUOT(in, 0, ns)
 }
 
 // LHEX rule: LHEX = DIGIT / %x61-66
 func (*RulesDescr) LHEX(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LHEX(in, 0, ns) //errtrace:skip
+	return oprsDescr.LHEX(in, 0, ns)
 }
 
 // LPAREN rule: LPAREN = SWS "(" SWS
 func (*RulesDescr) LPAREN(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LPAREN(in, 0, ns) //errtrace:skip
+	return oprsDescr.LPAREN(in, 0, ns)
 }
 
 // LWS rule: LWS = [*WSP CRLF] 1*WSP
 func (*RulesDescr) LWS(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LWS(in, 0, ns) //errtrace:skip
+	return oprsDescr.LWS(in, 0, ns)
 }
 
 // Language rule: language = language-range *(SEMI accept-param)
 func (*RulesDescr) Language(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Language(in, 0, ns) //errtrace:skip
+	return oprsDescr.Language(in, 0, ns)
 }
 
 // LanguageRange rule: language-range = ( 1*8ALPHA *( "-" 1*8ALPHA ) ) / "*"
 func (*RulesDescr) LanguageRange(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LanguageRange(in, 0, ns) //errtrace:skip
+	return oprsDescr.LanguageRange(in, 0, ns)
 }
 
 // LanguageTag rule: language-tag = primary-tag *( "-" subtag )
 func (*RulesDescr) LanguageTag(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LanguageTag(in, 0, ns) //errtrace:skip
+	return oprsDescr.LanguageTag(in, 0, ns)
 }
 
 // LrParam rule: lr-param = "lr"
 func (*RulesDescr) LrParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LrParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.LrParam(in, 0, ns)
 }
 
 // Ls32 rule: ls32 = ( h16 ":" h16 ) / IPv4address
 func (*RulesDescr) Ls32(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Ls32(in, 0, ns) //errtrace:skip
+	return oprsDescr.Ls32(in, 0, ns)
 }
 
 // MAttribute rule: m-attribute = token
 func (*RulesDescr) MAttribute(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MAttribute(in, 0, ns) //errtrace:skip
+	return oprsDescr.MAttribute(in, 0, ns)
 }
 
 // MIMEVersion rule: MIME-Version = "MIME-Version" HCOLON 1*DIGIT "." 1*DIGIT
 func (*RulesDescr) MIMEVersion(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MIMEVersion(in, 0, ns) //errtrace:skip
+	return oprsDescr.MIMEVersion(in, 0, ns)
 }
 
 // MParameter rule: m-parameter = m-attribute EQUAL m-value
 func (*RulesDescr) MParameter(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MParameter(in, 0, ns) //errtrace:skip
+	return oprsDescr.MParameter(in, 0, ns)
 }
 
 // MSubtype rule: m-subtype = extension-token / iana-token
 func (*RulesDescr) MSubtype(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MSubtype(in, 0, ns) //errtrace:skip
+	return oprsDescr.MSubtype(in, 0, ns)
 }
 
 // MType rule: m-type = discrete-type / composite-type
 func (*RulesDescr) MType(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MType(in, 0, ns) //errtrace:skip
+	return oprsDescr.MType(in, 0, ns)
 }
 
 // MValue rule: m-value = token / quoted-string
 func (*RulesDescr) MValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.MValue(in, 0, ns)
 }
 
 // MaddrParam rule: maddr-param = "maddr=" host
 func (*RulesDescr) MaddrParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MaddrParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.MaddrParam(in, 0, ns)
 }
 
 // Mark rule: mark = "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")"
 func (*RulesDescr) Mark(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Mark(in, 0, ns) //errtrace:skip
+	return oprsDescr.Mark(in, 0, ns)
 }
 
 // MaxForwards rule: Max-Forwards = "Max-Forwards" HCOLON 1*DIGIT
 func (*RulesDescr) MaxForwards(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MaxForwards(in, 0, ns) //errtrace:skip
+	return oprsDescr.MaxForwards(in, 0, ns)
 }
 
 // MediaRange rule: media-range = ( "*/*" / ( m-type SLASH "*" ) / ( m-type SLASH m-subtype ) ) *( SEMI m-parameter )
 func (*RulesDescr) MediaRange(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MediaRange(in, 0, ns) //errtrace:skip
+	return oprsDescr.MediaRange(in, 0, ns)
 }
 
 // MediaType rule: media-type = m-type SLASH m-subtype *(SEMI m-parameter)
 func (*RulesDescr) MediaType(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MediaType(in, 0, ns) //errtrace:skip
+	return oprsDescr.MediaType(in, 0, ns)
 }
 
 // MessageBody rule: message-body = *OCTET
 func (*RulesDescr) MessageBody(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MessageBody(in, 0, ns) //errtrace:skip
+	return oprsDescr.MessageBody(in, 0, ns)
 }
 
 // MessageHeader rule: message-header = (Accept / Accept-Encoding / Accept-Language / Alert-Info / Allow / Authentication-Info / Authorization / Call-ID / Call-Info / Contact / Content-Disposition / Content-Encoding / Content-Language / Content-Length / Content-Type / CSeq / Date / Error-Info / Expires / From / In-Reply-To / Max-Forwards / MIME-Version / Min-Expires / Organization / Priority / Proxy-Authenticate / Proxy-Authorization / Proxy-Require / Record-Route / Reply-To / Require / Retry-After / Route / Server / Subject / Supported / Timestamp / To / Unsupported / User-Agent / Via / Warning / WWW-Authenticate / extension-header) CRLF
 func (*RulesDescr) MessageHeader(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MessageHeader(in, 0, ns) //errtrace:skip
+	return oprsDescr.MessageHeader(in, 0, ns)
 }
 
 // MessageQop rule: message-qop = "qop" EQUAL qop-value
 func (*RulesDescr) MessageQop(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MessageQop(in, 0, ns) //errtrace:skip
+	return oprsDescr.MessageQop(in, 0, ns)
 }
 
 // Method rule: Method = INVITEm / ACKm / OPTIONSm / BYEm / CANCELm / REGISTERm / extension-method
 func (*RulesDescr) Method(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Method(in, 0, ns) //errtrace:skip
+	return oprsDescr.Method(in, 0, ns)
 }
 
 // MethodParam rule: method-param = "method=" Method
 func (*RulesDescr) MethodParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MethodParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.MethodParam(in, 0, ns)
 }
 
 // MinExpires rule: Min-Expires = "Min-Expires" HCOLON delta-seconds
 func (*RulesDescr) MinExpires(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.MinExpires(in, 0, ns) //errtrace:skip
+	return oprsDescr.MinExpires(in, 0, ns)
 }
 
 // Month rule: month = "Jan" / "Feb" / "Mar" / "Apr" / "May" / "Jun" / "Jul" / "Aug" / "Sep" / "Oct" / "Nov" / "Dec"
 func (*RulesDescr) Month(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Month(in, 0, ns) //errtrace:skip
+	return oprsDescr.Month(in, 0, ns)
 }
 
 // NQCHAR rule: NQCHAR = %x21 / %x23-5B / %x5D-7E
 func (*RulesDescr) NQCHAR(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.NQCHAR(in, 0, ns) //errtrace:skip
+	return oprsDescr.NQCHAR(in, 0, ns)
 }
 
 // NQSCHAR rule: NQSCHAR = %x20-21 / %x23-5B / %x5D-7E
 func (*RulesDescr) NQSCHAR(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.NQSCHAR(in, 0, ns) //errtrace:skip
+	return oprsDescr.NQSCHAR(in, 0, ns)
 }
 
 // NameAddr rule: name-addr = [ display-name ] LAQUOT addr-spec RAQUOT
 func (*RulesDescr) NameAddr(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.NameAddr(in, 0, ns) //errtrace:skip
+	return oprsDescr.NameAddr(in, 0, ns)
 }
 
 // NcValue rule: nc-value = 8LHEX
 func (*RulesDescr) NcValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.NcValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.NcValue(in, 0, ns)
 }
 
 // NetPath rule: net-path = "//" authority [ abs-path ]
 func (*RulesDescr) NetPath(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.NetPath(in, 0, ns) //errtrace:skip
+	return oprsDescr.NetPath(in, 0, ns)
 }
 
 // Nextnonce rule: nextnonce = "nextnonce" EQUAL nonce-value
 func (*RulesDescr) Nextnonce(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Nextnonce(in, 0, ns) //errtrace:skip
+	return oprsDescr.Nextnonce(in, 0, ns)
 }
 
 // Nonce rule: nonce = "nonce" EQUAL nonce-value
 func (*RulesDescr) Nonce(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Nonce(in, 0, ns) //errtrace:skip
+	return oprsDescr.Nonce(in, 0, ns)
 }
 
 // NonceCount rule: nonce-count = "nc" EQUAL nc-value
 func (*RulesDescr) NonceCount(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.NonceCount(in, 0, ns) //errtrace:skip
+	return oprsDescr.NonceCount(in, 0, ns)
 }
 
 // NonceValue rule: nonce-value = quoted-string
 func (*RulesDescr) NonceValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.NonceValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.NonceValue(in, 0, ns)
 }
 
 // OPTIONSm rule: OPTIONSm = %x4F.50.54.49.4F.4E.53
 func (*RulesDescr) OPTIONSm(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OPTIONSm(in, 0, ns) //errtrace:skip
+	return oprsDescr.OPTIONSm(in, 0, ns)
 }
 
 // Opaque rule: opaque = "opaque" EQUAL quoted-string
 func (*RulesDescr) Opaque(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Opaque(in, 0, ns) //errtrace:skip
+	return oprsDescr.Opaque(in, 0, ns)
 }
 
 // OpaquePart rule: opaque-part = uric-no-slash *uric
 func (*RulesDescr) OpaquePart(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OpaquePart(in, 0, ns) //errtrace:skip
+	return oprsDescr.OpaquePart(in, 0, ns)
 }
 
 // OptionTag rule: option-tag = token
 func (*RulesDescr) OptionTag(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OptionTag(in, 0, ns) //errtrace:skip
+	return oprsDescr.OptionTag(in, 0, ns)
 }
 
 // Organization rule: Organization = "Organization" HCOLON [TEXT-UTF8-TRIM]
 func (*RulesDescr) Organization(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Organization(in, 0, ns) //errtrace:skip
+	return oprsDescr.Organization(in, 0, ns)
 }
 
 // OtherChallenge rule: other-challenge = auth-scheme LWS auth-param *(COMMA auth-param)
 func (*RulesDescr) OtherChallenge(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OtherChallenge(in, 0, ns) //errtrace:skip
+	return oprsDescr.OtherChallenge(in, 0, ns)
 }
 
 // OtherHandling rule: other-handling = token
 func (*RulesDescr) OtherHandling(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OtherHandling(in, 0, ns) //errtrace:skip
+	return oprsDescr.OtherHandling(in, 0, ns)
 }
 
 // OtherParam rule: other-param = pname [ "=" pvalue ]
 func (*RulesDescr) OtherParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OtherParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.OtherParam(in, 0, ns)
 }
 
 // OtherPriority rule: other-priority = token
 func (*RulesDescr) OtherPriority(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OtherPriority(in, 0, ns) //errtrace:skip
+	return oprsDescr.OtherPriority(in, 0, ns)
 }
 
 // OtherResponse rule: other-response = auth-scheme LWS auth-param *(COMMA auth-param)
 func (*RulesDescr) OtherResponse(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OtherResponse(in, 0, ns) //errtrace:skip
+	return oprsDescr.OtherResponse(in, 0, ns)
 }
 
 // OtherTransport rule: other-transport = token
 func (*RulesDescr) OtherTransport(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OtherTransport(in, 0, ns) //errtrace:skip
+	return oprsDescr.OtherTransport(in, 0, ns)
 }
 
 // OtherUser rule: other-user = token
 func (*RulesDescr) OtherUser(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.OtherUser(in, 0, ns) //errtrace:skip
+	return oprsDescr.OtherUser(in, 0, ns)
 }
 
 // Param rule: param = *pchar
 func (*RulesDescr) Param(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Param(in, 0, ns) //errtrace:skip
+	return oprsDescr.Param(in, 0, ns)
 }
 
 // ParamUnreserved rule: param-unreserved = "[" / "]" / "/" / ":" / "&" / "+" / "$"
 func (*RulesDescr) ParamUnreserved(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ParamUnreserved(in, 0, ns) //errtrace:skip
+	return oprsDescr.ParamUnreserved(in, 0, ns)
 }
 
 // Paramchar rule: paramchar = param-unreserved / unreserved / escaped
 func (*RulesDescr) Paramchar(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Paramchar(in, 0, ns) //errtrace:skip
+	return oprsDescr.Paramchar(in, 0, ns)
 }
 
 // Password rule: password = *( unreserved / escaped / "&" / "=" / "+" / "$" / "," )
 func (*RulesDescr) Password(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Password(in, 0, ns) //errtrace:skip
+	return oprsDescr.Password(in, 0, ns)
 }
 
 // PathSegments rule: path-segments = segment *( "/" segment )
 func (*RulesDescr) PathSegments(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.PathSegments(in, 0, ns) //errtrace:skip
+	return oprsDescr.PathSegments(in, 0, ns)
 }
 
 // Pchar rule: pchar = unreserved / escaped / ":" / "@" / "&" / "=" / "+" / "$" / ","
 func (*RulesDescr) Pchar(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Pchar(in, 0, ns) //errtrace:skip
+	return oprsDescr.Pchar(in, 0, ns)
 }
 
 // Pname rule: pname = 1*paramchar
 func (*RulesDescr) Pname(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Pname(in, 0, ns) //errtrace:skip
+	return oprsDescr.Pname(in, 0, ns)
 }
 
 // Port rule: port = 1*DIGIT
 func (*RulesDescr) Port(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Port(in, 0, ns) //errtrace:skip
+	return oprsDescr.Port(in, 0, ns)
 }
 
 // PrimaryTag rule: primary-tag = 1*8ALPHA
 func (*RulesDescr) PrimaryTag(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.PrimaryTag(in, 0, ns) //errtrace:skip
+	return oprsDescr.PrimaryTag(in, 0, ns)
 }
 
 // Priority rule: Priority = "Priority" HCOLON priority-value
 func (*RulesDescr) Priority(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Priority(in, 0, ns) //errtrace:skip
+	return oprsDescr.Priority(in, 0, ns)
 }
 
 // PriorityValue rule: priority-value = "emergency" / "urgent" / "normal" / "non-urgent" / other-priority
 func (*RulesDescr) PriorityValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.PriorityValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.PriorityValue(in, 0, ns)
 }
 
 // Product rule: product = token [SLASH product-version]
 func (*RulesDescr) Product(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Product(in, 0, ns) //errtrace:skip
+	return oprsDescr.Product(in, 0, ns)
 }
 
 // ProductVersion rule: product-version = token
 func (*RulesDescr) ProductVersion(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ProductVersion(in, 0, ns) //errtrace:skip
+	return oprsDescr.ProductVersion(in, 0, ns)
 }
 
 // ProtocolName rule: protocol-name = "SIP" / token
 func (*RulesDescr) ProtocolName(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ProtocolName(in, 0, ns) //errtrace:skip
+	return oprsDescr.ProtocolName(in, 0, ns)
 }
 
 // ProtocolVersion rule: protocol-version = token
 func (*RulesDescr) ProtocolVersion(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ProtocolVersion(in, 0, ns) //errtrace:skip
+	return oprsDescr.ProtocolVersion(in, 0, ns)
 }
 
 // ProxyAuthenticate rule: Proxy-Authenticate = "Proxy-Authenticate" HCOLON challenge
 func (*RulesDescr) ProxyAuthenticate(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ProxyAuthenticate(in, 0, ns) //errtrace:skip
+	return oprsDescr.ProxyAuthenticate(in, 0, ns)
 }
 
 // ProxyAuthorization rule: Proxy-Authorization = "Proxy-Authorization" HCOLON credentials
 func (*RulesDescr) ProxyAuthorization(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ProxyAuthorization(in, 0, ns) //errtrace:skip
+	return oprsDescr.ProxyAuthorization(in, 0, ns)
 }
 
 // ProxyRequire rule: Proxy-Require = "Proxy-Require" HCOLON option-tag *(COMMA option-tag)
 func (*RulesDescr) ProxyRequire(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ProxyRequire(in, 0, ns) //errtrace:skip
+	return oprsDescr.ProxyRequire(in, 0, ns)
 }
 
 // Pseudonym rule: pseudonym = token
 func (*RulesDescr) Pseudonym(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Pseudonym(in, 0, ns) //errtrace:skip
+	return oprsDescr.Pseudonym(in, 0, ns)
 }
 
 // Pvalue rule: pvalue = 1*paramchar
 func (*RulesDescr) Pvalue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Pvalue(in, 0, ns) //errtrace:skip
+	return oprsDescr.Pvalue(in, 0, ns)
 }
 
 // Qdtext rule: qdtext = LWS / %x21 / %x23-5B / %x5D-7E / UTF8-NONASCII
 func (*RulesDescr) Qdtext(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Qdtext(in, 0, ns) //errtrace:skip
+	return oprsDescr.Qdtext(in, 0, ns)
 }
 
 // QopOptions rule: qop-options = "qop" EQUAL LDQUOT qop-value *("," qop-value) RDQUOT
 func (*RulesDescr) QopOptions(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.QopOptions(in, 0, ns) //errtrace:skip
+	return oprsDescr.QopOptions(in, 0, ns)
 }
 
 // QopValue rule: qop-value = "auth" / "auth-int" / token
 func (*RulesDescr) QopValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.QopValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.QopValue(in, 0, ns)
 }
 
 // Query rule: query = *uric
 func (*RulesDescr) Query(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Query(in, 0, ns) //errtrace:skip
+	return oprsDescr.Query(in, 0, ns)
 }
 
 // QuotedPair rule: quoted-pair = "\" (%x00-09 / %x0B-0C / %x0E-7F)
 func (*RulesDescr) QuotedPair(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.QuotedPair(in, 0, ns) //errtrace:skip
+	return oprsDescr.QuotedPair(in, 0, ns)
 }
 
 // QuotedString rule: quoted-string = SWS DQUOTE *(qdtext / quoted-pair ) DQUOTE
 func (*RulesDescr) QuotedString(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.QuotedString(in, 0, ns) //errtrace:skip
+	return oprsDescr.QuotedString(in, 0, ns)
 }
 
 // Qvalue rule: qvalue = ( "0" [ "." 0*3DIGIT ] ) / ( "1" [ "." 0*3("0") ] )
 func (*RulesDescr) Qvalue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Qvalue(in, 0, ns) //errtrace:skip
+	return oprsDescr.Qvalue(in, 0, ns)
 }
 
 // RAQUOT rule: RAQUOT = ">" SWS
 func (*RulesDescr) RAQUOT(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RAQUOT(in, 0, ns) //errtrace:skip
+	return oprsDescr.RAQUOT(in, 0, ns)
 }
 
 // RDQUOT rule: RDQUOT = DQUOTE SWS
 func (*RulesDescr) RDQUOT(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RDQUOT(in, 0, ns) //errtrace:skip
+	return oprsDescr.RDQUOT(in, 0, ns)
 }
 
 // REGISTERm rule: REGISTERm = %x52.45.47.49.53.54.45.52
 func (*RulesDescr) REGISTERm(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.REGISTERm(in, 0, ns) //errtrace:skip
+	return oprsDescr.REGISTERm(in, 0, ns)
 }
 
 // RPAREN rule: RPAREN = SWS ")" SWS
 func (*RulesDescr) RPAREN(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RPAREN(in, 0, ns) //errtrace:skip
+	return oprsDescr.RPAREN(in, 0, ns)
 }
 
 // Realm rule: realm = "realm" EQUAL realm-value
 func (*RulesDescr) Realm(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Realm(in, 0, ns) //errtrace:skip
+	return oprsDescr.Realm(in, 0, ns)
 }
 
 // RealmValue rule: realm-value = quoted-string
 func (*RulesDescr) RealmValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RealmValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.RealmValue(in, 0, ns)
 }
 
 // ReasonPhrase rule: Reason-Phrase = *(reserved / unreserved / escaped / UTF8-NONASCII / UTF8-CONT / SP / HTAB)
 func (*RulesDescr) ReasonPhrase(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ReasonPhrase(in, 0, ns) //errtrace:skip
+	return oprsDescr.ReasonPhrase(in, 0, ns)
 }
 
 // RecRoute rule: rec-route = name-addr *( SEMI rr-param )
 func (*RulesDescr) RecRoute(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RecRoute(in, 0, ns) //errtrace:skip
+	return oprsDescr.RecRoute(in, 0, ns)
 }
 
 // RecordRoute rule: Record-Route = "Record-Route" HCOLON rec-route *(COMMA rec-route)
 func (*RulesDescr) RecordRoute(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RecordRoute(in, 0, ns) //errtrace:skip
+	return oprsDescr.RecordRoute(in, 0, ns)
 }
 
 // Redirection rule: Redirection = "300" ; Multiple Choices / "301" ; Moved Permanently / "302" ; Moved Temporarily / "305" ; Use Proxy / "380"
 func (*RulesDescr) Redirection(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Redirection(in, 0, ns) //errtrace:skip
+	return oprsDescr.Redirection(in, 0, ns)
 }
 
 // RegName rule: reg-name = 1*( unreserved / escaped / "$" / "," / ";" / ":" / "@" / "&" / "=" / "+" )
 func (*RulesDescr) RegName(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RegName(in, 0, ns) //errtrace:skip
+	return oprsDescr.RegName(in, 0, ns)
 }
 
 // ReplyTo rule: Reply-To = "Reply-To" HCOLON rplyto-spec
 func (*RulesDescr) ReplyTo(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ReplyTo(in, 0, ns) //errtrace:skip
+	return oprsDescr.ReplyTo(in, 0, ns)
 }
 
 // Request rule: Request = Request-Line *( message-header ) CRLF [ message-body ]
 func (*RulesDescr) Request(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Request(in, 0, ns) //errtrace:skip
+	return oprsDescr.Request(in, 0, ns)
 }
 
 // RequestDigest rule: request-digest = LDQUOT 32LHEX RDQUOT
 func (*RulesDescr) RequestDigest(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RequestDigest(in, 0, ns) //errtrace:skip
+	return oprsDescr.RequestDigest(in, 0, ns)
 }
 
 // RequestLine rule: Request-Line = Method SP Request-URI SP SIP-Version CRLF
 func (*RulesDescr) RequestLine(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RequestLine(in, 0, ns) //errtrace:skip
+	return oprsDescr.RequestLine(in, 0, ns)
 }
 
 // RequestURI rule: Request-URI = SIP-URI / SIPS-URI / absoluteURI
 func (*RulesDescr) RequestURI(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RequestURI(in, 0, ns) //errtrace:skip
+	return oprsDescr.RequestURI(in, 0, ns)
 }
 
 // RequestUri rule: request-uri = Request-URI
 func (*RulesDescr) RequestUri(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RequestUri(in, 0, ns) //errtrace:skip
+	return oprsDescr.RequestUri(in, 0, ns)
 }
 
 // Require rule: Require = "Require" HCOLON option-tag *(COMMA option-tag)
 func (*RulesDescr) Require(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Require(in, 0, ns) //errtrace:skip
+	return oprsDescr.Require(in, 0, ns)
 }
 
 // Reserved rule: reserved = ";" / "/" / "?" / ":" / "@" / "&" / "=" / "+" / "$" / ","
 func (*RulesDescr) Reserved(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Reserved(in, 0, ns) //errtrace:skip
+	return oprsDescr.Reserved(in, 0, ns)
 }
 
 // Response rule: Response = Status-Line *( message-header ) CRLF [ message-body ]
 func (*RulesDescr) Response(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Response(in, 0, ns) //errtrace:skip
+	return oprsDescr.Response(in, 0, ns)
 }
 
 // ResponseAuth rule: response-auth = "rspauth" EQUAL response-digest
 func (*RulesDescr) ResponseAuth(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ResponseAuth(in, 0, ns) //errtrace:skip
+	return oprsDescr.ResponseAuth(in, 0, ns)
 }
 
 // ResponseDigest rule: response-digest = LDQUOT *LHEX RDQUOT
 func (*RulesDescr) ResponseDigest(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ResponseDigest(in, 0, ns) //errtrace:skip
+	return oprsDescr.ResponseDigest(in, 0, ns)
 }
 
 // ResponsePort rule: response-port = "rport" [EQUAL 1*DIGIT]
 func (*RulesDescr) ResponsePort(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ResponsePort(in, 0, ns) //errtrace:skip
+	return oprsDescr.ResponsePort(in, 0, ns)
 }
 
 // RetryAfter rule: Retry-After = "Retry-After" HCOLON delta-seconds [ comment ] *( SEMI retry-param )
 func (*RulesDescr) RetryAfter(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RetryAfter(in, 0, ns) //errtrace:skip
+	return oprsDescr.RetryAfter(in, 0, ns)
 }
 
 // RetryParam rule: retry-param = ("duration" EQUAL delta-seconds) / generic-param
 func (*RulesDescr) RetryParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RetryParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.RetryParam(in, 0, ns)
 }
 
 // Rfc1123Date rule: rfc1123-date = wkday "," SP date1 SP time SP "GMT"
 func (*RulesDescr) Rfc1123Date(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Rfc1123Date(in, 0, ns) //errtrace:skip
+	return oprsDescr.Rfc1123Date(in, 0, ns)
 }
 
 // Route rule: Route = "Route" HCOLON route-param *(COMMA route-param)
 func (*RulesDescr) Route(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Route(in, 0, ns) //errtrace:skip
+	return oprsDescr.Route(in, 0, ns)
 }
 
 // RouteParam rule: route-param = name-addr *( SEMI rr-param )
 func (*RulesDescr) RouteParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RouteParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.RouteParam(in, 0, ns)
 }
 
 // RplytoParam rule: rplyto-param = generic-param
 func (*RulesDescr) RplytoParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RplytoParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.RplytoParam(in, 0, ns)
 }
 
 // RplytoSpec rule: rplyto-spec = ( name-addr / addr-spec ) *( SEMI rplyto-param )
 func (*RulesDescr) RplytoSpec(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RplytoSpec(in, 0, ns) //errtrace:skip
+	return oprsDescr.RplytoSpec(in, 0, ns)
 }
 
 // RrParam rule: rr-param = generic-param
 func (*RulesDescr) RrParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.RrParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.RrParam(in, 0, ns)
 }
 
 // SEMI rule: SEMI = SWS ";" SWS
 func (*RulesDescr) SEMI(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SEMI(in, 0, ns) //errtrace:skip
+	return oprsDescr.SEMI(in, 0, ns)
 }
 
 // SIPDate rule: SIP-date = rfc1123-date
 func (*RulesDescr) SIPDate(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SIPDate(in, 0, ns) //errtrace:skip
+	return oprsDescr.SIPDate(in, 0, ns)
 }
 
 // SIPMessage rule: SIP-message = Request / Response
 func (*RulesDescr) SIPMessage(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SIPMessage(in, 0, ns) //errtrace:skip
+	return oprsDescr.SIPMessage(in, 0, ns)
 }
 
 // SIPSURI rule: SIPS-URI = "sips:" [ userinfo ] hostport uri-parameters [ headers ]
 func (*RulesDescr) SIPSURI(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SIPSURI(in, 0, ns) //errtrace:skip
+	return oprsDescr.SIPSURI(in, 0, ns)
 }
 
 // SIPURI rule: SIP-URI = "sip:" [ userinfo ] hostport uri-parameters [ headers ]
 func (*RulesDescr) SIPURI(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SIPURI(in, 0, ns) //errtrace:skip
+	return oprsDescr.SIPURI(in, 0, ns)
 }
 
 // SIPVersion rule: SIP-Version = "SIP" "/" 1*DIGIT "." 1*DIGIT
 func (*RulesDescr) SIPVersion(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SIPVersion(in, 0, ns) //errtrace:skip
+	return oprsDescr.SIPVersion(in, 0, ns)
 }
 
 // SLASH rule: SLASH = SWS "/" SWS
 func (*RulesDescr) SLASH(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SLASH(in, 0, ns) //errtrace:skip
+	return oprsDescr.SLASH(in, 0, ns)
 }
 
 // STAR rule: STAR = SWS "*" SWS
 func (*RulesDescr) STAR(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.STAR(in, 0, ns) //errtrace:skip
+	return oprsDescr.STAR(in, 0, ns)
 }
 
 // SWS rule: SWS = [LWS]
 func (*RulesDescr) SWS(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SWS(in, 0, ns) //errtrace:skip
+	return oprsDescr.SWS(in, 0, ns)
 }
 
 // Scheme rule: scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
 func (*RulesDescr) Scheme(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Scheme(in, 0, ns) //errtrace:skip
+	return oprsDescr.Scheme(in, 0, ns)
 }
 
 // Scope rule: scope = scope-token *( SP scope-token )
 func (*RulesDescr) Scope(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Scope(in, 0, ns) //errtrace:skip
+	return oprsDescr.Scope(in, 0, ns)
 }
 
 // ScopeParam rule: scope-param = "scope" EQUAL DQUOTE scope DQUOTE
 func (*RulesDescr) ScopeParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ScopeParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.ScopeParam(in, 0, ns)
 }
 
 // ScopeToken rule: scope-token = 1*NQCHAR
 func (*RulesDescr) ScopeToken(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ScopeToken(in, 0, ns) //errtrace:skip
+	return oprsDescr.ScopeToken(in, 0, ns)
 }
 
 // Segment rule: segment = *pchar *( ";" param )
 func (*RulesDescr) Segment(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Segment(in, 0, ns) //errtrace:skip
+	return oprsDescr.Segment(in, 0, ns)
 }
 
 // SentBy rule: sent-by = host [ COLON port ]
 func (*RulesDescr) SentBy(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SentBy(in, 0, ns) //errtrace:skip
+	return oprsDescr.SentBy(in, 0, ns)
 }
 
 // SentProtocol rule: sent-protocol = protocol-name SLASH protocol-version SLASH transport
 func (*RulesDescr) SentProtocol(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.SentProtocol(in, 0, ns) //errtrace:skip
+	return oprsDescr.SentProtocol(in, 0, ns)
 }
 
 // Separators rule: separators = "(" / ")" / "<" / ">" / "@" / "," / ";" / ":" / "\" / DQUOTE / "/" / "[" / "]" / "?" / "=" / "{" / "}" / SP / HTAB
 func (*RulesDescr) Separators(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Separators(in, 0, ns) //errtrace:skip
+	return oprsDescr.Separators(in, 0, ns)
 }
 
 // Server rule: Server = "Server" HCOLON server-val *(LWS server-val)
 func (*RulesDescr) Server(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Server(in, 0, ns) //errtrace:skip
+	return oprsDescr.Server(in, 0, ns)
 }
 
 // ServerError rule: Server-Error = "500" ; Internal Server Error / "501" ; Not Implemented / "502" ; Bad Gateway / "503" ; Service Unavailable / "504" ; Server Time-out / "505" ; SIP Version not supported / "513"
 func (*RulesDescr) ServerError(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ServerError(in, 0, ns) //errtrace:skip
+	return oprsDescr.ServerError(in, 0, ns)
 }
 
 // ServerVal rule: server-val = product / comment
 func (*RulesDescr) ServerVal(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ServerVal(in, 0, ns) //errtrace:skip
+	return oprsDescr.ServerVal(in, 0, ns)
 }
 
 // Srvr rule: srvr = [ [ userinfo "@" ] hostport ]
 func (*RulesDescr) Srvr(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Srvr(in, 0, ns) //errtrace:skip
+	return oprsDescr.Srvr(in, 0, ns)
 }
 
 // Stale rule: stale = "stale" EQUAL ( "true" / "false" )
 func (*RulesDescr) Stale(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Stale(in, 0, ns) //errtrace:skip
+	return oprsDescr.Stale(in, 0, ns)
 }
 
 // StatusCode rule: Status-Code = Informational / Redirection / Success / Client-Error / Server-Error / Global-Failure / extension-code
 func (*RulesDescr) StatusCode(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.StatusCode(in, 0, ns) //errtrace:skip
+	return oprsDescr.StatusCode(in, 0, ns)
 }
 
 // StatusLine rule: Status-Line = SIP-Version SP Status-Code SP Reason-Phrase CRLF
 func (*RulesDescr) StatusLine(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.StatusLine(in, 0, ns) //errtrace:skip
+	return oprsDescr.StatusLine(in, 0, ns)
 }
 
 // Subject rule: Subject = ( "Subject" / "s" ) HCOLON [TEXT-UTF8-TRIM]
 func (*RulesDescr) Subject(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Subject(in, 0, ns) //errtrace:skip
+	return oprsDescr.Subject(in, 0, ns)
 }
 
 // Subtag rule: subtag = 1*8ALPHA
 func (*RulesDescr) Subtag(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Subtag(in, 0, ns) //errtrace:skip
+	return oprsDescr.Subtag(in, 0, ns)
 }
 
 // Success rule: Success = "200"
 func (*RulesDescr) Success(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Success(in, 0, ns) //errtrace:skip
+	return oprsDescr.Success(in, 0, ns)
 }
 
 // Supported rule: Supported = ( "Supported" / "k" ) HCOLON [option-tag *(COMMA option-tag)]
 func (*RulesDescr) Supported(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Supported(in, 0, ns) //errtrace:skip
+	return oprsDescr.Supported(in, 0, ns)
 }
 
 // TEXTUTF8TRIM rule: TEXT-UTF8-TRIM = 1*TEXT-UTF8char *(*LWS TEXT-UTF8char)
 func (*RulesDescr) TEXTUTF8TRIM(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.TEXTUTF8TRIM(in, 0, ns) //errtrace:skip
+	return oprsDescr.TEXTUTF8TRIM(in, 0, ns)
 }
 
 // TEXTUTF8char rule: TEXT-UTF8char = %x21-7E / UTF8-NONASCII
 func (*RulesDescr) TEXTUTF8char(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.TEXTUTF8char(in, 0, ns) //errtrace:skip
+	return oprsDescr.TEXTUTF8char(in, 0, ns)
 }
 
 // TagParam rule: tag-param = "tag" EQUAL token
 func (*RulesDescr) TagParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.TagParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.TagParam(in, 0, ns)
 }
 
 // Time rule: time = 2DIGIT ":" 2DIGIT ":" 2DIGIT
 func (*RulesDescr) Time(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Time(in, 0, ns) //errtrace:skip
+	return oprsDescr.Time(in, 0, ns)
 }
 
 // Timestamp rule: Timestamp = "Timestamp" HCOLON 1*(DIGIT) [ "." *(DIGIT) ] [ LWS delay ]
 func (*RulesDescr) Timestamp(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Timestamp(in, 0, ns) //errtrace:skip
+	return oprsDescr.Timestamp(in, 0, ns)
 }
 
 // To rule: To = ( "To" / "t" ) HCOLON ( name-addr / addr-spec ) *( SEMI to-param )
 func (*RulesDescr) To(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.To(in, 0, ns) //errtrace:skip
+	return oprsDescr.To(in, 0, ns)
 }
 
 // ToParam rule: to-param = tag-param / generic-param
 func (*RulesDescr) ToParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ToParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.ToParam(in, 0, ns)
 }
 
 // Token rule: token = 1*(alphanum / "-" / "." / "!" / "%" / "*" / "_" / "+" / "`" / "'" / "~" )
 func (*RulesDescr) Token(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Token(in, 0, ns) //errtrace:skip
+	return oprsDescr.Token(in, 0, ns)
 }
 
 // Toplabel rule: toplabel = ALPHA / ALPHA *( alphanum / "-" ) alphanum
 func (*RulesDescr) Toplabel(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Toplabel(in, 0, ns) //errtrace:skip
+	return oprsDescr.Toplabel(in, 0, ns)
 }
 
 // Transport rule: transport = "UDP" / "TCP" / "TLS" / "SCTP" / other-transport
 func (*RulesDescr) Transport(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Transport(in, 0, ns) //errtrace:skip
+	return oprsDescr.Transport(in, 0, ns)
 }
 
 // TransportParam rule: transport-param = "transport=" ( "udp" / "tcp" / "sctp" / "tls" / other-transport)
 func (*RulesDescr) TransportParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.TransportParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.TransportParam(in, 0, ns)
 }
 
 // Ttl rule: ttl = 1*3DIGIT
 func (*RulesDescr) Ttl(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Ttl(in, 0, ns) //errtrace:skip
+	return oprsDescr.Ttl(in, 0, ns)
 }
 
 // TtlParam rule: ttl-param = "ttl=" ttl
 func (*RulesDescr) TtlParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.TtlParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.TtlParam(in, 0, ns)
 }
 
 // URI rule: URI = absoluteURI / abs-path
 func (*RulesDescr) URI(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.URI(in, 0, ns) //errtrace:skip
+	return oprsDescr.URI(in, 0, ns)
 }
 
 // UTF8CONT rule: UTF8-CONT = %x80-BF
 func (*RulesDescr) UTF8CONT(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.UTF8CONT(in, 0, ns) //errtrace:skip
+	return oprsDescr.UTF8CONT(in, 0, ns)
 }
 
 // UTF8NONASCII rule: UTF8-NONASCII = %xC0-DF 1UTF8-CONT / %xE0-EF 2UTF8-CONT / %xF0-F7 3UTF8-CONT / %xF8-Fb 4UTF8-CONT / %xFC-FD 5UTF8-CONT
 func (*RulesDescr) UTF8NONASCII(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.UTF8NONASCII(in, 0, ns) //errtrace:skip
+	return oprsDescr.UTF8NONASCII(in, 0, ns)
 }
 
 // Unreserved rule: unreserved = alphanum / mark
 func (*RulesDescr) Unreserved(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Unreserved(in, 0, ns) //errtrace:skip
+	return oprsDescr.Unreserved(in, 0, ns)
 }
 
 // Unsupported rule: Unsupported = "Unsupported" HCOLON option-tag *(COMMA option-tag)
 func (*RulesDescr) Unsupported(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Unsupported(in, 0, ns) //errtrace:skip
+	return oprsDescr.Unsupported(in, 0, ns)
 }
 
 // UriParameter rule: uri-parameter = transport-param / user-param / method-param / ttl-param / maddr-param / lr-param / other-param
 func (*RulesDescr) UriParameter(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.UriParameter(in, 0, ns) //errtrace:skip
+	return oprsDescr.UriParameter(in, 0, ns)
 }
 
 // UriParameters rule: uri-parameters = *( ";" uri-parameter)
 func (*RulesDescr) UriParameters(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.UriParameters(in, 0, ns) //errtrace:skip
+	return oprsDescr.UriParameters(in, 0, ns)
 }
 
 // Uric rule: uric = reserved / unreserved / escaped
 func (*RulesDescr) Uric(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Uric(in, 0, ns) //errtrace:skip
+	return oprsDescr.Uric(in, 0, ns)
 }
 
 // UricNoSlash rule: uric-no-slash = unreserved / escaped / ";" / "?" / ":" / "@" / "&" / "=" / "+" / "$" / ","
 func (*RulesDescr) UricNoSlash(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.UricNoSlash(in, 0, ns) //errtrace:skip
+	return oprsDescr.UricNoSlash(in, 0, ns)
 }
 
 // User rule: user = 1*( unreserved / escaped / user-unreserved )
 func (*RulesDescr) User(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.User(in, 0, ns) //errtrace:skip
+	return oprsDescr.User(in, 0, ns)
 }
 
 // UserAgent rule: User-Agent = "User-Agent" HCOLON server-val *(LWS server-val)
 func (*RulesDescr) UserAgent(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.UserAgent(in, 0, ns) //errtrace:skip
+	return oprsDescr.UserAgent(in, 0, ns)
 }
 
 // UserParam rule: user-param = "user=" ( "phone" / "ip" / other-user)
 func (*RulesDescr) UserParam(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.UserParam(in, 0, ns) //errtrace:skip
+	return oprsDescr.UserParam(in, 0, ns)
 }
 
 // UserUnreserved rule: user-unreserved = "&" / "=" / "+" / "$" / "," / ";" / "?" / "/"
 func (*RulesDescr) UserUnreserved(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.UserUnreserved(in, 0, ns) //errtrace:skip
+	return oprsDescr.UserUnreserved(in, 0, ns)
 }
 
 // Userinfo rule: userinfo = user [ ":" password ] "@"
 func (*RulesDescr) Userinfo(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Userinfo(in, 0, ns) //errtrace:skip
+	return oprsDescr.Userinfo(in, 0, ns)
 }
 
 // Username rule: username = "username" EQUAL username-value
 func (*RulesDescr) Username(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Username(in, 0, ns) //errtrace:skip
+	return oprsDescr.Username(in, 0, ns)
 }
 
 // UsernameValue rule: username-value = quoted-string
 func (*RulesDescr) UsernameValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.UsernameValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.UsernameValue(in, 0, ns)
 }
 
 // VSCHAR rule: VSCHAR = %x20-7E
 func (*RulesDescr) VSCHAR(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.VSCHAR(in, 0, ns) //errtrace:skip
+	return oprsDescr.VSCHAR(in, 0, ns)
 }
 
 // Via rule: Via = ( "Via" / "v" ) HCOLON via-parm *(COMMA via-parm)
 func (*RulesDescr) Via(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Via(in, 0, ns) //errtrace:skip
+	return oprsDescr.Via(in, 0, ns)
 }
 
 // ViaBranch rule: via-branch = "branch" EQUAL token
 func (*RulesDescr) ViaBranch(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ViaBranch(in, 0, ns) //errtrace:skip
+	return oprsDescr.ViaBranch(in, 0, ns)
 }
 
 // ViaExtension rule: via-extension = generic-param
 func (*RulesDescr) ViaExtension(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ViaExtension(in, 0, ns) //errtrace:skip
+	return oprsDescr.ViaExtension(in, 0, ns)
 }
 
 // ViaMaddr rule: via-maddr = "maddr" EQUAL host
 func (*RulesDescr) ViaMaddr(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ViaMaddr(in, 0, ns) //errtrace:skip
+	return oprsDescr.ViaMaddr(in, 0, ns)
 }
 
 // ViaParams rule: via-params = via-ttl / via-maddr / via-received / via-branch / response-port / via-extension
 func (*RulesDescr) ViaParams(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ViaParams(in, 0, ns) //errtrace:skip
+	return oprsDescr.ViaParams(in, 0, ns)
 }
 
 // ViaParm rule: via-parm = sent-protocol LWS sent-by *( SEMI via-params )
 func (*RulesDescr) ViaParm(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ViaParm(in, 0, ns) //errtrace:skip
+	return oprsDescr.ViaParm(in, 0, ns)
 }
 
 // ViaReceived rule: via-received = "received" EQUAL (IPv4address / IPv6address)
 func (*RulesDescr) ViaReceived(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ViaReceived(in, 0, ns) //errtrace:skip
+	return oprsDescr.ViaReceived(in, 0, ns)
 }
 
 // ViaTtl rule: via-ttl = "ttl" EQUAL ttl
 func (*RulesDescr) ViaTtl(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ViaTtl(in, 0, ns) //errtrace:skip
+	return oprsDescr.ViaTtl(in, 0, ns)
 }
 
 // WWWAuthenticate rule: WWW-Authenticate = "WWW-Authenticate" HCOLON challenge
 func (*RulesDescr) WWWAuthenticate(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.WWWAuthenticate(in, 0, ns) //errtrace:skip
+	return oprsDescr.WWWAuthenticate(in, 0, ns)
 }
 
 // WarnAgent rule: warn-agent = hostport / pseudonym
 func (*RulesDescr) WarnAgent(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.WarnAgent(in, 0, ns) //errtrace:skip
+	return oprsDescr.WarnAgent(in, 0, ns)
 }
 
 // WarnCode rule: warn-code = 3DIGIT
 func (*RulesDescr) WarnCode(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.WarnCode(in, 0, ns) //errtrace:skip
+	return oprsDescr.WarnCode(in, 0, ns)
 }
 
 // WarnText rule: warn-text = quoted-string
 func (*RulesDescr) WarnText(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.WarnText(in, 0, ns) //errtrace:skip
+	return oprsDescr.WarnText(in, 0, ns)
 }
 
 // Warning rule: Warning = "Warning" HCOLON warning-value *(COMMA warning-value)
 func (*RulesDescr) Warning(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Warning(in, 0, ns) //errtrace:skip
+	return oprsDescr.Warning(in, 0, ns)
 }
 
 // WarningValue rule: warning-value = warn-code SP warn-agent SP warn-text
 func (*RulesDescr) WarningValue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.WarningValue(in, 0, ns) //errtrace:skip
+	return oprsDescr.WarningValue(in, 0, ns)
 }
 
 // Wkday rule: wkday = "Mon" / "Tue" / "Wed" / "Thu" / "Fri" / "Sat" / "Sun"
 func (*RulesDescr) Wkday(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Wkday(in, 0, ns) //errtrace:skip
+	return oprsDescr.Wkday(in, 0, ns)
 }
 
 // Word rule: word = 1*(alphanum / "-" / "." / "!" / "%" / "*" / "_" / "+" / "`" / "'" / "~" / "(" / ")" / "<" / ">" / ":" / "\" / DQUOTE / "/" / "[" / "]" / "?" / "{" / "}" )
 func (*RulesDescr) Word(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Word(in, 0, ns) //errtrace:skip
+	return oprsDescr.Word(in, 0, ns)
 }
 
 // XToken rule: x-token = "x-" token
 func (*RulesDescr) XToken(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.XToken(in, 0, ns) //errtrace:skip
+	return oprsDescr.XToken(in, 0, ns)
 }

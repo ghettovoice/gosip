@@ -103,10 +103,12 @@ func (s ResponseStatus) Equal(val any) bool {
 		if v == nil {
 			return false
 		}
+
 		other = *v
 	default:
 		return false
 	}
+
 	return s == other
 }
 
@@ -141,10 +143,12 @@ func (r ResponseReason) Equal(val any) bool {
 		if v == nil {
 			return false
 		}
+
 		other = *v
 	default:
 		return false
 	}
+
 	return util.EqFold(r, other)
 }
 

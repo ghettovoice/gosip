@@ -157,7 +157,7 @@ func (desc *OperatorsDescr) Alphanum(in []byte, pos uint, ns *abnf.Nodes) error 
 			abnf_core.Operators().DIGIT,
 		)
 	})
-	return desc.alphanum(in, pos, ns) //errtrace:skip
+	return desc.alphanum(in, pos, ns)
 }
 
 // Context operator: context = ";phone-context=" descriptor
@@ -169,7 +169,7 @@ func (desc *OperatorsDescr) Context(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Descriptor,
 		)
 	})
-	return desc.context(in, pos, ns) //errtrace:skip
+	return desc.context(in, pos, ns)
 }
 
 // Descriptor operator: descriptor = domainname / global-number-digits
@@ -181,7 +181,7 @@ func (desc *OperatorsDescr) Descriptor(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.GlobalNumberDigits,
 		)
 	})
-	return desc.descriptor(in, pos, ns) //errtrace:skip
+	return desc.descriptor(in, pos, ns)
 }
 
 // Domainlabel operator: domainlabel = alphanum / alphanum *( alphanum / "-" ) alphanum
@@ -205,7 +205,7 @@ func (desc *OperatorsDescr) Domainlabel(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.domainlabel(in, pos, ns) //errtrace:skip
+	return desc.domainlabel(in, pos, ns)
 }
 
 // Domainname operator: domainname = *( domainlabel "." ) toplabel [ "." ]
@@ -228,7 +228,7 @@ func (desc *OperatorsDescr) Domainname(in []byte, pos uint, ns *abnf.Nodes) erro
 			),
 		)
 	})
-	return desc.domainname(in, pos, ns) //errtrace:skip
+	return desc.domainname(in, pos, ns)
 }
 
 // Escaped operator: escaped = "%" HEXDIG HEXDIG
@@ -241,7 +241,7 @@ func (desc *OperatorsDescr) Escaped(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf_core.Operators().HEXDIG,
 		)
 	})
-	return desc.escaped(in, pos, ns) //errtrace:skip
+	return desc.escaped(in, pos, ns)
 }
 
 // Extension operator: extension = ";ext=" 1*phonedigit
@@ -256,7 +256,7 @@ func (desc *OperatorsDescr) Extension(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.extension(in, pos, ns) //errtrace:skip
+	return desc.extension(in, pos, ns)
 }
 
 // GlobalNumber operator: global-number = global-number-digits *par
@@ -271,7 +271,7 @@ func (desc *OperatorsDescr) GlobalNumber(in []byte, pos uint, ns *abnf.Nodes) er
 			),
 		)
 	})
-	return desc.globalNumber(in, pos, ns) //errtrace:skip
+	return desc.globalNumber(in, pos, ns)
 }
 
 // GlobalNumberDigits operator: global-number-digits = "+" *phonedigit DIGIT *phonedigit
@@ -291,7 +291,7 @@ func (desc *OperatorsDescr) GlobalNumberDigits(in []byte, pos uint, ns *abnf.Nod
 			),
 		)
 	})
-	return desc.globalNumberDigits(in, pos, ns) //errtrace:skip
+	return desc.globalNumberDigits(in, pos, ns)
 }
 
 // IsdnSubaddress operator: isdn-subaddress = ";isub=" 1*paramchar
@@ -306,7 +306,7 @@ func (desc *OperatorsDescr) IsdnSubaddress(in []byte, pos uint, ns *abnf.Nodes) 
 			),
 		)
 	})
-	return desc.isdnSubaddress(in, pos, ns) //errtrace:skip
+	return desc.isdnSubaddress(in, pos, ns)
 }
 
 // LocalNumber operator: local-number = local-number-digits *par context *par
@@ -326,7 +326,7 @@ func (desc *OperatorsDescr) LocalNumber(in []byte, pos uint, ns *abnf.Nodes) err
 			),
 		)
 	})
-	return desc.localNumber(in, pos, ns) //errtrace:skip
+	return desc.localNumber(in, pos, ns)
 }
 
 // LocalNumberDigits operator: local-number-digits = *phonedigit-hex ( HEXDIG / "*" / "#" ) *phonedigit-hex
@@ -350,7 +350,7 @@ func (desc *OperatorsDescr) LocalNumberDigits(in []byte, pos uint, ns *abnf.Node
 			),
 		)
 	})
-	return desc.localNumberDigits(in, pos, ns) //errtrace:skip
+	return desc.localNumberDigits(in, pos, ns)
 }
 
 // Mark operator: mark = "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")"
@@ -369,7 +369,7 @@ func (desc *OperatorsDescr) Mark(in []byte, pos uint, ns *abnf.Nodes) error {
 			abnf.Literal("\")\"", []byte{41}),
 		)
 	})
-	return desc.mark(in, pos, ns) //errtrace:skip
+	return desc.mark(in, pos, ns)
 }
 
 // Par operator: par = extension / isdn-subaddress / parameter
@@ -382,7 +382,7 @@ func (desc *OperatorsDescr) Par(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Parameter,
 		)
 	})
-	return desc.par(in, pos, ns) //errtrace:skip
+	return desc.par(in, pos, ns)
 }
 
 // ParamUnreserved operator: param-unreserved = "[" / "]" / "/" / ":" / "&" / "+" / "$"
@@ -399,7 +399,7 @@ func (desc *OperatorsDescr) ParamUnreserved(in []byte, pos uint, ns *abnf.Nodes)
 			abnf.Literal("\"$\"", []byte{36}),
 		)
 	})
-	return desc.paramUnreserved(in, pos, ns) //errtrace:skip
+	return desc.paramUnreserved(in, pos, ns)
 }
 
 // Paramchar operator: paramchar = param-unreserved / unreserved / escaped
@@ -412,7 +412,7 @@ func (desc *OperatorsDescr) Paramchar(in []byte, pos uint, ns *abnf.Nodes) error
 			desc.Escaped,
 		)
 	})
-	return desc.paramchar(in, pos, ns) //errtrace:skip
+	return desc.paramchar(in, pos, ns)
 }
 
 // Parameter operator: parameter = ";" pname ["=" pvalue ]
@@ -432,7 +432,7 @@ func (desc *OperatorsDescr) Parameter(in []byte, pos uint, ns *abnf.Nodes) error
 			),
 		)
 	})
-	return desc.parameter(in, pos, ns) //errtrace:skip
+	return desc.parameter(in, pos, ns)
 }
 
 // Phonedigit operator: phonedigit = DIGIT / visual-separator
@@ -444,7 +444,7 @@ func (desc *OperatorsDescr) Phonedigit(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.VisualSeparator,
 		)
 	})
-	return desc.phonedigit(in, pos, ns) //errtrace:skip
+	return desc.phonedigit(in, pos, ns)
 }
 
 // PhonedigitHex operator: phonedigit-hex = HEXDIG / "*" / "#" / visual-separator
@@ -458,7 +458,7 @@ func (desc *OperatorsDescr) PhonedigitHex(in []byte, pos uint, ns *abnf.Nodes) e
 			desc.VisualSeparator,
 		)
 	})
-	return desc.phonedigitHex(in, pos, ns) //errtrace:skip
+	return desc.phonedigitHex(in, pos, ns)
 }
 
 // Pname operator: pname = 1*( alphanum / "-" )
@@ -473,7 +473,7 @@ func (desc *OperatorsDescr) Pname(in []byte, pos uint, ns *abnf.Nodes) error {
 			),
 		)
 	})
-	return desc.pname(in, pos, ns) //errtrace:skip
+	return desc.pname(in, pos, ns)
 }
 
 // Pvalue operator: pvalue = 1*paramchar
@@ -484,7 +484,7 @@ func (desc *OperatorsDescr) Pvalue(in []byte, pos uint, ns *abnf.Nodes) error {
 			desc.Paramchar,
 		)
 	})
-	return desc.pvalue(in, pos, ns) //errtrace:skip
+	return desc.pvalue(in, pos, ns)
 }
 
 // Reserved operator: reserved = ";" / "/" / "?" / ":" / "@" / "&" / "=" / "+" / "$" / ","
@@ -504,7 +504,7 @@ func (desc *OperatorsDescr) Reserved(in []byte, pos uint, ns *abnf.Nodes) error 
 			abnf.Literal("\",\"", []byte{44}),
 		)
 	})
-	return desc.reserved(in, pos, ns) //errtrace:skip
+	return desc.reserved(in, pos, ns)
 }
 
 // TelephoneSubscriber operator: telephone-subscriber = global-number / local-number
@@ -516,7 +516,7 @@ func (desc *OperatorsDescr) TelephoneSubscriber(in []byte, pos uint, ns *abnf.No
 			desc.LocalNumber,
 		)
 	})
-	return desc.telephoneSubscriber(in, pos, ns) //errtrace:skip
+	return desc.telephoneSubscriber(in, pos, ns)
 }
 
 // TelephoneUri operator: telephone-uri = "tel:" telephone-subscriber
@@ -528,7 +528,7 @@ func (desc *OperatorsDescr) TelephoneUri(in []byte, pos uint, ns *abnf.Nodes) er
 			desc.TelephoneSubscriber,
 		)
 	})
-	return desc.telephoneUri(in, pos, ns) //errtrace:skip
+	return desc.telephoneUri(in, pos, ns)
 }
 
 // Toplabel operator: toplabel = ALPHA / ALPHA *( alphanum / "-" ) alphanum
@@ -552,7 +552,7 @@ func (desc *OperatorsDescr) Toplabel(in []byte, pos uint, ns *abnf.Nodes) error 
 			),
 		)
 	})
-	return desc.toplabel(in, pos, ns) //errtrace:skip
+	return desc.toplabel(in, pos, ns)
 }
 
 // Unreserved operator: unreserved = alphanum / mark
@@ -564,7 +564,7 @@ func (desc *OperatorsDescr) Unreserved(in []byte, pos uint, ns *abnf.Nodes) erro
 			desc.Mark,
 		)
 	})
-	return desc.unreserved(in, pos, ns) //errtrace:skip
+	return desc.unreserved(in, pos, ns)
 }
 
 // VisualSeparator operator: visual-separator = "-" / "." / "(" / ")"
@@ -578,7 +578,7 @@ func (desc *OperatorsDescr) VisualSeparator(in []byte, pos uint, ns *abnf.Nodes)
 			abnf.Literal("\")\"", []byte{41}),
 		)
 	})
-	return desc.visualSeparator(in, pos, ns) //errtrace:skip
+	return desc.visualSeparator(in, pos, ns)
 }
 
 // RulesDescr defines rules descriptor that provides rules as methods.
@@ -586,135 +586,135 @@ type RulesDescr struct{}
 
 // Alphanum rule: alphanum = ALPHA / DIGIT
 func (*RulesDescr) Alphanum(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Alphanum(in, 0, ns) //errtrace:skip
+	return oprsDescr.Alphanum(in, 0, ns)
 }
 
 // Context rule: context = ";phone-context=" descriptor
 func (*RulesDescr) Context(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Context(in, 0, ns) //errtrace:skip
+	return oprsDescr.Context(in, 0, ns)
 }
 
 // Descriptor rule: descriptor = domainname / global-number-digits
 func (*RulesDescr) Descriptor(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Descriptor(in, 0, ns) //errtrace:skip
+	return oprsDescr.Descriptor(in, 0, ns)
 }
 
 // Domainlabel rule: domainlabel = alphanum / alphanum *( alphanum / "-" ) alphanum
 func (*RulesDescr) Domainlabel(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Domainlabel(in, 0, ns) //errtrace:skip
+	return oprsDescr.Domainlabel(in, 0, ns)
 }
 
 // Domainname rule: domainname = *( domainlabel "." ) toplabel [ "." ]
 func (*RulesDescr) Domainname(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Domainname(in, 0, ns) //errtrace:skip
+	return oprsDescr.Domainname(in, 0, ns)
 }
 
 // Escaped rule: escaped = "%" HEXDIG HEXDIG
 func (*RulesDescr) Escaped(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Escaped(in, 0, ns) //errtrace:skip
+	return oprsDescr.Escaped(in, 0, ns)
 }
 
 // Extension rule: extension = ";ext=" 1*phonedigit
 func (*RulesDescr) Extension(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Extension(in, 0, ns) //errtrace:skip
+	return oprsDescr.Extension(in, 0, ns)
 }
 
 // GlobalNumber rule: global-number = global-number-digits *par
 func (*RulesDescr) GlobalNumber(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.GlobalNumber(in, 0, ns) //errtrace:skip
+	return oprsDescr.GlobalNumber(in, 0, ns)
 }
 
 // GlobalNumberDigits rule: global-number-digits = "+" *phonedigit DIGIT *phonedigit
 func (*RulesDescr) GlobalNumberDigits(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.GlobalNumberDigits(in, 0, ns) //errtrace:skip
+	return oprsDescr.GlobalNumberDigits(in, 0, ns)
 }
 
 // IsdnSubaddress rule: isdn-subaddress = ";isub=" 1*paramchar
 func (*RulesDescr) IsdnSubaddress(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.IsdnSubaddress(in, 0, ns) //errtrace:skip
+	return oprsDescr.IsdnSubaddress(in, 0, ns)
 }
 
 // LocalNumber rule: local-number = local-number-digits *par context *par
 func (*RulesDescr) LocalNumber(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LocalNumber(in, 0, ns) //errtrace:skip
+	return oprsDescr.LocalNumber(in, 0, ns)
 }
 
 // LocalNumberDigits rule: local-number-digits = *phonedigit-hex ( HEXDIG / "*" / "#" ) *phonedigit-hex
 func (*RulesDescr) LocalNumberDigits(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.LocalNumberDigits(in, 0, ns) //errtrace:skip
+	return oprsDescr.LocalNumberDigits(in, 0, ns)
 }
 
 // Mark rule: mark = "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")"
 func (*RulesDescr) Mark(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Mark(in, 0, ns) //errtrace:skip
+	return oprsDescr.Mark(in, 0, ns)
 }
 
 // Par rule: par = extension / isdn-subaddress / parameter
 func (*RulesDescr) Par(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Par(in, 0, ns) //errtrace:skip
+	return oprsDescr.Par(in, 0, ns)
 }
 
 // ParamUnreserved rule: param-unreserved = "[" / "]" / "/" / ":" / "&" / "+" / "$"
 func (*RulesDescr) ParamUnreserved(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.ParamUnreserved(in, 0, ns) //errtrace:skip
+	return oprsDescr.ParamUnreserved(in, 0, ns)
 }
 
 // Paramchar rule: paramchar = param-unreserved / unreserved / escaped
 func (*RulesDescr) Paramchar(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Paramchar(in, 0, ns) //errtrace:skip
+	return oprsDescr.Paramchar(in, 0, ns)
 }
 
 // Parameter rule: parameter = ";" pname ["=" pvalue ]
 func (*RulesDescr) Parameter(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Parameter(in, 0, ns) //errtrace:skip
+	return oprsDescr.Parameter(in, 0, ns)
 }
 
 // Phonedigit rule: phonedigit = DIGIT / visual-separator
 func (*RulesDescr) Phonedigit(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Phonedigit(in, 0, ns) //errtrace:skip
+	return oprsDescr.Phonedigit(in, 0, ns)
 }
 
 // PhonedigitHex rule: phonedigit-hex = HEXDIG / "*" / "#" / visual-separator
 func (*RulesDescr) PhonedigitHex(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.PhonedigitHex(in, 0, ns) //errtrace:skip
+	return oprsDescr.PhonedigitHex(in, 0, ns)
 }
 
 // Pname rule: pname = 1*( alphanum / "-" )
 func (*RulesDescr) Pname(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Pname(in, 0, ns) //errtrace:skip
+	return oprsDescr.Pname(in, 0, ns)
 }
 
 // Pvalue rule: pvalue = 1*paramchar
 func (*RulesDescr) Pvalue(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Pvalue(in, 0, ns) //errtrace:skip
+	return oprsDescr.Pvalue(in, 0, ns)
 }
 
 // Reserved rule: reserved = ";" / "/" / "?" / ":" / "@" / "&" / "=" / "+" / "$" / ","
 func (*RulesDescr) Reserved(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Reserved(in, 0, ns) //errtrace:skip
+	return oprsDescr.Reserved(in, 0, ns)
 }
 
 // TelephoneSubscriber rule: telephone-subscriber = global-number / local-number
 func (*RulesDescr) TelephoneSubscriber(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.TelephoneSubscriber(in, 0, ns) //errtrace:skip
+	return oprsDescr.TelephoneSubscriber(in, 0, ns)
 }
 
 // TelephoneUri rule: telephone-uri = "tel:" telephone-subscriber
 func (*RulesDescr) TelephoneUri(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.TelephoneUri(in, 0, ns) //errtrace:skip
+	return oprsDescr.TelephoneUri(in, 0, ns)
 }
 
 // Toplabel rule: toplabel = ALPHA / ALPHA *( alphanum / "-" ) alphanum
 func (*RulesDescr) Toplabel(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Toplabel(in, 0, ns) //errtrace:skip
+	return oprsDescr.Toplabel(in, 0, ns)
 }
 
 // Unreserved rule: unreserved = alphanum / mark
 func (*RulesDescr) Unreserved(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.Unreserved(in, 0, ns) //errtrace:skip
+	return oprsDescr.Unreserved(in, 0, ns)
 }
 
 // VisualSeparator rule: visual-separator = "-" / "." / "(" / ")"
 func (*RulesDescr) VisualSeparator(in []byte, ns *abnf.Nodes) error {
-	return oprsDescr.VisualSeparator(in, 0, ns) //errtrace:skip
+	return oprsDescr.VisualSeparator(in, 0, ns)
 }

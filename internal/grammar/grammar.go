@@ -1,14 +1,15 @@
+// Package grammar provides ABNF-based parsing and validation utilities for SIP protocol elements.
+// It includes functions for parsing and validating SIP tokens, hosts, URIs, telephone numbers,
+// and other grammar constructs defined in RFC 3261 and RFC 3966.
 package grammar
 
-//go:generate errtrace -w .
-
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/ghettovoice/abnf"
 
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar/rfc3261"
 	"github.com/ghettovoice/gosip/internal/grammar/rfc3966"
 )
@@ -18,11 +19,10 @@ func init() {
 	abnf.EnableNodeCache(10 * 1024)
 }
 
-type Error string
+type Error errors.Error
 
-func (e Error) Error() string { return string(e) }
-
-func (Error) Grammar() bool { return true }
+func (e Error) Error() string { return errors.Error(e).Error() }
+func (Error) Grammar() bool   { return true }
 
 const (
 	ErrNodeNotFound Error = "node not found"
@@ -33,8 +33,9 @@ const (
 func MustGetNode(n *abnf.Node, k string) *abnf.Node {
 	sn, ok := n.GetNode(k)
 	if !ok {
-		panic(fmt.Errorf("get node %q from node %q: %w", k, n.Key, ErrNodeNotFound))
+		panic(errors.ErrorfWrap("get node %q from node %q: %w", k, n.Key, ErrNodeNotFound))
 	}
+
 	return sn
 }
 
@@ -49,6 +50,7 @@ func IsToken[T ~string | ~[]byte](s T) bool {
 	if err := rfc3261.Rules().Token([]byte(s), ns); err != nil {
 		return false
 	}
+
 	return ns.Best().Len() == len(s)
 }
 
@@ -63,6 +65,7 @@ func IsHost[T ~string | ~[]byte](s T) bool {
 	if err := rfc3261.Rules().Host([]byte(s), ns); err != nil {
 		return false
 	}
+
 	return ns.Best().Len() == len(s)
 }
 
@@ -77,6 +80,7 @@ func IsQuoted[T ~string | ~[]byte](s T) bool {
 	if err := rfc3261.Rules().QuotedString([]byte(s), ns); err != nil {
 		return false
 	}
+
 	return ns.Best().Len() == len(s)
 }
 
@@ -89,6 +93,7 @@ func Unquote(s string) string {
 	if err != nil {
 		qs = s
 	}
+
 	return qs
 }
 
@@ -106,9 +111,11 @@ func IsTelNum[T ~string | ~[]byte](s T) bool {
 	} else {
 		err = rfc3966.Rules().LocalNumberDigits([]byte(s), ns)
 	}
+
 	if err != nil {
 		return false
 	}
+
 	return ns.Best().Len() == len(s)
 }
 
@@ -132,6 +139,7 @@ func IsTelURIParamName[T ~string | ~[]byte](s T) bool {
 	if err := rfc3966.Rules().Pname([]byte(s), ns); err != nil {
 		return false
 	}
+
 	return ns.Best().Len() == len(s)
 }
 
@@ -146,5 +154,6 @@ func IsUsername[T ~string | ~[]byte](s T) bool {
 	if err := rfc3261.Rules().User([]byte(s), ns); err != nil {
 		return false
 	}
+
 	return ns.Best().Len() == len(s)
 }

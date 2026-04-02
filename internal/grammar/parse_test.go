@@ -1,11 +1,11 @@
 package grammar_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/ghettovoice/abnf"
 
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 )
 
@@ -40,10 +40,12 @@ func TestParseSIPURI(t *testing.T) {
 			case []byte:
 				node, err = grammar.ParseSIPURI(in)
 			}
+
 			if c.err == nil {
 				if got, want := node.String(), c.expect; got != want {
 					t.Errorf("grammar.ParseSIPURI(%q) = %q, want %q", c.input, got, want)
 				}
+
 				if err != nil {
 					t.Errorf("grammar.ParseSIPURI(%q) error = %v, want nil", c.input, err)
 				}

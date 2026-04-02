@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"braces.dev/errtrace"
+	"github.com/ghettovoice/gosip/internal/errors"
 )
 
 // TimerState represents the current state of a serializable timer.
@@ -54,6 +54,7 @@ type SerializableTimer struct {
 // The timer is started immediately.
 func NewTimer(duration time.Duration) *SerializableTimer {
 	now := time.Now()
+
 	return &SerializableTimer{
 		startTime: now,
 		duration:  duration,
@@ -89,6 +90,7 @@ func (t *SerializableTimer) State() TimerState {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	return t.state
 }
 
@@ -100,6 +102,7 @@ func (t *SerializableTimer) StartTime() time.Time {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	return t.startTime
 }
 
@@ -111,6 +114,7 @@ func (t *SerializableTimer) Duration() time.Duration {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	return t.duration
 }
 
@@ -122,6 +126,7 @@ func (t *SerializableTimer) StopTime() time.Time {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	return t.stopTime
 }
 
@@ -133,6 +138,7 @@ func (t *SerializableTimer) Elapsed() time.Duration {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	return t.elapsedUnsafe()
 }
 
@@ -148,6 +154,7 @@ func (t *SerializableTimer) elapsedUnsafe() time.Duration {
 		}
 		return t.duration
 	}
+
 	return t.duration
 }
 
@@ -164,11 +171,14 @@ func (t *SerializableTimer) Left() time.Duration {
 	if t.state == TimerStateStopped {
 		return 0
 	}
+
 	elapsed := t.elapsedUnsafe()
+
 	left := t.duration - elapsed
 	if left < 0 {
 		return 0
 	}
+
 	return left
 }
 
@@ -180,6 +190,7 @@ func (t *SerializableTimer) Expired() bool {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	return t.expiredUnsafe()
 }
 
@@ -189,6 +200,7 @@ func (t *SerializableTimer) expiredUnsafe() bool {
 	if t.state == TimerStateExpired {
 		return true
 	}
+
 	if t.state == TimerStateStopped {
 		return false
 	}
@@ -216,6 +228,7 @@ func (t *SerializableTimer) Stop() bool {
 		t.realTimer.Stop()
 		t.realTimer = nil
 	}
+
 	return true
 }
 
@@ -233,6 +246,7 @@ func (t *SerializableTimer) SetCallback(f func()) {
 	// Check if timer has already expired (unsafe version to avoid deadlock)
 	if t.expiredUnsafe() && !t.callbackExecuted {
 		t.callbackExecuted = true
+
 		go f()
 		return
 	}
@@ -275,6 +289,7 @@ func (t *SerializableTimer) SetCallback(f func()) {
 func (t *SerializableTimer) UpdateState() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	t.updateStateUnsafe()
 }
 
@@ -342,8 +357,6 @@ func (t *SerializableTimer) Reset(duration time.Duration) {
 	}
 }
 
-var jsonNull = []byte("null")
-
 // TimerSnapshot represents a serializable view of a timer.
 // Only deterministic fields are included so that the snapshot can be safely
 // persisted or transferred between goroutines or processes.
@@ -397,6 +410,7 @@ func (t *SerializableTimer) restoreUnsafe(snap *TimerSnapshot) {
 		t.stopTime = time.Time{}
 		t.callback = nil
 		t.callbackExecuted = false
+
 		return
 	}
 
@@ -409,6 +423,8 @@ func (t *SerializableTimer) restoreUnsafe(snap *TimerSnapshot) {
 	t.callbackExecuted = false
 }
 
+var jsonNull = []byte("null")
+
 // MarshalJSON implements json.Marshaler.
 func (t *SerializableTimer) MarshalJSON() ([]byte, error) {
 	if t == nil {
@@ -419,38 +435,50 @@ func (t *SerializableTimer) MarshalJSON() ([]byte, error) {
 	snap := t.snapshotUnsafe()
 	t.mu.Unlock()
 
-	return errtrace.Wrap2(json.Marshal(&snap))
+	return errors.Wrap2(json.Marshal(&snap))
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (t *SerializableTimer) UnmarshalJSON(data []byte) error {
+	if t == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil timer")
+	}
+
 	// Unmarshal into a snapshot
-	var snap TimerSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return errtrace.Wrap(err)
+	var (
+		snap *TimerSnapshot
+		err  error
+	)
+	if err = json.Unmarshal(data, &snap); err != nil {
+		snap = nil
 	}
 
 	t.mu.Lock()
-	t.restoreUnsafe(&snap)
+	t.restoreUnsafe(snap)
 	t.mu.Unlock()
 
-	return nil
+	return errors.Wrap(err)
 }
 
 // ToJSON serializes the timer to a JSON string.
 func (t *SerializableTimer) ToJSON() ([]byte, error) {
-	return errtrace.Wrap2(json.Marshal(t))
+	return errors.Wrap2(json.Marshal(t))
 }
 
 // FromJSON deserializes a timer from a JSON string.
 func FromJSON(data []byte) (*SerializableTimer, error) {
-	snap := new(TimerSnapshot)
-	if err := json.Unmarshal(data, snap); err != nil {
-		return nil, errtrace.Wrap(err)
+	var snap *TimerSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	if snap == nil {
+		return nil, errors.NewInvalidArgumentErrorWrap("nil snapshot")
 	}
 
 	timer := new(SerializableTimer)
 	timer.restoreUnsafe(snap)
+
 	return timer, nil
 }
 
@@ -472,5 +500,6 @@ func RestoreTimer(snap *TimerSnapshot) *SerializableTimer {
 
 	timer := new(SerializableTimer)
 	timer.restoreUnsafe(snap)
+
 	return timer
 }

@@ -57,10 +57,12 @@ func TestAny_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
+
 			_, err := c.uri.RenderTo(&sb, nil)
 			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("uri.RenderTo(sb, nil) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
 			}
+
 			if got := sb.String(); got != c.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
 			}
@@ -94,6 +96,7 @@ func TestAny_String(t *testing.T) {
 
 func TestAny_Equal(t *testing.T) {
 	t.Parallel()
+
 	cases := []struct {
 		name string
 		uri  *uri.Any
@@ -139,6 +142,7 @@ func TestAny_Equal(t *testing.T) {
 
 func TestAny_IsValid(t *testing.T) {
 	t.Parallel()
+
 	cases := []struct {
 		name string
 		uri  *uri.Any
@@ -162,6 +166,7 @@ func TestAny_IsValid(t *testing.T) {
 
 func TestAny_Clone(t *testing.T) {
 	t.Parallel()
+
 	cases := []struct {
 		name string
 		uri  *uri.Any
@@ -189,6 +194,7 @@ func TestAny_Clone(t *testing.T) {
 				}
 				return
 			}
+
 			if diff := cmp.Diff(got, c.uri, cmp.AllowUnexported(uri.Any{})); diff != "" {
 				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.uri, diff)
 			}
@@ -198,26 +204,40 @@ func TestAny_Clone(t *testing.T) {
 
 func TestAny_RoundTripText(t *testing.T) {
 	t.Parallel()
+
 	cases := []struct {
 		name    string
 		uri     *uri.Any
+		want    *uri.Any
 		wantErr bool
 	}{
-		{"nil", (*uri.Any)(nil), true},
-		{"zero", &uri.Any{}, true},
-		{"opaque", &uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "user@example.com"}}, false},
-		{"full", &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b", RawQuery: "q=1"}}, false},
+		{"nil", (*uri.Any)(nil), &uri.Any{}, false},
+		{"zero", &uri.Any{}, &uri.Any{}, false},
+		{
+			"opaque",
+			&uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "user@example.com"}},
+			&uri.Any{URL: url.URL{Scheme: "mailto", Opaque: "user@example.com"}},
+			false,
+		},
+		{
+			"full",
+			&uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b", RawQuery: "q=1"}},
+			&uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b", RawQuery: "q=1"}},
+			false,
+		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
+
 			text, err := c.uri.MarshalText()
 			if err != nil {
 				t.Fatalf("uri.MarshalText() error = %v, want nil", err)
 			}
 
 			var got uri.Any
+
 			err = got.UnmarshalText(text)
 			if c.wantErr {
 				if err == nil {
@@ -225,12 +245,13 @@ func TestAny_RoundTripText(t *testing.T) {
 				}
 				return
 			}
+
 			if err != nil {
 				t.Fatalf("got.UnmarshalText(text) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(&got, c.uri, cmp.AllowUnexported(uri.Any{})); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, c.uri, diff)
+			if diff := cmp.Diff(&got, c.want, cmp.AllowUnexported(uri.Any{})); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, c.want, diff)
 			}
 		})
 	}

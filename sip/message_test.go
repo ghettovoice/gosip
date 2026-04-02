@@ -1,19 +1,20 @@
 package sip_test
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/ghettovoice/gosip/header"
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/uri"
 )
 
+//nolint:tparallel
 func TestParseMessage(t *testing.T) {
 	t.Parallel()
 
@@ -39,7 +40,7 @@ func TestParseMessage(t *testing.T) {
 				Method: "INVITE",
 				URI: &uri.SIP{
 					User: uri.User("bob"),
-					Addr: uri.Host("b.example.com"),
+					Addr: uri.AddrFromHost("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 			},
@@ -70,7 +71,7 @@ func TestParseMessage(t *testing.T) {
 				Method: "INVITE",
 				URI: &uri.SIP{
 					User: uri.User("bob"),
-					Addr: uri.Host("b.example.com"),
+					Addr: uri.AddrFromHost("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -79,13 +80,13 @@ func TestParseMessage(t *testing.T) {
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      header.Host("a.example.com"),
+								Addr:      header.AddrFromHost("a.example.com"),
 								Params:    make(header.Values).Append("branch", "qwerty"),
 							},
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      header.Host("b.example.com"),
+								Addr:      header.AddrFromHost("b.example.com"),
 								Params:    make(header.Values).Append("branch", "asdf"),
 							},
 						},
@@ -93,7 +94,7 @@ func TestParseMessage(t *testing.T) {
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      header.Host("c.example.com"),
+								Addr:      header.AddrFromHost("c.example.com"),
 								Params:    make(header.Values).Append("branch", "zxcvb"),
 							},
 						},
@@ -102,14 +103,14 @@ func TestParseMessage(t *testing.T) {
 						&header.From{
 							URI: &uri.SIP{
 								User: uri.User("alice"),
-								Addr: uri.Host("a.example.com"),
+								Addr: uri.AddrFromHost("a.example.com"),
 							},
 							Params: make(header.Values).Append("tag", "abc"),
 						},
 						&header.To{
 							URI: &uri.SIP{
 								User: uri.User("bob"),
-								Addr: uri.Host("b.example.com"),
+								Addr: uri.AddrFromHost("b.example.com"),
 							},
 						},
 					).
@@ -122,7 +123,7 @@ func TestParseMessage(t *testing.T) {
 						{
 							URI: &uri.SIP{
 								User: uri.User("alice"),
-								Addr: uri.HostPort("a.example.com", 5060),
+								Addr: uri.AddrFromHostPort("a.example.com", 5060),
 							},
 							Params: make(header.Values).Append("transport", "tcp"),
 						},
@@ -168,13 +169,13 @@ func TestParseMessage(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("a.example.com"),
+							Addr:      header.AddrFromHost("a.example.com"),
 							Params:    make(header.Values).Append("branch", "qwerty"),
 						},
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("b.example.com"),
+							Addr:      header.AddrFromHost("b.example.com"),
 							Params:    make(header.Values).Append("branch", "asdf"),
 						},
 					}).
@@ -182,7 +183,7 @@ func TestParseMessage(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("c.example.com"),
+							Addr:      header.AddrFromHost("c.example.com"),
 							Params: make(header.Values).
 								Append("branch", "zxcvb").
 								Append("rport", "98761"),
@@ -191,14 +192,14 @@ func TestParseMessage(t *testing.T) {
 					Append(&header.From{
 						URI: &uri.SIP{
 							User: uri.User("alice"),
-							Addr: uri.Host("a.example.com"),
+							Addr: uri.AddrFromHost("a.example.com"),
 						},
 						Params: make(header.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &uri.SIP{
 							User: uri.User("bob"),
-							Addr: uri.Host("b.example.com"),
+							Addr: uri.AddrFromHost("b.example.com"),
 						},
 						Params: make(header.Values).Append("tag", "def"),
 					}).
@@ -209,7 +210,7 @@ func TestParseMessage(t *testing.T) {
 						{
 							URI: &uri.SIP{
 								User: uri.User("bob"),
-								Addr: uri.HostPort("b.example.com", 5060),
+								Addr: uri.AddrFromHostPort("b.example.com", 5060),
 							},
 						},
 					}).
@@ -247,6 +248,7 @@ func TestParseMessage(t *testing.T) {
 			case []byte:
 				gotMsg, gotErr = sip.ParseMessage(input)
 			}
+
 			input := util.Ellipsis(fmt.Sprintf("%v", c.input), 35)
 			if c.wantErr == nil {
 				if diff := cmp.Diff(gotMsg, c.wantMsg); diff != "" {
@@ -254,6 +256,7 @@ func TestParseMessage(t *testing.T) {
 						input, gotMsg, c.wantMsg, diff,
 					)
 				}
+
 				if gotErr != nil {
 					t.Errorf("sip.ParseMessage(%q) error = %v, want nil", input, gotErr)
 				}

@@ -8,9 +8,7 @@ import (
 
 var messageHeaders = abnf.Repeat0Inf("message-headers", rfc3261.Operators().MessageHeader)
 
-func MessageHeaders(s []byte, ns *abnf.Nodes) error {
-	return messageHeaders(s, 0, ns) //errtrace:skip
-}
+func MessageHeaders(s []byte, ns *abnf.Nodes) error { return messageHeaders(s, 0, ns) }
 
 var messageStart = abnf.AltFirst(
 	"message-start",
@@ -18,6 +16,4 @@ var messageStart = abnf.AltFirst(
 	rfc3261.Operators().StatusLine,
 )
 
-func MessageStart(s []byte, ns *abnf.Nodes) error {
-	return messageStart(s, 0, ns) //errtrace:skip
-}
+func MessageStart(s []byte, ns *abnf.Nodes) error { return messageStart(s, 0, ns) }

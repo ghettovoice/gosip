@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/ghettovoice/gosip/dns"
-	"github.com/ghettovoice/gosip/header"
+	"github.com/ghettovoice/gosip/sip/header"
 )
 
 // DNSResolver is used to resolve the message destination address.
@@ -41,16 +41,16 @@ type DNSResolver interface {
 //nolint:gocognit
 func ResponseAddrs(
 	ctx context.Context,
-	via header.ViaHop,
-	tpMeta TransportMetadata,
 	dnsRslvr DNSResolver,
+	tpMeta TransportMetadata,
+	via header.ViaHop,
 ) iter.Seq2[TransportProto, netip.AddrPort] {
 	return func(yield func(TransportProto, netip.AddrPort) bool) {
 		if !via.IsValid() || !via.Transport.Equal(tpMeta.Proto) {
 			return
 		}
 
-		if !tpMeta.Reliable {
+		if !tpMeta.Reliable() {
 			// RFC 3261 Section 18.2.2, bullet 2.
 			if maddr, ok := via.MAddr(); ok {
 				// maddr can be host name or IP address, need to lookup IP addresses
@@ -66,7 +66,8 @@ func ResponseAddrs(
 								port = tpMeta.DefaultPort
 							}
 
-							if addrPort := netip.AddrPortFrom(addr, port); addrPort.IsValid() && !yield(via.Transport, addrPort) {
+							addrPort := netip.AddrPortFrom(addr, port)
+							if addrPort.IsValid() && !yield(via.Transport, addrPort) {
 								return
 							}
 						}
@@ -81,12 +82,13 @@ func ResponseAddrs(
 		// RFC 3261 Section 18.2.2, bullet 1 and 3.
 		if addr, ok := via.Received(); ok {
 			var port uint16
-			if !tpMeta.Reliable {
+			if !tpMeta.Reliable() {
 				// RFC 3581 Section 4.
 				if p, ok := via.RPort(); ok {
 					port = p
 				}
 			}
+
 			if port == 0 {
 				if p, ok := via.Addr.Port(); ok {
 					port = p
@@ -95,7 +97,8 @@ func ResponseAddrs(
 				}
 			}
 
-			if addrPort := netip.AddrPortFrom(addr, port); addrPort.IsValid() && !yield(via.Transport, addrPort) {
+			addrPort := netip.AddrPortFrom(addr, port)
+			if addrPort.IsValid() && !yield(via.Transport, addrPort) {
 				return
 			}
 		}
@@ -112,10 +115,12 @@ func ResponseAddrs(
 					port = tpMeta.DefaultPort
 				}
 
-				if addrPort := netip.AddrPortFrom(addr, port); addrPort.IsValid() && !yield(via.Transport, addrPort) {
+				addrPort := netip.AddrPortFrom(addr, port)
+				if addrPort.IsValid() && !yield(via.Transport, addrPort) {
 					return
 				}
 			}
+
 			return
 		}
 
@@ -125,18 +130,20 @@ func ResponseAddrs(
 					if addr, ok := netip.AddrFromSlice(ip); ok {
 						addr = addr.Unmap()
 
-						if addrPort := netip.AddrPortFrom(addr, port); addrPort.IsValid() && !yield(via.Transport, addrPort) {
+						addrPort := netip.AddrPortFrom(addr, port)
+						if addrPort.IsValid() && !yield(via.Transport, addrPort) {
 							return
 						}
 					}
 				}
 			}
+
 			return
 		}
 
 		// RFC 3263 Section 5.
 		serv := "sip"
-		if tpMeta.Secured {
+		if tpMeta.Secured() {
 			serv = "sips"
 		}
 
@@ -162,7 +169,8 @@ func ResponseAddrs(
 						if addr, ok := netip.AddrFromSlice(ip); ok {
 							addr = addr.Unmap()
 
-							if addrPort := netip.AddrPortFrom(addr, srv.Port); addrPort.IsValid() && !yield(via.Transport, addrPort) {
+							addrPort := netip.AddrPortFrom(addr, srv.Port)
+							if addrPort.IsValid() && !yield(via.Transport, addrPort) {
 								return
 							}
 						}

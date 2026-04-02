@@ -12,13 +12,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"braces.dev/errtrace"
-
-	"github.com/ghettovoice/gosip/header"
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/syncutil"
 	"github.com/ghettovoice/gosip/internal/timeutil"
+	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip/header"
 )
 
 // ServerTransaction represents a SIP server transaction.
@@ -68,7 +68,7 @@ func (f ServerTransactionFactoryFunc) NewServerTransaction(
 	tp ServerTransport,
 	opts *ServerTransactionOptions,
 ) (ServerTransaction, error) {
-	return errtrace.Wrap2(f(ctx, req, tp, opts))
+	return errors.Wrap2(f(ctx, req, tp, opts))
 }
 
 // NewServerTransaction creates a new server transaction based on the request method.
@@ -81,9 +81,9 @@ func NewServerTransaction(
 	opts *ServerTransactionOptions,
 ) (ServerTransaction, error) {
 	if req.Method().Equal(RequestMethodInvite) {
-		return errtrace.Wrap2(NewInviteServerTransaction(ctx, req, tp, opts))
+		return errors.Wrap2(NewInviteServerTransaction(ctx, req, tp, opts))
 	}
-	return errtrace.Wrap2(NewNonInviteServerTransaction(ctx, req, tp, opts))
+	return errors.Wrap2(NewNonInviteServerTransaction(ctx, req, tp, opts))
 }
 
 // ServerTransactionOptions contains options for a server transaction.
@@ -102,7 +102,7 @@ type ServerTransactionOptions struct {
 
 func (o *ServerTransactionOptions) key() ServerTransactionKey {
 	if o == nil {
-		return zeroSrvTxKey
+		return ServerTransactionKey{}
 	}
 	return o.Key
 }
@@ -139,22 +139,27 @@ func newServerTransact(
 	opts *ServerTransactionOptions,
 ) (*serverTransact, error) {
 	if err := req.Validate(); err != nil {
-		return nil, errtrace.Wrap(NewInvalidArgumentError(err))
+		return nil, errors.NewInvalidArgumentErrorWrap(err)
 	}
+
 	if tp == nil {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid transport"))
+		return nil, errors.NewInvalidArgumentErrorWrap("nil transport")
 	}
+
 	if opts == nil {
 		opts = &ServerTransactionOptions{}
 	}
 
 	key := opts.key()
-	if !key.IsValid() {
+	if key.IsValid() {
+		key = key.Canonic()
+	} else {
 		var err error
 		if key, err = MakeServerTransactionKey(req); err != nil {
-			return nil, errtrace.Wrap(NewInvalidArgumentError(err))
+			return nil, errors.NewInvalidArgumentErrorWrap(err)
 		}
 	}
+
 	req.Metadata().Set("transaction_key", key)
 
 	tx := &serverTransact{
@@ -164,6 +169,7 @@ func newServerTransact(
 		req:     req,
 	}
 	tx.baseTransact = newBaseTransact(typ, impl, opts.log())
+
 	return tx, nil
 }
 
@@ -180,8 +186,9 @@ func (tx *serverTransact) srvTxImpl() serverTransactImpl {
 // LogValue implements [slog.LogValuer].
 func (tx *serverTransact) LogValue() slog.Value {
 	if tx == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
+
 	return slog.GroupValue(
 		slog.Any("key", tx.key),
 		slog.Any("type", tx.typ),
@@ -192,7 +199,7 @@ func (tx *serverTransact) LogValue() slog.Value {
 // Key returns the transaction key.
 func (tx *serverTransact) Key() ServerTransactionKey {
 	if tx == nil {
-		return zeroSrvTxKey
+		return ServerTransactionKey{}
 	}
 	return tx.key
 }
@@ -246,29 +253,34 @@ func (tx *serverTransact) MatchMessage(msg Message) bool {
 		if err != nil {
 			return false
 		}
+
 		txKey := tx.key
 		if v, ok := tx.impl.(interface {
 			adjustKeys(txKey, reqKey *ServerTransactionKey, mtd RequestMethod)
 		}); ok {
 			v.adjustKeys(&txKey, &reqKey, mtd)
 		}
+
 		return txKey.Equal(reqKey)
 	} else if isRes {
 		return tx.matchRes(msg) == nil
 	}
+
 	return false
 }
 
 //nolint:gocognit
 func (tx *serverTransact) matchRes(res Message) error {
 	if tx == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid transaction"))
+		return errors.NewInvalidArgumentErrorWrap("nil transaction")
 	}
+
 	if tx.req == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("missing transaction request"))
+		return errors.NewInvalidArgumentErrorWrap("missing transaction request")
 	}
+
 	if res == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid response"))
+		return errors.NewInvalidArgumentErrorWrap("nil response")
 	}
 
 	reqHdrs := tx.req.Headers()
@@ -276,91 +288,107 @@ func (tx *serverTransact) matchRes(res Message) error {
 
 	reqVia, ok := reqHdrs.FirstVia()
 	if !ok || reqVia == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("missing request Via"))
+		return errors.NewInvalidArgumentErrorWrap("missing request Via")
 	}
+
 	resVia, ok := resHdrs.FirstVia()
 	if !ok || resVia == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("missing response Via"))
+		return errors.NewInvalidArgumentErrorWrap("missing response Via")
 	}
+
 	if !reqVia.Equal(resVia) {
-		return errtrace.Wrap(NewInvalidArgumentError("response Via does not match transaction request"))
+		return errors.NewInvalidArgumentErrorWrap("response Via does not match transaction request")
 	}
 
 	reqCallID, ok := reqHdrs.CallID()
 	if !ok {
-		return errtrace.Wrap(NewInvalidArgumentError("missing request Call-ID"))
+		return errors.NewInvalidArgumentErrorWrap("missing request Call-ID")
 	}
+
 	resCallID, ok := resHdrs.CallID()
 	if !ok {
-		return errtrace.Wrap(NewInvalidArgumentError("missing response Call-ID"))
+		return errors.NewInvalidArgumentErrorWrap("missing response Call-ID")
 	}
+
 	if reqCallID != resCallID {
-		return errtrace.Wrap(NewInvalidArgumentError("response Call-ID does not match transaction request"))
+		return errors.NewInvalidArgumentErrorWrap("response Call-ID does not match transaction request")
 	}
 
 	reqFrom, ok := reqHdrs.From()
 	if !ok || reqFrom == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("missing request From"))
+		return errors.NewInvalidArgumentErrorWrap("missing request From")
 	}
+
 	resFrom, ok := resHdrs.From()
 	if !ok || resFrom == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("missing response From"))
+		return errors.NewInvalidArgumentErrorWrap("missing response From")
 	}
+
 	if !reqFrom.Equal(resFrom) {
-		return errtrace.Wrap(NewInvalidArgumentError("response From does not match transaction request"))
+		return errors.NewInvalidArgumentErrorWrap("response From does not match transaction request")
 	}
 
 	reqTo, ok := reqHdrs.To()
 	if !ok || reqTo == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("missing request To"))
+		return errors.NewInvalidArgumentErrorWrap("missing request To")
 	}
+
 	resTo, ok := resHdrs.To()
 	if !ok || resTo == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("missing response To"))
+		return errors.NewInvalidArgumentErrorWrap("missing response To")
 	}
+
 	if !equalNameAddrWithoutTag(header.NameAddr(*reqTo), header.NameAddr(*resTo)) {
-		return errtrace.Wrap(NewInvalidArgumentError("response To does not match transaction request"))
+		return errors.NewInvalidArgumentErrorWrap("response To does not match transaction request")
 	}
+
 	if reqTag, ok := reqTo.Tag(); ok && reqTag != "" {
 		resTag, _ := resTo.Tag()
 		if reqTag != resTag {
-			return errtrace.Wrap(NewInvalidArgumentError("response To tag does not match transaction request"))
+			return errors.NewInvalidArgumentErrorWrap("response To tag does not match transaction request")
 		}
 	}
 
 	reqCSeq, ok := reqHdrs.CSeq()
 	if !ok || reqCSeq == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("missing request CSeq"))
+		return errors.NewInvalidArgumentErrorWrap("missing request CSeq")
 	}
+
 	resCSeq, ok := resHdrs.CSeq()
 	if !ok || resCSeq == nil {
-		return errtrace.Wrap(NewInvalidArgumentError("missing response CSeq"))
+		return errors.NewInvalidArgumentErrorWrap("missing response CSeq")
 	}
+
 	if reqCSeq.SeqNum != resCSeq.SeqNum {
-		return errtrace.Wrap(NewInvalidArgumentError("response CSeq number does not match transaction request"))
+		return errors.NewInvalidArgumentErrorWrap("response CSeq number does not match transaction request")
 	}
+
 	if !resCSeq.Method.Equal(reqCSeq.Method) {
-		return errtrace.Wrap(NewInvalidArgumentError("response CSeq method does not match transaction request"))
+		return errors.NewInvalidArgumentErrorWrap("response CSeq method does not match transaction request")
 	}
+
 	return nil
 }
 
 func equalNameAddrWithoutTag(a, b header.NameAddr) bool {
 	a = a.Clone()
 	b = b.Clone()
+
 	if a.Params != nil {
-		a.Params.Del("tag")
+		a.Params.Delete("tag")
 	}
+
 	if b.Params != nil {
-		b.Params.Del("tag")
+		b.Params.Delete("tag")
 	}
+
 	return a.Equal(b)
 }
 
 // RecvRequest is called on each inbound request received by the transport layer.
 func (tx *serverTransact) RecvRequest(ctx context.Context, req *InboundRequestEnvelope) error {
 	if !tx.MatchMessage(req) {
-		return errtrace.Wrap(NewInvalidArgumentError(ErrMessageNotMatched))
+		return errors.NewInvalidArgumentErrorWrap(ErrMessageNotMatched)
 	}
 
 	ctx = ContextWithTransaction(ctx, tx.impl)
@@ -368,17 +396,18 @@ func (tx *serverTransact) RecvRequest(ctx context.Context, req *InboundRequestEn
 	if v, ok := tx.impl.(interface {
 		recvReq(ctx context.Context, req *InboundRequestEnvelope) error
 	}); ok {
-		return errtrace.Wrap(v.recvReq(ctx, req))
+		return errors.Wrap(v.recvReq(ctx, req))
 	}
-	return errtrace.Wrap(tx.recvReq(ctx, req))
+
+	return errors.Wrap(tx.recvReq(ctx, req))
 }
 
 func (tx *serverTransact) recvReq(ctx context.Context, req *InboundRequestEnvelope) error {
 	switch {
 	case tx.req.Method().Equal(req.Method()):
-		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtRecvReq, req))
+		return errors.Wrap(tx.fsm.FireCtx(ctx, txEvtRecvReq, req))
 	default:
-		return errtrace.Wrap(NewInvalidArgumentError(ErrMethodNotAllowed))
+		return errors.NewInvalidArgumentErrorWrap(ErrMethodNotAllowed)
 	}
 }
 
@@ -387,9 +416,10 @@ func (tx *serverTransact) recvReq(ctx context.Context, req *InboundRequestEnvelo
 func (tx *serverTransact) Respond(ctx context.Context, sts ResponseStatus, opts *RespondOptions) error {
 	res, err := tx.req.NewResponse(sts, opts.resOpts())
 	if err != nil {
-		return errtrace.Wrap(err)
+		return errors.Wrap(err)
 	}
-	return errtrace.Wrap(tx.SendResponse(ctx, res, opts.sendOpts()))
+
+	return errors.Wrap(tx.SendResponse(ctx, res, opts.sendOpts()))
 }
 
 // SendResponse sends a response to the remote address with specified options.
@@ -400,21 +430,22 @@ func (tx *serverTransact) SendResponse(
 	opts *SendResponseOptions,
 ) error {
 	if err := res.Validate(); err != nil {
-		return errtrace.Wrap(err)
+		return errors.Wrap(err)
 	}
+
 	if err := tx.matchRes(res); err != nil {
-		return errtrace.Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	ctx = ContextWithTransaction(ctx, tx.impl)
 
 	switch sts := res.Status(); {
 	case sts.IsProvisional():
-		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtSend1xx, res, opts))
+		return errors.Wrap(tx.fsm.FireCtx(ctx, txEvtSend1xx, res, opts))
 	case sts.IsSuccessful():
-		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtSend2xx, res, opts))
+		return errors.Wrap(tx.fsm.FireCtx(ctx, txEvtSend2xx, res, opts))
 	default:
-		return errtrace.Wrap(tx.fsm.FireCtx(ctx, txEvtSend300699, res, opts))
+		return errors.Wrap(tx.fsm.FireCtx(ctx, txEvtSend300699, res, opts))
 	}
 }
 
@@ -424,12 +455,17 @@ func (tx *serverTransact) sendRes(
 	opts *SendResponseOptions,
 ) error {
 	if err := tx.tp.SendResponse(ctx, res, opts); err != nil {
-		err = fmt.Errorf("send %q response: %w", res.Status(), err)
-		if err := tx.fsm.FireCtx(ctx, txEvtTranspErr, errtrace.Wrap(err)); err != nil {
-			panic(fmt.Errorf("fire %q in state %q: %w", txEvtTranspErr, tx.State(), err))
+		if err := tx.fsm.FireCtx(
+			ctx,
+			txEvtTranspErr,
+			errors.ErrorfWrap("send %q response: %w", res.Status(), err),
+		); err != nil {
+			panic(errors.ErrorfWrap("fire %q in state %q: %w", txEvtTranspErr, tx.State(), err))
 		}
-		return errtrace.Wrap(err)
+
+		return errors.Wrap(err)
 	}
+
 	return nil
 }
 
@@ -442,7 +478,7 @@ const (
 
 func (tx *serverTransact) initFSM(start TransactionState) error {
 	if err := tx.baseTransact.initFSM(start); err != nil {
-		return errtrace.Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	tx.fsm.SetTriggerParameters(txEvtRecvReq, reflect.TypeFor[*InboundRequestEnvelope]())
@@ -464,7 +500,8 @@ func (tx *serverTransact) initFSM(start TransactionState) error {
 
 func (tx *serverTransact) actSendRes(ctx context.Context, args ...any) error {
 	res := args[0].(*OutboundResponseEnvelope) //nolint:forcetypeassert
-	opts := args[1].(*SendResponseOptions)     //nolint:forcetypeassert
+
+	opts := args[1].(*SendResponseOptions) //nolint:forcetypeassert
 	defer func() {
 		tx.lastRes.Store(res)
 		tx.sendOpts.Store(cloneSendResOpts(opts))
@@ -476,6 +513,7 @@ func (tx *serverTransact) actSendRes(ctx context.Context, args ...any) error {
 	)
 
 	tx.sendRes(ctx, res, opts) //nolint:errcheck
+
 	return nil
 }
 
@@ -484,6 +522,7 @@ func (tx *serverTransact) actResendRes(ctx context.Context, _ ...any) error {
 	if res == nil {
 		return nil
 	}
+
 	opts := tx.sendOpts.Load()
 
 	tx.log.LogAttrs(ctx, slog.LevelDebug, "re-send response",
@@ -492,6 +531,7 @@ func (tx *serverTransact) actResendRes(ctx context.Context, _ ...any) error {
 	)
 
 	tx.sendRes(ctx, res, opts) //nolint:errcheck
+
 	return nil
 }
 
@@ -519,7 +559,10 @@ func (tx *serverTransact) Snapshot() *ServerTransactionSnapshot {
 
 // MarshalJSON implements [json.Marshaler].
 func (tx *serverTransact) MarshalJSON() ([]byte, error) {
-	return errtrace.Wrap2(json.Marshal(tx.Snapshot()))
+	if tx == nil {
+		return jsonNull, nil
+	}
+	return errors.Wrap2(json.Marshal(tx.Snapshot()))
 }
 
 // ServerTransactionSnapshot represents a snapshot of a server transaction state.
@@ -604,27 +647,29 @@ type ServerTransactionKey struct {
 	Via string `json:"via,omitempty"`
 }
 
-var zeroSrvTxKey ServerTransactionKey
-
 // MakeServerTransactionKey builds server transaction key from the given message.
 func MakeServerTransactionKey(msg Message) (ServerTransactionKey, error) {
 	if msg == nil {
-		return zeroSrvTxKey, errtrace.Wrap(NewInvalidArgumentError("invalid message"))
+		return ServerTransactionKey{}, errors.NewInvalidArgumentErrorWrap("nil message")
 	}
+
 	if err := msg.Validate(); err != nil {
-		return zeroSrvTxKey, errtrace.Wrap(NewInvalidArgumentError(err))
+		return ServerTransactionKey{}, errors.NewInvalidArgumentErrorWrap(err)
 	}
 
 	hdrs := GetMessageHeaders(msg)
+
 	via, _ := hdrs.FirstVia()
 	if branch, _ := via.Branch(); IsRFC3261Branch(branch) {
 		return makeSrvTransactKey3261(hdrs, via), nil
 	}
-	return errtrace.Wrap2(makeSrvTransactKey2543(msg, hdrs, via))
+
+	return errors.Wrap2(makeSrvTransactKey2543(msg, hdrs, via))
 }
 
 func makeSrvTransactKey3261(hdrs Headers, via *header.ViaHop) ServerTransactionKey {
 	var k ServerTransactionKey
+
 	k.Branch, _ = via.Branch()
 	k.SentBy = util.LCase(via.Addr.String())
 
@@ -634,11 +679,13 @@ func makeSrvTransactKey3261(hdrs Headers, via *header.ViaHop) ServerTransactionK
 	} else {
 		k.Method = string(cseq.Method.ToUpper())
 	}
+
 	return k
 }
 
 func makeSrvTransactKey2543(msg Message, hdrs Headers, via *header.ViaHop) (ServerTransactionKey, error) {
 	var k ServerTransactionKey
+
 	k.Via = util.LCase(via.String())
 
 	callID, _ := hdrs.CallID()
@@ -652,21 +699,24 @@ func makeSrvTransactKey2543(msg Message, hdrs Headers, via *header.ViaHop) (Serv
 	}
 
 	from, _ := hdrs.From()
+
 	k.FromTag, _ = from.Tag()
 	if k.FromTag == "" {
-		return zeroSrvTxKey, errtrace.Wrap(NewInvalidArgumentError("missing From tag"))
+		return ServerTransactionKey{}, errors.NewInvalidArgumentErrorWrap("missing From tag")
 	}
 
 	to, _ := hdrs.To()
 	k.ToTag, _ = to.Tag()
 
 	cseq, _ := hdrs.CSeq()
+
 	k.SeqNum = cseq.SeqNum
 	if cseq.Method.Equal(RequestMethodAck) {
 		k.Method = string(RequestMethodInvite)
 	} else {
 		k.Method = string(cseq.Method.ToUpper())
 	}
+
 	return k, nil
 }
 
@@ -680,6 +730,7 @@ func (k ServerTransactionKey) Equal(val any) bool {
 		if v == nil {
 			return false
 		}
+
 		other = *v
 	default:
 		return false
@@ -735,6 +786,7 @@ func (k ServerTransactionKey) LogValue() slog.Value {
 			slog.Any("method", k.Method),
 		)
 	}
+
 	return slog.GroupValue(
 		slog.Any("method", k.Method),
 		slog.Any("uri", k.URI),
@@ -744,6 +796,20 @@ func (k ServerTransactionKey) LogValue() slog.Value {
 		slog.Any("seq_num", k.SeqNum),
 		slog.Any("via", k.Via),
 	)
+}
+
+func (k ServerTransactionKey) Canonic() ServerTransactionKey {
+	if IsRFC3261Branch(k.Branch) {
+		k.SentBy = util.LCase(k.SentBy)
+		k.Method = util.UCase(k.Method)
+		return k
+	}
+
+	k.Method = util.UCase(k.Method)
+	k.URI = util.LCase(k.URI)
+	k.Via = util.LCase(k.Via)
+
+	return k
 }
 
 const (
@@ -760,9 +826,18 @@ const (
 // resulting bytes if needed.
 func (k ServerTransactionKey) MarshalBinary() ([]byte, error) {
 	if IsRFC3261Branch(k.Branch) {
-		return k.marshal3261(), nil
+		return k.Canonic().marshal3261(), nil
 	}
-	return k.marshal2543(), nil
+	return k.Canonic().marshal2543(), nil
+}
+
+func (k ServerTransactionKey) AppendBinary(b []byte) ([]byte, error) {
+	data, err := k.MarshalBinary()
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	return append(b, data...), nil
 }
 
 func (k ServerTransactionKey) marshal3261() []byte {
@@ -779,6 +854,7 @@ func (k ServerTransactionKey) marshal3261() []byte {
 	buf = util.AppendPrefixedString(buf, k.Branch)
 	buf = util.AppendPrefixedString(buf, sentBy)
 	buf = util.AppendPrefixedString(buf, method)
+
 	return buf
 }
 
@@ -805,16 +881,34 @@ func (k ServerTransactionKey) marshal2543() []byte {
 	buf = util.AppendUVarInt(buf, uint64(k.SeqNum))
 	buf = util.AppendPrefixedString(buf, method)
 	buf = util.AppendPrefixedString(buf, via)
+
 	return buf
 }
 
 // UnmarshalBinary populates the key fields from a binary representation
 // produced by [ServerTransactionKey.MarshalBinary].
 func (k *ServerTransactionKey) UnmarshalBinary(data []byte) error {
-	if len(data) == 0 {
-		return errtrace.Wrap(NewInvalidArgumentError("invalid data"))
+	if k == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil transaction key")
 	}
 
+	if len(data) == 0 {
+		*k = ServerTransactionKey{}
+		return nil
+	}
+
+	key, ok := parseServerTransactKey(data)
+	if !ok {
+		*k = ServerTransactionKey{}
+		return errors.NewInvalidArgumentErrorWrap("invalid transaction key payload")
+	}
+
+	*k = key
+
+	return nil
+}
+
+func parseServerTransactKey(data []byte) (ServerTransactionKey, bool) {
 	var (
 		rest = data[1:]
 		err  error
@@ -824,48 +918,55 @@ func (k *ServerTransactionKey) UnmarshalBinary(data []byte) error {
 	switch data[0] {
 	case srvTxKeyHash3261:
 		if key.Branch, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
+
 		if key.SentBy, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
+
 		if key.Method, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
 	case srvTxKeyHash2543:
 		if key.URI, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
+
 		if key.FromTag, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
+
 		if key.ToTag, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
+
 		if key.CallID, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
+
 		var seqNum uint64
 		if seqNum, rest, err = util.ConsumeUVarInt(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
+
 		key.SeqNum = uint(seqNum)
 		if key.Method, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
+
 		if key.Via, rest, err = util.ConsumePrefixedString(rest); err != nil {
-			return errtrace.Wrap(err)
+			return ServerTransactionKey{}, false
 		}
 	default:
-		return errtrace.Wrap(NewInvalidArgumentError("unknown key format"))
+		return ServerTransactionKey{}, false
 	}
 
 	if len(rest) != 0 {
-		return errtrace.Wrap(NewInvalidArgumentError("unexpected trailing data"))
+		return ServerTransactionKey{}, false
 	}
 
-	*k = key
-	return nil
+	return key, true
 }
 
 func (k ServerTransactionKey) String() string {
@@ -876,27 +977,31 @@ func (k ServerTransactionKey) String() string {
 func (k ServerTransactionKey) Format(f fmt.State, verb rune) {
 	switch verb {
 	case 's':
-		f.Write([]byte(k.String()))
+		f.Write([]byte(k.String())) //nolint:errcheck
 		return
 	case 'q':
-		f.Write([]byte(strconv.Quote(k.String())))
+		f.Write([]byte(strconv.Quote(k.String()))) //nolint:errcheck
 		return
 	default:
 		if !f.Flag('+') && !f.Flag('#') {
-			f.Write([]byte(k.String()))
+			f.Write([]byte(k.String())) //nolint:errcheck
 			return
 		}
 
-		type hideMethods ServerTransactionKey
-		type ServerTransactionKey hideMethods
+		type (
+			hideMethods          ServerTransactionKey
+			ServerTransactionKey hideMethods
+		)
+
 		fmt.Fprintf(f, fmt.FormatString(f, verb), ServerTransactionKey(k))
+
 		return
 	}
 }
 
 type ServerTransactionStore interface {
 	Load(ctx context.Context, key ServerTransactionKey) (ServerTransaction, error)
-	LookupMatched(ctx context.Context, msg Message) (ServerTransaction, error)
+	MatchMessage(ctx context.Context, msg Message) (ServerTransaction, error)
 	LookupMerged(ctx context.Context, key ServerTransactionKey) (ServerTransaction, error)
 	Store(ctx context.Context, tx ServerTransaction) error
 	Delete(ctx context.Context, tx ServerTransaction) error
@@ -904,18 +1009,17 @@ type ServerTransactionStore interface {
 }
 
 type MemoryServerTransactionStore struct {
-	keyLocks syncutil.KeyMutex[string]
 	// store for matching request re-transmits (3261/2345)
-	main *syncutil.ShardMap[string, ServerTransaction]
+	main *syncutil.ShardMap[ServerTransactionKey, ServerTransaction]
 	// store for checking on merged requests, loop detection (3261/2345)
-	merged *syncutil.ShardMap[string, ServerTransaction]
+	merged *syncutil.ShardMap[ServerTransactionKey, ServerTransaction]
 }
 
 // NewMemoryServerTransactionStore creates a new in-memory server transaction store.
 func NewMemoryServerTransactionStore() *MemoryServerTransactionStore {
 	return &MemoryServerTransactionStore{
-		main:   syncutil.NewShardMap[string, ServerTransaction](),
-		merged: syncutil.NewShardMap[string, ServerTransaction](),
+		main:   syncutil.NewShardMap[ServerTransactionKey, ServerTransaction](),
+		merged: syncutil.NewShardMap[ServerTransactionKey, ServerTransaction](),
 	}
 }
 
@@ -924,46 +1028,42 @@ func (s *MemoryServerTransactionStore) Load(
 	key ServerTransactionKey,
 ) (ServerTransaction, error) {
 	// match inbound RFC 3261/2345 request retransmits
-	hash := key.String()
-	unlock := s.keyLocks.Lock(hash)
-	tx, ok := s.main.Get(hash)
-	unlock()
-	if ok {
+	if tx, ok := s.main.Load(key); ok {
 		return tx, nil
 	}
 
 	if IsRFC3261Branch(key.Branch) || !util.EqFold(key.Method, string(RequestMethodAck)) {
-		return nil, errtrace.Wrap(ErrTransactionNotFound)
+		return nil, errors.Wrap(ErrTransactionNotFound)
 	}
 
 	key.ToTag = ""
-	hash = key.String()
-	unlock = s.keyLocks.Lock(hash)
-	tx, ok = s.main.Get(hash)
-	unlock()
+
+	tx, ok := s.main.Load(key)
 	if !ok {
-		return nil, errtrace.Wrap(ErrTransactionNotFound)
+		return nil, errors.Wrap(ErrTransactionNotFound)
 	}
+
 	return tx, nil
 }
 
-func (s *MemoryServerTransactionStore) LookupMatched(
+func (s *MemoryServerTransactionStore) MatchMessage(
 	ctx context.Context,
 	msg Message,
 ) (ServerTransaction, error) {
 	key, err := MakeServerTransactionKey(msg)
 	if err != nil {
-		return nil, errtrace.Wrap(err)
+		return nil, errors.Wrap(err)
 	}
 
 	tx, err := s.Load(ctx, key)
 	if err != nil {
-		return nil, errtrace.Wrap(err)
+		return nil, errors.Wrap(err)
 	}
 
 	if !tx.MatchMessage(msg) {
-		return nil, errtrace.Wrap(ErrTransactionNotFound)
+		return nil, errors.Wrap(ErrTransactionNotFound)
 	}
+
 	return tx, nil
 }
 
@@ -976,23 +1076,19 @@ func (s *MemoryServerTransactionStore) LookupMerged(
 	key.URI = ""
 	key.ToTag = ""
 	key.Via = ""
-	hash := key.String()
-	unlock := s.keyLocks.Lock(hash)
-	tx, ok := s.merged.Get(hash)
-	unlock()
+
+	tx, ok := s.merged.Load(key)
 	if !ok {
-		return nil, errtrace.Wrap(ErrTransactionNotFound)
+		return nil, errors.Wrap(ErrTransactionNotFound)
 	}
+
 	return tx, nil
 }
 
 // Store stores a new one if it does not exist.
 func (s *MemoryServerTransactionStore) Store(_ context.Context, tx ServerTransaction) error {
 	key := tx.Key()
-	hash := key.String()
-	unlock := s.keyLocks.Lock(hash)
-	s.main.Set(hash, tx)
-	unlock()
+	s.main.Store(key, tx)
 
 	key = ServerTransactionKey{
 		FromTag: key.FromTag,
@@ -1000,19 +1096,14 @@ func (s *MemoryServerTransactionStore) Store(_ context.Context, tx ServerTransac
 		SeqNum:  key.SeqNum,
 		Method:  key.Method,
 	}
-	hash = key.String()
-	unlock = s.keyLocks.Lock(hash)
-	s.merged.Set(hash, tx)
-	unlock()
+	s.merged.Store(key, tx)
+
 	return nil
 }
 
 func (s *MemoryServerTransactionStore) Delete(_ context.Context, tx ServerTransaction) error {
 	key := tx.Key()
-	hash := key.String()
-	unlock := s.keyLocks.Lock(hash)
-	s.main.Del(hash)
-	unlock()
+	s.main.Delete(key)
 
 	key = ServerTransactionKey{
 		FromTag: key.FromTag,
@@ -1020,13 +1111,751 @@ func (s *MemoryServerTransactionStore) Delete(_ context.Context, tx ServerTransa
 		SeqNum:  key.SeqNum,
 		Method:  key.Method,
 	}
-	hash = key.String()
-	unlock = s.keyLocks.Lock(hash)
-	s.merged.Del(hash)
-	unlock()
+	s.merged.Delete(key)
+
 	return nil
 }
 
 func (s *MemoryServerTransactionStore) All(_ context.Context) (iter.Seq[ServerTransaction], error) {
-	return util.SeqValues(s.main.Items()), nil
+	return util.SeqValues(s.main.All()), nil
+}
+
+// InviteServerTransaction represents an invite server transaction.
+// It implements the server transaction FSM defined in RFC 3261 section 17.2.1
+// and patches from RFC 6026.
+type InviteServerTransaction struct {
+	*serverTransact
+
+	tmr1xx atomic.Pointer[timeutil.SerializableTimer]
+	tmrG   atomic.Pointer[timeutil.SerializableTimer]
+	tmrH   atomic.Pointer[timeutil.SerializableTimer]
+	tmrI   atomic.Pointer[timeutil.SerializableTimer]
+	tmrL   atomic.Pointer[timeutil.SerializableTimer]
+
+	onAck       types.CallbackManager[InboundRequestHandler]
+	pendingAcks types.Queue[pendingAck]
+}
+
+type pendingAck struct {
+	ctx context.Context
+	ack *InboundRequestEnvelope
+}
+
+// NewInviteServerTransaction creates a new invite server transaction and starts its state machine.
+//
+// Context does not affect the transaction lifecycle, it can be used to pass
+// additional information to the transaction.
+// Request expected to be a valid SIP request with INVITE method.
+// Transport expected to be a non-nil server transport.
+// Options are optional and can be nil, in which case default options will be used.
+// Transaction key will be filled from the request automatically if not specified in the options.
+func NewInviteServerTransaction(
+	ctx context.Context,
+	req *InboundRequestEnvelope,
+	tp ServerTransport,
+	opts *ServerTransactionOptions,
+) (*InviteServerTransaction, error) {
+	if err := req.Validate(); err != nil {
+		return nil, errors.NewInvalidArgumentErrorWrap(err)
+	}
+
+	if !req.Method().Equal(RequestMethodInvite) {
+		return nil, errors.NewInvalidArgumentErrorWrap(ErrMethodNotAllowed)
+	}
+
+	tx := new(InviteServerTransaction)
+
+	srvTx, err := newServerTransact(TransactionTypeServerInvite, tx, req, tp, opts)
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	tx.serverTransact = srvTx
+
+	ctx = ContextWithTransaction(ctx, tx)
+
+	if err := tx.initFSM(TransactionStateProceeding); err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	if err := tx.actProceeding(ctx); err != nil {
+		_ = tx.Terminate(ctx)
+		return nil, errors.Wrap(err)
+	}
+
+	return tx, nil
+}
+
+const (
+	txEvtRecvAck  = "recv_ack"
+	txEvtTimer1xx = "timer_1xx"
+	txEvtTimerG   = "timer_g"
+	txEvtTimerH   = "timer_h"
+	txEvtTimerI   = "timer_i"
+	txEvtTimerL   = "timer_l"
+)
+
+func (tx *InviteServerTransaction) initFSM(start TransactionState) error {
+	if err := tx.serverTransact.initFSM(start); err != nil {
+		return errors.Wrap(err)
+	}
+
+	tx.fsm.SetTriggerParameters(txEvtRecvAck, reflect.TypeFor[*InboundRequestEnvelope]())
+
+	tx.fsm.Configure(TransactionStateProceeding).
+		InternalTransition(txEvtRecvReq, tx.actResendRes).
+		InternalTransition(txEvtSend1xx, tx.actSendRes).
+		InternalTransition(txEvtTimer1xx, tx.actSend100).
+		InternalTransition(txEvtTranspErr, tx.actTranspErr).
+		Permit(txEvtSend2xx, TransactionStateAccepted).
+		Permit(txEvtSend300699, TransactionStateCompleted).
+		Permit(txEvtTerminate, TransactionStateTerminated)
+
+	tx.fsm.Configure(TransactionStateAccepted).
+		OnEntry(tx.actAccepted).
+		OnEntryFrom(txEvtSend2xx, tx.actSendRes).
+		InternalTransition(txEvtRecvReq, tx.actNoop).
+		InternalTransition(txEvtRecvAck, tx.actPassAck).
+		InternalTransition(txEvtSend2xx, tx.actSendRes).
+		InternalTransition(txEvtTranspErr, tx.actTranspErr).
+		Permit(txEvtTimerL, TransactionStateTerminated).
+		Permit(txEvtTerminate, TransactionStateTerminated)
+
+	tx.fsm.Configure(TransactionStateCompleted).
+		OnEntry(tx.actCompleted).
+		OnEntryFrom(txEvtSend300699, tx.actSendRes).
+		InternalTransition(txEvtRecvReq, tx.actResendRes).
+		InternalTransition(txEvtTimerG, tx.actResendRes).
+		InternalTransition(txEvtTranspErr, tx.actTranspErr).
+		Permit(txEvtRecvAck, TransactionStateConfirmed).
+		Permit(txEvtTimerH, TransactionStateTerminated).
+		Permit(txEvtTerminate, TransactionStateTerminated)
+
+	tx.fsm.Configure(TransactionStateConfirmed).
+		OnEntry(tx.actConfirmed).
+		InternalTransition(txEvtRecvReq, tx.actNoop).
+		InternalTransition(txEvtRecvAck, tx.actNoop).
+		Permit(txEvtTimerI, TransactionStateTerminated).
+		Permit(txEvtTerminate, TransactionStateTerminated)
+
+	tx.fsm.Configure(TransactionStateTerminated).
+		OnEntry(tx.actTerminated).
+		OnEntryFrom(txEvtTimerH, tx.actTimedOut).
+		InternalTransition(txEvtTerminate, tx.actNoop)
+
+	return nil
+}
+
+func (tx *InviteServerTransaction) actSend100(ctx context.Context, _ ...any) error {
+	res, err := tx.req.NewResponse(ResponseStatusTrying, nil)
+	if err != nil {
+		// Request is always valid, so this should never happen.
+		panic(errors.ErrorfWrap("create auto %q response: %w", ResponseStatusTrying, err))
+	}
+
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "send response",
+		slog.Any("transaction", tx),
+		slog.Any("response", res),
+	)
+
+	tx.sendRes(ctx, res, nil) //nolint:errcheck
+
+	return nil
+}
+
+func (tx *InviteServerTransaction) actSendRes(ctx context.Context, args ...any) error {
+	if tmr := tx.tmr1xx.Swap(nil); tmr != nil && tmr.Stop() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer stopped", slog.Any("transaction", tx)) //nolint:sloglint
+	}
+	return errors.Wrap(tx.serverTransact.actSendRes(ctx, args...))
+}
+
+func (tx *InviteServerTransaction) actPassAck(ctx context.Context, args ...any) error {
+	ack := args[0].(*InboundRequestEnvelope) //nolint:forcetypeassert
+
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "pass ACK",
+		slog.Any("transaction", tx),
+		slog.Any("ack", ack),
+	)
+
+	tx.pendingAcks.Push(pendingAck{ctx, ack})
+
+	if tx.onAck.Len() > 0 {
+		tx.deliverPendingAcks()
+	}
+
+	return nil
+}
+
+func (tx *InviteServerTransaction) deliverPendingAcks() {
+	acks := tx.pendingAcks.Drain()
+	if len(acks) == 0 {
+		return
+	}
+
+	for fn := range tx.onAck.All() {
+		for _, e := range acks {
+			fn(e.ctx, e.ack)
+		}
+	}
+}
+
+//nolint:unparam
+func (tx *InviteServerTransaction) actProceeding(ctx context.Context, args ...any) error {
+	tx.serverTransact.actProceeding(ctx, args...) //nolint:errcheck
+
+	tmr := timeutil.AfterFunc(tx.timings.Time100(), tx.timer1xxHdlr(ctx))
+	tx.tmr1xx.Store(tmr)
+
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer started", //nolint:sloglint
+		slog.Any("transaction", tx),
+		slog.Time("expires_at", time.Now().Add(tmr.Left())),
+	)
+
+	return nil
+}
+
+func (tx *InviteServerTransaction) timer1xxHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer expired", slog.Any("transaction", tx)) //nolint:sloglint
+
+		tx.tmr1xx.Store(nil)
+
+		if tx.State() != TransactionStateProceeding {
+			return
+		}
+
+		if err := tx.fsm.FireCtx(ctx, txEvtTimer1xx); err != nil {
+			panic(errors.ErrorfWrap("fire %q in state %q: %w", txEvtTimer1xx, tx.State(), err))
+		}
+	}
+}
+
+func (tx *InviteServerTransaction) actAccepted(ctx context.Context, _ ...any) error {
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction accepted", slog.Any("transaction", tx))
+
+	tmr := timeutil.AfterFunc(tx.timings.TimeL(), tx.timerLHdlr(ctx))
+	tx.tmrL.Store(tmr)
+
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer L started",
+		slog.Any("transaction", tx),
+		slog.Time("expires_at", time.Now().Add(tmr.Left())),
+	)
+
+	return nil
+}
+
+func (tx *InviteServerTransaction) timerLHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer L expired", slog.Any("transaction", tx))
+
+		tx.tmrL.Store(nil)
+
+		if tx.State() != TransactionStateAccepted {
+			return
+		}
+
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerL); err != nil {
+			panic(errors.ErrorfWrap("fire %q in state %q: %w", txEvtTimerL, tx.State(), err))
+		}
+	}
+}
+
+func (tx *InviteServerTransaction) actCompleted(ctx context.Context, args ...any) error {
+	tx.serverTransact.actCompleted(ctx, args...) //nolint:errcheck
+
+	if !tx.tp.Reliable() {
+		tmr := timeutil.AfterFunc(tx.timings.TimeG(), tx.timerGHdlr(ctx))
+		tx.tmrG.Store(tmr)
+
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer G started",
+			slog.Any("transaction", tx),
+			slog.Time("expires_at", time.Now().Add(tmr.Left())),
+		)
+	}
+
+	tmr := timeutil.AfterFunc(tx.timings.TimeH(), tx.timerHHdlr(ctx))
+	tx.tmrH.Store(tmr)
+
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer H started",
+		slog.Any("transaction", tx),
+		slog.Time("expires_at", time.Now().Add(tmr.Left())),
+	)
+
+	return nil
+}
+
+func (tx *InviteServerTransaction) timerGHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer G expired", slog.Any("transaction", tx))
+
+		if tx.State() != TransactionStateCompleted {
+			tx.tmrG.Store(nil)
+			return
+		}
+
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerG); err != nil {
+			panic(errors.ErrorfWrap("fire %q in state %q: %w", txEvtTimerG, tx.State(), err))
+		}
+
+		if tmr := tx.tmrG.Load(); tmr != nil {
+			tmr.Reset(min(2*tmr.Duration(), tx.timings.T2()))
+
+			tx.log.LogAttrs(ctx, slog.LevelDebug, "timer G reset",
+				slog.Any("transaction", tx),
+				slog.Time("expires_at", time.Now().Add(tmr.Left())),
+			)
+		}
+	}
+}
+
+func (tx *InviteServerTransaction) timerHHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer H expired", slog.Any("transaction", tx))
+
+		tx.tmrH.Store(nil)
+
+		if tx.State() != TransactionStateCompleted {
+			return
+		}
+
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerH); err != nil {
+			panic(errors.ErrorfWrap("fire %q in state %q: %w", txEvtTimerH, tx.State(), err))
+		}
+	}
+}
+
+func (tx *InviteServerTransaction) actConfirmed(ctx context.Context, _ ...any) error {
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction confirmed", slog.Any("transaction", tx))
+
+	if tmr := tx.tmrH.Swap(nil); tmr != nil && tmr.Stop() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer H stopped", slog.Any("transaction", tx))
+	}
+
+	if tmr := tx.tmrG.Swap(nil); tmr != nil && tmr.Stop() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer G stopped", slog.Any("transaction", tx))
+	}
+
+	var timeI time.Duration
+	if !tx.tp.Reliable() {
+		timeI = tx.timings.TimeI()
+	}
+
+	tmr := timeutil.AfterFunc(timeI, tx.timerIHdlr(ctx))
+	tx.tmrI.Store(tmr)
+
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer I started",
+		slog.Any("transaction", tx),
+		slog.Time("expires_at", time.Now().Add(tmr.Left())),
+	)
+
+	return nil
+}
+
+func (tx *InviteServerTransaction) timerIHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer I expired", slog.Any("transaction", tx))
+
+		tx.tmrI.Store(nil)
+
+		if tx.State() != TransactionStateConfirmed {
+			return
+		}
+
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerI); err != nil {
+			panic(errors.ErrorfWrap("fire %q in state %q: %w", txEvtTimerI, tx.State(), err))
+		}
+	}
+}
+
+func (tx *InviteServerTransaction) actTerminated(ctx context.Context, args ...any) error {
+	tx.serverTransact.actTerminated(ctx, args...) //nolint:errcheck
+
+	// timer G can be active after transition to here by timer H
+	if tmr := tx.tmrG.Swap(nil); tmr != nil && tmr.Stop() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer G stopped", slog.Any("transaction", tx))
+	}
+
+	if tmr := tx.tmrH.Swap(nil); tmr != nil && tmr.Stop() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer H stopped", slog.Any("transaction", tx))
+	}
+
+	if tmr := tx.tmrI.Swap(nil); tmr != nil && tmr.Stop() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer I stopped", slog.Any("transaction", tx))
+	}
+
+	if tmr := tx.tmrL.Swap(nil); tmr != nil && tmr.Stop() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer L stopped", slog.Any("transaction", tx))
+	}
+
+	return nil
+}
+
+func (tx *InviteServerTransaction) adjustKeys(txKey, _ *ServerTransactionKey, reqMtd RequestMethod) {
+	// set tx key To tag to last response To tag for RFC 2543 matching of ACK on initial INVITE
+	if !IsRFC3261Branch(txKey.Branch) && reqMtd.Equal(RequestMethodAck) && txKey.ToTag == "" {
+		if res := tx.LastResponse(); res != nil {
+			res.AccessMessage(func(r *Response) {
+				to, _ := r.Headers.To()
+				txKey.ToTag, _ = to.Tag()
+			})
+		}
+	}
+}
+
+func (tx *InviteServerTransaction) recvReq(ctx context.Context, req *InboundRequestEnvelope) error {
+	if req.Method().Equal(RequestMethodAck) {
+		return errors.Wrap(tx.fsm.FireCtx(ctx, txEvtRecvAck, req))
+	}
+	return errors.Wrap(tx.serverTransact.recvReq(ctx, req))
+}
+
+// OnAck binds the callback to be called when the transaction receives an 2xx ACK.
+//
+// 2xx ACK can be matched to the INVITE transaction only by RFC 2543 matching rules,
+// so this callback here only for backward compatibility with old clients.
+// 2xx ACK from RFC 3261 always goes outside of the INVITE transaction.
+//
+// The callback can be unbound by calling the returned cancel function.
+// Multiple callbacks are allowed, they will be called in the order they were registered.
+// Context passed to the callback will be the context passed to the [InviteServerTransaction.RecvRequest] method.
+func (tx *InviteServerTransaction) OnAck(fn InboundRequestHandler) (unbind func()) {
+	defer tx.deliverPendingAcks()
+	return tx.onAck.Add(fn)
+}
+
+func (tx *InviteServerTransaction) takeSnapshot() *ServerTransactionSnapshot {
+	return &ServerTransactionSnapshot{
+		Time:         time.Now(),
+		Type:         tx.typ,
+		State:        tx.State(),
+		Key:          tx.key,
+		Request:      tx.req,
+		LastResponse: tx.LastResponse(),
+		SendOptions:  cloneSendResOpts(tx.sendOpts.Load()),
+		Timings:      tx.timings,
+		Timer1xx:     tx.tmr1xx.Load().Snapshot(),
+		TimerG:       tx.tmrG.Load().Snapshot(),
+		TimerH:       tx.tmrH.Load().Snapshot(),
+		TimerI:       tx.tmrI.Load().Snapshot(),
+		TimerL:       tx.tmrL.Load().Snapshot(),
+	}
+}
+
+// RestoreInviteServerTransaction restores an invite server transaction from a snapshot.
+//
+// Context does not affect the transaction lifecycle, it can be used to
+// pass additional information to the transaction.
+// The snapshot contains the serialized state of the transaction.
+// Transport is required to send responses.
+// Options are optional and can be nil. The key field from options is ignored
+// and the key from the snapshot will be used instead.
+//
+// After restoration, the transaction FSM will be in the state specified in the snapshot.
+// Timers will be restored and their callbacks will be reconnected to the FSM.
+// If a timer has already expired according to the snapshot, it will not be restarted.
+func RestoreInviteServerTransaction(
+	ctx context.Context,
+	snap *ServerTransactionSnapshot,
+	tp ServerTransport,
+	opts *ServerTransactionOptions,
+) (*InviteServerTransaction, error) {
+	if !snap.IsValid() || snap.Type != TransactionTypeServerInvite {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid snapshot")
+	}
+
+	var restoreOpts ServerTransactionOptions
+	if opts != nil {
+		restoreOpts = *opts
+	}
+
+	restoreOpts.Key = snap.Key
+	restoreOpts.Timings = snap.Timings
+
+	tx := new(InviteServerTransaction)
+
+	srvTx, err := newServerTransact(TransactionTypeServerInvite, tx, snap.Request, tp, &restoreOpts)
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	tx.serverTransact = srvTx
+
+	ctx = ContextWithTransaction(ctx, tx)
+
+	if snap.LastResponse != nil {
+		tx.lastRes.Store(snap.LastResponse)
+	}
+
+	if snap.SendOptions != nil {
+		tx.sendOpts.Store(cloneSendResOpts(snap.SendOptions))
+	}
+
+	if err := tx.initFSM(snap.State); err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	tx.restoreTimers(ctx, snap)
+
+	return tx, nil
+}
+
+// restoreTimers restores transaction timers from the snapshot and reconnects their callbacks.
+func (tx *InviteServerTransaction) restoreTimers(ctx context.Context, snap *ServerTransactionSnapshot) {
+	if tmr := snap.Timer1xx; tmr != nil {
+		restored := timeutil.RestoreTimer(tmr)
+		restored.SetCallback(tx.timer1xxHdlr(ctx))
+		tx.tmr1xx.Store(restored)
+	}
+
+	if tmr := snap.TimerG; tmr != nil {
+		restored := timeutil.RestoreTimer(tmr)
+		restored.SetCallback(tx.timerGHdlr(ctx))
+		tx.tmrG.Store(restored)
+	}
+
+	if tmr := snap.TimerH; tmr != nil {
+		restored := timeutil.RestoreTimer(tmr)
+		restored.SetCallback(tx.timerHHdlr(ctx))
+		tx.tmrH.Store(restored)
+	}
+
+	if tmr := snap.TimerI; tmr != nil {
+		restored := timeutil.RestoreTimer(tmr)
+		restored.SetCallback(tx.timerIHdlr(ctx))
+		tx.tmrI.Store(restored)
+	}
+
+	if tmr := snap.TimerL; tmr != nil {
+		restored := timeutil.RestoreTimer(tmr)
+		restored.SetCallback(tx.timerLHdlr(ctx))
+		tx.tmrL.Store(restored)
+	}
+}
+
+// NonInviteServerTransaction represents a non-invite server transaction.
+type NonInviteServerTransaction struct {
+	*serverTransact
+
+	tmrJ atomic.Pointer[timeutil.SerializableTimer]
+}
+
+// NewNonInviteServerTransaction creates a new non-invite server transaction and starts its state machine.
+//
+// Context does not affect the transaction lifecycle, it can be used to
+// pass additional information to the transaction.
+// Request expected to be a valid SIP request with any method except INVITE or ACK.
+// Transport expected to be a non-nil server transport.
+// Options are optional and can be nil, in which case default options will be used.
+// Transaction key will be filled from the request automatically if not specified in the options.
+func NewNonInviteServerTransaction(
+	ctx context.Context,
+	req *InboundRequestEnvelope,
+	tp ServerTransport,
+	opts *ServerTransactionOptions,
+) (*NonInviteServerTransaction, error) {
+	if err := req.Validate(); err != nil {
+		return nil, errors.NewInvalidArgumentErrorWrap(err)
+	}
+
+	if mtd := req.Method(); mtd.Equal(RequestMethodInvite) || mtd.Equal(RequestMethodAck) {
+		return nil, errors.NewInvalidArgumentErrorWrap(ErrMethodNotAllowed)
+	}
+
+	tx := new(NonInviteServerTransaction)
+
+	srvTx, err := newServerTransact(TransactionTypeServerNonInvite, tx, req, tp, opts)
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	tx.serverTransact = srvTx
+
+	ctx = ContextWithTransaction(ctx, tx)
+
+	if err := tx.initFSM(TransactionStateTrying); err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	if err := tx.actTrying(ctx); err != nil {
+		_ = tx.Terminate(ctx)
+		return nil, errors.Wrap(err)
+	}
+
+	return tx, nil
+}
+
+const txEvtTimerJ = "timer_J"
+
+func (tx *NonInviteServerTransaction) initFSM(start TransactionState) error {
+	if err := tx.serverTransact.initFSM(start); err != nil {
+		return errors.Wrap(err)
+	}
+
+	tx.fsm.Configure(TransactionStateTrying).
+		InternalTransition(txEvtRecvReq, tx.actNoop).
+		Permit(txEvtSend1xx, TransactionStateProceeding).
+		Permit(txEvtSend2xx, TransactionStateCompleted).
+		Permit(txEvtSend300699, TransactionStateCompleted).
+		Permit(txEvtTerminate, TransactionStateTerminated)
+
+	tx.fsm.Configure(TransactionStateProceeding).
+		OnEntry(tx.actProceeding).
+		OnEntryFrom(txEvtSend1xx, tx.actSendRes).
+		InternalTransition(txEvtRecvReq, tx.actResendRes).
+		InternalTransition(txEvtSend1xx, tx.actSendRes).
+		Permit(txEvtSend2xx, TransactionStateCompleted).
+		Permit(txEvtSend300699, TransactionStateCompleted).
+		Permit(txEvtTranspErr, TransactionStateTerminated).
+		Permit(txEvtTerminate, TransactionStateTerminated)
+
+	tx.fsm.Configure(TransactionStateCompleted).
+		OnEntry(tx.actCompleted).
+		OnEntryFrom(txEvtSend2xx, tx.actSendRes).
+		OnEntryFrom(txEvtSend300699, tx.actSendRes).
+		InternalTransition(txEvtRecvReq, tx.actResendRes).
+		InternalTransition(txEvtSend2xx, tx.actNoop).
+		InternalTransition(txEvtSend300699, tx.actNoop).
+		Permit(txEvtTimerJ, TransactionStateTerminated).
+		Permit(txEvtTranspErr, TransactionStateTerminated).
+		Permit(txEvtTerminate, TransactionStateTerminated)
+
+	tx.fsm.Configure(TransactionStateTerminated).
+		OnEntry(tx.actTerminated).
+		OnEntryFrom(txEvtTranspErr, tx.actTranspErr).
+		InternalTransition(txEvtTerminate, tx.actNoop)
+
+	return nil
+}
+
+//nolint:unparam
+func (tx *NonInviteServerTransaction) actTrying(ctx context.Context, _ ...any) error {
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction trying", slog.Any("transaction", tx))
+
+	return nil
+}
+
+func (tx *NonInviteServerTransaction) actCompleted(ctx context.Context, args ...any) error {
+	tx.serverTransact.actCompleted(ctx, args...) //nolint:errcheck
+
+	var timeJ time.Duration
+	if !tx.tp.Reliable() {
+		timeJ = tx.timings.TimeJ()
+	}
+
+	tmr := timeutil.AfterFunc(timeJ, tx.timerJHdlr(ctx))
+	tx.tmrJ.Store(tmr)
+
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer J started",
+		slog.Any("transaction", tx),
+		slog.Time("expires_at", time.Now().Add(tmr.Left())),
+	)
+
+	return nil
+}
+
+func (tx *NonInviteServerTransaction) timerJHdlr(ctx context.Context) func() {
+	return func() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer J expired", slog.Any("transaction", tx))
+
+		tx.tmrJ.Store(nil)
+
+		if tx.State() != TransactionStateCompleted {
+			return
+		}
+
+		if err := tx.fsm.FireCtx(ctx, txEvtTimerJ); err != nil {
+			panic(errors.ErrorfWrap("fire %q in state %q: %w", txEvtTimerJ, tx.State(), err))
+		}
+	}
+}
+
+func (tx *NonInviteServerTransaction) actTerminated(ctx context.Context, args ...any) error {
+	tx.serverTransact.actTerminated(ctx, args...) //nolint:errcheck
+
+	if tmr := tx.tmrJ.Swap(nil); tmr != nil && tmr.Stop() {
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer J stopped", slog.Any("transaction", tx))
+	}
+
+	return nil
+}
+
+func (tx *NonInviteServerTransaction) takeSnapshot() *ServerTransactionSnapshot {
+	return &ServerTransactionSnapshot{
+		Time:         time.Now(),
+		Type:         tx.typ,
+		State:        tx.State(),
+		Key:          tx.key,
+		Request:      tx.req,
+		LastResponse: tx.LastResponse(),
+		SendOptions:  cloneSendResOpts(tx.sendOpts.Load()),
+		Timings:      tx.timings,
+		TimerJ:       tx.tmrJ.Load().Snapshot(),
+	}
+}
+
+// RestoreNonInviteServerTransaction restores a non-invite server transaction from a snapshot.
+//
+// Context does not affect the transaction lifecycle, it can be used to
+// pass additional information to the transaction.
+// The snapshot contains the serialized state of the transaction.
+// Transport is required to send responses.
+// Options are optional and can be nil. The key field from options is ignored
+// and the key from the snapshot will be used instead.
+//
+// After restoration, the transaction FSM will be in the state specified in the snapshot.
+// Timer J will be restored and its callback reconnected to the FSM.
+// If the timer has already expired according to the snapshot, it will not be restarted.
+func RestoreNonInviteServerTransaction(
+	ctx context.Context,
+	snap *ServerTransactionSnapshot,
+	tp ServerTransport,
+	opts *ServerTransactionOptions,
+) (*NonInviteServerTransaction, error) {
+	if !snap.IsValid() || snap.Type != TransactionTypeServerNonInvite {
+		return nil, errors.NewInvalidArgumentErrorWrap("invalid snapshot")
+	}
+
+	var restoreOpts ServerTransactionOptions
+	if opts != nil {
+		restoreOpts = *opts
+	}
+
+	restoreOpts.Key = snap.Key
+	restoreOpts.Timings = snap.Timings
+
+	tx := new(NonInviteServerTransaction)
+
+	srvTx, err := newServerTransact(TransactionTypeServerNonInvite, tx, snap.Request, tp, &restoreOpts)
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	tx.serverTransact = srvTx
+
+	ctx = ContextWithTransaction(ctx, tx)
+
+	if snap.LastResponse != nil {
+		tx.lastRes.Store(snap.LastResponse)
+	}
+
+	if snap.SendOptions != nil {
+		tx.sendOpts.Store(cloneSendResOpts(snap.SendOptions))
+	}
+
+	if err := tx.initFSM(snap.State); err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	tx.restoreTimers(ctx, snap)
+
+	return tx, nil
+}
+
+func (tx *NonInviteServerTransaction) restoreTimers(ctx context.Context, snap *ServerTransactionSnapshot) {
+	if tmr := snap.TimerJ; tmr != nil {
+		restored := timeutil.RestoreTimer(tmr)
+		restored.SetCallback(tx.timerJHdlr(ctx))
+		tx.tmrJ.Store(restored)
+	}
 }

@@ -23,6 +23,7 @@ func Ellipsis(s string, maxLen int) string {
 	if len(runes) <= maxLen {
 		return s
 	}
+
 	return string(runes[0:maxLen]) + "..."
 }
 

@@ -1,15 +1,14 @@
 package types
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 	"net"
 	"slices"
 	"strconv"
 	"strings"
 
-	"braces.dev/errtrace"
-
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/util"
 )
@@ -22,47 +21,73 @@ type Addr struct {
 	hasPort bool
 }
 
-// Host returns an [Addr] containing the provided host and no port.
-func Host(host string) Addr {
+// AddrFromHost returns an [Addr] containing the provided host and no port.
+func AddrFromHost(host string) Addr {
 	host = strings.Trim(host, "[]")
+
 	ip := net.ParseIP(host)
 	if v := ip.To4(); v != nil {
 		ip = v
 	}
+
 	return Addr{
 		host: host,
 		ip:   ip,
 	}
 }
 
-// HostPort returns an [Addr] containing the provided host and port.
-func HostPort(host string, port uint16) Addr {
-	host = strings.Trim(host, "[]")
-	ip := net.ParseIP(host)
+// AddrFromHostPort returns an [Addr] containing the provided host and port.
+func AddrFromHostPort(host string, port uint16) Addr {
+	addr := AddrFromHost(host)
+	addr.port = port
+	addr.hasPort = true
+	return addr
+}
+
+func AddrFromIP(ip net.IP) Addr {
 	if v := ip.To4(); v != nil {
 		ip = v
 	}
+
 	return Addr{
-		host:    host,
-		ip:      ip,
-		port:    port,
-		hasPort: true,
+		host: ip.String(),
+		ip:   ip,
 	}
 }
 
+func AddrFromIPPort(ip net.IP, port uint16) Addr {
+	addr := AddrFromIP(ip)
+	addr.port = port
+	addr.hasPort = true
+	return addr
+}
+
 // ParseAddr parses a "host:port" string into an [Addr].
-func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) {
+func ParseAddr[T ~string | ~[]byte](s T) (addr Addr, err error) {
+	defer func() {
+		if rv := recover(); rv != nil {
+			addr = Addr{}
+
+			if e, ok := rv.(error); ok {
+				err = errors.Wrap(e)
+			} else {
+				err = errors.ErrorfWrap("%v", rv)
+			}
+		}
+	}()
+
 	node, err := grammar.ParseHostport(s)
 	if err != nil {
-		return Addr{}, errtrace.Wrap(err)
+		return Addr{}, errors.Wrap(err)
 	}
 
 	host := grammar.MustGetNode(node, "host").String()
 	if portNode, ok := node.GetNode("port"); ok {
 		port, _ := strconv.Atoi(portNode.String())
-		return HostPort(host, uint16(port)), nil
+		return AddrFromHostPort(host, uint16(port)), nil
 	}
-	return Host(host), nil
+
+	return AddrFromHost(host), nil
 }
 
 // Host returns the hostname portion of the address as provided during construction or parsing.
@@ -82,12 +107,14 @@ func (addr Addr) String() string {
 	} else {
 		host = addr.ip.String()
 	}
+
 	if !addr.hasPort {
 		if strings.Contains(host, ":") {
 			host = "[" + host + "]"
 		}
 		return host
 	}
+
 	return net.JoinHostPort(host, strconv.Itoa(int(addr.port)))
 }
 
@@ -106,9 +133,13 @@ func (addr Addr) Format(f fmt.State, verb rune) {
 			return
 		}
 
-		type hideMethods Addr
-		type Addr hideMethods
+		type (
+			hideMethods Addr
+			Addr        hideMethods
+		)
+
 		fmt.Fprintf(f, fmt.FormatString(f, verb), Addr(addr))
+
 		return
 	}
 }
@@ -129,6 +160,7 @@ func (addr Addr) Equal(val any) bool {
 		if v == nil {
 			return false
 		}
+
 		other = *v
 	default:
 		return false
@@ -148,7 +180,7 @@ func (addr Addr) Equal(val any) bool {
 }
 
 // IsValid reports whether the address contains a syntactically valid host component.
-func (addr Addr) IsValid() bool { return grammar.IsHost(addr.host) }
+func (addr Addr) IsValid() bool { return grammar.IsHost(addr.host) && (!addr.hasPort || addr.port > 0) }
 
 // IsZero reports whether the address has zero host, IP and port information.
 func (addr Addr) IsZero() bool { return addr.host == "" && addr.ip == nil && !addr.hasPort }
@@ -158,12 +190,44 @@ func (addr Addr) MarshalText() (text []byte, err error) {
 	return []byte(addr.String()), nil
 }
 
+func (addr Addr) AppendText(b []byte) ([]byte, error) {
+	return append(b, addr.String()...), nil
+}
+
 // UnmarshalText parses a textual representation of an address into the receiver.
 func (addr *Addr) UnmarshalText(text []byte) error {
-	var err error
-	*addr, err = ParseAddr(text)
-	if errors.Is(err, grammar.ErrEmptyInput) {
+	if addr == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil address")
+	}
+
+	if len(text) == 0 {
+		*addr = Addr{}
 		return nil
 	}
-	return errtrace.Wrap(err)
+
+	if bytes.Equal(text, []byte(":0")) {
+		*addr = Addr{hasPort: true, port: 0}
+		return nil
+	}
+
+	parsed, err := ParseAddr(text)
+	if err != nil {
+		*addr = Addr{}
+		return errors.Wrap(err)
+	}
+
+	*addr = parsed
+
+	return nil
+}
+
+func (addr Addr) Canonic() Addr {
+	addr.host = util.LCase(addr.host)
+
+	addr.ip = slices.Clone(addr.ip)
+	if ipv4 := addr.ip.To4(); ipv4 != nil {
+		addr.ip = ipv4
+	}
+
+	return addr
 }

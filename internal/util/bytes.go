@@ -34,9 +34,11 @@ func GetBytesBuffer() *bytes.Buffer {
 
 func FreeBytesBuffer(b *bytes.Buffer) {
 	b.Reset()
+
 	if b.Cap() > math.MaxUint16 {
 		return
 	}
+
 	bytesBufPool.Put(b)
 }
 
@@ -62,6 +64,7 @@ func SizeUVarInt(val uint64) int {
 		size++
 		val >>= 7
 	}
+
 	return size
 }
 
@@ -70,6 +73,7 @@ func AppendUVarInt(buf []byte, val uint64) []byte {
 		buf = append(buf, byte(val)|0x80)
 		val >>= 7
 	}
+
 	return append(buf, byte(val))
 }
 
@@ -78,14 +82,18 @@ func ConsumePrefixedString(data []byte) (string, []byte, error) {
 	if err != nil {
 		return "", nil, errtrace.Wrap(err)
 	}
+
 	if consumed > len(data) {
 		return "", nil, errtrace.Wrap(ErrUnexpectedEOF)
 	}
+
 	if length > uint64(len(data[consumed:])) {
 		return "", nil, errtrace.Wrap(ErrUnexpectedEOF)
 	}
+
 	start := consumed
 	end := start + int(length)
+
 	return string(data[start:end]), data[end:], nil
 }
 
@@ -94,9 +102,11 @@ func ConsumeUVarInt(data []byte) (uint64, []byte, error) {
 	if err != nil {
 		return 0, nil, errtrace.Wrap(err)
 	}
+
 	if consumed > len(data) {
 		return 0, nil, errtrace.Wrap(ErrUnexpectedEOF)
 	}
+
 	return val, data[consumed:], nil
 }
 
@@ -115,6 +125,7 @@ func readUVarInt(data []byte) (uint64, int, error) {
 		if b&0x80 == 0 {
 			return value, i + 1, nil
 		}
+
 		shift += 7
 	}
 

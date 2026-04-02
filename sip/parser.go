@@ -6,16 +6,14 @@ import (
 	"io"
 	"iter"
 
-	"braces.dev/errtrace"
-
-	"github.com/ghettovoice/gosip/internal/errorutil"
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // Parser is an interface for parsing SIP messages.
 //
-// It provides methods for parsing a single SIP message from a byte slice or for parsing multiple SIP messages from a
-// byte stream.
+// It provides methods for parsing a single SIP message from a byte slice or
+// for parsing multiple SIP messages from a byte stream.
 // The [Parser] type is typically used as a factory for creating [StreamParser].
 type Parser interface {
 	// ParsePacket parses a single SIP message from the given buffer b.
@@ -49,12 +47,14 @@ type StdParser struct{}
 // See [Parser.ParsePacket] for details.
 func (*StdParser) ParsePacket(b []byte) (Message, error) {
 	r := util.GetBytesReader(b)
+
 	br := getBufferedRdr(r)
 	defer func() {
 		freeBufferedRdr(br)
 		util.FreeBytesReader(r)
 	}()
-	return errtrace.Wrap2(parseMsg(br, true))
+
+	return errors.Wrap2(parseMsg(br, true))
 }
 
 // ParseStream creates a new [StdStreamParser] for parsing SIP messages from the given [io.Reader].
@@ -76,9 +76,10 @@ func (p *StdStreamParser) Messages() iter.Seq2[Message, error] {
 	return func(yield func(Message, error) bool) {
 		br := getBufferedRdr(p.rdr)
 		defer freeBufferedRdr(br)
+
 		for {
 			msg, err := parseMsg(br, false)
-			if !yield(msg, errtrace.Wrap(err)) {
+			if !yield(msg, errors.Wrap(err)) {
 				break
 			}
 		}
@@ -99,7 +100,7 @@ func (err *ParseError) Error() string {
 	if err == nil {
 		return sNilTag
 	}
-	return fmt.Sprintf("parse failed (state=%q data=%q): %v", err.State, util.Ellipsis(string(err.Data), 10), err.Err)
+	return fmt.Sprintf("parse failed at state %q: %v", err.State, err.Err)
 }
 
 func (err *ParseError) Unwrap() error {
@@ -109,11 +110,11 @@ func (err *ParseError) Unwrap() error {
 	return err.Err
 }
 
-func (err *ParseError) Grammar() bool { return err != nil && errorutil.IsGrammarErr(err.Err) }
+func (err *ParseError) Grammar() bool { return err != nil && errors.IsGrammarErr(err.Err) }
 
-func (err *ParseError) Timeout() bool { return err != nil && errorutil.IsTimeoutErr(err.Err) }
+func (err *ParseError) Timeout() bool { return err != nil && errors.IsTimeoutErr(err.Err) }
 
-func (err *ParseError) Temporary() bool { return err != nil && errorutil.IsTemporaryErr(err.Err) }
+func (err *ParseError) Temporary() bool { return err != nil && errors.IsTemporaryErr(err.Err) }
 
 // ParseState represents the current parsing state.
 type ParseState int
@@ -137,25 +138,32 @@ func (s ParseState) String() string {
 	}
 }
 
+// parseMsg parses a single SIP message from the given reader.
+//
+// TODO: return parsed message buffer
+//
 //nolint:gocognit
-func parseMsg(rdr *bufio.Reader, packetMode bool) (Message, error) {
+func parseMsg(rdr *bufio.Reader, pktMode bool) (Message, error) {
 	var (
 		state ParseState
 		msg   Message
 	)
+
 	txtRdr := getTxtProtoRdr(rdr)
 	defer freeTxtProtoRdr(txtRdr)
+
 	for {
 		switch state {
 		case ParseStateStart:
 			line, err := txtRdr.ReadLineBytes()
 			if err != nil {
-				return nil, errtrace.Wrap(err)
+				// return non-ParserError to signal end of input
+				return nil, errors.Wrap(err)
 			}
 
 			msg, err = parseMsgStart(line)
 			if err != nil {
-				return nil, errtrace.Wrap(&ParseError{
+				return nil, errors.Wrap(&ParseError{
 					Err:   err,
 					State: state,
 					Data:  line,
@@ -165,12 +173,13 @@ func parseMsg(rdr *bufio.Reader, packetMode bool) (Message, error) {
 			state = ParseStateHeaders
 		case ParseStateHeaders:
 			hdrs := make(Headers)
-			SetMessageHeaders(msg, hdrs)
+			SetMessageHeaders(msg, hdrs) //nolint:errcheck
+
 			for {
 				line, err := txtRdr.ReadContinuedLineBytes()
 				if err != nil {
-					return nil, errtrace.Wrap(&ParseError{
-						Err:   NewInvalidMessageError("incomplete headers"),
+					return nil, errors.Wrap(&ParseError{
+						Err:   newInvalidMsgErr("incomplete headers"),
 						State: state,
 						Data:  line,
 						Msg:   msg,
@@ -183,54 +192,66 @@ func parseMsg(rdr *bufio.Reader, packetMode bool) (Message, error) {
 
 				hdr, err := ParseHeader(line)
 				if err != nil {
-					return nil, errtrace.Wrap(&ParseError{
+					return nil, errors.Wrap(&ParseError{
 						Err:   err,
 						State: state,
 						Data:  line,
 						Msg:   msg,
 					})
 				}
+
 				hdrs.Append(hdr)
 			}
 
-			var size int
+			var bodyLen int
 			switch {
 			case hdrs.Has("Content-Length"):
 				if ct, ok := hdrs.ContentLength(); ok {
-					if uint64(ct) > uint64(MaxMsgSize) {
-						return nil, errtrace.Wrap(&ParseError{
-							Err:   fmt.Errorf("%w: Content-Length exceeds max size %d", ErrEntityTooLarge, MaxMsgSize),
+					// TODO: calc current message size (start line + headers) and check based on remaining buffer size
+					if uint64(ct) > uint64(MaxMessageSize) {
+						return nil, errors.Wrap(&ParseError{
+							Err: errors.Prefix(
+								ErrEntityTooLarge,
+								"Content-Length exceeds max size %d",
+								MaxMessageSize,
+							),
 							State: state,
 							Msg:   msg,
 						})
 					}
-					size = int(ct)
+
+					bodyLen = int(ct)
 				}
-			case packetMode:
-				size = rdr.Buffered()
+			case pktMode:
+				bodyLen = rdr.Buffered()
 			default:
-				return nil, errtrace.Wrap(&ParseError{
-					Err:   NewInvalidMessageError(newMissHdrErr("Content-Length")),
+				return nil, errors.Wrap(&ParseError{
+					Err: newInvalidMsgErr(
+						newMissHdrErr("Content-Length"),
+					),
 					State: state,
 					Msg:   msg,
 				})
 			}
-			if size == 0 {
+
+			if bodyLen == 0 {
 				return msg, nil
 			}
-			SetMessageBody(msg, make([]byte, size))
+
+			SetMessageBody(msg, make([]byte, bodyLen)) //nolint:errcheck
 
 			state = ParseStateBody
 		case ParseStateBody:
 			buf := GetMessageBody(msg)
 			if n, err := io.ReadFull(rdr, buf); err != nil {
-				return nil, errtrace.Wrap(&ParseError{
-					Err:   NewInvalidMessageError("incomplete body"),
+				return nil, errors.Wrap(&ParseError{
+					Err:   newInvalidMsgErr("incomplete body"),
 					State: state,
 					Data:  buf[:n],
 					Msg:   msg,
 				})
 			}
+
 			return msg, nil
 		}
 	}
@@ -243,7 +264,7 @@ func DefaultParser() *StdParser { return defParser }
 
 // ParsePacket parses a single SIP message from the given buffer b using the default parser.
 // See [StdParser.ParsePacket] for details.
-func ParsePacket(b []byte) (Message, error) { return errtrace.Wrap2(defParser.ParsePacket(b)) }
+func ParsePacket(b []byte) (Message, error) { return errors.Wrap2(defParser.ParsePacket(b)) }
 
 // ParseStream creates a new [StdStreamParser] using the default parser and returns an iterator over reader r,
 // that yields each parsed [Message] or error, if any.

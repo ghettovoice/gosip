@@ -2,6 +2,9 @@ package sip
 
 import (
 	"context"
+
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/types"
 )
 
 // InboundRequestInterceptor intercepts inbound requests before they reach the receiver.
@@ -20,7 +23,7 @@ func (fn InboundRequestInterceptorFunc) InterceptInboundRequest(
 	req *InboundRequestEnvelope,
 	next RequestReceiver,
 ) error {
-	return fn(ctx, req, next) //errtrace:skip
+	return errors.Wrap(fn(ctx, req, next))
 }
 
 // InboundResponseInterceptor intercepts inbound responses before they reach the receiver.
@@ -39,7 +42,7 @@ func (fn InboundResponseInterceptorFunc) InterceptInboundResponse(
 	res *InboundResponseEnvelope,
 	next ResponseReceiver,
 ) error {
-	return fn(ctx, res, next) //errtrace:skip
+	return errors.Wrap(fn(ctx, res, next))
 }
 
 // OutboundRequestInterceptor intercepts outbound requests before they are sent.
@@ -65,7 +68,7 @@ func (fn OutboundRequestInterceptorFunc) InterceptOutboundRequest(
 	opts *SendRequestOptions,
 	next RequestSender,
 ) error {
-	return fn(ctx, req, opts, next) //errtrace:skip
+	return errors.Wrap(fn(ctx, req, opts, next))
 }
 
 // OutboundResponseInterceptor intercepts outbound responses before they are sent.
@@ -91,7 +94,7 @@ func (fn OutboundResponseInterceptorFunc) InterceptOutboundResponse(
 	opts *SendResponseOptions,
 	next ResponseSender,
 ) error {
-	return fn(ctx, res, opts, next) //errtrace:skip
+	return errors.Wrap(fn(ctx, res, opts, next))
 }
 
 // MessageInterceptor provides optional inbound/outbound interceptors.
@@ -102,51 +105,38 @@ type MessageInterceptor interface {
 	OutboundResponseInterceptor() OutboundResponseInterceptor
 }
 
-// MessageInterceptorAdapter is a helper to create an [MessageInterceptor] from functions.
-type MessageInterceptorAdapter struct {
+type StdMessageInterceptor struct {
 	InboundRequest   InboundRequestInterceptor
 	InboundResponse  InboundResponseInterceptor
 	OutboundRequest  OutboundRequestInterceptor
 	OutboundResponse OutboundResponseInterceptor
 }
 
-func (f MessageInterceptorAdapter) InboundRequestInterceptor() InboundRequestInterceptor {
+func (f StdMessageInterceptor) InboundRequestInterceptor() InboundRequestInterceptor {
 	return f.InboundRequest
 }
 
-func (f MessageInterceptorAdapter) InboundResponseInterceptor() InboundResponseInterceptor {
+func (f StdMessageInterceptor) InboundResponseInterceptor() InboundResponseInterceptor {
 	return f.InboundResponse
 }
 
-func (f MessageInterceptorAdapter) OutboundRequestInterceptor() OutboundRequestInterceptor {
+func (f StdMessageInterceptor) OutboundRequestInterceptor() OutboundRequestInterceptor {
 	return f.OutboundRequest
 }
 
-func (f MessageInterceptorAdapter) OutboundResponseInterceptor() OutboundResponseInterceptor {
+func (f StdMessageInterceptor) OutboundResponseInterceptor() OutboundResponseInterceptor {
 	return f.OutboundResponse
 }
 
-type noopMessageInterceptor struct{}
+type NoopMessageInterceptor struct{}
 
-type NoopMessageInterceptor = noopMessageInterceptor
+func (NoopMessageInterceptor) InboundRequestInterceptor() InboundRequestInterceptor     { return nil }
+func (NoopMessageInterceptor) InboundResponseInterceptor() InboundResponseInterceptor   { return nil }
+func (NoopMessageInterceptor) OutboundRequestInterceptor() OutboundRequestInterceptor   { return nil }
+func (NoopMessageInterceptor) OutboundResponseInterceptor() OutboundResponseInterceptor { return nil }
 
-func (noopMessageInterceptor) InboundRequestInterceptor() InboundRequestInterceptor { return nil }
-
-func (noopMessageInterceptor) InboundResponseInterceptor() InboundResponseInterceptor { return nil }
-
-func (noopMessageInterceptor) OutboundRequestInterceptor() OutboundRequestInterceptor { return nil }
-
-func (noopMessageInterceptor) OutboundResponseInterceptor() OutboundResponseInterceptor { return nil }
-
-type MessageInterceptorChain interface {
-	UseInterceptor(interceptor MessageInterceptor) (unbind func())
-}
-
-// ChainInboundRequest builds a request receiver pipeline in FIFO order.
-func ChainInboundRequest(
-	interceptors []InboundRequestInterceptor,
-	final RequestReceiver,
-) RequestReceiver {
+// InterceptInboundRequest builds a request receiver pipeline in FIFO order.
+func InterceptInboundRequest(interceptors []InboundRequestInterceptor, final RequestReceiver) RequestReceiver {
 	if final == nil {
 		return nil
 	}
@@ -157,19 +147,18 @@ func ChainInboundRequest(
 		if interceptor == nil {
 			continue
 		}
+
 		next := receiver
 		receiver = RequestReceiverFunc(func(ctx context.Context, req *InboundRequestEnvelope) error {
-			return interceptor.InterceptInboundRequest(ctx, req, next) //errtrace:skip
+			return errors.Wrap(interceptor.InterceptInboundRequest(ctx, req, next))
 		})
 	}
+
 	return receiver
 }
 
-// ChainInboundResponse builds a response receiver pipeline in FIFO order.
-func ChainInboundResponse(
-	interceptors []InboundResponseInterceptor,
-	final ResponseReceiver,
-) ResponseReceiver {
+// InterceptInboundResponse builds a response receiver pipeline in FIFO order.
+func InterceptInboundResponse(interceptors []InboundResponseInterceptor, final ResponseReceiver) ResponseReceiver {
 	if final == nil {
 		return nil
 	}
@@ -180,19 +169,18 @@ func ChainInboundResponse(
 		if interceptor == nil {
 			continue
 		}
+
 		next := receiver
 		receiver = ResponseReceiverFunc(func(ctx context.Context, res *InboundResponseEnvelope) error {
-			return interceptor.InterceptInboundResponse(ctx, res, next) //errtrace:skip
+			return errors.Wrap(interceptor.InterceptInboundResponse(ctx, res, next))
 		})
 	}
+
 	return receiver
 }
 
-// ChainOutboundRequest builds a request sender pipeline in LIFO order.
-func ChainOutboundRequest(
-	interceptors []OutboundRequestInterceptor,
-	final RequestSender,
-) RequestSender {
+// InterceptOutboundRequest builds a request sender pipeline in LIFO order.
+func InterceptOutboundRequest(interceptors []OutboundRequestInterceptor, final RequestSender) RequestSender {
 	if final == nil {
 		return nil
 	}
@@ -203,21 +191,20 @@ func ChainOutboundRequest(
 		if interceptor == nil {
 			continue
 		}
+
 		next := sender
 		sender = RequestSenderFunc(
 			func(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions) error {
-				return interceptor.InterceptOutboundRequest(ctx, req, opts, next) //errtrace:skip
+				return errors.Wrap(interceptor.InterceptOutboundRequest(ctx, req, opts, next))
 			},
 		)
 	}
+
 	return sender
 }
 
-// ChainOutboundResponse builds a response sender pipeline in LIFO order.
-func ChainOutboundResponse(
-	interceptors []OutboundResponseInterceptor,
-	final ResponseSender,
-) ResponseSender {
+// InterceptOutboundResponse builds a response sender pipeline in LIFO order.
+func InterceptOutboundResponse(interceptors []OutboundResponseInterceptor, final ResponseSender) ResponseSender {
 	if final == nil {
 		return nil
 	}
@@ -228,12 +215,100 @@ func ChainOutboundResponse(
 		if interceptor == nil {
 			continue
 		}
+
 		next := sender
 		sender = ResponseSenderFunc(
 			func(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error {
-				return interceptor.InterceptOutboundResponse(ctx, res, opts, next) //errtrace:skip
+				return errors.Wrap(interceptor.InterceptOutboundResponse(ctx, res, opts, next))
 			},
 		)
 	}
+
 	return sender
+}
+
+type InboundRequestInterceptorChain interface {
+	// UseInboundRequestInterceptor adds interceptor for inbound requests.
+	// The interceptor can be removed by calling the returned unbind function.
+	UseInboundRequestInterceptor(interceptor InboundRequestInterceptor) (unbind func())
+}
+
+type InboundResponseInterceptorChain interface {
+	// UseInboundResponseInterceptor adds interceptor for inbound responses.
+	// The interceptor can be removed by calling the returned unbind function.
+	UseInboundResponseInterceptor(interceptor InboundResponseInterceptor) (unbind func())
+}
+
+type OutboundRequestInterceptorChain interface {
+	// UseOutboundRequestInterceptor adds interceptor for outbound requests.
+	// The interceptor can be removed by calling the returned unbind function.
+	UseOutboundRequestInterceptor(interceptor OutboundRequestInterceptor) (unbind func())
+}
+
+type OutboundResponseInterceptorChain interface {
+	// UseOutboundResponseInterceptor adds interceptor for outbound responses.
+	// The interceptor can be removed by calling the returned unbind function.
+	UseOutboundResponseInterceptor(interceptor OutboundResponseInterceptor) (unbind func())
+}
+
+type MessageInterceptorChain interface {
+	InboundRequestInterceptorChain
+	InboundResponseInterceptorChain
+	OutboundRequestInterceptorChain
+	OutboundResponseInterceptorChain
+	// UseInterceptor adds all non-nil interceptors from the provided object.
+	// The interceptor can be removed by calling the returned unbind function.
+	UseInterceptor(interceptor MessageInterceptor) (unbind func())
+}
+
+type baseMessageInterceptorChain struct {
+	inReqInts  types.CallbackManager[InboundRequestInterceptor]
+	inResInts  types.CallbackManager[InboundResponseInterceptor]
+	outReqInts types.CallbackManager[OutboundRequestInterceptor]
+	outResInts types.CallbackManager[OutboundResponseInterceptor]
+}
+
+func (ch *baseMessageInterceptorChain) UseInboundRequestInterceptor(interceptor InboundRequestInterceptor) (unbind func()) {
+	return ch.inReqInts.Add(interceptor)
+}
+
+func (ch *baseMessageInterceptorChain) UseInboundResponseInterceptor(interceptor InboundResponseInterceptor) (unbind func()) {
+	return ch.inResInts.Add(interceptor)
+}
+
+func (ch *baseMessageInterceptorChain) UseOutboundRequestInterceptor(interceptor OutboundRequestInterceptor) (unbind func()) {
+	return ch.outReqInts.Add(interceptor)
+}
+
+func (ch *baseMessageInterceptorChain) UseOutboundResponseInterceptor(interceptor OutboundResponseInterceptor) (unbind func()) {
+	return ch.outResInts.Add(interceptor)
+}
+
+func (ch *baseMessageInterceptorChain) UseInterceptor(interceptor MessageInterceptor) (unbind func()) {
+	if interceptor == nil {
+		return func() {}
+	}
+
+	var unbinds []func()
+	if inbound := interceptor.InboundRequestInterceptor(); inbound != nil {
+		unbinds = append(unbinds, ch.UseInboundRequestInterceptor(inbound))
+	}
+
+	if inbound := interceptor.InboundResponseInterceptor(); inbound != nil {
+		unbinds = append(unbinds, ch.UseInboundResponseInterceptor(inbound))
+	}
+
+	if outbound := interceptor.OutboundRequestInterceptor(); outbound != nil {
+		unbinds = append(unbinds, ch.UseOutboundRequestInterceptor(outbound))
+	}
+
+	if outbound := interceptor.OutboundResponseInterceptor(); outbound != nil {
+		unbinds = append(unbinds, ch.UseOutboundResponseInterceptor(outbound))
+	}
+
+	return func() {
+		for _, fn := range unbinds {
+			fn()
+		}
+	}
 }

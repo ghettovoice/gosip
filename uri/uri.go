@@ -1,11 +1,12 @@
 package uri
 
-//go:generate errtrace -w .
-
 import (
-	"braces.dev/errtrace"
+	"net"
+
 	"github.com/ghettovoice/abnf"
 
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 )
@@ -13,14 +14,18 @@ import (
 // Addr represents a network address consisting of a host and optional port.
 type Addr = types.Addr
 
-// Host creates an Addr from a hostname without a port.
-func Host(host string) Addr { return types.Host(host) }
+// AddrFromHost creates an Addr from a hostname without a port.
+func AddrFromHost(host string) Addr { return types.AddrFromHost(host) }
 
-// HostPort creates an Addr from a hostname and port.
-func HostPort(host string, port uint16) Addr { return types.HostPort(host, port) }
+// AddrFromHostPort creates an Addr from a hostname and port.
+func AddrFromHostPort(host string, port uint16) Addr { return types.AddrFromHostPort(host, port) }
+
+func AddrFromIP(ip net.IP) Addr { return types.AddrFromIP(ip) }
+
+func AddrFromIPPort(ip net.IP, port uint16) Addr { return types.AddrFromIPPort(ip, port) }
 
 // ParseAddr parses a network address from the given input s (string or []byte).
-func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) { return errtrace.Wrap2(types.ParseAddr(s)) }
+func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }
 
 // Values represents URI parameters or headers as a multi-value map.
 type Values = types.Values
@@ -53,12 +58,13 @@ func Parse[T ~string | ~[]byte](s T) (URI, error) {
 	if len(s) >= 3 {
 		switch util.LCase(string(s[:3])) {
 		case "sip":
-			return errtrace.Wrap2(ParseSIP(s))
+			return errors.Wrap2(ParseSIP(s))
 		case "tel":
-			return errtrace.Wrap2(ParseTel(s))
+			return errors.Wrap2(ParseTel(s))
 		}
 	}
-	return errtrace.Wrap2(ParseAny(s))
+
+	return errors.Wrap2(ParseAny(s))
 }
 
 // FromABNF creates a URI from an ABNF node.
@@ -70,27 +76,34 @@ func Parse[T ~string | ~[]byte](s T) (URI, error) {
 //   - any other node returns [Any].
 //
 // End users usually don't need to use this function directly and should use [Parse] instead.
-func FromABNF(node *abnf.Node) URI {
-	switch node.Key {
-	case "SIP-URI", "SIPS-URI":
-		return buildFromSIPURINode(node)
-	case "telephone-uri":
-		return buildFromTelURINode(node)
-	case "absoluteURI":
-		if sn, ok := node.GetNode("scheme"); ok {
-			switch util.LCase(sn.String()) {
-			case "sip", "sips":
-				if u, err := ParseSIP(node.Value); err == nil {
-					return u
-				}
-			case "tel":
-				if u, err := ParseTel(node.Value); err == nil {
-					return u
-				}
+func FromABNF(node *abnf.Node) (u URI, err error) {
+	defer func() {
+		if rv := recover(); rv != nil {
+			u = nil
+
+			if e, ok := rv.(error); ok {
+				err = errors.Wrap(e)
+			} else {
+				err = errors.ErrorfWrap("%v", rv)
 			}
 		}
+	}()
+
+	switch node.Key {
+	case "SIP-URI", "SIPS-URI":
+		return buildFromSIPURINode(node), nil
+	case "telephone-uri":
+		return buildFromTelURINode(node), nil
+	case "absoluteURI":
+		switch util.LCase(grammar.MustGetNode(node, "scheme").String()) {
+		case "sip", "sips":
+			return errors.Wrap2(Parse(node.Value))
+		case "tel":
+			return errors.Wrap2(ParseTel(node.Value))
+		}
+
 		fallthrough
 	default:
-		return buildFromAnyNode(node)
+		return buildFromAnyNode(node), nil
 	}
 }

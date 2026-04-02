@@ -70,10 +70,12 @@ func TestTel_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
+
 			_, err := c.uri.RenderTo(&sb, nil)
 			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("uri.RenderTo(sb, nil) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
 			}
+
 			if got := sb.String(); got != c.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
 			}
@@ -264,6 +266,7 @@ func TestTel_Clone(t *testing.T) {
 				}
 				return
 			}
+
 			if diff := cmp.Diff(got, c.uri); diff != "" {
 				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.uri, diff)
 			}
@@ -307,7 +310,7 @@ func TestTel_ToSIP(t *testing.T) {
 		{"nil", (*uri.Tel)(nil), nil},
 		{"zero", &uri.Tel{}, &uri.SIP{
 			User:   uri.User(""),
-			Addr:   uri.Host(""),
+			Addr:   uri.AddrFromHost(""),
 			Params: make(uri.Values).Set("user", "phone"),
 		}},
 		{
@@ -322,7 +325,7 @@ func TestTel_ToSIP(t *testing.T) {
 			},
 			&uri.SIP{
 				User:   uri.User("123;ext=555;phone-context=+11;baz;foo=bar"),
-				Addr:   uri.Host(""),
+				Addr:   uri.AddrFromHost(""),
 				Params: make(uri.Values).Set("user", "phone"),
 			},
 		},
@@ -338,7 +341,7 @@ func TestTel_ToSIP(t *testing.T) {
 			},
 			&uri.SIP{
 				User:   uri.User("123;ext=555;baz;foo=bar"),
-				Addr:   uri.Host("example.com"),
+				Addr:   uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).Set("user", "phone"),
 			},
 		},
@@ -356,19 +359,26 @@ func TestTel_ToSIP(t *testing.T) {
 	}
 }
 
-func TestTel_MarshalUnmarshalText_RoundTrip(t *testing.T) {
+func TestTel_RoundTripText(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name    string
 		uri     *uri.Tel
+		want    *uri.Tel
 		wantErr bool
 	}{
-		{"nil", nil, true},
-		{"zero", &uri.Tel{}, true},
-		{"number", &uri.Tel{Number: "+123"}, false},
+		{"nil", nil, &uri.Tel{}, false},
+		{"zero", &uri.Tel{}, &uri.Tel{}, false},
+		{"number", &uri.Tel{Number: "+123"}, &uri.Tel{Number: "+123"}, false},
 		{
 			"params",
+			&uri.Tel{
+				Number: "+123",
+				Params: make(uri.Values).
+					Set("ext", "55").
+					Set("phone-context", "+1"),
+			},
 			&uri.Tel{
 				Number: "+123",
 				Params: make(uri.Values).
@@ -389,6 +399,7 @@ func TestTel_MarshalUnmarshalText_RoundTrip(t *testing.T) {
 			}
 
 			var got uri.Tel
+
 			err = got.UnmarshalText(text)
 			if c.wantErr {
 				if err == nil {
@@ -396,12 +407,13 @@ func TestTel_MarshalUnmarshalText_RoundTrip(t *testing.T) {
 				}
 				return
 			}
+
 			if err != nil {
 				t.Fatalf("got.UnmarshalText(text) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(&got, c.uri); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, c.uri, diff)
+			if diff := cmp.Diff(&got, c.want); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, c.want, diff)
 			}
 		})
 	}

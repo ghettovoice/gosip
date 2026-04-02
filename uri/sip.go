@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"braces.dev/errtrace"
 	"github.com/ghettovoice/abnf"
 
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/util"
@@ -29,10 +29,12 @@ func (u *SIP) Clone() URI {
 	if u == nil {
 		return nil
 	}
+
 	u2 := *u
 	u2.Addr = u.Addr.Clone()
 	u2.Params = u.Params.Clone()
 	u2.Headers = u.Headers.Clone()
+
 	return &u2
 }
 
@@ -44,7 +46,7 @@ func (u *SIP) Scheme() string {
 	return u.scheme()
 }
 
-// RenderToOptions writes the SIP URI to the provided writer.
+// RenderTo writes the SIP URI to the provided writer.
 func (u *SIP) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error) {
 	if u == nil {
 		return 0, nil
@@ -52,14 +54,18 @@ func (u *SIP) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error) {
 
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
+
 	cw.Fprint(u.scheme(), ":")
+
 	if !u.User.IsZero() {
 		cw.Fprint(u.User, "@")
 	}
+
 	cw.Fprint(u.Addr)
 	cw.Call(u.renderParams)
 	cw.Call(u.renderHeaders)
-	return errtrace.Wrap2(cw.Result())
+
+	return errors.Wrap2(cw.Result())
 }
 
 func (u *SIP) scheme() string {
@@ -79,17 +85,21 @@ func (u *SIP) renderParams(w io.Writer) (num int, err error) {
 		v, _ := u.Params.Last(k)
 		kvs = append(kvs, []string{util.LCase(k), v})
 	}
+
 	slices.SortFunc(kvs, util.CmpKVs)
 
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
+
 	for _, kv := range kvs {
 		cw.Fprint(";", grammar.Escape(kv[0], shouldEscapeURIParamChar))
+
 		if kv[1] != "" {
 			cw.Fprint("=", grammar.Escape(kv[1], shouldEscapeURIParamChar))
 		}
 	}
-	return errtrace.Wrap2(cw.Result())
+
+	return errors.Wrap2(cw.Result())
 }
 
 func (u *SIP) renderHeaders(w io.Writer) (num int, err error) {
@@ -101,10 +111,12 @@ func (u *SIP) renderHeaders(w io.Writer) (num int, err error) {
 	for k := range u.Headers {
 		kvs = append(kvs, append([]string{util.LCase(k)}, u.Headers.Get(k)...))
 	}
+
 	slices.SortFunc(kvs, util.CmpKVs)
 
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
+
 	cw.Fprint("?")
 
 	var i int
@@ -113,11 +125,14 @@ func (u *SIP) renderHeaders(w io.Writer) (num int, err error) {
 			if i > 0 {
 				cw.Fprint("&")
 			}
+
 			cw.Fprint(grammar.Escape(kv[0], shouldEscapeURIHeaderChar), "=", grammar.Escape(v, shouldEscapeURIHeaderChar))
+
 			i++
 		}
 	}
-	return errtrace.Wrap2(cw.Result())
+
+	return errors.Wrap2(cw.Result())
 }
 
 // Render returns the string representation of the SIP URI.
@@ -125,9 +140,12 @@ func (u *SIP) Render(opts *RenderOptions) string {
 	if u == nil {
 		return ""
 	}
+
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
+
 	u.RenderTo(sb, opts) //nolint:errcheck
+
 	return sb.String()
 }
 
@@ -147,15 +165,21 @@ func (u *SIP) Format(f fmt.State, verb rune) {
 			u.RenderTo(f, nil) //nolint:errcheck
 			return
 		}
+
 		fmt.Fprint(f, u.String())
+
 		return
 	case 'q':
 		fmt.Fprint(f, strconv.Quote(u.String()))
 		return
 	default:
-		type hideMethods SIP
-		type SIP hideMethods
+		type (
+			hideMethods SIP
+			SIP         hideMethods
+		)
+
 		fmt.Fprintf(f, fmt.FormatString(f, verb), (*SIP)(u))
+
 		return
 	}
 }
@@ -203,6 +227,7 @@ func (u *SIP) compareParams(params Values) bool {
 		if params.Has(k) {
 			// Any parameter appearing in both URIs must match.
 			v1, _ := u.Params.Last(k)
+
 			v2, _ := params.Last(k)
 			if !util.EqFold(v1, v2) {
 				return false
@@ -211,6 +236,7 @@ func (u *SIP) compareParams(params Values) bool {
 			// Any special SIP URI parameter appearing in one URI must appear in the other.
 			return false
 		}
+
 		checked[util.LCase(k)] = true
 	}
 	// Then need only check that there are no non-checked special parameters in the other list.
@@ -218,10 +244,12 @@ func (u *SIP) compareParams(params Values) bool {
 		if checked[k] {
 			continue
 		}
+
 		if params.Has(k) {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -240,6 +268,7 @@ func hasSIPURISpecParam(ps Values) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -261,6 +290,7 @@ func (u *SIP) compareHeaders(hdrs Values) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -271,17 +301,32 @@ func (u *SIP) IsValid() bool {
 
 // MarshalText implements [encoding.TextMarshaler].
 func (u *SIP) MarshalText() ([]byte, error) {
-	return []byte(u.String()), nil
+	return errors.Wrap2(u.AppendText(nil))
+}
+
+func (u *SIP) AppendText(b []byte) ([]byte, error) {
+	return append(b, u.String()...), nil
 }
 
 // UnmarshalText implements [encoding.TextUnmarshaler].
 func (u *SIP) UnmarshalText(text []byte) error {
+	if u == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil URI")
+	}
+
+	if len(text) == 0 || util.EqFold(string(text), "sip:") || util.EqFold(string(text), "sips:") {
+		*u = SIP{}
+		return nil
+	}
+
 	u1, err := ParseSIP(string(text))
 	if err != nil {
 		*u = SIP{}
-		return errtrace.Wrap(err)
+		return errors.Wrap(err)
 	}
+
 	*u = *u1
+
 	return nil
 }
 
@@ -308,10 +353,12 @@ func (u *SIP) TTL() (uint8, bool) {
 	if !ok {
 		return 0, false
 	}
+
 	tts, err := strconv.ParseUint(val, 10, 8)
 	if err != nil {
 		return 0, false
 	}
+
 	return uint8(tts), true
 }
 
@@ -320,19 +367,30 @@ func (u *SIP) LR() bool {
 }
 
 // ParseSIP parses a SIP or SIPS URI from the given input src (string or []byte).
-func ParseSIP[T ~string | ~[]byte](src T) (*SIP, error) {
-	var (
-		n   *abnf.Node
-		err error
-	)
+func ParseSIP[T ~string | ~[]byte](src T) (u *SIP, err error) {
+	defer func() {
+		if rv := recover(); rv != nil {
+			u = nil
+
+			if e, ok := rv.(error); ok {
+				err = errors.Wrap(e)
+			} else {
+				err = errors.ErrorfWrap("%v", rv)
+			}
+		}
+	}()
+
+	var n *abnf.Node
 	if len(src) >= 4 && util.EqFold(string(src[:4]), "sips") {
 		n, err = grammar.ParseSIPSURI(src)
 	} else {
 		n, err = grammar.ParseSIPURI(src)
 	}
+
 	if err != nil {
-		return nil, errtrace.Wrap(err)
+		return nil, errors.Wrap(err)
 	}
+
 	return buildFromSIPURINode(n), nil
 }
 
@@ -345,9 +403,11 @@ func buildFromSIPURINode(node *abnf.Node) *SIP {
 	if n, ok := node.GetNode("userinfo"); ok {
 		u.User = buildFromUserinfoNode(n)
 	}
+
 	if n, ok := node.GetNode("headers"); ok {
 		u.Headers = buildFromURIHeadersNode(n)
 	}
+
 	return u
 }
 
@@ -355,19 +415,22 @@ func buildFromHostportNode(node *abnf.Node) Addr {
 	host := grammar.MustGetNode(node, "host").String()
 	if portNode, ok := node.GetNode("port"); ok {
 		port, _ := strconv.Atoi(portNode.String())
-		return HostPort(host, uint16(port))
+		return AddrFromHostPort(host, uint16(port))
 	}
-	return Host(host)
+
+	return AddrFromHost(host)
 }
 
 func buildFromUserinfoNode(node *abnf.Node) UserInfo {
 	if node.IsEmpty() {
 		return UserInfo{}
 	}
+
 	usrname := grammar.Unescape(grammar.MustGetNode(node, "user").String())
 	if passwdNode, ok := node.GetNode("password"); ok {
 		return UserPassword(usrname, grammar.Unescape(passwdNode.String()))
 	}
+
 	return User(usrname)
 }
 
@@ -377,6 +440,7 @@ func buildFromURIParamsNode(node *abnf.Node) Values {
 	}
 
 	paramNodes := node.GetNodes("uri-parameter")
+
 	params := make(Values, len(paramNodes))
 	for _, paramNode := range paramNodes {
 		paramNode = paramNode.Children[0]
@@ -389,18 +453,22 @@ func buildFromURIParamsNode(node *abnf.Node) Values {
 				k = string(paramNode.Children[0].Value[:len(paramNode.Children[0].Value)-1])
 				v = string(paramNode.Children[1].Value)
 			}
+
 			params.Append(k, v)
 		default: // other-param
 			if nameNode, ok := paramNode.GetNode("pname"); ok {
 				k := grammar.Unescape(nameNode.String())
+
 				var v string
 				if valueNode, ok := paramNode.GetNode("pvalue"); ok {
 					v = grammar.Unescape(valueNode.String())
 				}
+
 				params.Append(k, v)
 			}
 		}
 	}
+
 	return params
 }
 
@@ -410,6 +478,7 @@ func buildFromURIHeadersNode(node *abnf.Node) Values {
 	}
 
 	hdrNodes := node.GetNodes("header")
+
 	hdrs := make(Values, len(hdrNodes))
 	for _, n := range hdrNodes {
 		hdrs.Append(
@@ -417,6 +486,7 @@ func buildFromURIHeadersNode(node *abnf.Node) Values {
 			grammar.Unescape(grammar.MustGetNode(n, "hvalue").String()),
 		)
 	}
+
 	return hdrs
 }
 
@@ -451,13 +521,16 @@ func shouldEscapePasswdChar(c byte) bool { return !grammar.IsURIPasswdCharUnrese
 func (ui UserInfo) String() string {
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
+
 	if ui.usrname != "" {
 		sb.WriteString(grammar.Escape(ui.usrname, shouldEscapeUserChar))
 	}
+
 	if ui.hasPasswd {
 		sb.WriteString(":")
 		sb.WriteString(grammar.Escape(ui.passwd, shouldEscapePasswdChar))
 	}
+
 	return sb.String()
 }
 
@@ -471,10 +544,12 @@ func (ui UserInfo) Equal(val any) bool {
 		if v == nil {
 			return false
 		}
+
 		other = *v
 	default:
 		return false
 	}
+
 	return ui.usrname == other.usrname && ui.passwd == other.passwd && ui.hasPasswd == other.hasPasswd
 }
 

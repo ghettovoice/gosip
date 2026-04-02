@@ -20,17 +20,17 @@ func TestSIP_Render(t *testing.T) {
 	}{
 		{"nil", (*uri.SIP)(nil), ""},
 		{"zero", &uri.SIP{}, "sip:"},
-		{"host and port", &uri.SIP{Addr: uri.HostPort("example.com", 5060)}, "sip:example.com:5060"},
-		{"secured", &uri.SIP{Secured: true, Addr: uri.HostPort("example.com", 5060)}, "sips:example.com:5060"},
+		{"host and port", &uri.SIP{Addr: uri.AddrFromHostPort("example.com", 5060)}, "sip:example.com:5060"},
+		{"secured", &uri.SIP{Secured: true, Addr: uri.AddrFromHostPort("example.com", 5060)}, "sips:example.com:5060"},
 		{
 			"user with empty password",
-			&uri.SIP{Addr: uri.Host("example.com"), User: uri.UserPassword("root", "")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com"), User: uri.UserPassword("root", "")},
 			"sip:root:@example.com",
 		},
 		{
 			"user with params encoded and password",
 			&uri.SIP{
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				User: uri.UserPassword("root@;field=123", "p@sswd;qwe"),
 			},
 			"sip:root%40;field=123:p%40sswd%3Bqwe@example.com",
@@ -39,7 +39,7 @@ func TestSIP_Render(t *testing.T) {
 			"uri params and headers",
 			&uri.SIP{
 				User: uri.UserPassword("root", ""),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Append("transport", "UDP").
 					Append("lr", ""),
@@ -75,7 +75,7 @@ func TestSIP_RenderTo(t *testing.T) {
 	}{
 		{"nil", (*uri.SIP)(nil), "", nil},
 		{"zero", &uri.SIP{}, "sip:", nil},
-		{"filled", &uri.SIP{Addr: uri.HostPort("example.com", 5060)}, "sip:example.com:5060", nil},
+		{"filled", &uri.SIP{Addr: uri.AddrFromHostPort("example.com", 5060)}, "sip:example.com:5060", nil},
 	}
 
 	for _, c := range cases {
@@ -83,10 +83,12 @@ func TestSIP_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
+
 			_, err := c.uri.RenderTo(&sb, nil)
 			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("uri.RenderTo(sb, nil) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
 			}
+
 			if got := sb.String(); got != c.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
 			}
@@ -104,7 +106,7 @@ func TestSIP_String(t *testing.T) {
 	}{
 		{"nil", (*uri.SIP)(nil), ""},
 		{"zero", &uri.SIP{}, "sip:"},
-		{"filled", &uri.SIP{Addr: uri.HostPort("example.com", 5060)}, "sip:example.com:5060"},
+		{"filled", &uri.SIP{Addr: uri.AddrFromHostPort("example.com", 5060)}, "sip:example.com:5060"},
 	}
 
 	for _, c := range cases {
@@ -135,69 +137,69 @@ func TestSIP_Equal(t *testing.T) {
 		{"zero ptr to zero val", &uri.SIP{}, uri.SIP{}, true},
 		{
 			"type mismatch",
-			&uri.SIP{Addr: uri.HostPort("example.com", 5060)},
+			&uri.SIP{Addr: uri.AddrFromHostPort("example.com", 5060)},
 			"sip:example.com:5060",
 			false,
 		},
 		{
 			"secured to non-secured",
-			&uri.SIP{Addr: uri.Host("example.com")},
-			&uri.SIP{Secured: true, Addr: uri.Host("example.com")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com")},
+			&uri.SIP{Secured: true, Addr: uri.AddrFromHost("example.com")},
 			false,
 		},
 		{
 			"secured to secured",
-			&uri.SIP{Secured: true, Addr: uri.Host("example.com")},
-			&uri.SIP{Secured: true, Addr: uri.Host("example.com")},
+			&uri.SIP{Secured: true, Addr: uri.AddrFromHost("example.com")},
+			&uri.SIP{Secured: true, Addr: uri.AddrFromHost("example.com")},
 			true,
 		},
 		{
 			"addr match",
-			&uri.SIP{Addr: uri.HostPort("example.com", 5060)},
-			&uri.SIP{Addr: uri.HostPort("EXAMPLE.com", 5060)},
+			&uri.SIP{Addr: uri.AddrFromHostPort("example.com", 5060)},
+			&uri.SIP{Addr: uri.AddrFromHostPort("EXAMPLE.com", 5060)},
 			true,
 		},
 		{
 			"addr not match 1",
-			&uri.SIP{Addr: uri.HostPort("example.com", 5060)},
-			&uri.SIP{Addr: uri.HostPort("example.com", 5061)},
+			&uri.SIP{Addr: uri.AddrFromHostPort("example.com", 5060)},
+			&uri.SIP{Addr: uri.AddrFromHostPort("example.com", 5061)},
 			false,
 		},
 		{
 			"addr not match 2",
-			&uri.SIP{Addr: uri.HostPort("example.com", 5060)},
-			&uri.SIP{Addr: uri.Host("example.com")},
+			&uri.SIP{Addr: uri.AddrFromHostPort("example.com", 5060)},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com")},
 			false,
 		},
 		{
 			"user match",
-			&uri.SIP{Addr: uri.Host("example.com"), User: uri.UserPassword("root", "qwe")},
-			&uri.SIP{Addr: uri.Host("example.com"), User: uri.UserPassword("root", "qwe")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com"), User: uri.UserPassword("root", "qwe")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com"), User: uri.UserPassword("root", "qwe")},
 			true,
 		},
 		{
 			"user not match 1",
-			&uri.SIP{Addr: uri.Host("example.com"), User: uri.UserPassword("root", "")},
-			&uri.SIP{Addr: uri.Host("example.com"), User: uri.User("root")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com"), User: uri.UserPassword("root", "")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com"), User: uri.User("root")},
 			false,
 		},
 		{
 			"user not match 2",
-			&uri.SIP{Addr: uri.Host("example.com"), User: uri.User("root")},
-			&uri.SIP{Addr: uri.Host("example.com")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com"), User: uri.User("root")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com")},
 			false,
 		},
 		{
 			"user not match 3",
-			&uri.SIP{Addr: uri.Host("example.com"), User: uri.User("root")},
-			&uri.SIP{Addr: uri.Host("example.com"), User: uri.User("ROOT")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com"), User: uri.User("root")},
+			&uri.SIP{Addr: uri.AddrFromHost("example.com"), User: uri.User("ROOT")},
 			false,
 		},
 		{
 			"params match 1",
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Set("FIELD1", "qwe").
 					Set("FIELD2", "").
@@ -207,7 +209,7 @@ func TestSIP_Equal(t *testing.T) {
 			},
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Set("LR", "").
 					Set("Transport", "udp").
@@ -221,7 +223,7 @@ func TestSIP_Equal(t *testing.T) {
 			"params match 2",
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Set("FIELD1", "qwe").
 					Set("FIELD2", "").
@@ -229,7 +231,7 @@ func TestSIP_Equal(t *testing.T) {
 			},
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 			},
 			true,
 		},
@@ -237,11 +239,11 @@ func TestSIP_Equal(t *testing.T) {
 			"params match 3",
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 			},
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Set("FIELD1", "qwe").
 					Set("FIELD2", "").
@@ -253,12 +255,12 @@ func TestSIP_Equal(t *testing.T) {
 			"params not match 1",
 			&uri.SIP{
 				User:   uri.User("root"),
-				Addr:   uri.Host("example.com"),
+				Addr:   uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).Set("field1", "qwe"),
 			},
 			&uri.SIP{
 				User:   uri.User("root"),
-				Addr:   uri.Host("example.com"),
+				Addr:   uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).Set("field1", "xyz"),
 			},
 			false,
@@ -267,14 +269,14 @@ func TestSIP_Equal(t *testing.T) {
 			"params not match 2",
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Set("transport", "tcp").
 					Set("lr", ""),
 			},
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Set("Transport", "udp").
 					Set("method", "REGISTER"),
@@ -285,14 +287,14 @@ func TestSIP_Equal(t *testing.T) {
 			"params not match 3",
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Set("transport", "tcp").
 					Set("lr", ""),
 			},
 			&uri.SIP{
 				User:   uri.User("root"),
-				Addr:   uri.Host("example.com"),
+				Addr:   uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).Set("transport", "tcp"),
 			},
 			false,
@@ -301,12 +303,12 @@ func TestSIP_Equal(t *testing.T) {
 			"params not match 4",
 			&uri.SIP{
 				User:   uri.User("root"),
-				Addr:   uri.Host("example.com"),
+				Addr:   uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).Set("transport", "tcp"),
 			},
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).
 					Set("transport", "tcp").
 					Set("lr", ""),
@@ -317,7 +319,7 @@ func TestSIP_Equal(t *testing.T) {
 			"headers match",
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Headers: make(uri.Values).
 					Set("priority", "urgent").
 					Set("subject", "Hello World!").
@@ -325,7 +327,7 @@ func TestSIP_Equal(t *testing.T) {
 			},
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Headers: make(uri.Values).
 					Set("Priority", "URGENT").
 					Set("subject", "hello world!").
@@ -337,7 +339,7 @@ func TestSIP_Equal(t *testing.T) {
 			"headers not match 1",
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Headers: make(uri.Values).
 					Set("to", "sip:root@example.com").
 					Set("priority", "urgent").
@@ -345,7 +347,7 @@ func TestSIP_Equal(t *testing.T) {
 			},
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Headers: make(uri.Values).
 					Set("priority", "urgent").
 					Set("subject", "hello world!").
@@ -357,14 +359,14 @@ func TestSIP_Equal(t *testing.T) {
 			"headers not match 2",
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Headers: make(uri.Values).
 					Set("priority", "urgent").
 					Set("to", "sip:root@example.com"),
 			},
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Headers: make(uri.Values).
 					Set("priority", "emergency").
 					Set("subject", "hello world!"),
@@ -375,14 +377,14 @@ func TestSIP_Equal(t *testing.T) {
 			"headers not match 3",
 			&uri.SIP{
 				User: uri.User("root"),
-				Addr: uri.Host("example.com"),
+				Addr: uri.AddrFromHost("example.com"),
 				Headers: make(uri.Values).
 					Set("priority", "urgent").
 					Set("subject", "hello world!"),
 			},
 			&uri.SIP{
 				User:    uri.User("root"),
-				Addr:    uri.Host("example.com"),
+				Addr:    uri.AddrFromHost("example.com"),
 				Headers: make(uri.Values).Set("priority", "emergency"),
 			},
 			false,
@@ -410,8 +412,8 @@ func TestSIP_IsValid(t *testing.T) {
 	}{
 		{"nil", (*uri.SIP)(nil), false},
 		{"zero", &uri.SIP{}, false},
-		{"invalid addr", &uri.SIP{Addr: uri.Host("")}, false},
-		{"valid", &uri.SIP{User: uri.UserPassword("root", "qwe"), Addr: uri.HostPort("example.com", 5060)}, true},
+		{"invalid addr", &uri.SIP{Addr: uri.AddrFromHost("")}, false},
+		{"valid", &uri.SIP{User: uri.UserPassword("root", "qwe"), Addr: uri.AddrFromHostPort("example.com", 5060)}, true},
 	}
 
 	for _, c := range cases {
@@ -438,7 +440,7 @@ func TestSIP_Clone(t *testing.T) {
 			"full",
 			&uri.SIP{
 				User:    uri.User("root"),
-				Addr:    uri.HostPort("example.com", 5060),
+				Addr:    uri.AddrFromHostPort("example.com", 5060),
 				Params:  make(uri.Values).Set("transport", "udp"),
 				Headers: make(uri.Values).Set("priority", "urgent"),
 			},
@@ -456,6 +458,7 @@ func TestSIP_Clone(t *testing.T) {
 				}
 				return
 			}
+
 			if diff := cmp.Diff(got, c.uri, cmp.AllowUnexported(uri.SIP{})); diff != "" {
 				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.uri, diff)
 			}
@@ -463,21 +466,27 @@ func TestSIP_Clone(t *testing.T) {
 	}
 }
 
-func TestSIP_MarshalUnmarshalText_RoundTrip(t *testing.T) {
+func TestSIP_RoundTripText(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name    string
 		uri     *uri.SIP
+		want    *uri.SIP
 		wantErr bool
 	}{
-		{"nil", (*uri.SIP)(nil), true},
-		{"zero", &uri.SIP{}, true},
+		{"nil", (*uri.SIP)(nil), &uri.SIP{}, false},
+		{"zero", &uri.SIP{}, &uri.SIP{}, false},
 		{
 			"secured",
 			&uri.SIP{
 				Secured: true,
-				Addr:    uri.Host("example.com"),
+				Addr:    uri.AddrFromHost("example.com"),
+				Params:  make(uri.Values).Set("transport", "tcp"),
+			},
+			&uri.SIP{
+				Secured: true,
+				Addr:    uri.AddrFromHost("example.com"),
 				Params:  make(uri.Values).Set("transport", "tcp"),
 			},
 			false,
@@ -486,7 +495,17 @@ func TestSIP_MarshalUnmarshalText_RoundTrip(t *testing.T) {
 			"full",
 			&uri.SIP{
 				User: uri.UserPassword("root", "secret"),
-				Addr: uri.HostPort("example.com", 5060),
+				Addr: uri.AddrFromHostPort("example.com", 5060),
+				Params: make(uri.Values).
+					Set("transport", "udp").
+					Set("lr", ""),
+				Headers: make(uri.Values).
+					Append("Subject", "Hello").
+					Append("Priority", "urgent"),
+			},
+			&uri.SIP{
+				User: uri.UserPassword("root", "secret"),
+				Addr: uri.AddrFromHostPort("example.com", 5060),
 				Params: make(uri.Values).
 					Set("transport", "udp").
 					Set("lr", ""),
@@ -508,6 +527,7 @@ func TestSIP_MarshalUnmarshalText_RoundTrip(t *testing.T) {
 			}
 
 			var got uri.SIP
+
 			err = got.UnmarshalText(text)
 			if c.wantErr {
 				if err == nil {
@@ -515,12 +535,13 @@ func TestSIP_MarshalUnmarshalText_RoundTrip(t *testing.T) {
 				}
 				return
 			}
+
 			if err != nil {
 				t.Fatalf("got.UnmarshalText(text) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(&got, c.uri); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, c.uri, diff)
+			if diff := cmp.Diff(&got, c.want); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, c.want, diff)
 			}
 		})
 	}
@@ -540,10 +561,12 @@ func TestUser(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
+
 			ui := uri.User(c.user)
 			if got, want := ui.Username(), c.user; got != want {
 				t.Errorf("ui.Username() = %q, want %q", got, want)
 			}
+
 			if got, ok := ui.Password(); ok || got != "" {
 				t.Errorf("ui.Password() = (%q, %v), want (\"\", false)", got, ok)
 			}

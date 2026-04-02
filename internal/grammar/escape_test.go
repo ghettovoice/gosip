@@ -67,9 +67,11 @@ func BenchmarkEscape(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
 			b.ResetTimer()
+
 			for b.Loop() {
 				switch in := c.in.(type) {
 				case string:

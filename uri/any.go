@@ -6,10 +6,9 @@ import (
 	"net/url"
 	"strconv"
 
-	"braces.dev/errtrace"
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/errorutil"
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/util"
 )
@@ -24,6 +23,7 @@ func (u *Any) Clone() URI {
 	if u == nil {
 		return nil
 	}
+
 	u2 := *u
 	if u.User != nil {
 		if pwd, ok := u.User.Password(); ok {
@@ -32,6 +32,7 @@ func (u *Any) Clone() URI {
 			u2.User = url.User(u.User.Username())
 		}
 	}
+
 	return &u2
 }
 
@@ -43,22 +44,25 @@ func (u *Any) Scheme() string {
 	return u.URL.Scheme
 }
 
-// RenderToOptions writes the URI to the provided writer.
+// RenderTo writes the URI to the provided writer.
 func (u *Any) RenderTo(w io.Writer, _ *RenderOptions) (num int, err error) {
 	if u == nil {
 		return 0, nil
 	}
-	return errtrace.Wrap2(fmt.Fprint(w, u.URL.String()))
+	return errors.Wrap2(fmt.Fprint(w, u.URL.String()))
 }
 
-// RenderOptions returns the string representation of the URI.
+// Render returns the string representation of the URI.
 func (u *Any) Render(opts *RenderOptions) string {
 	if u == nil {
 		return ""
 	}
+
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
+
 	u.RenderTo(sb, opts) //nolint:errcheck
+
 	return sb.String()
 }
 
@@ -78,15 +82,21 @@ func (u *Any) Format(f fmt.State, verb rune) {
 			u.RenderTo(f, nil) //nolint:errcheck
 			return
 		}
+
 		fmt.Fprint(f, u.String())
+
 		return
 	case 'q':
 		fmt.Fprint(f, strconv.Quote(u.String()))
 		return
 	default:
-		type hideMethods Any
-		type Any hideMethods
+		type (
+			hideMethods Any
+			Any         hideMethods
+		)
+
 		fmt.Fprintf(f, fmt.FormatString(f, verb), (*Any)(u))
+
 		return
 	}
 }
@@ -123,34 +133,62 @@ func (u *Any) IsValid() bool {
 
 // MarshalText implements [encoding.TextMarshaler].
 func (u *Any) MarshalText() ([]byte, error) {
-	return []byte(u.String()), nil
+	return errors.Wrap2(u.AppendText(nil))
+}
+
+func (u *Any) AppendText(b []byte) ([]byte, error) {
+	return append(b, u.String()...), nil
 }
 
 // UnmarshalText implements [encoding.TextUnmarshaler].
 func (u *Any) UnmarshalText(text []byte) error {
+	if u == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil URI")
+	}
+
+	if len(text) == 0 {
+		*u = Any{}
+		return nil
+	}
+
 	u1, err := ParseAny(string(text))
 	if err != nil {
 		*u = Any{}
-		return errtrace.Wrap(err)
+		return errors.Wrap(err)
 	}
+
 	*u = *u1
+
 	return nil
 }
 
 // ParseAny parses an arbitrary URI from the given input src (string or []byte).
-func ParseAny[T ~string | ~[]byte](src T) (*Any, error) {
+func ParseAny[T ~string | ~[]byte](src T) (u *Any, err error) {
 	if len(src) == 0 {
-		return nil, errtrace.Wrap(grammar.ErrEmptyInput)
+		return nil, errors.NewInvalidArgumentErrorWrap(grammar.ErrEmptyInput)
 	}
 
-	u, err := url.Parse(string(src))
+	defer func() {
+		if rv := recover(); rv != nil {
+			u = nil
+
+			if e, ok := rv.(error); ok {
+				err = errors.Wrap(e)
+			} else {
+				err = errors.ErrorfWrap("%v", rv)
+			}
+		}
+	}()
+
+	nu, err := url.Parse(string(src))
 	if err != nil {
-		return nil, errtrace.Wrap(errorutil.NewWrapperError(grammar.ErrMalformedInput, err))
+		return nil, grammar.NewMalformedInputErrorWrap(err)
 	}
-	return &Any{URL: *u}, nil
+
+	return &Any{URL: *nu}, nil
 }
 
 func buildFromAnyNode(node *abnf.Node) *Any {
-	u, _ := url.Parse(node.String())
+	u := util.Must2(url.Parse(node.String()))
 	return &Any{URL: *u}
 }

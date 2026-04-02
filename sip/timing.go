@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"braces.dev/errtrace"
+	"github.com/ghettovoice/gosip/internal/errors"
 )
 
 // Default values for SIP timers as described in RFC 3261.
@@ -146,24 +146,31 @@ type timingConfData struct {
 }
 
 func (c TimingConfig) MarshalJSON() ([]byte, error) {
-	return errtrace.Wrap2(json.Marshal(timingConfData{
-		T1:      c.t1,
-		T2:      c.t2,
-		T4:      c.t4,
-		TimeD:   c.timeD,
-		Time100: c.time100,
+	return errors.Wrap2(json.Marshal(timingConfData{
+		T1:      c.T1(),
+		T2:      c.T2(),
+		T4:      c.T4(),
+		TimeD:   c.TimeD(),
+		Time100: c.Time100(),
 	}))
 }
 
 func (c *TimingConfig) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return errors.NewInvalidArgumentErrorWrap("nil timing config")
+	}
+
 	var d timingConfData
 	if err := json.Unmarshal(data, &d); err != nil {
-		return errtrace.Wrap(err)
+		*c = TimingConfig{}
+		return errors.Wrap(err)
 	}
+
 	c.t1 = d.T1
 	c.t2 = d.T2
 	c.t4 = d.T4
 	c.timeD = d.TimeD
 	c.time100 = d.Time100
+
 	return nil
 }

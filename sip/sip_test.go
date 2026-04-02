@@ -3,9 +3,9 @@ package sip_test
 import (
 	"testing"
 
-	"go.uber.org/goleak"
+	"github.com/ghettovoice/gosip/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	testutil.VerifyTestMain(m)
 }

@@ -29,9 +29,13 @@ func (p ProtoInfo) Format(f fmt.State, verb rune) {
 			return
 		}
 
-		type hideMethods ProtoInfo
-		type ProtoInfo hideMethods
+		type (
+			hideMethods ProtoInfo
+			ProtoInfo   hideMethods
+		)
+
 		fmt.Fprintf(f, fmt.FormatString(f, verb), ProtoInfo(p))
+
 		return
 	}
 }
@@ -45,10 +49,12 @@ func (p ProtoInfo) Equal(val any) bool {
 		if v == nil {
 			return false
 		}
+
 		other = *v
 	default:
 		return false
 	}
+
 	return util.EqFold(p.Name, other.Name) && util.EqFold(p.Version, other.Version)
 }
 

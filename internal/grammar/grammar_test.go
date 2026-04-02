@@ -126,9 +126,11 @@ func BenchmarkCleanTelNum(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
 			b.ResetTimer()
+
 			for b.Loop() {
 				switch in := c.in.(type) {
 				case string:
@@ -179,6 +181,7 @@ func BenchmarkParseRequest(b *testing.B) {
 		"Hello world!"
 
 	b.ResetTimer()
+
 	for b.Loop() {
 		if _, err := grammar.ParseRequest(str); err != nil {
 			b.Errorf("grammar.ParseRequest() error = %v, want nil", err)
@@ -213,6 +216,7 @@ func BenchmarkParseResponse(b *testing.B) {
 		"Hello world!"
 
 	b.ResetTimer()
+
 	for b.Loop() {
 		if _, err := grammar.ParseResponse(str); err != nil {
 			b.Errorf("grammar.ParseResponse() error = %v, want nil", err)

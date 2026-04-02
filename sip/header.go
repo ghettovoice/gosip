@@ -7,12 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"braces.dev/errtrace"
-
-	"github.com/ghettovoice/gosip/header"
-	"github.com/ghettovoice/gosip/internal/errorutil"
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/sip/header"
 )
 
 // Header represents a generic SIP header.
@@ -29,21 +27,7 @@ type HeaderParser = header.Parser
 
 // ParseHeader parses a generic SIP header.
 // See [header.Parse].
-func ParseHeader[T ~string | ~[]byte](s T) (Header, error) {
-	return errtrace.Wrap2(header.Parse(s))
-}
-
-// HeaderFromJSON parses a generic SIP header from JSON.
-// See [header.FromJSON].
-func HeaderFromJSON[T ~string | ~[]byte](b T) (Header, error) {
-	return errtrace.Wrap2(header.FromJSON(b))
-}
-
-// HeaderToJSON serializes a generic SIP header to JSON.
-// See [header.ToJSON].
-func HeaderToJSON(h Header) ([]byte, error) {
-	return errtrace.Wrap2(header.ToJSON(h))
-}
+func ParseHeader[T ~string | ~[]byte](s T) (Header, error) { return errors.Wrap2(header.Parse(s)) }
 
 // CanonicHeaderName returns a canonicalized header name.
 // See [header.CanonicName].
@@ -57,7 +41,7 @@ type Headers map[header.Name][]Header
 func (hdrs Headers) All() []Header { return sortHdrs(hdrs) }
 
 // Get returns all headers with the given name.
-func (hdrs Headers) Get(name HeaderName) []Header { return hdrs[name.ToCanonic()] }
+func (hdrs Headers) Get(name HeaderName) []Header { return hdrs[name.Canonic()] }
 
 // Set replaces all headers with the given name(s) with the provided header(s).
 func (hdrs Headers) Set(hdr Header, hds ...Header) Headers {
@@ -65,17 +49,20 @@ func (hdrs Headers) Set(hdr Header, hds ...Header) Headers {
 	for _, h := range hds {
 		hdrs[h.CanonicName()] = []Header{h}
 	}
+
 	return hdrs
 }
 
 // Append appends the given header(s) to the existing headers.
 func (hdrs Headers) Append(hdr Header, hds ...Header) Headers {
 	n := hdr.CanonicName()
+
 	hdrs[n] = append(hdrs[n], hdr)
 	for _, h := range hds {
 		n = h.CanonicName()
 		hdrs[n] = append(hdrs[n], h)
 	}
+
 	return hdrs
 }
 
@@ -89,11 +76,13 @@ func (hdrs Headers) AppendFrom(other Headers) Headers {
 // Prepend prepends the given header(s) to the existing headers.
 func (hdrs Headers) Prepend(hdr Header, hds ...Header) Headers {
 	n := hdr.CanonicName()
+
 	hdrs[n] = append([]Header{hdr}, hdrs[n]...)
 	for _, h := range hds {
 		n = h.CanonicName()
 		hdrs[n] = append([]Header{h}, hdrs[n]...)
 	}
+
 	return hdrs
 }
 
@@ -103,26 +92,31 @@ func (hdrs Headers) PrependFrom(other Headers) Headers {
 			hdrs.Prepend(hs[i])
 		}
 	}
+
 	return hdrs
 }
 
-// Del deletes all headers with the given name(s).
-func (hdrs Headers) Del(name HeaderName, names ...HeaderName) Headers {
-	delete(hdrs, name.ToCanonic())
+// Delete deletes all headers with the given name(s).
+func (hdrs Headers) Delete(name HeaderName, names ...HeaderName) Headers {
+	delete(hdrs, name.Canonic())
+
 	for _, n := range names {
-		delete(hdrs, n.ToCanonic())
+		delete(hdrs, n.Canonic())
 	}
+
 	return hdrs
 }
 
 // PopFirst removes and returns the first header with the given name.
 // It returns false if no such header exists.
 func (hdrs Headers) PopFirst(name HeaderName) (Header, bool) {
-	name = name.ToCanonic()
+	name = name.Canonic()
+
 	hs, ok := hdrs[name]
 	if !ok || len(hs) == 0 {
 		return nil, false
 	}
+
 	h := hs[0]
 	if len(hs[1:]) == 0 {
 		delete(hdrs, name)
@@ -131,17 +125,20 @@ func (hdrs Headers) PopFirst(name HeaderName) (Header, bool) {
 		clear(hs[len(hs)-1:])
 		hdrs[name] = hs[:len(hs)-1]
 	}
+
 	return h, true
 }
 
 // PopLast removes and returns the last header with the given name.
 // It returns false if no such header exists.
 func (hdrs Headers) PopLast(name HeaderName) (Header, bool) {
-	name = name.ToCanonic()
+	name = name.Canonic()
+
 	hs, ok := hdrs[name]
 	if !ok || len(hs) == 0 {
 		return nil, false
 	}
+
 	h := hs[len(hs)-1]
 	if len(hs[:len(hs)-1]) == 0 {
 		delete(hdrs, name)
@@ -149,12 +146,13 @@ func (hdrs Headers) PopLast(name HeaderName) (Header, bool) {
 		clear(hs[len(hs)-1:])
 		hdrs[name] = hs[:len(hs)-1]
 	}
+
 	return h, true
 }
 
 // Has returns whether there is at least one header with the given name.
 func (hdrs Headers) Has(name HeaderName) bool {
-	_, ok := hdrs[name.ToCanonic()]
+	_, ok := hdrs[name.Canonic()]
 	return ok
 }
 
@@ -171,41 +169,48 @@ func (hdrs Headers) Clone() Headers {
 		if hdrs2 == nil {
 			hdrs2 = make(Headers, len(hdrs))
 		}
+
 		hdrs2[n] = make([]Header, len(hs))
 		for i := range hs {
 			hdrs2[n][i] = types.Clone[Header](hs[i])
 		}
 	}
+
 	return hdrs2
 }
 
 // CopyFrom copies headers with the given name(s) from another Headers map.
 func (hdrs Headers) CopyFrom(other Headers, name HeaderName, names ...HeaderName) Headers {
 	copyHdrs(hdrs, other, name)
+
 	for _, n := range names {
 		copyHdrs(hdrs, other, n)
 	}
+
 	return hdrs
 }
 
 func (hdrs *Headers) UnmarshalJSON(data []byte) error {
 	var hdrsData map[string][]json.RawMessage
 	if err := json.Unmarshal(data, &hdrsData); err != nil {
-		return errtrace.Wrap(err)
+		return errors.Wrap(err)
 	}
 
 	for _, hds := range hdrsData {
 		for _, hd := range hds {
-			hdr, err := HeaderFromJSON(hd)
+			hdr, err := header.FromJSON(hd)
 			if err != nil {
-				return errtrace.Wrap(err)
+				return errors.Wrap(err)
 			}
+
 			if *hdrs == nil {
 				*hdrs = make(Headers)
 			}
+
 			hdrs.Append(hdr)
 		}
 	}
+
 	return nil
 }
 
@@ -334,38 +339,43 @@ func copyHdrs(dst, src Headers, name HeaderName) {
 
 func validateHdrs(hdrs Headers) error {
 	if len(hdrs) == 0 {
-		return errtrace.Wrap(newMissHdrErr(""))
+		return errors.Wrap(newMissHdrErr(""))
 	}
 
 	errs := make([]error, 0, len(hdrs))
 	for n, hs := range hdrs {
 		for i := range hs {
 			if hs[i] == nil || !hs[i].IsValid() {
-				errs = append(errs, errorutil.Errorf("invalid header %q", n))
+				errs = append(errs, errors.Errorf("invalid header %q", n))
 			}
 		}
 	}
-	return errtrace.Wrap(errorutil.JoinPrefix("invalid headers:", errs...))
+
+	return errors.JoinPrefixWrap("invalid headers:", errs...)
 }
 
 func compareHdrs(hdrs, other Headers) bool {
 	if len(hdrs) != len(other) {
 		return false
 	}
+
 	for k, hs1 := range hdrs {
 		if !other.Has(k) {
 			return false
 		}
+
 		hs2 := other.Get(k)
 		if len(hs1) != len(hs2) {
 			return false
 		}
+
 		for i := range hs1 {
 			if !types.IsEqual(hs1[i], hs2[i]) {
 				return false
 			}
 		}
 	}
+
 	return true
 }
 
@@ -405,20 +415,21 @@ var hdrsOrder = []HeaderName{
 	"Content-Length",
 }
 
-func renderHdrs(w io.Writer, hdrs Headers, opts *RenderOptions) (num int, err error) {
+func renderHdrs(w io.Writer, hdrs Headers, opts *RenderOptions) (int, error) {
 	if len(hdrs) == 0 {
 		return 0, nil
 	}
 
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
+
 	for _, h := range sortHdrs(hdrs) {
 		cw.Call(func(w io.Writer) (int, error) {
-			return errtrace.Wrap2(h.RenderTo(w, opts))
-		})
-		cw.Fprint("\r\n")
+			return errors.Wrap2(h.RenderTo(w, opts))
+		}).Fprint("\r\n")
 	}
-	return errtrace.Wrap2(cw.Result())
+
+	return errors.Wrap2(cw.Result())
 }
 
 func sortHdrs(hdrs Headers) []Header {
@@ -426,8 +437,10 @@ func sortHdrs(hdrs Headers) []Header {
 	for _, hs := range hdrs {
 		hds = append(hds, hs...)
 	}
+
 	slices.SortStableFunc(hds, func(h1, h2 Header) int {
 		n1, n2 := h1.CanonicName(), h2.CanonicName()
+
 		i1, i2 := slices.Index(hdrsOrder, n1), slices.Index(hdrsOrder, n2)
 		switch {
 		case i1 == -1 && i2 == -1:
@@ -440,6 +453,7 @@ func sortHdrs(hdrs Headers) []Header {
 			return i1 - i2
 		}
 	})
+
 	return hds
 }
 
@@ -449,7 +463,9 @@ func FirstHeader[H Header](hdrs Headers, name HeaderName) (hdr H, ok bool) {
 	if len(hs) == 0 {
 		return hdr, false
 	}
+
 	h, ok := hs[0].(H)
+
 	return h, ok
 }
 
@@ -459,10 +475,12 @@ func FirstHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E, ok bo
 	if !ok {
 		return nil, false
 	}
+
 	es, ok := hdr.(H)
 	if !ok || len(es) == 0 {
 		return nil, false
 	}
+
 	return &es[0], true
 }
 
@@ -472,7 +490,9 @@ func LastHeader[H Header](hdrs Headers, name HeaderName) (hdr H, ok bool) {
 	if len(hs) == 0 {
 		return hdr, false
 	}
+
 	h, ok := hs[len(hs)-1].(H)
+
 	return h, ok
 }
 
@@ -482,10 +502,12 @@ func LastHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E, ok boo
 	if !ok {
 		return nil, false
 	}
+
 	es, ok := hdr.(H)
 	if !ok || len(es) == 0 {
 		return nil, false
 	}
+
 	return &es[len(es)-1], true
 }
 
@@ -512,10 +534,12 @@ func PopFirstHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool)
 	if !ok {
 		return nil, false
 	}
+
 	es, ok := hdr.(H)
 	if !ok || len(es) == 0 {
 		return nil, false
 	}
+
 	el := es[0]
 	if len(es[1:]) == 0 {
 		hdrs.PopFirst(name)
@@ -524,6 +548,7 @@ func PopFirstHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool)
 		clear(es[len(es)-1:])
 		hdrs[name][0] = any(es[:len(es)-1]).(Header) //nolint:forcetypeassert
 	}
+
 	return &el, true
 }
 
@@ -534,10 +559,12 @@ func PopLastHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool) 
 	if !ok {
 		return nil, false
 	}
+
 	es, ok := hdr.(H)
 	if !ok || len(es) == 0 {
 		return nil, false
 	}
+
 	el := es[len(es)-1]
 	if len(es[:len(es)-1]) == 0 {
 		hdrs.PopLast(name)
@@ -545,5 +572,6 @@ func PopLastHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool) 
 		clear(es[len(es)-1:])
 		hdrs[name][len(hdrs[name])-1] = any(es[:len(es)-1]).(Header) //nolint:forcetypeassert
 	}
+
 	return &el, true
 }

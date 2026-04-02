@@ -106,7 +106,7 @@
 // # Network Addresses
 //
 // The [Addr] type (alias for [types.Addr]) represents host:port combinations with
-// optional port. Helper functions [Host] and [HostPort] construct addresses, and
+// optional port. Helper functions [AddrFromHost] and [AddrFromHostPort] construct addresses, and
 // [ParseAddr] parses them from strings.
 //
 // # Parameters and Headers

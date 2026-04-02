@@ -4,24 +4,35 @@ import (
 	"context"
 	"log/slog"
 
-	"braces.dev/errtrace"
-
-	"github.com/ghettovoice/gosip/header"
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/sip/header"
 )
 
 // Element setups basic inbound/outbound message pipeline and
 // provides common SIP element message processing.
 type Element struct {
-	noopMessageInterceptor
+	NoopMessageInterceptor
 	name string
+	tpm  *TransportManager
+	txm  *TransactionManager
 	log  *slog.Logger
 }
 
+// ElementOptions configures an [Element].
+// All fields are optional.
 type ElementOptions struct {
+	*TransactionManagerOptions
 	// Logger is the logger used by the element.
 	// If nil, the [log.Default] is used.
 	Logger *slog.Logger
+}
+
+func (o *ElementOptions) txmOpts() *TransactionManagerOptions {
+	if o == nil {
+		return nil
+	}
+	return o.TransactionManagerOptions
 }
 
 func (o *ElementOptions) log() *slog.Logger {
@@ -34,17 +45,43 @@ func (o *ElementOptions) log() *slog.Logger {
 // NewElement creates a new base SIP [Element].
 //
 // Name is the name of the element, used to add User-Agent/Server header where appropriate.
+// Transport is the default transport to use for the element.
 // Options are optional, default options are used if nil (see [ElementOptions]).
-func NewElement(name string, opts *ElementOptions) (*Element, error) {
+func NewElement(name string, tp Transport, opts *ElementOptions) (*Element, error) {
 	if name == "" {
-		return nil, errtrace.Wrap(NewInvalidArgumentError("invalid name"))
+		return nil, errors.NewInvalidArgumentErrorWrap("empty name")
+	}
+
+	if tp == nil {
+		return nil, errors.NewInvalidArgumentErrorWrap("nil transport")
+	}
+
+	tpm := new(TransportManager)
+	if err := tpm.TrackTransport(tp, true); err != nil {
+		_ = tpm.Close()
+		return nil, errors.Wrap(err)
+	}
+
+	var txm *TransactionManager
+	if txmOpts := opts.txmOpts(); txmOpts != nil {
+		if txmOpts.Logger == nil {
+			txmOpts.Logger = opts.log()
+		}
+
+		txm = NewTransactionManager(txmOpts)
 	}
 
 	elm := &Element{
 		name: name,
+		tpm:  tpm,
+		txm:  txm,
 		log:  opts.log(),
 	}
-	elm.log = elm.log.With("element", elm)
+	elm.log = elm.log.With(slog.Any("element", elm))
+
+	tpm.UseInterceptor(txm)
+	tpm.UseInterceptor(elm)
+
 	return elm, nil
 }
 
@@ -64,11 +101,27 @@ func (elm *Element) Logger() *slog.Logger {
 
 func (elm *Element) LogValue() slog.Value {
 	if elm == nil {
-		return zeroSlogValue
+		return slog.Value{}
 	}
+
 	return slog.GroupValue(
 		slog.Any("name", elm.name),
+		slog.Any("default_transport", elm.tpm.GetDefaultTransport()),
 	)
+}
+
+func (elm *Element) TransportManager() *TransportManager {
+	if elm == nil {
+		return nil
+	}
+	return elm.tpm
+}
+
+func (elm *Element) TransactionManager() *TransactionManager {
+	if elm == nil {
+		return nil
+	}
+	return elm.txm
 }
 
 func (elm *Element) OutboundRequestInterceptor() OutboundRequestInterceptor {
@@ -91,7 +144,8 @@ func (elm *Element) interceptOutboundRequest(
 			r.Headers.Append(header.UserAgent(elm.name))
 		}
 	})
-	return errtrace.Wrap(next.SendRequest(ctx, req, opts))
+
+	return errors.Wrap(next.SendRequest(ctx, req, opts))
 }
 
 func (elm *Element) OutboundResponseInterceptor() OutboundResponseInterceptor {
@@ -114,5 +168,49 @@ func (elm *Element) interceptOutboundResponse(
 			r.Headers.Append(header.Server(elm.name))
 		}
 	})
-	return errtrace.Wrap(next.SendResponse(ctx, res, opts))
+
+	return errors.Wrap(next.SendResponse(ctx, res, opts))
+}
+
+func (elm *Element) Close() error {
+	if elm == nil {
+		return nil
+	}
+
+	return errors.JoinWrap(
+		elm.txm.Close(),
+		elm.tpm.Close(),
+	)
+}
+
+func (elm *Element) SendRequest(
+	ctx context.Context,
+	req *OutboundRequestEnvelope,
+	opts *SendRequestOptions,
+) error {
+	return elm.tpm.SendRequest(ctx, req, opts)
+}
+
+func (elm *Element) SendResponse(
+	ctx context.Context,
+	res *OutboundResponseEnvelope,
+	opts *SendResponseOptions,
+) error {
+	return elm.tpm.SendResponse(ctx, res, opts)
+}
+
+func (*Element) RequestStateful(
+	ctx context.Context,
+	req *OutboundRequestEnvelope,
+	opts *ClientTransactionOptions,
+) (ClientTransaction, error) {
+	panic("not implemented")
+}
+
+func (*Element) RespondStateful(
+	ctx context.Context,
+	res *OutboundResponseEnvelope,
+	opts *ServerTransactionOptions,
+) error {
+	panic("not implemented")
 }

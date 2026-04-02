@@ -1,7 +1,7 @@
 PKG=...
 
 test:
-	go test -race -vet=all -covermode=atomic -coverprofile=cover.out ./$(PKG)
+	GOEXPERIMENT=goroutineleakprofile go test -race -vet=all -timeout=30s -covermode=atomic -coverprofile=cover.out ./$(PKG)
 
 test-linux:
 	docker run -it --rm \
@@ -10,13 +10,21 @@ test-linux:
 			-w /go/src/github.com/ghettovoice/gosip \
 			golang:latest \
 			go version && \
-			make setup && make test
+			make test
+
+lint:
+	golangci-lint run ./...
+
+vuln:
+	govulncheck ./...
+
+check: test lint vuln
 
 cov:
 	go tool cover -html=./cover.out
 
 docs:
-	go tool doc -http
+	go doc -http
 
 gen:
 	go generate ./...

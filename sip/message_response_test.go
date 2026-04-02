@@ -2,14 +2,15 @@ package sip_test
 
 import (
 	"encoding/json"
+	"net/netip"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	"github.com/ghettovoice/gosip/header"
 	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/uri"
 )
 
@@ -34,13 +35,13 @@ func TestResponse_Render(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("a.example.com"),
+							Addr:      header.AddrFromHost("a.example.com"),
 							Params:    make(header.Values).Append("branch", "qwerty"),
 						},
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("b.example.com"),
+							Addr:      header.AddrFromHost("b.example.com"),
 							Params:    make(header.Values).Append("branch", "asdf"),
 						},
 					}).
@@ -48,21 +49,21 @@ func TestResponse_Render(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("c.example.com"),
+							Addr:      header.AddrFromHost("c.example.com"),
 							Params:    make(header.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &uri.SIP{
 							User: uri.User("alice"),
-							Addr: uri.Host("a.example.com"),
+							Addr: uri.AddrFromHost("a.example.com"),
 						},
 						Params: make(header.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &uri.SIP{
 							User: uri.User("bob"),
-							Addr: uri.Host("b.example.com"),
+							Addr: uri.AddrFromHost("b.example.com"),
 						},
 						Params: make(header.Values).Append("tag", "def"),
 					}).
@@ -74,7 +75,7 @@ func TestResponse_Render(t *testing.T) {
 						{
 							URI: &uri.SIP{
 								User: uri.User("bob"),
-								Addr: uri.HostPort("b.example.com", 5060),
+								Addr: uri.AddrFromHostPort("b.example.com", 5060),
 							},
 						},
 					}).
@@ -150,6 +151,7 @@ func TestResponse_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
+
 			_, err := c.res.RenderTo(&sb, nil)
 			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("res.RenderTo(sb, nil) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
@@ -256,7 +258,7 @@ func TestResponse_Equal(t *testing.T) {
 					Set(&header.From{
 						URI: &uri.SIP{
 							User: uri.User("alice"),
-							Addr: uri.Host("example.com"),
+							Addr: uri.AddrFromHost("example.com"),
 						},
 						Params: make(header.Values).Append("tag", "abc"),
 					}),
@@ -269,7 +271,7 @@ func TestResponse_Equal(t *testing.T) {
 					Set(&header.From{
 						URI: &uri.SIP{
 							User: uri.User("bob"),
-							Addr: uri.Host("localhost"),
+							Addr: uri.AddrFromHost("localhost"),
 						},
 						Params: make(header.Values).Append("tag", "abc"),
 					}),
@@ -303,21 +305,21 @@ func TestResponse_Equal(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("c.example.com"),
+							Addr:      header.AddrFromHost("c.example.com"),
 							Params:    make(header.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &uri.SIP{
 							User: uri.User("alice"),
-							Addr: uri.Host("a.example.com"),
+							Addr: uri.AddrFromHost("a.example.com"),
 						},
 						Params: make(header.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &uri.SIP{
 							User: uri.User("bob"),
-							Addr: uri.Host("b.example.com"),
+							Addr: uri.AddrFromHost("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
@@ -333,21 +335,21 @@ func TestResponse_Equal(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("c.example.com"),
+							Addr:      header.AddrFromHost("c.example.com"),
 							Params:    make(header.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &uri.SIP{
 							User: uri.User("alice"),
-							Addr: uri.Host("a.example.com"),
+							Addr: uri.AddrFromHost("a.example.com"),
 						},
 						Params: make(header.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &uri.SIP{
 							User: uri.User("bob"),
-							Addr: uri.Host("b.example.com"),
+							Addr: uri.AddrFromHost("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
@@ -392,21 +394,21 @@ func TestResponse_IsValid(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("c.example.com"),
+							Addr:      header.AddrFromHost("c.example.com"),
 							Params:    make(header.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &uri.SIP{
 							User: uri.User("alice"),
-							Addr: uri.Host("a.example.com"),
+							Addr: uri.AddrFromHost("a.example.com"),
 						},
 						Params: make(header.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &uri.SIP{
 							User: uri.User("bob"),
-							Addr: uri.Host("b.example.com"),
+							Addr: uri.AddrFromHost("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
@@ -448,21 +450,21 @@ func TestResponse_Clone(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      header.Host("c.example.com"),
+							Addr:      header.AddrFromHost("c.example.com"),
 							Params:    make(header.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &uri.SIP{
 							User: uri.User("alice"),
-							Addr: uri.Host("a.example.com"),
+							Addr: uri.AddrFromHost("a.example.com"),
 						},
 						Params: make(header.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &uri.SIP{
 							User: uri.User("bob"),
-							Addr: uri.Host("b.example.com"),
+							Addr: uri.AddrFromHost("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
@@ -484,6 +486,7 @@ func TestResponse_Clone(t *testing.T) {
 				}
 				return
 			}
+
 			if diff := cmp.Diff(got, c.res); diff != "" {
 				t.Errorf("res.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.res, diff)
 			}
@@ -507,7 +510,7 @@ func TestResponse_RoundTripJSON(t *testing.T) {
 			res:  &sip.Response{},
 		},
 		{
-			name: "with_headers_body_metadata",
+			name: "with headers body metadata",
 			res: &sip.Response{
 				Status: sip.ResponseStatusOK,
 				Reason: sip.ResponseReason("OK"),
@@ -518,21 +521,21 @@ func TestResponse_RoundTripJSON(t *testing.T) {
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      header.Host("proxy.example.com"),
+								Addr:      header.AddrFromHost("proxy.example.com"),
 								Params:    make(header.Values).Set("branch", "z9hG4bK-9876"),
 							},
 						},
 						&header.From{
 							URI: &uri.SIP{
 								User: uri.User("alice"),
-								Addr: uri.Host("example.com"),
+								Addr: uri.AddrFromHost("example.com"),
 							},
 							Params: make(header.Values).Set("tag", "abc"),
 						},
 						&header.To{
 							URI: &uri.SIP{
 								User: uri.User("bob"),
-								Addr: uri.Host("example.net"),
+								Addr: uri.AddrFromHost("example.net"),
 							},
 						},
 						&header.CSeq{SeqNum: 21, Method: sip.RequestMethodInvite},
@@ -569,6 +572,287 @@ func TestResponse_RoundTripJSON(t *testing.T) {
 
 			if diff := cmp.Diff(&got, want); diff != "" {
 				t.Errorf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, want, diff)
+			}
+		})
+	}
+}
+
+func TestInboundResponseEnvelope_RoundTripJSON(t *testing.T) {
+	t.Parallel()
+
+	newEnvelope := func(tb testing.TB) *sip.InboundResponseEnvelope {
+		tb.Helper()
+
+		res := &sip.Response{
+			Status: sip.ResponseStatusOK,
+			Reason: sip.ResponseReason("OK"),
+			Proto:  sip.ProtoVer20(),
+			Headers: make(sip.Headers).
+				Set(
+					header.Via{{
+						Proto:     sip.ProtoVer20(),
+						Transport: "UDP",
+						Addr:      header.AddrFromHost("proxy.example.com"),
+						Params:    make(header.Values).Set("branch", "z9hG4bK-res-1"),
+					}},
+					&header.From{
+						URI: &uri.SIP{
+							User: uri.User("alice"),
+							Addr: uri.AddrFromHost("example.com"),
+						},
+						Params: make(header.Values).Set("tag", "from-tag"),
+					},
+					&header.To{
+						URI: &uri.SIP{
+							User: uri.User("bob"),
+							Addr: uri.AddrFromHost("example.net"),
+						},
+						Params: make(header.Values).Set("tag", "to-tag"),
+					},
+					&header.CSeq{SeqNum: 9, Method: sip.RequestMethodInvite},
+					header.CallID("call-9"),
+				).
+				Append(header.ContentLength(5)),
+			Body: []byte("reply"),
+		}
+
+		env, err := sip.NewInboundResponseEnvelope(
+			res,
+			sip.TransportProto("UDP"),
+			netip.MustParseAddrPort("192.0.2.30:5060"),
+			netip.MustParseAddrPort("198.51.100.40:5090"),
+		)
+		if err != nil {
+			tb.Fatalf("sip.NewInboundResponseEnvelope(res, ...) error = %v, want nil", err)
+		}
+
+		env.Metadata().Set("trace_id", "inbound-res").Set("validated", true)
+
+		return env
+	}
+
+	cases := []struct {
+		name string
+		env  *sip.InboundResponseEnvelope
+	}{
+		{"nil", nil},
+		{"full", newEnvelope(t)},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := json.Marshal(c.env)
+			if err != nil {
+				t.Fatalf("json.Marshal(env) error = %v, want nil", err)
+			}
+
+			var got *sip.InboundResponseEnvelope
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
+			}
+
+			if c.env == nil {
+				if got != nil {
+					t.Errorf("json.Unmarshal(null, got) = %+v, want nil", got)
+				}
+				return
+			}
+
+			if got == nil {
+				t.Fatal("json.Unmarshal(data, got) = nil, want non-nil")
+			}
+
+			if diff := cmp.Diff(got.Message(), c.env.Message()); diff != "" {
+				t.Errorf("got.Message() = %+v, want %+v\ndiff (-got +want):\n%s", got.Message(), c.env.Message(), diff)
+			}
+
+			if diff := cmp.Diff(got.Transport(), c.env.Transport()); diff != "" {
+				t.Errorf("got.Transport() = %q, want %q\ndiff (-got +want):\n%s", got.Transport(), c.env.Transport(), diff)
+			}
+
+			if got.LocalAddr() != c.env.LocalAddr() {
+				t.Errorf("got.LocalAddr() = %v, want %v", got.LocalAddr(), c.env.LocalAddr())
+			}
+
+			if got.RemoteAddr() != c.env.RemoteAddr() {
+				t.Errorf("got.RemoteAddr() = %v, want %v", got.RemoteAddr(), c.env.RemoteAddr())
+			}
+
+			if !got.MessageTime().Equal(c.env.MessageTime()) {
+				t.Errorf("got.MessageTime() = %v, want %v", got.MessageTime(), c.env.MessageTime())
+			}
+
+			gotMeta := got.Metadata()
+
+			wantMeta := c.env.Metadata()
+			if gotMeta == nil || wantMeta == nil {
+				t.Fatalf("got.Metadata() = %v, want non-nil and want.Metadata() = %v", gotMeta, wantMeta)
+			}
+
+			for _, key := range []string{"trace_id", "validated"} {
+				gotVal, gotOK := gotMeta.Get(key)
+
+				wantVal, wantOK := wantMeta.Get(key)
+				if diff := cmp.Diff(gotOK, wantOK); diff != "" {
+					t.Errorf("got.Metadata().Get(%q) ok = %v, want %v\ndiff (-got +want):\n%s", key, gotOK, wantOK, diff)
+				}
+
+				if diff := cmp.Diff(gotVal, wantVal); diff != "" {
+					t.Errorf("got.Metadata().Get(%q) = %+v, want %+v\ndiff (-got +want):\n%s", key, gotVal, wantVal, diff)
+				}
+			}
+
+			roundData, err := json.Marshal(got)
+			if err != nil {
+				t.Fatalf("json.Marshal(got) error = %v, want nil", err)
+			}
+
+			if diff := cmp.Diff(string(roundData), string(data)); diff != "" {
+				t.Errorf("round-trip data mismatch: got = %s, want %s\ndiff (-got +want):\n%s", roundData, data, diff)
+			}
+		})
+	}
+}
+
+func TestOutboundResponseEnvelope_RoundTripJSON(t *testing.T) {
+	t.Parallel()
+
+	newEnvelope := func(tb testing.TB) *sip.OutboundResponseEnvelope {
+		tb.Helper()
+
+		res := &sip.Response{
+			Status: sip.ResponseStatusAccepted,
+			Reason: sip.ResponseReason("Accepted"),
+			Proto:  sip.ProtoVer20(),
+			Headers: make(sip.Headers).
+				Set(
+					header.Via{{
+						Proto:     sip.ProtoVer20(),
+						Transport: "TCP",
+						Addr:      header.AddrFromHost("proxy.example.com"),
+						Params:    make(header.Values).Set("branch", "z9hG4bK-res-2"),
+					}},
+					&header.From{
+						URI: &uri.SIP{
+							User: uri.User("alice"),
+							Addr: uri.AddrFromHost("example.com"),
+						},
+						Params: make(header.Values).Set("tag", "from-tag"),
+					},
+					&header.To{
+						URI: &uri.SIP{
+							User: uri.User("bob"),
+							Addr: uri.AddrFromHost("example.net"),
+						},
+						Params: make(header.Values).Set("tag", "to-tag"),
+					},
+					&header.CSeq{SeqNum: 10, Method: sip.RequestMethodInvite},
+					header.CallID("call-10"),
+				).
+				Append(header.ContentLength(0)),
+		}
+
+		env, err := sip.NewOutboundResponseEnvelope(res)
+		if err != nil {
+			tb.Fatalf("sip.NewOutboundResponseEnvelope(res) error = %v, want nil", err)
+		}
+
+		env.SetTransport(sip.TransportProto("TLS"))
+		env.SetLocalAddr(netip.MustParseAddrPort("203.0.113.30:5071"))
+		env.SetRemoteAddr(netip.MustParseAddrPort("203.0.113.40:5081"))
+		env.Metadata().Set("trace_id", "outbound-res").Set("retry", false)
+
+		return env
+	}
+
+	cases := []struct {
+		name string
+		env  *sip.OutboundResponseEnvelope
+	}{
+		{"nil", nil},
+		{"full", newEnvelope(t)},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := json.Marshal(c.env)
+			if err != nil {
+				t.Fatalf("json.Marshal(env) error = %v, want nil", err)
+			}
+
+			if c.env == nil {
+				var got *sip.OutboundResponseEnvelope
+				if err := json.Unmarshal(data, &got); err != nil {
+					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
+				}
+
+				if got != nil {
+					t.Errorf("json.Unmarshal(null, got) = %+v, want nil", got)
+				}
+
+				return
+			}
+
+			got, err := sip.NewOutboundResponseEnvelope(&sip.Response{})
+			if err != nil {
+				t.Fatalf("sip.NewOutboundResponseEnvelope(&sip.Response{}) error = %v, want nil", err)
+			}
+
+			if err := json.Unmarshal(data, got); err != nil {
+				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
+			}
+
+			if diff := cmp.Diff(got.Message(), c.env.Message()); diff != "" {
+				t.Errorf("got.Message() = %+v, want %+v\ndiff (-got +want):\n%s", got.Message(), c.env.Message(), diff)
+			}
+
+			if diff := cmp.Diff(got.Transport(), c.env.Transport()); diff != "" {
+				t.Errorf("got.Transport() = %q, want %q\ndiff (-got +want):\n%s", got.Transport(), c.env.Transport(), diff)
+			}
+
+			if got.LocalAddr() != c.env.LocalAddr() {
+				t.Errorf("got.LocalAddr() = %v, want %v", got.LocalAddr(), c.env.LocalAddr())
+			}
+
+			if got.RemoteAddr() != c.env.RemoteAddr() {
+				t.Errorf("got.RemoteAddr() = %v, want %v", got.RemoteAddr(), c.env.RemoteAddr())
+			}
+
+			if !got.MessageTime().Equal(c.env.MessageTime()) {
+				t.Errorf("got.MessageTime() = %v, want %v", got.MessageTime(), c.env.MessageTime())
+			}
+
+			gotMeta := got.Metadata()
+
+			wantMeta := c.env.Metadata()
+			if gotMeta == nil || wantMeta == nil {
+				t.Fatalf("got.Metadata() = %v, want non-nil and want.Metadata() = %v", gotMeta, wantMeta)
+			}
+
+			for _, key := range []string{"trace_id", "retry"} {
+				gotVal, gotOK := gotMeta.Get(key)
+
+				wantVal, wantOK := wantMeta.Get(key)
+				if diff := cmp.Diff(gotOK, wantOK); diff != "" {
+					t.Errorf("got.Metadata().Get(%q) ok = %v, want %v\ndiff (-got +want):\n%s", key, gotOK, wantOK, diff)
+				}
+
+				if diff := cmp.Diff(gotVal, wantVal); diff != "" {
+					t.Errorf("got.Metadata().Get(%q) = %+v, want %+v\ndiff (-got +want):\n%s", key, gotVal, wantVal, diff)
+				}
+			}
+
+			roundData, err := json.Marshal(got)
+			if err != nil {
+				t.Fatalf("json.Marshal(got) error = %v, want nil", err)
+			}
+
+			if diff := cmp.Diff(string(roundData), string(data)); diff != "" {
+				t.Errorf("round-trip data mismatch: got = %s, want %s\ndiff (-got +want):\n%s", roundData, data, diff)
 			}
 		})
 	}

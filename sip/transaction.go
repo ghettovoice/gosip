@@ -6,10 +6,17 @@ import (
 	"reflect"
 	"sync/atomic"
 
-	"braces.dev/errtrace"
 	"github.com/qmuntal/stateless"
 
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/types"
+)
+
+// Transaction errors.
+const (
+	ErrTransactionNotFound      errors.Error = "transaction not found"
+	ErrTransactionTimedOut      errors.Error = "transaction timed out"
+	ErrTransactionManagerClosed errors.Error = "transaction manager closed"
 )
 
 type TransactionState string
@@ -57,6 +64,9 @@ type Transaction interface {
 const transactCtxKey types.ContextKey = "transaction"
 
 func ContextWithTransaction(ctx context.Context, tx Transaction) context.Context {
+	if t, ok := TransactionFromContext(ctx); ok && t == tx {
+		return ctx
+	}
 	return context.WithValue(ctx, transactCtxKey, tx)
 }
 
@@ -73,10 +83,10 @@ type baseTransact struct {
 	log   *slog.Logger
 
 	onStateChanged types.CallbackManager[TransactionStateHandler]
-	pendingStates  types.Deque[pendingState]
+	pendingStates  types.Queue[pendingState]
 
 	onErr       types.CallbackManager[ErrorHandler]
-	pendingErrs types.Deque[pendingError]
+	pendingErrs types.Queue[pendingError]
 }
 
 type transactImpl Transaction
@@ -133,13 +143,19 @@ func (tx *baseTransact) deliverPendingStates() {
 
 	for fn := range tx.onStateChanged.All() {
 		for _, e := range states {
-			fn(e.ctx, e.transition.Source.(TransactionState), e.transition.Destination.(TransactionState)) //nolint:forcetypeassert
+			//nolint:forcetypeassert
+			fn(
+				e.ctx,
+				e.transition.Source.(TransactionState),
+				e.transition.Destination.(TransactionState),
+			)
 		}
 	}
 }
 
 func (tx *baseTransact) passStateTransition(ctx context.Context, tr stateless.Transition) {
-	tx.pendingStates.Append(pendingState{ctx, tr})
+	tx.pendingStates.Push(pendingState{ctx, tr})
+
 	if tx.onStateChanged.Len() > 0 {
 		tx.deliverPendingStates()
 	}
@@ -163,13 +179,14 @@ func (tx *baseTransact) deliverPendingErrs() {
 
 	for fn := range tx.onErr.All() {
 		for _, e := range errs {
-			fn(e.ctx, errtrace.Wrap(e.err))
+			fn(e.ctx, errors.Wrap(e.err))
 		}
 	}
 }
 
 func (tx *baseTransact) passErr(ctx context.Context, err error) {
-	tx.pendingErrs.Append(pendingError{ctx, errtrace.Wrap(err)})
+	tx.pendingErrs.Push(pendingError{ctx, errors.Wrap(err)})
+
 	if tx.onErr.Len() > 0 {
 		tx.deliverPendingErrs()
 	}
@@ -197,8 +214,7 @@ func (tx *baseTransact) initFSM(start TransactionState) error {
 	tx.fsm.SetTriggerParameters(txEvtTranspErr, reflect.TypeFor[error]())
 
 	tx.fsm.OnTransitioned(func(ctx context.Context, transition stateless.Transition) {
-		tx.log.LogAttrs(ctx, slog.LevelDebug,
-			"transaction state changed",
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction state changed",
 			slog.Any("transaction", tx.impl),
 			slog.Any("from", transition.Source),
 			slog.Any("to", transition.Destination),
@@ -208,7 +224,7 @@ func (tx *baseTransact) initFSM(start TransactionState) error {
 	})
 
 	tx.fsm.OnUnhandledTrigger(func(context.Context, stateless.State, stateless.Trigger, []string) error {
-		return errtrace.Wrap(ErrActionNotAllowed)
+		return errors.Wrap(ErrActionNotAllowed)
 	})
 
 	return nil
@@ -219,20 +235,20 @@ func (*baseTransact) actNoop(context.Context, ...any) error { return nil }
 func (tx *baseTransact) actTranspErr(ctx context.Context, args ...any) error {
 	err := args[0].(error) //nolint:forcetypeassert
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug,
-		"transport error occurred",
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "transport error occurred",
 		slog.Any("transaction", tx.impl),
 		slog.Any("error", err),
 	)
 
-	tx.passErr(ctx, errtrace.Wrap(err))
+	tx.passErr(ctx, errors.Wrap(err))
+
 	return nil
 }
 
 func (tx *baseTransact) actTimedOut(ctx context.Context, _ ...any) error {
 	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction timed out", slog.Any("transaction", tx.impl))
 
-	tx.passErr(ctx, errtrace.Wrap(ErrTransactionTimedOut))
+	tx.passErr(ctx, errors.Wrap(ErrTransactionTimedOut))
 	return nil
 }
 
@@ -249,38 +265,5 @@ func (tx *baseTransact) Terminate(ctx context.Context) error {
 	if tx.State() == TransactionStateTerminated {
 		return nil
 	}
-	return errtrace.Wrap(tx.fsm.FireCtx(ContextWithTransaction(ctx, tx.impl), txEvtTerminate))
-}
-
-func SendRequestStateful(
-	ctx context.Context,
-	req *OutboundRequestEnvelope,
-	txf ClientTransactionFactory,
-	opts *SendRequestOptions,
-) (ClientTransaction, error) {
-	// TODO: implement
-	panic("not implemented")
-}
-
-func RespondStateful(
-	ctx context.Context,
-	txf ServerTransactionFactory,
-	tp ServerTransport,
-	req *InboundRequestEnvelope,
-	sts ResponseStatus,
-	opts *RespondOptions,
-) (ServerTransaction, error) {
-	// TODO: review this later
-	res, err := req.NewResponse(sts, opts.resOpts())
-	if err != nil {
-		return nil, errtrace.Wrap(err)
-	}
-	tx, err := txf.NewServerTransaction(ctx, req, tp, nil)
-	if err != nil {
-		return nil, errtrace.Wrap(err)
-	}
-	if err := tx.SendResponse(ctx, res, opts.sendOpts()); err != nil {
-		return nil, errtrace.Wrap(err)
-	}
-	return tx, nil
+	return errors.Wrap(tx.fsm.FireCtx(ContextWithTransaction(ctx, tx.impl), txEvtTerminate))
 }
