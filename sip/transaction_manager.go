@@ -67,7 +67,7 @@ func (o *TransactionManagerOptions) clnTxStore() ClientTransactionStore {
 
 func (o *TransactionManagerOptions) staleTxTimeout() time.Duration {
 	if o == nil || o.StaleTransactionTimeout == 0 {
-		return 5 * time.Minute
+		return defStaleTransactTimeout
 	}
 	return o.StaleTransactionTimeout
 }
@@ -112,40 +112,72 @@ func NewTransactionManager(opts *TransactionManagerOptions) *TransactionManager 
 	}
 }
 
+var defSrvTransactStore = NewMemoryServerTransactionStore()
+
+func (txm *TransactionManager) getSrvTxsStore() ServerTransactionStore {
+	if txm == nil || txm.srvTxsStore == nil {
+		return defSrvTransactStore
+	}
+	return txm.srvTxsStore
+}
+
+func (txm *TransactionManager) getSrvTxFactory() ServerTransactionFactory {
+	if txm == nil || txm.srvTxFactory == nil {
+		return ServerTransactionFactoryFunc(NewServerTransaction)
+	}
+	return txm.srvTxFactory
+}
+
+var defClnTransactStore = NewMemoryClientTransactionStore()
+
+func (txm *TransactionManager) getClnTxsStore() ClientTransactionStore {
+	if txm == nil || txm.clnTxsStore == nil {
+		return defClnTransactStore
+	}
+	return txm.clnTxsStore
+}
+
+func (txm *TransactionManager) getClnTxFactory() ClientTransactionFactory {
+	if txm == nil || txm.clnTxFactory == nil {
+		return ClientTransactionFactoryFunc(NewClientTransaction)
+	}
+	return txm.clnTxFactory
+}
+
+var defStaleTransactTimeout = 5 * time.Minute
+
+func (txm *TransactionManager) getStaleTxTimeout() time.Duration {
+	if txm == nil || txm.staleTxTimeout == 0 {
+		return defStaleTransactTimeout
+	}
+	return txm.staleTxTimeout
+}
+
+func (txm *TransactionManager) getLog() *slog.Logger {
+	if txm == nil || txm.log == nil {
+		return log.Default()
+	}
+	return txm.log
+}
+
 // InboundRequestInterceptor returns an interceptor for inbound requests.
 func (txm *TransactionManager) InboundRequestInterceptor() InboundRequestInterceptor {
 	return InboundRequestInterceptorFunc(txm.interceptInboundRequest)
 }
 
-func (txm *TransactionManager) interceptInboundRequest(
-	ctx context.Context,
-	req *InboundRequestEnvelope,
-	next RequestReceiver,
-) error {
-	tx, err := txm.srvTxsStore.MatchMessage(ctx, req)
+func (txm *TransactionManager) interceptInboundRequest(ctx context.Context, req *InboundRequestEnvelope, next RequestReceiver) error {
+	tx, err := txm.getSrvTxsStore().MatchMessage(ctx, req)
 	if err != nil {
 		if errors.Is(err, ErrInvalidArgument) {
-			return errors.Wrap(newRejectReqErr(
-				err,
-				ResponseStatusBadRequest,
-				slog.LevelDebug,
-			))
+			return errors.Wrap(newRejectReqErr(err, ResponseStatusBadRequest, slog.LevelDebug))
 		}
 
 		if !errors.Is(err, ErrTransactionNotFound) {
-			return errors.Wrap(newRejectReqErr(
-				err,
-				ResponseStatusServerInternalError,
-				slog.LevelWarn,
-			))
+			return errors.Wrap(newRejectReqErr(err, ResponseStatusServerInternalError, slog.LevelWarn))
 		}
 
 		if txm.closing.Load() {
-			return errors.Wrap(newRejectReqErr(
-				ErrTransactionManagerClosed,
-				ResponseStatusServiceUnavailable,
-				slog.LevelDebug,
-			))
+			return errors.Wrap(newRejectReqErr(ErrTransactionManagerClosed, ResponseStatusServiceUnavailable, slog.LevelDebug))
 		}
 
 		return errors.Wrap(next.RecvRequest(ctx, req))
@@ -153,18 +185,10 @@ func (txm *TransactionManager) interceptInboundRequest(
 
 	if err := tx.RecvRequest(ctx, req); err != nil {
 		if errors.Is(err, ErrMessageNotMatched) {
-			return errors.Wrap(newRejectReqErr(
-				err,
-				ResponseStatusCallTransactionDoesNotExist,
-				slog.LevelDebug,
-			))
+			return errors.Wrap(newRejectReqErr(err, ResponseStatusCallTransactionDoesNotExist, slog.LevelDebug))
 		}
 
-		return errors.Wrap(newRejectReqErr(
-			err,
-			ResponseStatusServerInternalError,
-			slog.LevelWarn,
-		))
+		return errors.Wrap(newRejectReqErr(err, ResponseStatusServerInternalError, slog.LevelWarn))
 	}
 
 	return nil
@@ -175,12 +199,8 @@ func (txm *TransactionManager) InboundResponseInterceptor() InboundResponseInter
 	return InboundResponseInterceptorFunc(txm.interceptInboundResponse)
 }
 
-func (txm *TransactionManager) interceptInboundResponse(
-	ctx context.Context,
-	res *InboundResponseEnvelope,
-	next ResponseReceiver,
-) error {
-	tx, err := txm.clnTxsStore.MatchMessage(ctx, res)
+func (txm *TransactionManager) interceptInboundResponse(ctx context.Context, res *InboundResponseEnvelope, next ResponseReceiver) error {
+	tx, err := txm.getClnTxsStore().MatchMessage(ctx, res)
 	if err != nil {
 		if errors.Is(err, ErrInvalidArgument) {
 			return errors.Wrap(newRejectResErr(err, slog.LevelDebug))
@@ -215,18 +235,17 @@ func (txm *TransactionManager) Close() error {
 	txm.closeOnce.Do(func() {
 		txm.closing.Store(true)
 		txm.closeErr = txm.close(context.TODO())
+		txm.closed.Store(true)
+
+		txm.getLog().Debug("transaction manager closed")
 	})
 
 	return errors.Wrap(txm.closeErr)
 }
 
 func (txm *TransactionManager) close(ctx context.Context) error {
-	if txm.closed.Load() {
-		return nil
-	}
-
 	var errs []error
-	if txs, err := txm.clnTxsStore.All(ctx); err == nil {
+	if txs, err := txm.getClnTxsStore().All(ctx); err == nil {
 		for tx := range txs {
 			if err := tx.Terminate(ctx); err != nil {
 				errs = append(errs, errors.Errorf("terminate client transaction %q: %w", tx.Key(), err))
@@ -236,7 +255,7 @@ func (txm *TransactionManager) close(ctx context.Context) error {
 		errs = append(errs, errors.Errorf("load client transactions: %w", err))
 	}
 
-	if txs, err := txm.srvTxsStore.All(ctx); err == nil {
+	if txs, err := txm.getSrvTxsStore().All(ctx); err == nil {
 		for tx := range txs {
 			if err := tx.Terminate(ctx); err != nil {
 				errs = append(errs, errors.Errorf("terminate server transaction %q: %w", tx.Key(), err))
@@ -246,13 +265,11 @@ func (txm *TransactionManager) close(ctx context.Context) error {
 		errs = append(errs, errors.Errorf("load server transactions: %w", err))
 	}
 
-	txm.closed.Store(true)
-
 	if len(errs) == 0 {
 		return nil
 	}
 
-	return errors.JoinPrefixWrap("failed to close transaction manager:", errs...)
+	return errors.JoinPrefixWrap("transaction manager close errors:", errs...)
 }
 
 func (txm *TransactionManager) NewClientTransaction(
@@ -265,12 +282,12 @@ func (txm *TransactionManager) NewClientTransaction(
 		return nil, errors.Wrap(ErrTransactionManagerClosed)
 	}
 
-	tx, err := txm.clnTxFactory.NewClientTransaction(ctx, req, tp, opts)
+	tx, err := txm.getClnTxFactory().NewClientTransaction(ctx, req, tp, opts)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
-	if err = txm.clnTxsStore.Store(ctx, tx); err != nil {
+	if err = txm.getClnTxsStore().Store(ctx, tx); err != nil {
 		tx.Terminate(ctx) //nolint:errcheck
 		return nil, errors.Wrap(err)
 	}
@@ -288,9 +305,9 @@ func (txm *TransactionManager) clnTxStateHdlr(tx ClientTransaction) TransactionS
 	var staleTmr *time.Timer
 
 	return func(ctx context.Context, _, to TransactionState) {
-		if tx.Type() == TransactionTypeClientInvite && txm.staleTxTimeout > 0 {
+		if tx.Type() == TransactionTypeClientInvite && txm.getStaleTxTimeout() > 0 {
 			if to == TransactionStateProceeding {
-				staleTmr = time.AfterFunc(txm.staleTxTimeout, func() {
+				staleTmr = time.AfterFunc(txm.getStaleTxTimeout(), func() {
 					tx.Terminate(ctx) //nolint:errcheck
 				})
 			} else if staleTmr != nil {
@@ -299,8 +316,8 @@ func (txm *TransactionManager) clnTxStateHdlr(tx ClientTransaction) TransactionS
 		}
 
 		if to == TransactionStateTerminated {
-			if err := txm.clnTxsStore.Delete(ctx, tx); err != nil && !errors.Is(err, ErrTransactionNotFound) {
-				txm.log.LogAttrs(ctx, slog.LevelError, "failed to delete client transaction from store",
+			if err := txm.getClnTxsStore().Delete(ctx, tx); err != nil && !errors.Is(err, ErrTransactionNotFound) {
+				txm.getLog().LogAttrs(ctx, slog.LevelError, "failed to delete client transaction from store",
 					slog.Any("transaction", tx),
 					slog.Any("error", err),
 				)
@@ -309,11 +326,8 @@ func (txm *TransactionManager) clnTxStateHdlr(tx ClientTransaction) TransactionS
 	}
 }
 
-func (txm *TransactionManager) LoadClientTransaction(
-	ctx context.Context,
-	key ClientTransactionKey,
-) (ClientTransaction, error) {
-	return errors.Wrap2(txm.clnTxsStore.Load(ctx, key))
+func (txm *TransactionManager) LoadClientTransaction(ctx context.Context, key ClientTransactionKey) (ClientTransaction, error) {
+	return errors.Wrap2(txm.getClnTxsStore().Load(ctx, key))
 }
 
 // OnNewClientTransaction binds a callback to be called when a client transaction is created.
@@ -332,12 +346,12 @@ func (txm *TransactionManager) NewServerTransaction(
 		return nil, errors.Wrap(ErrTransactionManagerClosed)
 	}
 
-	tx, err := txm.srvTxFactory.NewServerTransaction(ctx, req, tp, opts)
+	tx, err := txm.getSrvTxFactory().NewServerTransaction(ctx, req, tp, opts)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
-	if err = txm.srvTxsStore.Store(ctx, tx); err != nil {
+	if err = txm.getSrvTxsStore().Store(ctx, tx); err != nil {
 		tx.Terminate(ctx) //nolint:errcheck
 		return nil, errors.Wrap(err)
 	}
@@ -355,8 +369,8 @@ func (txm *TransactionManager) srvTxStateHdlr(tx ServerTransaction) TransactionS
 	var staleTmr *time.Timer
 
 	return func(ctx context.Context, _, to TransactionState) {
-		if (to == TransactionStateTrying || to == TransactionStateProceeding) && txm.staleTxTimeout > 0 {
-			staleTmr = time.AfterFunc(txm.staleTxTimeout, func() {
+		if (to == TransactionStateTrying || to == TransactionStateProceeding) && txm.getStaleTxTimeout() > 0 {
+			staleTmr = time.AfterFunc(txm.getStaleTxTimeout(), func() {
 				tx.Terminate(ctx) //nolint:errcheck
 			})
 		} else if staleTmr != nil {
@@ -364,8 +378,8 @@ func (txm *TransactionManager) srvTxStateHdlr(tx ServerTransaction) TransactionS
 		}
 
 		if to == TransactionStateTerminated {
-			if err := txm.srvTxsStore.Delete(ctx, tx); err != nil && !errors.Is(err, ErrTransactionNotFound) {
-				txm.log.LogAttrs(ctx, slog.LevelError, "failed to delete server transaction from store",
+			if err := txm.getSrvTxsStore().Delete(ctx, tx); err != nil && !errors.Is(err, ErrTransactionNotFound) {
+				txm.getLog().LogAttrs(ctx, slog.LevelError, "failed to delete server transaction from store",
 					slog.Any("transaction", tx),
 					slog.Any("error", err),
 				)
@@ -378,7 +392,7 @@ func (txm *TransactionManager) LoadServerTransaction(
 	ctx context.Context,
 	key ServerTransactionKey,
 ) (ServerTransaction, error) {
-	return errors.Wrap2(txm.srvTxsStore.Load(ctx, key))
+	return errors.Wrap2(txm.getSrvTxsStore().Load(ctx, key))
 }
 
 // OnNewServerTransaction binds a callback to be called when a server transaction is created.

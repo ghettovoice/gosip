@@ -247,14 +247,10 @@ func (u *Tel) ToSIP() *SIP {
 	u2.Number = grammar.CleanTelNum(u2.Number)
 
 	var host string
-	if !u2.IsGlob() {
-		if ctx, _ := u2.Params.Last("phone-context"); grammar.IsHost(ctx) {
-			host = ctx
-
-			u2.Params.Delete("phone-context")
-		} else if ctx != "" {
-			u2.Params.Set("phone-context", grammar.CleanTelNum(ctx))
-		}
+	if ctx, _ := u2.Params.Last("phone-context"); grammar.IsHost(ctx) && host == "" {
+		host = ctx
+	} else if ctx != "" && !grammar.IsHost(ctx) {
+		u2.Params.Set("phone-context", grammar.CleanTelNum(ctx))
 	}
 
 	if ext, _ := u2.Params.Last("ext"); ext != "" {

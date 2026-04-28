@@ -126,20 +126,7 @@ func (s stubDNSResolver) LookupNAPTR(ctx context.Context, host string) ([]*dns.N
 	return s.lookupNAPTR(ctx, host)
 }
 
-func newTransportMeta(
-	proto, network string,
-	port uint16,
-	flags sip.TransportFlags,
-) sip.TransportMetadata {
-	return sip.TransportMetadata{
-		Proto:       sip.TransportProto(proto),
-		Network:     network,
-		DefaultPort: port,
-		Flags:       flags,
-	}
-}
-
-func newMinimalRequest(tb testing.TB) *sip.Request {
+func newMinReq(tb testing.TB) *sip.Request {
 	tb.Helper()
 
 	ruri := &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("example.com")}
@@ -161,11 +148,7 @@ func newMinimalRequest(tb testing.TB) *sip.Request {
 	}
 }
 
-func newMinimalResponse(
-	tb testing.TB,
-	viaTransport sip.TransportProto,
-	viaAddr header.Addr,
-) *sip.Response {
+func newMinResp(tb testing.TB, viaTp sip.TransportProto, viaAddr header.Addr) *sip.Response {
 	tb.Helper()
 
 	furi := &uri.SIP{User: uri.User("bob"), Addr: uri.AddrFromHost("example.com")}
@@ -174,7 +157,7 @@ func newMinimalResponse(
 	headers := make(sip.Headers).
 		Set(header.Via{{
 			Proto:     sip.ProtoVer20(),
-			Transport: viaTransport,
+			Transport: viaTp,
 			Addr:      viaAddr,
 			Params:    make(header.Values).Set("branch", sip.GenerateBranch(0)),
 		}}).
@@ -185,13 +168,13 @@ func newMinimalResponse(
 
 	return &sip.Response{
 		Status:  sip.ResponseStatusOK,
-		Reason:  sip.ResponseReason("OK"),
+		Reason:  "OK",
 		Proto:   sip.ProtoVer20(),
 		Headers: headers,
 	}
 }
 
-func readUDPMessage(tb testing.TB, conn net.PacketConn) sip.Message {
+func readUDPMsg(tb testing.TB, conn net.PacketConn) sip.Message {
 	tb.Helper()
 
 	buf := make([]byte, 65535)
@@ -211,7 +194,7 @@ func readUDPMessage(tb testing.TB, conn net.PacketConn) sip.Message {
 	return msg
 }
 
-func readTCPMessage(tb testing.TB, conn net.Conn) sip.Message {
+func readTCPMsg(tb testing.TB, conn net.Conn) sip.Message {
 	tb.Helper()
 
 	buf := make([]byte, 0, 4096)
@@ -256,9 +239,9 @@ func waitFor(tb testing.TB, fn func() bool) {
 	const timeout = 5 * time.Second
 
 	deadline := time.NewTimer(timeout)
-	ticker := time.NewTicker(10 * time.Millisecond)
-
 	defer deadline.Stop()
+
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -278,9 +261,7 @@ func waitFor(tb testing.TB, fn func() bool) {
 func TestConnlessTransport_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	meta := newTransportMeta("UDP", "udp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed)
-
-	tp, err := sip.NewConnlessTransport(meta, &sip.ConnlessTransportOptions{})
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 	}
@@ -307,19 +288,17 @@ func TestConnlessTransport_Lifecycle(t *testing.T) {
 func TestConnlessTransport_ListenAndServe_UsesConfig(t *testing.T) {
 	t.Parallel()
 
-	listenErr := errors.New("listen failed")
-	spy := &spyPacketListenConfig{err: listenErr}
+	lisErr := errors.New("listen failed")
+	spy := &spyPacketListenConfig{err: lisErr}
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), &sip.ConnlessTransportOptions{
-		PacketListenConfig: spy,
-	})
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), &sip.ConnlessTransportOptions{PacketListenConfig: spy})
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 	}
 
 	gotErr := tp.ListenAndServe(t.Context(), "127.0.0.1:0")
-	if diff := cmp.Diff(listenErr, gotErr, cmpopts.EquateErrors()); diff != "" {
-		t.Fatalf("tp.ListenAndServe() error = %v, want %v\ndiff (-want +got):\n%s", gotErr, listenErr, diff)
+	if diff := cmp.Diff(lisErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+		t.Fatalf("tp.ListenAndServe() error = %v, want %v\ndiff (-want +got):\n%s", gotErr, lisErr, diff)
 	}
 
 	if spy.called != 1 {
@@ -330,7 +309,7 @@ func TestConnlessTransport_ListenAndServe_UsesConfig(t *testing.T) {
 func TestConnlessTransport_ServeListener_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), nil)
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 	}
@@ -348,9 +327,7 @@ func TestConnlessTransport_ServeListener_Duplicate(t *testing.T) {
 	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
-	go func() {
-		done <- tp.ServeListener(ctx, conn)
-	}()
+	go func() { done <- tp.ServeListener(ctx, conn) }()
 
 	laddr := netip.MustParseAddrPort(conn.LocalAddr().String())
 	waitFor(t, func() bool {
@@ -375,49 +352,49 @@ func TestConnlessTransport_ServeListener_Duplicate(t *testing.T) {
 func TestConnlessTransport_SendAndReceive(t *testing.T) {
 	t.Parallel()
 
-	server, err := net.ListenPacket("udp", "127.0.0.1:0")
+	srv, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { server.Close() })
+	t.Cleanup(func() { srv.Close() })
 
-	serverAddr := netip.MustParseAddrPort(server.LocalAddr().String())
+	srvAddr := netip.MustParseAddrPort(srv.LocalAddr().String())
+	meta := sip.UDPTransportMetadata()
+	meta.DefaultPort = srvAddr.Port()
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", serverAddr.Port(), 0), &sip.ConnlessTransportOptions{
-		TransportOptions: sip.TransportOptions{ConnDialer: &net.Dialer{}},
-	})
+	tp, err := sip.NewConnlessTransport(meta, nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	req := newMinimalRequest(t)
+	req := newMinReq(t)
 
 	outReq, err := sip.NewOutboundRequestEnvelope(req)
 	if err != nil {
 		t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
 	}
 
-	outReq.SetRemoteAddr(netip.AddrPortFrom(serverAddr.Addr(), 0))
+	outReq.SetRemoteAddr(netip.AddrPortFrom(srvAddr.Addr(), 0))
 
 	if err := tp.SendRequest(t.Context(), outReq, nil); err != nil {
 		t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 	}
 
-	if got := outReq.RemoteAddr().Port(); got != serverAddr.Port() {
-		t.Fatalf("tp.SendRequest() remote port = %d, want %d", got, serverAddr.Port())
+	if got := outReq.RemoteAddr().Port(); got != srvAddr.Port() {
+		t.Fatalf("tp.SendRequest() remote port = %d, want %d", got, srvAddr.Port())
 	}
 
-	msg := readUDPMessage(t, server)
+	msg := readUDPMsg(t, srv)
 
 	parsedReq, ok := msg.(*sip.Request)
 	if !ok {
 		t.Fatalf("parsed message type = %T, want *sip.Request", msg)
 	}
 
-	via, ok := parsedReq.Headers.FirstVia()
+	via, ok := parsedReq.Headers.FirstViaHop()
 	if !ok {
 		t.Fatalf("parsed request Via header missing")
 	}
@@ -430,20 +407,20 @@ func TestConnlessTransport_SendAndReceive(t *testing.T) {
 		t.Fatalf("Via.Branch = %q (ok=%v), want non-empty", branch, ok)
 	}
 
-	resp := newMinimalResponse(t, sip.TransportProto("UDP"), header.AddrFromHostPort(serverAddr.Addr().String(), serverAddr.Port()))
+	resp := newMinResp(t, "UDP", header.AddrFromHostPort(srvAddr.Addr().String(), srvAddr.Port()))
 
 	outRes, err := sip.NewOutboundResponseEnvelope(resp)
 	if err != nil {
 		t.Fatalf("sip.NewOutboundResponseEnvelope() error = %v, want nil", err)
 	}
 
-	outRes.SetRemoteAddr(serverAddr)
+	outRes.SetRemoteAddr(srvAddr)
 
 	if err := tp.SendResponse(t.Context(), outRes, nil); err != nil {
 		t.Fatalf("tp.SendResponse() error = %v, want nil", err)
 	}
 
-	resMsg := readUDPMessage(t, server)
+	resMsg := readUDPMsg(t, srv)
 
 	parsedRes, ok := resMsg.(*sip.Response)
 	if !ok {
@@ -463,7 +440,7 @@ func TestConnlessTransport_SendAndReceive(t *testing.T) {
 func TestConnlessTransport_InterceptInboundMessages(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), &sip.ConnlessTransportOptions{
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), &sip.ConnlessTransportOptions{
 		TransportOptions: sip.TransportOptions{SentBy: sip.AddrFromHost("127.0.0.1")},
 	})
 	if err != nil {
@@ -482,28 +459,30 @@ func TestConnlessTransport_InterceptInboundMessages(t *testing.T) {
 	reqCh := make(chan *sip.InboundRequestEnvelope, 1)
 	resCh := make(chan *sip.InboundResponseEnvelope, 1)
 
-	tp.UseInboundRequestInterceptor(sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
-		reqCh <- req
-		return nil
-	}))
-	tp.UseInboundResponseInterceptor(sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
-		resCh <- res
-		return nil
-	}))
+	tp.UseInboundRequestInterceptor(
+		sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
+			reqCh <- req
+			return nil
+		}),
+	)
+	tp.UseInboundResponseInterceptor(
+		sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
+			resCh <- res
+			return nil
+		}),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
-	go func() {
-		done <- tp.ServeListener(ctx, conn)
-	}()
+	go func() { done <- tp.ServeListener(ctx, conn) }()
 
 	laddr := netip.MustParseAddrPort(conn.LocalAddr().String())
-	req := newMinimalRequest(t)
+	req := newMinReq(t)
 	req.Headers.Set(header.Via{{
 		Proto:     sip.ProtoVer20(),
-		Transport: sip.TransportProto("UDP"),
+		Transport: "UDP",
 		Addr:      header.AddrFromHostPort(laddr.Addr().String(), laddr.Port()),
 		Params:    make(header.Values).Set("branch", sip.GenerateBranch(0)),
 	}})
@@ -519,7 +498,7 @@ func TestConnlessTransport_InterceptInboundMessages(t *testing.T) {
 		t.Fatalf("inbound request not received")
 	}
 
-	res := newMinimalResponse(t, sip.TransportProto("UDP"), header.AddrFromHost(laddr.Addr().String()))
+	res := newMinResp(t, "UDP", header.AddrFromHost(laddr.Addr().String()))
 
 	_, err = conn.WriteTo([]byte(res.Render(nil)), net.UDPAddrFromAddrPort(laddr))
 	if err != nil {
@@ -541,21 +520,21 @@ func TestConnlessTransport_InterceptInboundMessages(t *testing.T) {
 func TestConnlessTransport_RecvRequest_SetsReceivedAndRPort(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), &sip.ConnlessTransportOptions{})
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
-	listenerAddr := netip.MustParseAddrPort(listener.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
 	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -567,36 +546,36 @@ func TestConnlessTransport_RecvRequest_SetsReceivedAndRPort(t *testing.T) {
 	peerAddr := netip.MustParseAddrPort(peer.LocalAddr().String())
 
 	reqCh := make(chan *sip.InboundRequestEnvelope, 1)
-	tp.UseInboundRequestInterceptor(sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
-		reqCh <- req
-		return nil
-	}))
+	tp.UseInboundRequestInterceptor(
+		sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
+			reqCh <- req
+			return nil
+		}),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), listenerAddr, &sip.AcquireConnOptions{LocalAddr: listenerAddr})
+		_, err := tp.AcquireConn(t.Context(), lisAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	req := newMinimalRequest(t)
+	req := newMinReq(t)
 	viaParams := make(header.Values).
 		Set("branch", sip.GenerateBranch(0)).
 		Set("rport", "")
 	req.Headers.Set(header.ContentLength(0))
 	req.Headers.Set(header.Via{header.ViaHop{
 		Proto:     sip.ProtoVer20(),
-		Transport: sip.TransportProto("UDP"),
+		Transport: "UDP",
 		Addr:      header.AddrFromHost("example.com"),
 		Params:    viaParams,
 	}})
 
-	if _, err := peer.WriteTo([]byte(req.Render(nil)), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(req.Render(nil)), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo() error = %v, want nil", err)
 	}
 
@@ -611,7 +590,7 @@ func TestConnlessTransport_RecvRequest_SetsReceivedAndRPort(t *testing.T) {
 		t.Fatalf("inbound request = nil, want non-nil")
 	}
 
-	via, ok := gotReq.Headers().FirstVia()
+	via, ok := gotReq.Headers().FirstViaHop()
 	if !ok {
 		t.Fatalf("inbound request Via header missing")
 	}
@@ -638,17 +617,17 @@ func TestConnlessTransport_RecvRequest_SetsReceivedAndRPort(t *testing.T) {
 func TestConnlessTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 	t.Parallel()
 
-	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
-	listenerAddr := netip.MustParseAddrPort(listener.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), &sip.ConnlessTransportOptions{
-		TransportOptions: sip.TransportOptions{SentBy: sip.AddrFromHostPort("127.0.0.1", listenerAddr.Port())},
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), &sip.ConnlessTransportOptions{
+		TransportOptions: sip.TransportOptions{SentBy: sip.AddrFromHostPort("127.0.0.1", lisAddr.Port())},
 	})
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
@@ -664,28 +643,33 @@ func TestConnlessTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 	t.Cleanup(func() { peer.Close() })
 
 	resCh := make(chan *sip.InboundResponseEnvelope, 1)
-	tp.UseInboundResponseInterceptor(sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
-		resCh <- res
-		return next.RecvResponse(ctx, res)
-	}))
+	tp.UseInboundResponseInterceptor(
+		sip.InboundResponseInterceptorFunc(
+			func(
+				ctx context.Context,
+				res *sip.InboundResponseEnvelope, next sip.ResponseReceiver,
+			) error {
+				resCh <- res
+				return next.RecvResponse(ctx, res)
+			},
+		),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), listenerAddr, &sip.AcquireConnOptions{LocalAddr: listenerAddr})
+		_, err := tp.AcquireConn(t.Context(), lisAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	matchAddr := header.AddrFromHostPort(listenerAddr.Addr().String(), listenerAddr.Port())
-	res := newMinimalResponse(t, sip.TransportProto("UDP"), matchAddr)
+	matchAddr := header.AddrFromHostPort(lisAddr.Addr().String(), lisAddr.Port())
+	res := newMinResp(t, "UDP", matchAddr)
 	res.Headers.Set(header.ContentLength(0))
 
-	if _, err := peer.WriteTo([]byte(res.Render(nil)), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(res.Render(nil)), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo(match) error = %v, want nil", err)
 	}
 
@@ -695,10 +679,10 @@ func TestConnlessTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 		t.Fatalf("inbound response not received")
 	}
 
-	res = newMinimalResponse(t, sip.TransportProto("UDP"), header.AddrFromHostPort("192.0.2.1", listenerAddr.Port()))
+	res = newMinResp(t, "UDP", header.AddrFromHostPort("192.0.2.1", lisAddr.Port()))
 	res.Headers.Set(header.ContentLength(0))
 
-	if _, err := peer.WriteTo([]byte(res.Render(nil)), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(res.Render(nil)), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo(mismatch) error = %v, want nil", err)
 	}
 
@@ -712,7 +696,7 @@ func TestConnlessTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 func TestConnlessTransport_RecvResponse_PanicContinues(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), &sip.ConnlessTransportOptions{
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), &sip.ConnlessTransportOptions{
 		TransportOptions: sip.TransportOptions{SentBy: sip.AddrFromHost("127.0.0.1")},
 	})
 	if err != nil {
@@ -721,14 +705,14 @@ func TestConnlessTransport_RecvResponse_PanicContinues(t *testing.T) {
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
-	listenerAddr := netip.MustParseAddrPort(listener.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
 	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -740,43 +724,43 @@ func TestConnlessTransport_RecvResponse_PanicContinues(t *testing.T) {
 	var panicOnce sync.Once
 
 	resCh := make(chan *sip.InboundResponseEnvelope, 1)
-	tp.UseInboundResponseInterceptor(sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
-		panicked := false
-		panicOnce.Do(func() { panicked = true })
+	tp.UseInboundResponseInterceptor(
+		sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
+			panicked := false
+			panicOnce.Do(func() { panicked = true })
 
-		if panicked {
-			panic(errors.New("boom"))
-		}
+			if panicked {
+				panic(errors.New("boom"))
+			}
 
-		resCh <- res
+			resCh <- res
 
-		return next.RecvResponse(ctx, res)
-	}))
+			return next.RecvResponse(ctx, res)
+		}),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), listenerAddr, &sip.AcquireConnOptions{LocalAddr: listenerAddr})
+		_, err := tp.AcquireConn(t.Context(), lisAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	matchAddr := header.AddrFromHost(listenerAddr.Addr().String())
-	res := newMinimalResponse(t, sip.TransportProto("UDP"), matchAddr)
+	matchAddr := header.AddrFromHost(lisAddr.Addr().String())
+	res := newMinResp(t, "UDP", matchAddr)
 	res.Headers.Set(header.ContentLength(0))
 
-	if _, err := peer.WriteTo([]byte(res.Render(nil)), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(res.Render(nil)), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo(first) error = %v, want nil", err)
 	}
 
-	res = newMinimalResponse(t, sip.TransportProto("UDP"), matchAddr)
+	res = newMinResp(t, "UDP", matchAddr)
 	res.Headers.Set(header.ContentLength(0))
 
-	if _, err := peer.WriteTo([]byte(res.Render(nil)), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(res.Render(nil)), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo(second) error = %v, want nil", err)
 	}
 
@@ -790,21 +774,21 @@ func TestConnlessTransport_RecvResponse_PanicContinues(t *testing.T) {
 func TestConnlessTransport_RecvRequest_PanicRespondsAndContinues(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), &sip.ConnlessTransportOptions{})
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
-	listenerAddr := netip.MustParseAddrPort(listener.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
 	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -816,45 +800,48 @@ func TestConnlessTransport_RecvRequest_PanicRespondsAndContinues(t *testing.T) {
 	peerAddr := netip.MustParseAddrPort(peer.LocalAddr().String())
 
 	resCh := make(chan *sip.OutboundResponseEnvelope, 1)
-	unbind := tp.UseOutboundResponseInterceptor(sip.OutboundResponseInterceptorFunc(func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
-		resCh <- res
-		return next.SendResponse(ctx, res, opts)
-	}))
+	unbind := tp.UseOutboundResponseInterceptor(
+		sip.OutboundResponseInterceptorFunc(func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
+			resCh <- res
+			return next.SendResponse(ctx, res, opts)
+		}),
+	)
 	t.Cleanup(unbind)
 
 	var panicOnce sync.Once
 
 	reqCh := make(chan *sip.InboundRequestEnvelope, 1)
-	tp.UseInboundRequestInterceptor(sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
-		panicked := false
-		panicOnce.Do(func() { panicked = true })
 
-		if panicked {
-			panic(errors.New("boom"))
-		}
+	tp.UseInboundRequestInterceptor(
+		sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
+			panicked := false
+			panicOnce.Do(func() { panicked = true })
 
-		reqCh <- req
+			if panicked {
+				panic(errors.New("boom"))
+			}
 
-		return nil
-	}))
+			reqCh <- req
+
+			return nil
+		}),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), listenerAddr, &sip.AcquireConnOptions{LocalAddr: listenerAddr})
+		_, err := tp.AcquireConn(t.Context(), lisAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	firstReq := newMinimalRequest(t)
-	firstReq.Headers.Set(header.Via{newViaHop(t, sip.TransportProto("UDP"), header.AddrFromHostPort(peerAddr.Addr().String(), peerAddr.Port()))})
+	firstReq := newMinReq(t)
+	firstReq.Headers.Set(header.Via{newViaHop(t, "UDP", header.AddrFromHostPort(peerAddr.Addr().String(), peerAddr.Port()))})
 	firstReq.Headers.Set(header.ContentLength(0))
 
-	if _, err := peer.WriteTo([]byte(firstReq.Render(nil)), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(firstReq.Render(nil)), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo(first) error = %v, want nil", err)
 	}
 
@@ -875,11 +862,11 @@ func TestConnlessTransport_RecvRequest_PanicRespondsAndContinues(t *testing.T) {
 		t.Fatalf("response not sent after panic")
 	}
 
-	secondReq := newMinimalRequest(t)
-	secondReq.Headers.Set(header.Via{newViaHop(t, sip.TransportProto("UDP"), header.AddrFromHostPort(peerAddr.Addr().String(), peerAddr.Port()))})
+	secondReq := newMinReq(t)
+	secondReq.Headers.Set(header.Via{newViaHop(t, "UDP", header.AddrFromHostPort(peerAddr.Addr().String(), peerAddr.Port()))})
 	secondReq.Headers.Set(header.ContentLength(0))
 
-	if _, err := peer.WriteTo([]byte(secondReq.Render(nil)), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(secondReq.Render(nil)), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo(second) error = %v, want nil", err)
 	}
 
@@ -893,21 +880,21 @@ func TestConnlessTransport_RecvRequest_PanicRespondsAndContinues(t *testing.T) {
 func TestConnlessTransport_RecvRequest_ParseErrorRespondsBadRequest(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), &sip.ConnlessTransportOptions{})
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
-	listenerAddr := netip.MustParseAddrPort(listener.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
 	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -919,25 +906,25 @@ func TestConnlessTransport_RecvRequest_ParseErrorRespondsBadRequest(t *testing.T
 	peerAddr := netip.MustParseAddrPort(peer.LocalAddr().String())
 
 	resCh := make(chan *sip.OutboundResponseEnvelope, 1)
-	unbind := tp.UseOutboundResponseInterceptor(sip.OutboundResponseInterceptorFunc(func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
-		resCh <- res
-		return nil
-	}))
+	unbind := tp.UseOutboundResponseInterceptor(
+		sip.OutboundResponseInterceptorFunc(func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
+			resCh <- res
+			return nil
+		}),
+	)
 	t.Cleanup(unbind)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), listenerAddr, &sip.AcquireConnOptions{LocalAddr: listenerAddr})
+		_, err := tp.AcquireConn(t.Context(), lisAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	invalidRequest := "INVITE sip:alice@example.com SIP/2.0\r\n" +
+	invalidReq := "INVITE sip:alice@example.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/UDP " + peerAddr.String() + ";branch=z9hG4bK-1\r\n" +
 		"From: <sip:bob@example.com>;tag=1\r\n" +
 		"To: <sip:alice@example.com>\r\n" +
@@ -947,7 +934,7 @@ func TestConnlessTransport_RecvRequest_ParseErrorRespondsBadRequest(t *testing.T
 		"Content-Length: 0\r\n" +
 		"BrokenHeader\r\n\r\n"
 
-	if _, err := peer.WriteTo([]byte(invalidRequest), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(invalidReq), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo(invalid) error = %v, want nil", err)
 	}
 
@@ -968,21 +955,21 @@ func TestConnlessTransport_RecvRequest_ParseErrorRespondsBadRequest(t *testing.T
 func TestConnlessTransport_RecvRequest_ParseErrorRespondsRequestEntityTooLarge(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), &sip.ConnlessTransportOptions{})
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
-	listenerAddr := netip.MustParseAddrPort(listener.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
 	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -994,29 +981,29 @@ func TestConnlessTransport_RecvRequest_ParseErrorRespondsRequestEntityTooLarge(t
 	peerAddr := netip.MustParseAddrPort(peer.LocalAddr().String())
 
 	resCh := make(chan *sip.OutboundResponseEnvelope, 1)
-	unbind := tp.UseOutboundResponseInterceptor(sip.OutboundResponseInterceptorFunc(func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
-		resCh <- res
-		return nil
-	}))
+	unbind := tp.UseOutboundResponseInterceptor(
+		sip.OutboundResponseInterceptorFunc(func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
+			resCh <- res
+			return nil
+		}),
+	)
 	t.Cleanup(unbind)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), listenerAddr, &sip.AcquireConnOptions{LocalAddr: listenerAddr})
+		_, err := tp.AcquireConn(t.Context(), lisAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	request := newMinimalRequest(t)
-	request.Headers.Set(header.Via{newViaHop(t, sip.TransportProto("UDP"), header.AddrFromHostPort(peerAddr.Addr().String(), peerAddr.Port()))})
+	request := newMinReq(t)
+	request.Headers.Set(header.Via{newViaHop(t, "UDP", header.AddrFromHostPort(peerAddr.Addr().String(), peerAddr.Port()))})
 	request.Headers.Set(header.ContentLength(sip.MaxMessageSize + 1))
 
-	if _, err := peer.WriteTo([]byte(request.Render(nil)), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(request.Render(nil)), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo() error = %v, want nil", err)
 	}
 
@@ -1037,21 +1024,21 @@ func TestConnlessTransport_RecvRequest_ParseErrorRespondsRequestEntityTooLarge(t
 func TestConnlessTransport_RecvResponse_ParseErrorDiscarded(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", 5060, 0), &sip.ConnlessTransportOptions{})
+	tp, err := sip.NewConnlessTransport(sip.UDPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
-	listenerAddr := netip.MustParseAddrPort(listener.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
 	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -1061,27 +1048,27 @@ func TestConnlessTransport_RecvResponse_ParseErrorDiscarded(t *testing.T) {
 	t.Cleanup(func() { peer.Close() })
 
 	resCh := make(chan *sip.InboundResponseEnvelope, 1)
-	tp.UseInboundResponseInterceptor(sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
-		resCh <- res
-		return nil
-	}))
+	tp.UseInboundResponseInterceptor(
+		sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
+			resCh <- res
+			return nil
+		}),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
 	invalidResponse := "SIP/2.0 200 OK\r\n" +
-		"Via: SIP/2.0/UDP " + listenerAddr.String() + ";branch=z9hG4bK-1\r\n" +
+		"Via: SIP/2.0/UDP " + lisAddr.String() + ";branch=z9hG4bK-1\r\n" +
 		"From: <sip:bob@example.com>;tag=1\r\n" +
 		"To: <sip:alice@example.com>\r\n" +
 		"Call-ID: 1@example.com\r\n" +
 		"CSeq: 1 INVITE\r\n" +
 		"BrokenHeader\r\n\r\n"
 
-	if _, err := peer.WriteTo([]byte(invalidResponse), net.UDPAddrFromAddrPort(listenerAddr)); err != nil {
+	if _, err := peer.WriteTo([]byte(invalidResponse), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
 		t.Fatalf("peer.WriteTo(invalid) error = %v, want nil", err)
 	}
 
@@ -1098,19 +1085,20 @@ func TestConnlessTransport_SendRequest_SentBy(t *testing.T) {
 	t.Run("from options", func(t *testing.T) {
 		t.Parallel()
 
-		server, err := net.ListenPacket("udp", "127.0.0.1:0")
+		srv, err := net.ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("net.ListenPacket(server) error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { server.Close() })
+		t.Cleanup(func() { srv.Close() })
 
-		serverAddr := netip.MustParseAddrPort(server.LocalAddr().String())
-
+		srvAddr := netip.MustParseAddrPort(srv.LocalAddr().String())
+		meta := sip.UDPTransportMetadata()
+		meta.DefaultPort = srvAddr.Port()
 		sentBy := sip.AddrFromHostPort("sentby.example.com", 5070)
 
-		tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", serverAddr.Port(), 0), &sip.ConnlessTransportOptions{
-			TransportOptions: sip.TransportOptions{SentBy: sentBy, ConnDialer: &net.Dialer{}},
+		tp, err := sip.NewConnlessTransport(meta, &sip.ConnlessTransportOptions{
+			TransportOptions: sip.TransportOptions{SentBy: sentBy},
 		})
 		if err != nil {
 			t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
@@ -1118,25 +1106,25 @@ func TestConnlessTransport_SendRequest_SentBy(t *testing.T) {
 
 		t.Cleanup(func() { tp.Close() })
 
-		outReq, err := sip.NewOutboundRequestEnvelope(newMinimalRequest(t))
+		outReq, err := sip.NewOutboundRequestEnvelope(newMinReq(t))
 		if err != nil {
 			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
 		}
 
-		outReq.SetRemoteAddr(serverAddr)
+		outReq.SetRemoteAddr(srvAddr)
 
 		if err := tp.SendRequest(t.Context(), outReq, nil); err != nil {
 			t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 		}
 
-		msg := readUDPMessage(t, server)
+		msg := readUDPMsg(t, srv)
 
 		parsedReq, ok := msg.(*sip.Request)
 		if !ok {
 			t.Fatalf("parsed message type = %T, want *sip.Request", msg)
 		}
 
-		via, ok := parsedReq.Headers.FirstVia()
+		via, ok := parsedReq.Headers.FirstViaHop()
 		if !ok {
 			t.Fatalf("parsed request Via header missing")
 		}
@@ -1150,27 +1138,26 @@ func TestConnlessTransport_SendRequest_SentBy(t *testing.T) {
 	t.Run("from listener", func(t *testing.T) {
 		t.Parallel()
 
-		server, err := net.ListenPacket("udp", "127.0.0.1:0")
+		srv, err := net.ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("net.ListenPacket(server) error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { server.Close() })
+		t.Cleanup(func() { srv.Close() })
 
-		serverAddr := netip.MustParseAddrPort(server.LocalAddr().String())
-
-		listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+		lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("net.ListenPacket(listener) error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { listener.Close() })
+		t.Cleanup(func() { lis.Close() })
 
-		listenerAddr := netip.MustParseAddrPort(listener.LocalAddr().String())
+		lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
+		srvAddr := netip.MustParseAddrPort(srv.LocalAddr().String())
+		meta := sip.UDPTransportMetadata()
+		meta.DefaultPort = srvAddr.Port()
 
-		tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", serverAddr.Port(), 0), &sip.ConnlessTransportOptions{
-			TransportOptions: sip.TransportOptions{ConnDialer: &net.Dialer{}},
-		})
+		tp, err := sip.NewConnlessTransport(meta, nil)
 		if err != nil {
 			t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 		}
@@ -1181,83 +1168,81 @@ func TestConnlessTransport_SendRequest_SentBy(t *testing.T) {
 		t.Cleanup(cancel)
 
 		done := make(chan error, 1)
-		go func() {
-			done <- tp.ServeListener(ctx, listener)
-		}()
+		go func() { done <- tp.ServeListener(ctx, lis) }()
 
-		outReq, err := sip.NewOutboundRequestEnvelope(newMinimalRequest(t))
+		outReq, err := sip.NewOutboundRequestEnvelope(newMinReq(t))
 		if err != nil {
 			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
 		}
 
-		outReq.SetLocalAddr(listenerAddr)
-		outReq.SetRemoteAddr(serverAddr)
+		outReq.SetLocalAddr(lisAddr)
+		outReq.SetRemoteAddr(srvAddr)
 
 		if err := tp.SendRequest(t.Context(), outReq, nil); err != nil {
 			t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 		}
 
-		msg := readUDPMessage(t, server)
+		msg := readUDPMsg(t, srv)
 
 		parsedReq, ok := msg.(*sip.Request)
 		if !ok {
 			t.Fatalf("parsed message type = %T, want *sip.Request", msg)
 		}
 
-		via, ok := parsedReq.Headers.FirstVia()
+		via, ok := parsedReq.Headers.FirstViaHop()
 		if !ok {
 			t.Fatalf("parsed request Via header missing")
 		}
 
-		if gotPort, ok := via.Addr.Port(); !ok || gotPort != listenerAddr.Port() {
-			t.Fatalf("Via.sent-by port = %d (ok=%v), want %d", gotPort, ok, listenerAddr.Port())
+		if gotPort, ok := via.Addr.Port(); !ok || gotPort != lisAddr.Port() {
+			t.Fatalf("Via.sent-by port = %d (ok=%v), want %d", gotPort, ok, lisAddr.Port())
 		}
 
 		cancel()
-		listener.Close()
+		lis.Close()
 		<-done
 	})
 
 	t.Run("from connection", func(t *testing.T) {
 		t.Parallel()
 
-		server, err := net.ListenPacket("udp", "127.0.0.1:0")
+		srv, err := net.ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("net.ListenPacket(server) error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { server.Close() })
+		t.Cleanup(func() { srv.Close() })
 
-		serverAddr := netip.MustParseAddrPort(server.LocalAddr().String())
+		srvAddr := netip.MustParseAddrPort(srv.LocalAddr().String())
+		meta := sip.UDPTransportMetadata()
+		meta.DefaultPort = srvAddr.Port()
 
-		tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", serverAddr.Port(), 0), &sip.ConnlessTransportOptions{
-			TransportOptions: sip.TransportOptions{ConnDialer: &net.Dialer{}},
-		})
+		tp, err := sip.NewConnlessTransport(meta, nil)
 		if err != nil {
 			t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
 		}
 
 		t.Cleanup(func() { tp.Close() })
 
-		outReq, err := sip.NewOutboundRequestEnvelope(newMinimalRequest(t))
+		outReq, err := sip.NewOutboundRequestEnvelope(newMinReq(t))
 		if err != nil {
 			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
 		}
 
-		outReq.SetRemoteAddr(serverAddr)
+		outReq.SetRemoteAddr(srvAddr)
 
 		if err := tp.SendRequest(t.Context(), outReq, nil); err != nil {
 			t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 		}
 
-		msg := readUDPMessage(t, server)
+		msg := readUDPMsg(t, srv)
 
 		parsedReq, ok := msg.(*sip.Request)
 		if !ok {
 			t.Fatalf("parsed message type = %T, want *sip.Request", msg)
 		}
 
-		via, ok := parsedReq.Headers.FirstVia()
+		via, ok := parsedReq.Headers.FirstViaHop()
 		if !ok {
 			t.Fatalf("parsed request Via header missing")
 		}
@@ -1272,21 +1257,23 @@ func TestConnlessTransport_SendRequest_SentBy(t *testing.T) {
 func TestConnlessTransport_SendResponse_FallbackDNS(t *testing.T) {
 	t.Parallel()
 
-	server, err := net.ListenPacket("udp", "127.0.0.1:0")
+	srv, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { server.Close() })
+	t.Cleanup(func() { srv.Close() })
 
-	serverAddr := netip.MustParseAddrPort(server.LocalAddr().String())
+	srvAddr := netip.MustParseAddrPort(srv.LocalAddr().String())
+	meta := sip.UDPTransportMetadata()
+	meta.DefaultPort = srvAddr.Port()
 
 	dnsResolver := stubDNSResolver{
 		lookupIP: func(ctx context.Context, network, host string) ([]net.IP, error) {
 			if host != "example.com" {
 				return nil, errors.New("unexpected host")
 			}
-			return []net.IP{serverAddr.Addr().AsSlice()}, nil
+			return []net.IP{srvAddr.Addr().AsSlice()}, nil
 		},
 		lookupSRV: func(ctx context.Context, service, proto, host string) ([]*dns.SRV, error) {
 			return nil, errors.New("srv lookup not used")
@@ -1296,8 +1283,10 @@ func TestConnlessTransport_SendResponse_FallbackDNS(t *testing.T) {
 		},
 	}
 
-	tp, err := sip.NewConnlessTransport(newTransportMeta("UDP", "udp", serverAddr.Port(), 0), &sip.ConnlessTransportOptions{
-		TransportOptions: sip.TransportOptions{DNSResolver: dnsResolver, ConnDialer: &net.Dialer{}},
+	tp, err := sip.NewConnlessTransport(meta, &sip.ConnlessTransportOptions{
+		TransportOptions: sip.TransportOptions{
+			RemoteClientLocator: &sip.RemoteElementLocator{DNSResolver: dnsResolver},
+		},
 	})
 	if err != nil {
 		t.Fatalf("sip.NewConnlessTransport() error = %v, want nil", err)
@@ -1305,8 +1294,8 @@ func TestConnlessTransport_SendResponse_FallbackDNS(t *testing.T) {
 
 	t.Cleanup(func() { tp.Close() })
 
-	viaAddr := header.AddrFromHostPort("example.com", serverAddr.Port())
-	resp := newMinimalResponse(t, sip.TransportProto("UDP"), viaAddr)
+	viaAddr := header.AddrFromHostPort("example.com", srvAddr.Port())
+	resp := newMinResp(t, "UDP", viaAddr)
 
 	outRes, err := sip.NewOutboundResponseEnvelope(resp)
 	if err != nil {
@@ -1319,7 +1308,7 @@ func TestConnlessTransport_SendResponse_FallbackDNS(t *testing.T) {
 		t.Fatalf("tp.SendResponse() error = %v, want nil", err)
 	}
 
-	msg := readUDPMessage(t, server)
+	msg := readUDPMsg(t, srv)
 	if _, ok := msg.(*sip.Response); !ok {
 		t.Fatalf("parsed message type = %T, want *sip.Response", msg)
 	}
@@ -1330,7 +1319,7 @@ func TestConnlessTransport_SendResponse_FallbackDNS(t *testing.T) {
 func TestConnOrientedTransport_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{})
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
 	}
@@ -1352,10 +1341,10 @@ func TestConnOrientedTransport_Lifecycle(t *testing.T) {
 func TestConnOrientedTransport_ListenAndServe_UsesConfig(t *testing.T) {
 	t.Parallel()
 
-	listenErr := errors.New("listen failed")
-	spy := &spyConnListenConfig{err: listenErr}
+	lisErr := errors.New("listen failed")
+	spy := &spyConnListenConfig{err: lisErr}
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), &sip.ConnOrientedTransportOptions{
 		ConnListenConfig: spy,
 	})
 	if err != nil {
@@ -1363,8 +1352,8 @@ func TestConnOrientedTransport_ListenAndServe_UsesConfig(t *testing.T) {
 	}
 
 	gotErr := tp.ListenAndServe(t.Context(), "127.0.0.1:0")
-	if diff := cmp.Diff(listenErr, gotErr, cmpopts.EquateErrors()); diff != "" {
-		t.Fatalf("tp.ListenAndServe() error = %v, want %v\ndiff (-want +got):\n%s", gotErr, listenErr, diff)
+	if diff := cmp.Diff(lisErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+		t.Fatalf("tp.ListenAndServe() error = %v, want %v\ndiff (-want +got):\n%s", gotErr, lisErr, diff)
 	}
 
 	if spy.called != 1 {
@@ -1375,7 +1364,7 @@ func TestConnOrientedTransport_ListenAndServe_UsesConfig(t *testing.T) {
 func TestConnOrientedTransport_ServeListener_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), nil)
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
 	}
@@ -1394,9 +1383,7 @@ func TestConnOrientedTransport_ServeListener_Duplicate(t *testing.T) {
 	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
-	go func() {
-		done <- tp.ServeListener(ctx, lis)
-	}()
+	go func() { done <- tp.ServeListener(ctx, lis) }()
 
 	select {
 	case <-lis.acceptCalled:
@@ -1418,7 +1405,7 @@ func TestConnOrientedTransport_ServeListener_Duplicate(t *testing.T) {
 func TestConnOrientedTransport_ServeListener_TemporaryError(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), nil)
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
 	}
@@ -1437,9 +1424,7 @@ func TestConnOrientedTransport_ServeListener_TemporaryError(t *testing.T) {
 	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
-	go func() {
-		done <- tp.ServeListener(ctx, lis)
-	}()
+	go func() { done <- tp.ServeListener(ctx, lis) }()
 
 	waitFor(t, func() bool {
 		conn, err := net.Dial("tcp", base.Addr().String())
@@ -1460,7 +1445,7 @@ func TestConnOrientedTransport_ServeListener_TemporaryError(t *testing.T) {
 func TestConnOrientedTransport_ServeConn_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), nil)
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
 	}
@@ -1491,31 +1476,29 @@ func TestConnOrientedTransport_ServeConn_Duplicate(t *testing.T) {
 
 	t.Cleanup(func() { client.Close() })
 
-	server := <-connCh
-	t.Cleanup(func() { server.Close() })
+	srv := <-connCh
+	t.Cleanup(func() { srv.Close() })
 
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
-	go func() {
-		done <- tp.ServeConn(ctx, server)
-	}()
+	go func() { done <- tp.ServeConn(ctx, srv) }()
 
-	laddr := netip.MustParseAddrPort(server.LocalAddr().String())
-	raddr := netip.MustParseAddrPort(server.RemoteAddr().String())
+	laddr := netip.MustParseAddrPort(srv.LocalAddr().String())
+	raddr := netip.MustParseAddrPort(srv.RemoteAddr().String())
 	waitFor(t, func() bool {
 		_, err := tp.AcquireConn(t.Context(), raddr, &sip.AcquireConnOptions{LocalAddr: laddr})
 		return err == nil
 	})
 
-	err = tp.ServeConn(t.Context(), server)
+	err = tp.ServeConn(t.Context(), srv)
 	if !errors.Is(err, sip.ErrConnTracked) {
 		t.Fatalf("tp.ServeConn() error = %v, want %v", err, sip.ErrConnTracked)
 	}
 
 	cancel()
-	server.Close()
+	srv.Close()
 	tp.Close()
 	<-done
 }
@@ -1530,43 +1513,41 @@ func TestConnOrientedTransport_SendAndReceive(t *testing.T) {
 
 	t.Cleanup(func() { base.Close() })
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{
-		TransportOptions: sip.TransportOptions{ConnDialer: &net.Dialer{}},
-	})
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	serverCh := make(chan net.Conn, 1)
+	srvCh := make(chan net.Conn, 1)
 	go func() {
 		c, err := base.Accept()
 		if err != nil {
 			return
 		}
 
-		serverCh <- c
+		srvCh <- c
 	}()
 
-	req := newMinimalRequest(t)
+	req := newMinReq(t)
 
 	outReq, err := sip.NewOutboundRequestEnvelope(req)
 	if err != nil {
 		t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
 	}
 
-	serverAddr := netip.MustParseAddrPort(base.Addr().String())
-	outReq.SetRemoteAddr(serverAddr)
+	srvAddr := netip.MustParseAddrPort(base.Addr().String())
+	outReq.SetRemoteAddr(srvAddr)
 
 	if err := tp.SendRequest(t.Context(), outReq, nil); err != nil {
 		t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 	}
 
-	serverConn := <-serverCh
-	t.Cleanup(func() { serverConn.Close() })
+	srvConn := <-srvCh
+	t.Cleanup(func() { srvConn.Close() })
 
-	msg := readTCPMessage(t, serverConn)
+	msg := readTCPMsg(t, srvConn)
 
 	parsedReq, ok := msg.(*sip.Request)
 	if !ok {
@@ -1577,20 +1558,20 @@ func TestConnOrientedTransport_SendAndReceive(t *testing.T) {
 		t.Fatalf("Content-Length header missing")
 	}
 
-	resp := newMinimalResponse(t, sip.TransportProto("TCP"), header.AddrFromHostPort(serverAddr.Addr().String(), serverAddr.Port()))
+	resp := newMinResp(t, "TCP", header.AddrFromHostPort(srvAddr.Addr().String(), srvAddr.Port()))
 
 	outRes, err := sip.NewOutboundResponseEnvelope(resp)
 	if err != nil {
 		t.Fatalf("sip.NewOutboundResponseEnvelope() error = %v, want nil", err)
 	}
 
-	outRes.SetRemoteAddr(serverAddr)
+	outRes.SetRemoteAddr(srvAddr)
 
 	if err := tp.SendResponse(t.Context(), outRes, nil); err != nil {
 		t.Fatalf("tp.SendResponse() error = %v, want nil", err)
 	}
 
-	resMsg := readTCPMessage(t, serverConn)
+	resMsg := readTCPMsg(t, srvConn)
 
 	parsedRes, ok := resMsg.(*sip.Response)
 	if !ok {
@@ -1614,7 +1595,7 @@ func TestConnOrientedTransport_SendAndReceive(t *testing.T) {
 func TestConnOrientedTransport_InterceptInboundMessages(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), &sip.ConnOrientedTransportOptions{
 		TransportOptions: sip.TransportOptions{SentBy: sip.AddrFromHost("127.0.0.1")},
 	})
 	if err != nil {
@@ -1633,40 +1614,42 @@ func TestConnOrientedTransport_InterceptInboundMessages(t *testing.T) {
 	reqCh := make(chan *sip.InboundRequestEnvelope, 1)
 	resCh := make(chan *sip.InboundResponseEnvelope, 1)
 
-	tp.UseInboundRequestInterceptor(sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
-		reqCh <- req
-		return nil
-	}))
-	tp.UseInboundResponseInterceptor(sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
-		resCh <- res
-		return nil
-	}))
+	tp.UseInboundRequestInterceptor(
+		sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
+			reqCh <- req
+			return nil
+		}),
+	)
+	tp.UseInboundResponseInterceptor(
+		sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
+			resCh <- res
+			return nil
+		}),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
-	go func() {
-		done <- tp.ServeListener(ctx, base)
-	}()
+	go func() { done <- tp.ServeListener(ctx, base) }()
 
-	client, err := net.Dial("tcp", base.Addr().String())
+	cln, err := net.Dial("tcp", base.Addr().String())
 	if err != nil {
 		t.Fatalf("net.Dial() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { client.Close() })
+	t.Cleanup(func() { cln.Close() })
 
 	waitFor(t, func() bool {
-		req := newMinimalRequest(t)
+		req := newMinReq(t)
 		req.Headers.Set(header.Via{{
 			Proto:     sip.ProtoVer20(),
-			Transport: sip.TransportProto("TCP"),
+			Transport: "TCP",
 			Addr:      header.AddrFromHostPort("127.0.0.1", 5060),
 			Params:    make(header.Values).Set("branch", sip.GenerateBranch(0)),
 		}})
 		req.Headers.Set(header.ContentLength(0))
-		_, err := client.Write([]byte(req.Render(nil)))
+		_, err := cln.Write([]byte(req.Render(nil)))
 
 		return err == nil
 	})
@@ -1678,10 +1661,10 @@ func TestConnOrientedTransport_InterceptInboundMessages(t *testing.T) {
 	}
 
 	laddr := netip.MustParseAddrPort(base.Addr().String())
-	res := newMinimalResponse(t, sip.TransportProto("TCP"), header.AddrFromHost(laddr.Addr().String()))
+	res := newMinResp(t, "TCP", header.AddrFromHost(laddr.Addr().String()))
 	res.Headers.Set(header.ContentLength(0))
 
-	if _, err := client.Write([]byte(res.Render(nil))); err != nil {
+	if _, err := cln.Write([]byte(res.Render(nil))); err != nil {
 		t.Fatalf("client.Write() error = %v, want nil", err)
 	}
 
@@ -1693,7 +1676,7 @@ func TestConnOrientedTransport_InterceptInboundMessages(t *testing.T) {
 
 	cancel()
 	base.Close()
-	client.Close()
+	cln.Close()
 	tp.Close()
 	<-done
 }
@@ -1701,7 +1684,7 @@ func TestConnOrientedTransport_InterceptInboundMessages(t *testing.T) {
 func TestConnOrientedTransport_RecvRequest_PanicResponds(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), &sip.ConnOrientedTransportOptions{
 		TransportOptions: sip.TransportOptions{SentBy: sip.AddrFromHostPort("127.0.0.1", 5060)},
 	})
 	if err != nil {
@@ -1710,54 +1693,55 @@ func TestConnOrientedTransport_RecvRequest_PanicResponds(t *testing.T) {
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
 	var panicOnce sync.Once
-	tp.UseInboundRequestInterceptor(sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
-		panicked := false
-		panicOnce.Do(func() { panicked = true })
+	tp.UseInboundRequestInterceptor(
+		sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
+			panicked := false
+			panicOnce.Do(func() { panicked = true })
 
-		if panicked {
-			panic(errors.New("boom"))
-		}
+			if panicked {
+				panic(errors.New("boom"))
+			}
 
-		return nil
-	}))
+			return nil
+		}),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
-	client, err := net.Dial("tcp", listener.Addr().String())
+	cln, err := net.Dial("tcp", lis.Addr().String())
 	if err != nil {
 		t.Fatalf("net.Dial() error = %v, want nil", err)
 	}
-	defer client.Close()
+	defer cln.Close()
 
-	clientLocal := netip.MustParseAddrPort(client.LocalAddr().String())
-	listenerLocal := netip.MustParseAddrPort(listener.Addr().String())
+	clnAddr := netip.MustParseAddrPort(cln.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.Addr().String())
+
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), clientLocal, &sip.AcquireConnOptions{LocalAddr: listenerLocal})
+		_, err := tp.AcquireConn(t.Context(), clnAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	request := newMinimalRequest(t)
-	request.Headers.Set(header.ContentLength(0))
-	request.Headers.Set(header.Via{newViaHop(t, sip.TransportProto("TCP"), header.AddrFromHostPort(clientLocal.Addr().String(), clientLocal.Port()))})
+	req := newMinReq(t)
+	req.Headers.Set(header.ContentLength(0))
+	req.Headers.Set(header.Via{newViaHop(t, "TCP", header.AddrFromHostPort(clnAddr.Addr().String(), clnAddr.Port()))})
 
-	if _, err := client.Write([]byte(request.Render(nil))); err != nil {
+	if _, err := cln.Write([]byte(req.Render(nil))); err != nil {
 		t.Fatalf("client.Write() error = %v, want nil", err)
 	}
 
-	msg := readTCPMessage(t, client)
+	msg := readTCPMsg(t, cln)
 
 	res, ok := msg.(*sip.Response)
 	if !ok {
@@ -1772,37 +1756,36 @@ func TestConnOrientedTransport_RecvRequest_PanicResponds(t *testing.T) {
 func TestConnOrientedTransport_RecvRequest_ParseErrorRespondsBadRequest(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{})
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
-	client, err := net.Dial("tcp", listener.Addr().String())
+	cln, err := net.Dial("tcp", lis.Addr().String())
 	if err != nil {
 		t.Fatalf("net.Dial() error = %v, want nil", err)
 	}
-	defer client.Close()
+	defer cln.Close()
 
-	clientLocal := netip.MustParseAddrPort(client.LocalAddr().String())
-	listenerLocal := netip.MustParseAddrPort(listener.Addr().String())
+	clnAddr := netip.MustParseAddrPort(cln.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.Addr().String())
+
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), clientLocal, &sip.AcquireConnOptions{LocalAddr: listenerLocal})
+		_, err := tp.AcquireConn(t.Context(), clnAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
@@ -1815,11 +1798,11 @@ func TestConnOrientedTransport_RecvRequest_ParseErrorRespondsBadRequest(t *testi
 		"Max-Forwards: 70\r\n" +
 		"Content-Length: 0\r\n" +
 		"BrokenHeader\r\n\r\n"
-	if _, err := client.Write([]byte(invalidRequest)); err != nil {
+	if _, err := cln.Write([]byte(invalidRequest)); err != nil {
 		t.Fatalf("client.Write(invalid) error = %v, want nil", err)
 	}
 
-	msg := readTCPMessage(t, client)
+	msg := readTCPMsg(t, cln)
 
 	res, ok := msg.(*sip.Response)
 	if !ok {
@@ -1834,53 +1817,54 @@ func TestConnOrientedTransport_RecvRequest_ParseErrorRespondsBadRequest(t *testi
 func TestConnOrientedTransport_RecvRequest_ParseErrorRespondsMessageTooLarge(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{})
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
 	resCh := make(chan *sip.OutboundResponseEnvelope, 1)
-	unbind := tp.UseOutboundResponseInterceptor(sip.OutboundResponseInterceptorFunc(func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
-		resCh <- res
-		return nil
-	}))
+	unbind := tp.UseOutboundResponseInterceptor(
+		sip.OutboundResponseInterceptorFunc(func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
+			resCh <- res
+			return nil
+		}),
+	)
 	t.Cleanup(unbind)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
-	client, err := net.Dial("tcp", listener.Addr().String())
+	cln, err := net.Dial("tcp", lis.Addr().String())
 	if err != nil {
 		t.Fatalf("net.Dial() error = %v, want nil", err)
 	}
-	defer client.Close()
+	defer cln.Close()
 
-	clientLocal := netip.MustParseAddrPort(client.LocalAddr().String())
-	listenerLocal := netip.MustParseAddrPort(listener.Addr().String())
+	clnAddr := netip.MustParseAddrPort(cln.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.Addr().String())
+
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), clientLocal, &sip.AcquireConnOptions{LocalAddr: listenerLocal})
+		_, err := tp.AcquireConn(t.Context(), clnAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	request := newMinimalRequest(t)
-	request.Body = bytes.Repeat([]byte("a"), int(sip.MaxMessageSize))
-	request.Headers.Set(header.ContentLength(len(request.Body)))
-	request.Headers.Set(header.Via{newViaHop(t, sip.TransportProto("TCP"), header.AddrFromHostPort(clientLocal.Addr().String(), clientLocal.Port()))})
+	req := newMinReq(t)
+	req.Body = bytes.Repeat([]byte("a"), int(sip.MaxMessageSize))
+	req.Headers.Set(header.ContentLength(len(req.Body)))
+	req.Headers.Set(header.Via{newViaHop(t, "TCP", header.AddrFromHostPort(clnAddr.Addr().String(), clnAddr.Port()))})
 
-	if _, err := client.Write([]byte(request.Render(nil))); err != nil {
+	if _, err := cln.Write([]byte(req.Render(nil))); err != nil {
 		t.Fatalf("client.Write() error = %v, want nil", err)
 	}
 
@@ -1901,56 +1885,55 @@ func TestConnOrientedTransport_RecvRequest_ParseErrorRespondsMessageTooLarge(t *
 func TestConnOrientedTransport_RecvResponse_ParseErrorDiscarded(t *testing.T) {
 	t.Parallel()
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{})
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), nil)
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
 	}
 
 	t.Cleanup(func() { tp.Close() })
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
-
-	listenerAddr := netip.MustParseAddrPort(listener.Addr().String())
+	t.Cleanup(func() { lis.Close() })
 
 	resCh := make(chan *sip.InboundResponseEnvelope, 1)
-	tp.UseInboundResponseInterceptor(sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
-		resCh <- res
-		return next.RecvResponse(ctx, res)
-	}))
+	tp.UseInboundResponseInterceptor(
+		sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
+			resCh <- res
+			return next.RecvResponse(ctx, res)
+		}),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
-	client, err := net.Dial("tcp", listener.Addr().String())
+	cln, err := net.Dial("tcp", lis.Addr().String())
 	if err != nil {
 		t.Fatalf("net.Dial() error = %v, want nil", err)
 	}
-	defer client.Close()
+	defer cln.Close()
 
-	clientLocal := netip.MustParseAddrPort(client.LocalAddr().String())
-	listenerLocal := netip.MustParseAddrPort(listener.Addr().String())
+	clnAddr := netip.MustParseAddrPort(cln.LocalAddr().String())
+	lisAddr := netip.MustParseAddrPort(lis.Addr().String())
+
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), clientLocal, &sip.AcquireConnOptions{LocalAddr: listenerLocal})
+		_, err := tp.AcquireConn(t.Context(), clnAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	invalidResponse := "SIP/2.0 200 OK\r\n" +
-		"Via: SIP/2.0/TCP " + listenerAddr.String() + ";branch=z9hG4bK-1\r\n" +
+	invalidRes := "SIP/2.0 200 OK\r\n" +
+		"Via: SIP/2.0/TCP " + lisAddr.String() + ";branch=z9hG4bK-1\r\n" +
 		"From: <sip:bob@example.com>;tag=1\r\n" +
 		"To: <sip:alice@example.com>\r\n" +
 		"Call-ID: 1@example.com\r\n" +
 		"CSeq: 1 INVITE\r\n" +
 		"BrokenHeader\r\n\r\n"
-	if _, err := client.Write([]byte(invalidResponse)); err != nil {
+	if _, err := cln.Write([]byte(invalidRes)); err != nil {
 		t.Fatalf("client.Write(invalid) error = %v, want nil", err)
 	}
 
@@ -1964,17 +1947,17 @@ func TestConnOrientedTransport_RecvResponse_ParseErrorDiscarded(t *testing.T) {
 func TestConnOrientedTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 	t.Parallel()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
-	listenerAddr := netip.MustParseAddrPort(listener.Addr().String())
+	lisAddr := netip.MustParseAddrPort(lis.Addr().String())
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{
-		TransportOptions: sip.TransportOptions{SentBy: sip.AddrFromHostPort("127.0.0.1", listenerAddr.Port())},
+	tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), &sip.ConnOrientedTransportOptions{
+		TransportOptions: sip.TransportOptions{SentBy: sip.AddrFromHostPort("127.0.0.1", lisAddr.Port())},
 	})
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
@@ -1983,35 +1966,35 @@ func TestConnOrientedTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 	t.Cleanup(func() { tp.Close() })
 
 	resCh := make(chan *sip.InboundResponseEnvelope, 1)
-	tp.UseInboundResponseInterceptor(sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
-		resCh <- res
-		return next.RecvResponse(ctx, res)
-	}))
+	tp.UseInboundResponseInterceptor(
+		sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
+			resCh <- res
+			return next.RecvResponse(ctx, res)
+		}),
+	)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go func() {
-		_ = tp.ServeListener(ctx, listener)
-	}()
+	go func() { _ = tp.ServeListener(ctx, lis) }()
 
-	client, err := net.Dial("tcp", listener.Addr().String())
+	cln, err := net.Dial("tcp", lis.Addr().String())
 	if err != nil {
 		t.Fatalf("net.Dial() error = %v, want nil", err)
 	}
-	defer client.Close()
+	defer cln.Close()
 
-	clientLocal := netip.MustParseAddrPort(client.LocalAddr().String())
+	clnAddr := netip.MustParseAddrPort(cln.LocalAddr().String())
 	waitFor(t, func() bool {
-		_, err := tp.AcquireConn(t.Context(), clientLocal, &sip.AcquireConnOptions{LocalAddr: listenerAddr})
+		_, err := tp.AcquireConn(t.Context(), clnAddr, &sip.AcquireConnOptions{LocalAddr: lisAddr})
 		return err == nil
 	})
 
-	matchAddr := header.AddrFromHostPort(listenerAddr.Addr().String(), listenerAddr.Port())
-	res := newMinimalResponse(t, sip.TransportProto("TCP"), matchAddr)
+	matchAddr := header.AddrFromHostPort(lisAddr.Addr().String(), lisAddr.Port())
+	res := newMinResp(t, "TCP", matchAddr)
 	res.Headers.Set(header.ContentLength(0))
 
-	if _, err := client.Write([]byte(res.Render(nil))); err != nil {
+	if _, err := cln.Write([]byte(res.Render(nil))); err != nil {
 		t.Fatalf("client.Write(match) error = %v, want nil", err)
 	}
 
@@ -2021,10 +2004,10 @@ func TestConnOrientedTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 		t.Fatalf("inbound response not received")
 	}
 
-	res = newMinimalResponse(t, sip.TransportProto("TCP"), header.AddrFromHostPort("192.0.2.2", listenerAddr.Port()))
+	res = newMinResp(t, "TCP", header.AddrFromHostPort("192.0.2.2", lisAddr.Port()))
 	res.Headers.Set(header.ContentLength(0))
 
-	if _, err := client.Write([]byte(res.Render(nil))); err != nil {
+	if _, err := cln.Write([]byte(res.Render(nil))); err != nil {
 		t.Fatalf("client.Write(mismatch) error = %v, want nil", err)
 	}
 
@@ -2041,19 +2024,18 @@ func TestConnOrientedTransport_SendRequest_SentBy(t *testing.T) {
 	t.Run("from options", func(t *testing.T) {
 		t.Parallel()
 
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		lis, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("net.Listen() error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { listener.Close() })
+		t.Cleanup(func() { lis.Close() })
 
-		listenerAddr := netip.MustParseAddrPort(listener.Addr().String())
-
+		lisAddr := netip.MustParseAddrPort(lis.Addr().String())
 		sentBy := sip.AddrFromHostPort("sentby.example.com", 5071)
 
-		tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{
-			TransportOptions: sip.TransportOptions{SentBy: sentBy, ConnDialer: &net.Dialer{}},
+		tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), &sip.ConnOrientedTransportOptions{
+			TransportOptions: sip.TransportOptions{SentBy: sentBy},
 		})
 		if err != nil {
 			t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
@@ -2063,7 +2045,7 @@ func TestConnOrientedTransport_SendRequest_SentBy(t *testing.T) {
 
 		serverCh := make(chan net.Conn, 1)
 		go func() {
-			conn, err := listener.Accept()
+			conn, err := lis.Accept()
 			if err != nil {
 				return
 			}
@@ -2071,28 +2053,28 @@ func TestConnOrientedTransport_SendRequest_SentBy(t *testing.T) {
 			serverCh <- conn
 		}()
 
-		outReq, err := sip.NewOutboundRequestEnvelope(newMinimalRequest(t))
+		outReq, err := sip.NewOutboundRequestEnvelope(newMinReq(t))
 		if err != nil {
 			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
 		}
 
-		outReq.SetRemoteAddr(listenerAddr)
+		outReq.SetRemoteAddr(lisAddr)
 
 		if err := tp.SendRequest(t.Context(), outReq, nil); err != nil {
 			t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 		}
 
-		serverConn := <-serverCh
-		defer serverConn.Close()
+		srvConn := <-serverCh
+		defer srvConn.Close()
 
-		msg := readTCPMessage(t, serverConn)
+		msg := readTCPMsg(t, srvConn)
 
 		parsedReq, ok := msg.(*sip.Request)
 		if !ok {
 			t.Fatalf("parsed message type = %T, want *sip.Request", msg)
 		}
 
-		via, ok := parsedReq.Headers.FirstVia()
+		via, ok := parsedReq.Headers.FirstViaHop()
 		if !ok {
 			t.Fatalf("parsed request Via header missing")
 		}
@@ -2106,63 +2088,61 @@ func TestConnOrientedTransport_SendRequest_SentBy(t *testing.T) {
 	t.Run("from connection", func(t *testing.T) {
 		t.Parallel()
 
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		lis, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("net.Listen() error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { listener.Close() })
+		t.Cleanup(func() { lis.Close() })
 
-		listenerAddr := netip.MustParseAddrPort(listener.Addr().String())
+		lisAddr := netip.MustParseAddrPort(lis.Addr().String())
 
-		tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{
-			TransportOptions: sip.TransportOptions{ConnDialer: &net.Dialer{}},
-		})
+		tp, err := sip.NewConnOrientedTransport(sip.TCPTransportMetadata(), nil)
 		if err != nil {
 			t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
 		}
 
 		t.Cleanup(func() { tp.Close() })
 
-		serverCh := make(chan net.Conn, 1)
+		srvCh := make(chan net.Conn, 1)
 		go func() {
-			conn, err := listener.Accept()
+			conn, err := lis.Accept()
 			if err != nil {
 				return
 			}
 
-			serverCh <- conn
+			srvCh <- conn
 		}()
 
-		outReq, err := sip.NewOutboundRequestEnvelope(newMinimalRequest(t))
+		outReq, err := sip.NewOutboundRequestEnvelope(newMinReq(t))
 		if err != nil {
 			t.Fatalf("sip.NewOutboundRequestEnvelope() error = %v, want nil", err)
 		}
 
-		outReq.SetRemoteAddr(listenerAddr)
+		outReq.SetRemoteAddr(lisAddr)
 
 		if err := tp.SendRequest(t.Context(), outReq, nil); err != nil {
 			t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 		}
 
-		serverConn := <-serverCh
-		defer serverConn.Close()
+		srvConn := <-srvCh
+		defer srvConn.Close()
 
-		msg := readTCPMessage(t, serverConn)
+		msg := readTCPMsg(t, srvConn)
 
 		parsedReq, ok := msg.(*sip.Request)
 		if !ok {
 			t.Fatalf("parsed message type = %T, want *sip.Request", msg)
 		}
 
-		via, ok := parsedReq.Headers.FirstVia()
+		via, ok := parsedReq.Headers.FirstViaHop()
 		if !ok {
 			t.Fatalf("parsed request Via header missing")
 		}
 
-		remoteAddr := netip.MustParseAddrPort(serverConn.RemoteAddr().String())
-		if gotPort, ok := via.Addr.Port(); !ok || gotPort != remoteAddr.Port() {
-			t.Fatalf("Via.sent-by port = %d (ok=%v), want %d", gotPort, ok, remoteAddr.Port())
+		rmtAddr := netip.MustParseAddrPort(srvConn.RemoteAddr().String())
+		if gotPort, ok := via.Addr.Port(); !ok || gotPort != rmtAddr.Port() {
+			t.Fatalf("Via.sent-by port = %d (ok=%v), want %d", gotPort, ok, rmtAddr.Port())
 		}
 	})
 }
@@ -2170,24 +2150,27 @@ func TestConnOrientedTransport_SendRequest_SentBy(t *testing.T) {
 func TestConnOrientedTransport_SendResponse_FallbackDNS(t *testing.T) {
 	t.Parallel()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { lis.Close() })
 
-	listenerAddr := netip.MustParseAddrPort(listener.Addr().String())
+	lisAddr := netip.MustParseAddrPort(lis.Addr().String())
+	meta := sip.TCPTransportMetadata()
+	meta.DefaultPort = lisAddr.Port()
 
-	callCount := 0
+	callCnt := 0
 	dialer := sip.ConnDialerFunc(func(ctx context.Context, network, addr string) (net.Conn, error) {
-		callCount++
-		if callCount == 1 {
+		callCnt++
+		if callCnt == 1 {
 			return nil, errors.New("dial failed")
 		}
 
 		return (&net.Dialer{}).DialContext(ctx, network, addr)
 	})
+
 	dnsResolver := stubDNSResolver{
 		lookupIP: func(ctx context.Context, network, host string) ([]net.IP, error) {
 			if host != "example.com" {
@@ -2203,8 +2186,11 @@ func TestConnOrientedTransport_SendResponse_FallbackDNS(t *testing.T) {
 		},
 	}
 
-	tp, err := sip.NewConnOrientedTransport(newTransportMeta("TCP", "tcp", listenerAddr.Port(), sip.TransportFlagReliable|sip.TransportFlagStreamed), &sip.ConnOrientedTransportOptions{
-		TransportOptions: sip.TransportOptions{DNSResolver: dnsResolver, ConnDialer: dialer},
+	tp, err := sip.NewConnOrientedTransport(meta, &sip.ConnOrientedTransportOptions{
+		TransportOptions: sip.TransportOptions{
+			RemoteClientLocator: &sip.RemoteElementLocator{DNSResolver: dnsResolver},
+			ConnDialer:          dialer,
+		},
 	})
 	if err != nil {
 		t.Fatalf("sip.NewConnOrientedTransport() error = %v, want nil", err)
@@ -2212,18 +2198,18 @@ func TestConnOrientedTransport_SendResponse_FallbackDNS(t *testing.T) {
 
 	t.Cleanup(func() { tp.Close() })
 
-	serverCh := make(chan net.Conn, 1)
+	srvCh := make(chan net.Conn, 1)
 	go func() {
-		conn, err := listener.Accept()
+		conn, err := lis.Accept()
 		if err != nil {
 			return
 		}
 
-		serverCh <- conn
+		srvCh <- conn
 	}()
 
-	viaAddr := header.AddrFromHostPort("example.com", listenerAddr.Port())
-	resp := newMinimalResponse(t, sip.TransportProto("TCP"), viaAddr)
+	viaAddr := header.AddrFromHostPort("example.com", lisAddr.Port())
+	resp := newMinResp(t, "TCP", viaAddr)
 	resp.Headers.Set(header.ContentLength(0))
 
 	outRes, err := sip.NewOutboundResponseEnvelope(resp)
@@ -2237,15 +2223,15 @@ func TestConnOrientedTransport_SendResponse_FallbackDNS(t *testing.T) {
 		t.Fatalf("tp.SendResponse() error = %v, want nil", err)
 	}
 
-	serverConn := <-serverCh
-	defer serverConn.Close()
+	srvConn := <-srvCh
+	defer srvConn.Close()
 
-	msg := readTCPMessage(t, serverConn)
+	msg := readTCPMsg(t, srvConn)
 	if _, ok := msg.(*sip.Response); !ok {
 		t.Fatalf("parsed message type = %T, want *sip.Response", msg)
 	}
 
-	if callCount < 2 {
-		t.Fatalf("dial calls = %d, want >= 2", callCount)
+	if callCnt < 2 {
+		t.Fatalf("dial calls = %d, want >= 2", callCnt)
 	}
 }

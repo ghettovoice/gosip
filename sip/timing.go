@@ -33,6 +33,10 @@ type TimingConfig struct {
 
 var defTimingCfg TimingConfig
 
+// DefaultTimings returns the default SIP timing config.
+// See [TimingConfig] for more details.
+func DefaultTimings() TimingConfig { return defTimingCfg }
+
 // NewTimings creates a new SIP timing config with specified base values.
 // See [TimingConfig] for more details about how base timing values are used.
 func NewTimings(t1, t2, t4, timeD, time100 time.Duration) TimingConfig {

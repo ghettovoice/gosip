@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+tasks:
+  test:
+    desc: Run all tests
+    env:
+      GOEXPERIMENT: goroutineleakprofile
+    vars:
+      PACKAGE: '{{.PACKAGE | default "..." }}'
+      TIMEOUT: '{{.TIMEOUT | default "30s" }}'
+      COVERAGE_FILE: '{{default "cover.out" .COVERAGE_FILE}}'
+    cmd: go test -race -vet=all -timeout={{.TIMEOUT}} -covermode=atomic -coverprofile={{.COVERAGE_FILE}} ./{{.PACKAGE}}
+
+  lint:
+    desc: Run golangci-lint
+    vars:
+      PACKAGE: '{{.PACKAGE | default "..." }}'
+    cmd: golangci-lint run ./{{.PACKAGE}}
+
+  vuln:
+    desc: Run govulncheck
+    vars:
+      PACKAGE: '{{.PACKAGE | default "..." }}'
+    cmd: govulncheck ./{{.PACKAGE}}
+
+  check:
+    desc: Run all checks (test, lint, vuln)
+    deps: [test, lint, vuln]
+
+  bench:
+    desc: Run benchmarks
+    vars:
+      COUNT: "{{default 10 .COUNT}}"
+      PREFIX:
+        sh: |
+          if [ "{{.PACKAGE}}" = "..." ] || [ "{{.PACKAGE}}" = "." ] || [ "{{.PACKAGE}}" = "" ]; then \
+            echo "gosip_"; \
+          else \
+            echo "{{.PACKAGE}}" | sed 's#/#_#g'; \
+          fi
+      SUFFIX:
+        sh: echo "_$(date +%Y%m%d%H%M%S)"
+    cmd: |
+      go test -vet=all -run=^$$ -bench=. -benchmem -count={{.COUNT}} \
+        -memprofile={{.PREFIX}}mem{{.SUFFIX}}.out \
+        -cpuprofile={{.PREFIX}}cpu{{.SUFFIX}}.out \
+        ./{{.PACKAGE}} | \
+      tee {{.PREFIX}}bench{{.SUFFIX}}.out
+
+  cov:
+    desc: View coverage report in browser
+    vars:
+      COVERAGE_FILE: '{{default "cover.out" .COVERAGE_FILE}}'
+    cmd: go tool cover -html={{.COVERAGE_FILE}}
+
+  doc:
+    desc: View documentation
+    cmd:
+      cmd: go doc -http
+      ignore_error: true
+
+  gen:
+    desc: Generate code
+    vars:
+      PACKAGE: '{{.PACKAGE | default "..." }}'
+    cmd: go generate ./{{.PACKAGE}}
+
+  release:
+    desc: Release a new version
+    cmds:
+      - |
+        if [ -z "{{.VERSION}}" ]; then \
+          echo "Error: VERSION is not set. Usage: task release VERSION=vX.Y.Z" >&2; \
+          exit 1; \
+        fi
+      - |
+        if ! echo "{{.VERSION}}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$$'; then \
+          echo "Error: Invalid version format. Use semantic versioning (e.g., v1.2.3, v1.2.3-alpha.1, v1.2.3-beta.2, v1.2.3-rc.3)" >&2; \
+          exit 1; \
+        fi
+      - sed -i '' 's/^const VERSION = ".*"/const VERSION = "{{.VERSION}}"/' gosip.go
+      - git add gosip.go
+      - git commit -m "Release {{.VERSION}}"
+      - git tag -a {{.VERSION}} -m "Release {{.VERSION}}"
+      - echo "\nRelease {{.VERSION}} is ready to be pushed. Run the following command to publish:\n  git push --follow-tags"

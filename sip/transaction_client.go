@@ -96,7 +96,7 @@ type ClientTransactionOptions struct {
 	// Key should be unique for the transaction and match responses on the request that created the transaction.
 	Key ClientTransactionKey
 	// Timings is the SIP timing config that will be used with the transaction.
-	// If zero, the default SIP timing config will be used.
+	// If zero, [DefaultTimings] will be used.
 	Timings TimingConfig
 	// SendOptions are the options that will be used to send the requests.
 	SendOptions *SendRequestOptions
@@ -167,7 +167,7 @@ func newClientTransact(
 	}
 
 	req.AccessMessage(func(r *Request) {
-		via, _ := r.Headers.FirstVia()
+		via, _ := r.Headers.FirstViaHop()
 		if branch, ok := via.Branch(); !ok || branch == "" || !strings.HasPrefix(branch, MagicCookie) {
 			if via.Params == nil {
 				via.Params = make(Values)
@@ -286,11 +286,7 @@ func (tx *clientTransact) RecvResponse(ctx context.Context, res *InboundResponse
 
 func (tx *clientTransact) sendReq(ctx context.Context, req *OutboundRequestEnvelope) error {
 	if err := tx.tp.SendRequest(ctx, req, tx.sendOpts); err != nil {
-		if err := tx.fsm.FireCtx(
-			ctx,
-			txEvtTranspErr,
-			errors.ErrorfWrap("send %q request: %w", req.Method(), err),
-		); err != nil {
+		if err := tx.fsm.FireCtx(ctx, txEvtTranspErr, errors.ErrorfWrap("send %q request: %w", req.Method(), err)); err != nil {
 			panic(errors.ErrorfWrap("fire %q in state %q: %w", txEvtTranspErr, tx.State(), err))
 		}
 
@@ -468,7 +464,7 @@ func MakeClientTransactionKey(msg Message) (ClientTransactionKey, error) {
 	}
 
 	hdrs := GetMessageHeaders(msg)
-	via, _ := hdrs.FirstVia()
+	via, _ := hdrs.FirstViaHop()
 	cseq, _ := hdrs.CSeq()
 
 	var k ClientTransactionKey
@@ -635,10 +631,7 @@ func NewMemoryClientTransactionStore() *MemoryClientTransactionStore {
 	}
 }
 
-func (s *MemoryClientTransactionStore) Load(
-	_ context.Context,
-	key ClientTransactionKey,
-) (ClientTransaction, error) {
+func (s *MemoryClientTransactionStore) Load(_ context.Context, key ClientTransactionKey) (ClientTransaction, error) {
 	tx, ok := s.main.Load(key)
 	if !ok {
 		return nil, errors.Wrap(ErrTransactionNotFound)
@@ -647,10 +640,7 @@ func (s *MemoryClientTransactionStore) Load(
 	return tx, nil
 }
 
-func (s *MemoryClientTransactionStore) MatchMessage(
-	ctx context.Context,
-	msg Message,
-) (ClientTransaction, error) {
+func (s *MemoryClientTransactionStore) MatchMessage(ctx context.Context, msg Message) (ClientTransaction, error) {
 	key, err := MakeClientTransactionKey(msg)
 	if err != nil {
 		return nil, errors.Wrap(err)
@@ -805,7 +795,7 @@ func (tx *InviteClientTransaction) actSendAck(ctx context.Context, _ ...any) err
 		ack = tx.req.Clone().(*OutboundRequestEnvelope) //nolint:forcetypeassert
 		ack.msg.Method = RequestMethodAck
 
-		via, _ := ack.msg.Headers.FirstVia()
+		via, _ := ack.msg.Headers.FirstViaHop()
 		ack.msg.Headers.Set(header.Via{*via})
 
 		cseq, _ := ack.msg.Headers.CSeq()

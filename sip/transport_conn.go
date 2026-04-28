@@ -515,12 +515,7 @@ type packetConn struct {
 	conn     netutil.ContextPacketConn
 }
 
-func newPacketConn(
-	ctx context.Context,
-	base net.PacketConn,
-	meta TransportMetadata,
-	opts *ConnOptions,
-) (*packetConn, error) {
+func newPacketConn(ctx context.Context, base net.PacketConn, meta TransportMetadata, opts *ConnOptions) (*packetConn, error) {
 	if base == nil {
 		return nil, errors.NewInvalidArgumentErrorWrap("nil connection")
 	}
@@ -683,12 +678,7 @@ func (c *packetConn) recvKeepAliveCRLF(ctx context.Context, kaType uint8, raddr 
 	}
 }
 
-func (c *packetConn) WriteMessage(
-	ctx context.Context,
-	msg Message,
-	addr netip.AddrPort,
-	opts *RenderOptions,
-) error {
+func (c *packetConn) WriteMessage(ctx context.Context, msg Message, addr netip.AddrPort, opts *RenderOptions) error {
 	if c.isClosed() {
 		return errors.Wrap(net.ErrClosed)
 	}
@@ -704,12 +694,12 @@ func (c *packetConn) WriteMessage(
 		return errors.Wrap(err)
 	}
 
-	if uint(bb.Len()) > MTU-200 {
-		// this is a very unlikely case, but we should still check
-		// selecting the correct transport must be done in the upper layer
-		// TODO: do we need to try render in compact form automatically?
-		return errors.NewInvalidArgumentErrorWrap(ErrMessageTooLarge)
-	}
+	// if uint(bb.Len()) > MTU-200 {
+	// 	// this is a very unlikely case, but we should still check
+	// 	// selecting the correct transport must be done in the upper layer
+	// 	// TODO: do we need to try render in compact form automatically?
+	// 	return errors.NewInvalidArgumentErrorWrap(ErrMessageTooLarge)
+	// }
 
 	if _, err := c.WriteTo(ctx, bb.Bytes(), addr); err != nil {
 		return errors.Wrap(err)
@@ -775,12 +765,7 @@ type conn struct {
 	ttlTmr atomic.Pointer[time.Timer]
 }
 
-func newConn(
-	ctx context.Context,
-	base net.Conn,
-	meta TransportMetadata,
-	opts *ConnOptions,
-) (*conn, error) {
+func newConn(ctx context.Context, base net.Conn, meta TransportMetadata, opts *ConnOptions) (*conn, error) {
 	if base == nil {
 		return nil, errors.NewInvalidArgumentErrorWrap("nil connection")
 	}
@@ -989,12 +974,7 @@ func (c *conn) recvKeepAlive(ctx context.Context, kaType uint8) {
 	}
 }
 
-func (c *conn) WriteMessage(
-	ctx context.Context,
-	msg Message,
-	addr netip.AddrPort,
-	opts *RenderOptions,
-) error {
+func (c *conn) WriteMessage(ctx context.Context, msg Message, addr netip.AddrPort, opts *RenderOptions) error {
 	if c.isClosed() {
 		return errors.Wrap(net.ErrClosed)
 	}

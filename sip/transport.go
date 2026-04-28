@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ghettovoice/gosip/dns"
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/netutil"
 	"github.com/ghettovoice/gosip/internal/syncutil"
@@ -132,6 +131,11 @@ type TransportMetadata struct {
 	DefaultPort uint16 `json:"default_port"`
 	// Flags is a set of transport flags.
 	Flags TransportFlags `json:"flags"`
+	// NAPTRService is the NAPTR service string for the transport.
+	NAPTRService string `json:"naptr_service"`
+	// Priority defines the transport selection order.
+	// Lower value means higher priority (e.g. UDP=0, TCP=10, TLS=20).
+	Priority int `json:"priority"`
 }
 
 func (d TransportMetadata) IsValid() bool {
@@ -153,32 +157,107 @@ func (d TransportMetadata) Streamed() bool {
 func (d TransportMetadata) Canonic() TransportMetadata {
 	d.Proto = d.Proto.Canonic()
 	d.Network = util.LCase(d.Network)
+	d.NAPTRService = util.UCase(d.NAPTRService)
 	return d
 }
 
 var (
 	udpTranspMeta = TransportMetadata{
-		Proto:       "UDP",
-		Network:     "udp",
-		DefaultPort: 5060,
+		Proto:        "UDP",
+		Network:      "udp",
+		DefaultPort:  5060,
+		NAPTRService: "SIP+D2U",
+		Priority:     0,
 	}
 	tcpTranspMeta = TransportMetadata{
-		Proto:       "TCP",
-		Network:     "tcp",
-		DefaultPort: 5060,
-		Flags:       TransportFlagReliable | TransportFlagStreamed,
+		Proto:        "TCP",
+		Network:      "tcp",
+		DefaultPort:  5060,
+		Flags:        TransportFlagReliable | TransportFlagStreamed,
+		NAPTRService: "SIP+D2T",
+		Priority:     10,
 	}
 	tlsTranspMeta = TransportMetadata{
-		Proto:       "TLS",
-		Network:     "tls",
-		DefaultPort: 5061,
-		Flags:       TransportFlagReliable | TransportFlagStreamed | TransportFlagSecured,
+		Proto:        "TLS",
+		Network:      "tcp",
+		DefaultPort:  5061,
+		Flags:        TransportFlagReliable | TransportFlagStreamed | TransportFlagSecured,
+		NAPTRService: "SIPS+D2T",
+		Priority:     20,
+	}
+	sctpTranspMeta = TransportMetadata{
+		Proto:        "SCTP",
+		Network:      "tcp",
+		DefaultPort:  5060,
+		Flags:        TransportFlagReliable,
+		NAPTRService: "SIP+D2S",
+		Priority:     30,
+	}
+	tlssctpTranspMeta = TransportMetadata{
+		Proto:        "TLS-SCTP",
+		Network:      "tcp",
+		DefaultPort:  5061,
+		Flags:        TransportFlagReliable | TransportFlagSecured,
+		NAPTRService: "SIPS+D2S",
+		Priority:     40,
+	}
+	wsTranspMeta = TransportMetadata{
+		Proto:        "WS",
+		Network:      "tcp",
+		DefaultPort:  80,
+		Flags:        TransportFlagReliable,
+		NAPTRService: "SIP+D2W",
+		Priority:     50,
+	}
+	wssTranspMeta = TransportMetadata{
+		Proto:        "WSS",
+		Network:      "tcp",
+		DefaultPort:  443,
+		Flags:        TransportFlagReliable | TransportFlagSecured,
+		NAPTRService: "SIPS+D2W",
+		Priority:     60,
 	}
 )
 
-func UDPTransportMetadata() TransportMetadata { return udpTranspMeta }
-func TCPTransportMetadata() TransportMetadata { return tcpTranspMeta }
-func TLSTransportMetadata() TransportMetadata { return tlsTranspMeta }
+func UDPTransportMetadata() TransportMetadata     { return udpTranspMeta }
+func TCPTransportMetadata() TransportMetadata     { return tcpTranspMeta }
+func TLSTransportMetadata() TransportMetadata     { return tlsTranspMeta }
+func SCTPTransportMetadata() TransportMetadata    { return sctpTranspMeta }
+func TLSSCTPTransportMetadata() TransportMetadata { return tlssctpTranspMeta }
+func WSTransportMetadata() TransportMetadata      { return wsTranspMeta }
+func WSSTransportMetadata() TransportMetadata     { return wssTranspMeta }
+
+// TransportMetadataProvider provides transport metadata for different protocols and NAPTR services.
+type TransportMetadataProvider interface {
+	MetadataByProto(proto TransportProto) TransportMetadata
+	MetadataByNAPTRService(service string) TransportMetadata
+	// AllMetadata returns a sequence of all registered transport metadata ordered by priority.
+	AllMetadata() iter.Seq[TransportMetadata]
+}
+
+type singleTransportMetadataProvider struct {
+	meta TransportMetadata
+}
+
+func (p *singleTransportMetadataProvider) MetadataByProto(proto TransportProto) TransportMetadata {
+	if p.meta.Proto == proto {
+		return p.meta
+	}
+	return TransportMetadata{}
+}
+
+func (p *singleTransportMetadataProvider) MetadataByNAPTRService(service string) TransportMetadata {
+	if p.meta.NAPTRService == service {
+		return p.meta
+	}
+	return TransportMetadata{}
+}
+
+func (p *singleTransportMetadataProvider) AllMetadata() iter.Seq[TransportMetadata] {
+	return func(yield func(TransportMetadata) bool) {
+		yield(p.meta)
+	}
+}
 
 // Transport represents a combination of client and server transport functions.
 type Transport interface {
@@ -226,9 +305,9 @@ type TransportOptions struct {
 	// Parser is a parser used to parse inbound SIP messages.
 	// If nil, [DefaultParser] is used.
 	Parser Parser
-	// DNSResolver is a DNS resolver used to resolve the message destination.
-	// If nil, [dns.DefaultResolver] is used.
-	DNSResolver DNSResolver
+	// RemoteClientLocator is used to locate remote clients for response routing.
+	// If nil, [DefaultRemoteElementLocator] is used.
+	RemoteClientLocator RemoteClientLocator
 	// Logger is a logger used to log transport events, warnings and errors.
 	// If nil, [log.Default] is used.
 	Logger *slog.Logger
@@ -288,11 +367,11 @@ func (o *TransportOptions) parser() Parser {
 	return o.Parser
 }
 
-func (o *TransportOptions) dnsResolver() DNSResolver {
-	if o == nil || o.DNSResolver == nil {
-		return dns.DefaultResolver()
+func (o *TransportOptions) rmtClnLctr() RemoteClientLocator {
+	if o == nil || o.RemoteClientLocator == nil {
+		return DefaultRemoteElementLocator()
 	}
-	return o.DNSResolver
+	return o.RemoteClientLocator
 }
 
 func (o *TransportOptions) logger() *slog.Logger {
@@ -361,7 +440,7 @@ type transpBase[L listener, B any] struct {
 	meta       TransportMetadata
 	sentBy     Addr
 	prs        Parser
-	dns        DNSResolver
+	rmtClnLctr RemoteClientLocator
 	log        *slog.Logger
 	connTTL    time.Duration
 	connDialer ConnDialer
@@ -401,7 +480,7 @@ func (tb *transpBase[L, B]) init(impl transpImpl[L, B], meta TransportMetadata, 
 	tb.meta = meta.Canonic()
 	tb.sentBy = opts.sentBy()
 	tb.prs = opts.parser()
-	tb.dns = opts.dnsResolver()
+	tb.rmtClnLctr = opts.rmtClnLctr()
 	tb.connTTL = opts.connIdleTTL()
 	tb.connDialer = opts.connDialer()
 	tb.closing = make(chan struct{})
@@ -451,6 +530,8 @@ func (tb *transpBase[L, B]) Close() error {
 		close(tb.closing)
 		tb.closeErr = tb.close()
 		tb.closed.Store(true)
+
+		tb.log.Debug("transport closed")
 	})
 
 	return errors.Wrap(tb.closeErr)
@@ -483,11 +564,11 @@ func (tb *transpBase[L, B]) makeSentBy(laddr netip.AddrPort) Addr {
 
 	if _, ok := tb.liss.Load(laddr); !ok {
 		for k, l := range tb.liss.All() {
-			lisAddr := l.listenAddr()
+			lsAddr := l.listenAddr()
 			if !l.isClosed() &&
-				(lisAddr.Addr().Is4() && laddr.Addr().Is4() ||
-					lisAddr.Addr().Is6() && laddr.Addr().Is6()) {
-				laddr = lisAddr
+				(lsAddr.Addr().Is4() && laddr.Addr().Is4() ||
+					lsAddr.Addr().Is6() && laddr.Addr().Is6()) {
+				laddr = lsAddr
 				break
 			}
 
@@ -649,29 +730,12 @@ func (tb *transpBase[L, B]) serveConn(ctx context.Context, netConn net.Conn) (*c
 	}()
 
 	go func() {
-		tb.log.LogAttrs(ctx, slog.LevelDebug, "connection read loop started", slog.Any("connection", conn))
-
-		var readErr error
-
 		defer func() {
 			tb.untrackConn(ctx, conn)
 			close(ch)
-
-			lvl := slog.LevelWarn
-			if errors.Is(readErr, ErrTransportClosed) ||
-				errors.Is(readErr, net.ErrClosed) ||
-				errors.Is(readErr, ctx.Err()) {
-				lvl = slog.LevelDebug
-			}
-
-			tb.log.LogAttrs(ctx, lvl, "connection read loop stopped",
-				slog.Any("connection", conn),
-				slog.Any("error", readErr),
-			)
 		}()
 
-		readErr = tb.readMsgs(ctx, conn.Messages(ctx), true)
-		ch <- errors.Wrap(readErr)
+		ch <- errors.Wrap(tb.readMsgs(ctx, conn.Messages(ctx), true))
 	}()
 
 	return conn, ch, nil
@@ -683,10 +747,7 @@ func (tb *transpBase[L, B]) trackConn(ctx context.Context, netConn net.Conn) (c 
 	}
 
 	if !netutil.IsNetworkCompatible(tb.meta.Network, netConn.LocalAddr().Network()) {
-		return nil, false, errors.NewInvalidArgumentErrorWrap(
-			"incompatible connection network %q",
-			netConn.LocalAddr().Network(),
-		)
+		return nil, false, errors.NewInvalidArgumentErrorWrap("incompatible connection network %q", netConn.LocalAddr().Network())
 	}
 
 	laddr := netutil.UnmapAddrPort(netip.MustParseAddrPort(netConn.LocalAddr().String()))
@@ -734,11 +795,7 @@ func (tb *transpBase[L, B]) untrackConn(ctx context.Context, conn *conn) {
 	}
 }
 
-func (tb *transpBase[L, B]) findConn(
-	raddr netip.AddrPort,
-	laddr netip.AddrPort,
-	host string,
-) (Conn, bool) {
+func (tb *transpBase[L, B]) findConn(raddr, laddr netip.AddrPort, host string) (Conn, bool) {
 	if conns, ok := tb.conns.Load(raddr); ok {
 		if laddr.IsValid() {
 			if c, ok := conns.Load(laddr); ok {
@@ -793,11 +850,7 @@ func (tb *transpBase[L, B]) dialConn(ctx context.Context, raddr netip.AddrPort) 
 // In case of reliable transport, Content-Length header will be added automatically if it is missing.
 //
 // Options are optional, if nil is passed, default options are used (see [SendRequestOptions]).
-func (tb *transpBase[L, B]) SendRequest(
-	ctx context.Context,
-	req *OutboundRequestEnvelope,
-	opts *SendRequestOptions,
-) error {
+func (tb *transpBase[L, B]) SendRequest(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions) error {
 	if tb.isClosing() {
 		return errors.Wrap(ErrTransportClosed)
 	}
@@ -805,23 +858,14 @@ func (tb *transpBase[L, B]) SendRequest(
 	ctx = ContextWithTransport(ctx, tb.impl)
 
 	sender := InterceptOutboundRequest(
-		slices.Collect(
-			util.SeqFilter(
-				tb.outReqInts.All(),
-				func(i OutboundRequestInterceptor) bool { return i != nil },
-			),
-		),
+		slices.Collect(util.SeqFilter(tb.outReqInts.All(), func(i OutboundRequestInterceptor) bool { return i != nil })),
 		RequestSenderFunc(tb.sendRequest),
 	)
 
 	return errors.Wrap(sender.SendRequest(ctx, req, opts))
 }
 
-func (tb *transpBase[L, B]) sendRequest(
-	ctx context.Context,
-	req *OutboundRequestEnvelope,
-	opts *SendRequestOptions,
-) error {
+func (tb *transpBase[L, B]) sendRequest(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions) error {
 	if tb.isClosing() {
 		return errors.Wrap(ErrTransportClosed)
 	}
@@ -870,7 +914,7 @@ func (tb *transpBase[L, B]) sendRequest(
 			return
 		}
 
-		if hop, ok := r.Headers.FirstVia(); ok {
+		if hop, ok := r.Headers.FirstViaHop(); ok {
 			hop.Transport = tb.meta.Proto
 
 			hop.Addr = tb.makeSentBy(laddr)
@@ -927,11 +971,7 @@ func (tb *transpBase[L, B]) genStableBranch(laddr, raddr netip.AddrPort) string 
 // In case of reliable transport, Content-Length header will be added automatically if it is missing.
 //
 // Options are optional, if nil is passed, default options are used (see [SendResponseOptions]).
-func (tb *transpBase[L, B]) SendResponse(
-	ctx context.Context,
-	res *OutboundResponseEnvelope,
-	opts *SendResponseOptions,
-) error {
+func (tb *transpBase[L, B]) SendResponse(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error {
 	if tb.isClosing() {
 		return errors.Wrap(ErrTransportClosed)
 	}
@@ -939,12 +979,7 @@ func (tb *transpBase[L, B]) SendResponse(
 	ctx = ContextWithTransport(ctx, tb.impl)
 
 	sender := InterceptOutboundResponse(
-		slices.Collect(
-			util.SeqFilter(
-				tb.outResInts.All(),
-				func(i OutboundResponseInterceptor) bool { return i != nil },
-			),
-		),
+		slices.Collect(util.SeqFilter(tb.outResInts.All(), func(i OutboundResponseInterceptor) bool { return i != nil })),
 		ResponseSenderFunc(tb.sendResponse),
 	)
 
@@ -952,11 +987,7 @@ func (tb *transpBase[L, B]) SendResponse(
 }
 
 //nolint:gocognit
-func (tb *transpBase[L, B]) sendResponse(
-	ctx context.Context,
-	res *OutboundResponseEnvelope,
-	opts *SendResponseOptions,
-) error {
+func (tb *transpBase[L, B]) sendResponse(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error {
 	if tb.isClosing() {
 		return errors.Wrap(ErrTransportClosed)
 	}
@@ -976,7 +1007,7 @@ func (tb *transpBase[L, B]) sendResponse(
 			return
 		}
 
-		if hop, ok := r.Headers.FirstVia(); ok {
+		if hop, ok := r.Headers.FirstViaHop(); ok {
 			via = hop.Clone()
 		}
 
@@ -1026,7 +1057,7 @@ func (tb *transpBase[L, B]) sendResponse(
 
 	// fallback to RFC 3261 Section 18.2.2. and RFC 3263 Section 5
 	var errs []error
-	for _, raddr := range ResponseAddrs(ctx, tb.dns, tb.meta, via) {
+	for _, raddr := range tb.rmtClnLctr.LookupResponseAddrs(ctx, via, &singleTransportMetadataProvider{tb.meta}) {
 		var err error
 
 		curCtx := ctx
@@ -1053,15 +1084,12 @@ func (tb *transpBase[L, B]) sendResponse(
 			res.SetLocalAddr(conn.LocalAddr())
 		}
 
-		if err = conn.WriteMessage(curCtx, res, res.RemoteAddr(), opts.rendOpts()); err == nil {
-			return nil
-		}
-
-		if errors.Is(err, ErrTransportClosed) || errors.Is(err, curCtx.Err()) {
+		err = conn.WriteMessage(curCtx, res, res.RemoteAddr(), opts.rendOpts())
+		if err == nil || errors.Is(err, ErrTransportClosed) || errors.Is(err, curCtx.Err()) {
 			return errors.Wrap(err)
 		}
 
-		errs = append(errs, errors.Errorf("write message to %q: %w", raddr, err))
+		errs = append(errs, errors.Errorf("write response to %q: %w", raddr, err))
 	}
 
 	if len(errs) == 0 {
@@ -1071,12 +1099,7 @@ func (tb *transpBase[L, B]) sendResponse(
 	return errors.JoinPrefixWrap("send response errors:", errs...)
 }
 
-func (tb *transpBase[L, B]) Respond(
-	ctx context.Context,
-	req *InboundRequestEnvelope,
-	sts ResponseStatus,
-	opts *RespondOptions,
-) error {
+func (tb *transpBase[L, B]) Respond(ctx context.Context, req *InboundRequestEnvelope, sts ResponseStatus, opts *RespondOptions) error {
 	if tb.isClosing() {
 		return errors.Wrap(ErrTransportClosed)
 	}
@@ -1129,11 +1152,7 @@ func genStableResTag(hdrs Headers) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-func (tb *transpBase[L, B]) readMsgs(
-	ctx context.Context,
-	msgs iter.Seq2[Message, error],
-	stopOnPanic bool,
-) error {
+func (tb *transpBase[L, B]) readMsgs(ctx context.Context, msgs iter.Seq2[Message, error], stopOnPanic bool) error {
 	for msg, err := range msgs {
 		var perr *ParseError
 		if err != nil {
@@ -1176,8 +1195,7 @@ func (tb *transpBase[L, B]) readMsgs(
 func (tb *transpBase[L, B]) recvReqSafe(ctx context.Context, req *InboundRequestEnvelope, err error) (finErr error) {
 	defer func() {
 		if pe := recover(); pe != nil {
-			tb.log.LogAttrs(ctx, slog.LevelError,
-				"panic occurred while processing the inbound request",
+			tb.log.LogAttrs(ctx, slog.LevelError, "panic occurred while processing the inbound request",
 				slog.Any("request", req),
 				slog.Any("error", pe),
 				slog.Any("stack", log.StringValue(debug.Stack())),
@@ -1192,8 +1210,7 @@ func (tb *transpBase[L, B]) recvReqSafe(ctx context.Context, req *InboundRequest
 			func() {
 				defer func() {
 					if pe := recover(); pe != nil {
-						tb.log.LogAttrs(ctx, slog.LevelError,
-							"panic occurred while processing of the previous panic error",
+						tb.log.LogAttrs(ctx, slog.LevelError, "panic occurred while processing of the previous panic error",
 							slog.Any("request", req),
 							slog.Any("error", pe),
 							slog.Any("stack", log.StringValue(debug.Stack())),
@@ -1215,8 +1232,7 @@ func (tb *transpBase[L, B]) recvReqSafe(ctx context.Context, req *InboundRequest
 			lvl = e.LogLevel()
 		}
 
-		tb.log.LogAttrs(ctx, lvl,
-			"rejecting the inbound request due to error",
+		tb.log.LogAttrs(ctx, lvl, "rejecting the inbound request due to error",
 			slog.Any("request", req),
 			slog.Any("error", err),
 		)
@@ -1229,7 +1245,7 @@ func (tb *transpBase[L, B]) recvReqSafe(ctx context.Context, req *InboundRequest
 
 func (tb *transpBase[L, B]) recvReq(ctx context.Context, req *InboundRequestEnvelope, err error) error {
 	// try to setup Via params even first to allow correct response routing in case of any failure
-	if via, ok := req.msg.Headers.FirstVia(); ok && via != nil && via.IsValid() {
+	if via, ok := req.msg.Headers.FirstViaHop(); ok && via != nil && via.IsValid() {
 		raddr := req.RemoteAddr()
 		// RFC 3261 Section 18.2.1.
 		if via.Addr.IP() == nil || !via.Addr.IP().Equal(raddr.Addr().AsSlice()) {
@@ -1269,18 +1285,9 @@ func (tb *transpBase[L, B]) recvReq(ctx context.Context, req *InboundRequestEnve
 	}
 
 	receiver := InterceptInboundRequest(
-		slices.Collect(
-			util.SeqFilter(
-				tb.inReqInts.All(),
-				func(i InboundRequestInterceptor) bool { return i != nil },
-			),
-		),
+		slices.Collect(util.SeqFilter(tb.inReqInts.All(), func(i InboundRequestInterceptor) bool { return i != nil })),
 		RequestReceiverFunc(func(ctx context.Context, req *InboundRequestEnvelope) error {
-			return errors.Wrap(newRejectReqErr(
-				ErrUnhandledMessage,
-				ResponseStatusServiceUnavailable,
-				slog.LevelWarn,
-			))
+			return errors.Wrap(newRejectReqErr(ErrUnhandledMessage, ResponseStatusServiceUnavailable, slog.LevelWarn))
 		}),
 	)
 
@@ -1294,8 +1301,7 @@ func (tb *transpBase[L, B]) respondOrDiscard(ctx context.Context, req *InboundRe
 			lvl = slog.LevelDebug
 		}
 
-		tb.log.LogAttrs(ctx, lvl,
-			"silently discard the inbound request due to respond failure",
+		tb.log.LogAttrs(ctx, lvl, "silently discard the inbound request due to respond failure",
 			slog.Any("request", req),
 			slog.Any("error", err),
 		)
@@ -1305,8 +1311,7 @@ func (tb *transpBase[L, B]) respondOrDiscard(ctx context.Context, req *InboundRe
 func (tb *transpBase[L, B]) recvResSafe(ctx context.Context, res *InboundResponseEnvelope, err error) (finErr error) {
 	defer func() {
 		if pe := recover(); pe != nil {
-			tb.log.LogAttrs(ctx, slog.LevelError,
-				"panic occurred while processing the inbound response",
+			tb.log.LogAttrs(ctx, slog.LevelError, "panic occurred while processing the inbound response",
 				slog.Any("response", res),
 				slog.Any("error", pe),
 				slog.Any("stack", log.StringValue(debug.Stack())),
@@ -1326,8 +1331,7 @@ func (tb *transpBase[L, B]) recvResSafe(ctx context.Context, res *InboundRespons
 			lvl = e.LogLevel()
 		}
 
-		tb.log.LogAttrs(ctx, lvl,
-			"silently discard the inbound response due to error",
+		tb.log.LogAttrs(ctx, lvl, "silently discard the inbound response due to error",
 			slog.Any("response", res),
 			slog.Any("error", err),
 		)
@@ -1346,21 +1350,13 @@ func (tb *transpBase[L, B]) recvRes(ctx context.Context, res *InboundResponseEnv
 	}
 
 	// RFC 3261 Section 18.1.2.
-	via, _ := res.msg.Headers.FirstVia()
+	via, _ := res.msg.Headers.FirstViaHop()
 	if !tb.matchSentBy(via.Addr, res.LocalAddr()) {
-		return errors.Wrap(newRejectResErr(
-			errors.Errorf("Via sent-by address %q not matched", via.Addr),
-			slog.LevelDebug,
-		))
+		return errors.Wrap(newRejectResErr(errors.Errorf("Via sent-by address %q not matched", via.Addr), slog.LevelDebug))
 	}
 
 	receiver := InterceptInboundResponse(
-		slices.Collect(
-			util.SeqFilter(
-				tb.inResInts.All(),
-				func(i InboundResponseInterceptor) bool { return i != nil },
-			),
-		),
+		slices.Collect(util.SeqFilter(tb.inResInts.All(), func(i InboundResponseInterceptor) bool { return i != nil })),
 		ResponseReceiverFunc(func(ctx context.Context, res *InboundResponseEnvelope) error {
 			return errors.Wrap(newRejectResErr(ErrUnhandledMessage, slog.LevelWarn))
 		}),
@@ -1487,10 +1483,7 @@ func (f PacketListenConfigFunc) ListenPacket(ctx context.Context, nt, addr strin
 	return errors.Wrap2(f(ctx, nt, addr))
 }
 
-func NewConnlessTransport(
-	meta TransportMetadata,
-	opts *ConnlessTransportOptions,
-) (*ConnlessTransport, error) {
+func NewConnlessTransport(meta TransportMetadata, opts *ConnlessTransportOptions) (*ConnlessTransport, error) {
 	if !meta.IsValid() {
 		return nil, errors.NewInvalidArgumentErrorWrap("invalid metadata %q", meta)
 	}
@@ -1600,11 +1593,7 @@ func (tp *ConnlessTransport) ListenAndServe(ctx context.Context, addr string) er
 	return errors.Wrap(tp.ServeListener(ctx, ls))
 }
 
-func (tp *ConnlessTransport) AcquireConn(
-	ctx context.Context,
-	raddr netip.AddrPort,
-	opts *AcquireConnOptions,
-) (Conn, error) {
+func (tp *ConnlessTransport) AcquireConn(ctx context.Context, raddr netip.AddrPort, opts *AcquireConnOptions) (Conn, error) {
 	if tp.isClosing() {
 		return nil, errors.Wrap(ErrTransportClosed)
 	}
@@ -1622,9 +1611,9 @@ func (tp *ConnlessTransport) AcquireConn(
 	}
 
 	for k, l := range tp.liss.All() {
-		if !l.isClosed() &&
-			(laddr.Addr().Is4() && l.laddr.Addr().Is4() ||
-				laddr.Addr().Is6() && l.laddr.Addr().Is6()) {
+		if !l.isClosed() && (!laddr.IsValid() ||
+			laddr.Addr().Is4() && l.laddr.Addr().Is4() ||
+			laddr.Addr().Is6() && l.laddr.Addr().Is6()) {
 			return l, nil
 		}
 
@@ -1676,10 +1665,7 @@ func (f ConnListenConfigFunc) Listen(ctx context.Context, nt, addr string) (net.
 	return errors.Wrap2(f(ctx, nt, addr))
 }
 
-func NewConnOrientedTransport(
-	meta TransportMetadata,
-	opts *ConnOrientedTransportOptions,
-) (*ConnOrientedTransport, error) {
+func NewConnOrientedTransport(meta TransportMetadata, opts *ConnOrientedTransportOptions) (*ConnOrientedTransport, error) {
 	if !meta.IsValid() {
 		return nil, errors.NewInvalidArgumentErrorWrap("invalid metadata %q", meta)
 	}
@@ -1831,9 +1817,7 @@ func (tp *ConnOrientedTransport) ServeListener(ctx context.Context, netLis net.L
 
 		if done == nil {
 			netConn.Close()
-			tp.log.LogAttrs(ctx, slog.LevelDebug, "connection already tracked, reuse existing handler",
-				slog.Any("connection", conn),
-			)
+			tp.log.LogAttrs(ctx, slog.LevelDebug, "connection already tracked, reuse existing handler", slog.Any("connection", conn))
 		}
 	}
 }
@@ -1847,11 +1831,7 @@ func (tp *ConnOrientedTransport) ListenAndServe(ctx context.Context, addr string
 	return errors.Wrap(tp.ServeListener(ctx, ls))
 }
 
-func (tp *ConnOrientedTransport) AcquireConn(
-	ctx context.Context,
-	raddr netip.AddrPort,
-	opts *AcquireConnOptions,
-) (Conn, error) {
+func (tp *ConnOrientedTransport) AcquireConn(ctx context.Context, raddr netip.AddrPort, opts *AcquireConnOptions) (Conn, error) {
 	if tp.isClosing() {
 		return nil, errors.Wrap(ErrTransportClosed)
 	}

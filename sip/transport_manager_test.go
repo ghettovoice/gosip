@@ -303,24 +303,24 @@ func newTestInboundRequestEnvelope(tb testing.TB, tp sip.TransportProto) *sip.In
 	return env
 }
 
-func TestTransportManager_TrackGetUntrack_DefaultFallback(t *testing.T) {
+func TestTransportManager_TrackGetUntrack(t *testing.T) {
 	t.Parallel()
 
 	var mgr sip.TransportManager
 
-	udp := newSpyTransport(newTransportMeta("UDP", "udp", 5060, 0))
-	tcp := newSpyTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed))
+	udp := newSpyTransport(sip.UDPTransportMetadata())
+	tcp := newSpyTransport(sip.TCPTransportMetadata())
 
-	if err := mgr.TrackTransport(nil, false); !errors.Is(err, sip.ErrInvalidArgument) {
-		t.Fatalf("mgr.TrackTransport(nil, false) error = %v, want wraps %v", err, sip.ErrInvalidArgument)
+	if err := mgr.TrackTransport(nil); !errors.Is(err, sip.ErrInvalidArgument) {
+		t.Fatalf("mgr.TrackTransport(nil) error = %v, want wraps %v", err, sip.ErrInvalidArgument)
 	}
 
-	if err := mgr.TrackTransport(udp, true); err != nil {
-		t.Fatalf("mgr.TrackTransport(udp, true) error = %v, want nil", err)
+	if err := mgr.TrackTransport(udp); err != nil {
+		t.Fatalf("mgr.TrackTransport(udp) error = %v, want nil", err)
 	}
 
-	if err := mgr.TrackTransport(tcp, false); err != nil {
-		t.Fatalf("mgr.TrackTransport(tcp, false) error = %v, want nil", err)
+	if err := mgr.TrackTransport(tcp); err != nil {
+		t.Fatalf("mgr.TrackTransport(tcp) error = %v, want nil", err)
 	}
 
 	if got := mgr.GetTransport("udp"); got != udp {
@@ -331,12 +331,12 @@ func TestTransportManager_TrackGetUntrack_DefaultFallback(t *testing.T) {
 		t.Fatalf("mgr.GetTransport(\"tls\") = %v, want nil", got)
 	}
 
-	transportsCount := 0
+	tpsCnt := 0
 	for range mgr.AllTransports() {
-		transportsCount++
+		tpsCnt++
 	}
 
-	if got, want := transportsCount, 2; got != want {
+	if got, want := tpsCnt, 2; got != want {
 		t.Fatalf("len(mgr.AllTransports()) = %v, want %v", got, want)
 	}
 
@@ -352,12 +352,8 @@ func TestTransportManager_TrackGetUntrack_DefaultFallback(t *testing.T) {
 		t.Fatalf("mgr.GetTransport(\"UDP\") after untrack = %v, want nil", got)
 	}
 
-	if err := mgr.SendRequest(t.Context(), newTestOutboundRequestEnvelope(t, "TLS"), nil); err != nil {
-		t.Fatalf("mgr.SendRequest(default fallback) error = %v, want nil", err)
-	}
-
-	if got, want := tcp.counts().sendReqCalls, 1; got != want {
-		t.Fatalf("tcp.SendRequest calls = %v, want %v", got, want)
+	if err := mgr.SendRequest(t.Context(), newTestOutboundRequestEnvelope(t, "TLS"), nil); !errors.Is(err, sip.ErrNoTransport) {
+		t.Fatalf("mgr.SendRequest(unknown proto) error = %v, want wraps %v", err, sip.ErrNoTransport)
 	}
 
 	if err := mgr.UntrackTransport(udp); err != nil {
@@ -370,31 +366,31 @@ func TestTransportManager_InterceptorLifecycle(t *testing.T) {
 
 	var mgr sip.TransportManager
 
-	tp := newSpyTransport(newTransportMeta("UDP", "udp", 5060, 0))
-	if err := mgr.TrackTransport(tp, true); err != nil {
-		t.Fatalf("mgr.TrackTransport(tp, true) error = %v, want nil", err)
+	tp := newSpyTransport(sip.UDPTransportMetadata())
+	if err := mgr.TrackTransport(tp); err != nil {
+		t.Fatalf("mgr.TrackTransport(tp) error = %v, want nil", err)
 	}
 
-	inReqUnbind := mgr.UseInboundRequestInterceptor(sip.InboundRequestInterceptorFunc(
-		func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
+	inReqUnbind := mgr.UseInboundRequestInterceptor(
+		sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
 			return next.RecvRequest(ctx, req)
-		},
-	))
-	inResUnbind := mgr.UseInboundResponseInterceptor(sip.InboundResponseInterceptorFunc(
-		func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
+		}),
+	)
+	inResUnbind := mgr.UseInboundResponseInterceptor(
+		sip.InboundResponseInterceptorFunc(func(ctx context.Context, res *sip.InboundResponseEnvelope, next sip.ResponseReceiver) error {
 			return next.RecvResponse(ctx, res)
-		},
-	))
-	outReqUnbind := mgr.UseOutboundRequestInterceptor(sip.OutboundRequestInterceptorFunc(
-		func(ctx context.Context, req *sip.OutboundRequestEnvelope, opts *sip.SendRequestOptions, next sip.RequestSender) error {
+		}),
+	)
+	outReqUnbind := mgr.UseOutboundRequestInterceptor(
+		sip.OutboundRequestInterceptorFunc(func(ctx context.Context, req *sip.OutboundRequestEnvelope, opts *sip.SendRequestOptions, next sip.RequestSender) error {
 			return next.SendRequest(ctx, req, opts)
-		},
-	))
-	outResUnbind := mgr.UseOutboundResponseInterceptor(sip.OutboundResponseInterceptorFunc(
-		func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
+		}),
+	)
+	outResUnbind := mgr.UseOutboundResponseInterceptor(
+		sip.OutboundResponseInterceptorFunc(func(ctx context.Context, res *sip.OutboundResponseEnvelope, opts *sip.SendResponseOptions, next sip.ResponseSender) error {
 			return next.SendResponse(ctx, res, opts)
-		},
-	))
+		}),
+	)
 
 	c := tp.counts()
 	if got, want := c.bindInReqCalls, 1; got != want {
@@ -437,15 +433,15 @@ func TestTransportManager_InterceptorLifecycle(t *testing.T) {
 
 	var mgr2 sip.TransportManager
 
-	preTrackUnbind := mgr2.UseOutboundRequestInterceptor(sip.OutboundRequestInterceptorFunc(
-		func(ctx context.Context, req *sip.OutboundRequestEnvelope, opts *sip.SendRequestOptions, next sip.RequestSender) error {
+	preTrackUnbind := mgr2.UseOutboundRequestInterceptor(
+		sip.OutboundRequestInterceptorFunc(func(ctx context.Context, req *sip.OutboundRequestEnvelope, opts *sip.SendRequestOptions, next sip.RequestSender) error {
 			return next.SendRequest(ctx, req, opts)
-		},
-	))
+		}),
+	)
 
-	tp2 := newSpyTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed))
-	if err := mgr2.TrackTransport(tp2, false); err != nil {
-		t.Fatalf("mgr2.TrackTransport(tp2, false) error = %v, want nil", err)
+	tp2 := newSpyTransport(sip.TCPTransportMetadata())
+	if err := mgr2.TrackTransport(tp2); err != nil {
+		t.Fatalf("mgr2.TrackTransport(tp2) error = %v, want nil", err)
 	}
 
 	if got, want := tp2.counts().bindOutReqCalls, 1; got != want {
@@ -464,9 +460,9 @@ func TestTransportManager_UseInterceptor_BindsOnlyNonNil(t *testing.T) {
 
 	var mgr sip.TransportManager
 
-	tp := newSpyTransport(newTransportMeta("UDP", "udp", 5060, 0))
-	if err := mgr.TrackTransport(tp, true); err != nil {
-		t.Fatalf("mgr.TrackTransport(tp, true) error = %v, want nil", err)
+	tp := newSpyTransport(sip.UDPTransportMetadata())
+	if err := mgr.TrackTransport(tp); err != nil {
+		t.Fatalf("mgr.TrackTransport(tp) error = %v, want nil", err)
 	}
 
 	unbind := mgr.UseInterceptor(testMessageInterceptor{
@@ -513,30 +509,30 @@ func TestTransportManager_Delegation(t *testing.T) {
 
 		var mgr sip.TransportManager
 
-		udp := newSpyTransport(newTransportMeta("UDP", "udp", 5060, 0))
-		tcp := newSpyTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed))
+		udp := newSpyTransport(sip.UDPTransportMetadata())
+		tcp := newSpyTransport(sip.TCPTransportMetadata())
 
-		if err := mgr.TrackTransport(udp, true); err != nil {
-			t.Fatalf("mgr.TrackTransport(udp, true) error = %v, want nil", err)
+		if err := mgr.TrackTransport(udp); err != nil {
+			t.Fatalf("mgr.TrackTransport(udp) error = %v, want nil", err)
 		}
 
-		if err := mgr.TrackTransport(tcp, false); err != nil {
-			t.Fatalf("mgr.TrackTransport(tcp, false) error = %v, want nil", err)
+		if err := mgr.TrackTransport(tcp); err != nil {
+			t.Fatalf("mgr.TrackTransport(tcp) error = %v, want nil", err)
 		}
 
 		if err := mgr.SendRequest(t.Context(), newTestOutboundRequestEnvelope(t, "TCP"), nil); err != nil {
 			t.Fatalf("mgr.SendRequest(tcp) error = %v, want nil", err)
 		}
 
-		if err := mgr.SendRequest(t.Context(), newTestOutboundRequestEnvelope(t, "TLS"), nil); err != nil {
-			t.Fatalf("mgr.SendRequest(default) error = %v, want nil", err)
+		if err := mgr.SendRequest(t.Context(), newTestOutboundRequestEnvelope(t, "TLS"), nil); !errors.Is(err, sip.ErrNoTransport) {
+			t.Fatalf("mgr.SendRequest(unknown proto) error = %v, want wraps %v", err, sip.ErrNoTransport)
 		}
 
 		if got, want := tcp.counts().sendReqCalls, 1; got != want {
 			t.Fatalf("tcp.SendRequest calls = %v, want %v", got, want)
 		}
 
-		if got, want := udp.counts().sendReqCalls, 1; got != want {
+		if got, want := udp.counts().sendReqCalls, 0; got != want {
 			t.Fatalf("udp.SendRequest calls = %v, want %v", got, want)
 		}
 	})
@@ -546,30 +542,30 @@ func TestTransportManager_Delegation(t *testing.T) {
 
 		var mgr sip.TransportManager
 
-		udp := newSpyTransport(newTransportMeta("UDP", "udp", 5060, 0))
-		tcp := newSpyTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed))
+		udp := newSpyTransport(sip.UDPTransportMetadata())
+		tcp := newSpyTransport(sip.TCPTransportMetadata())
 
-		if err := mgr.TrackTransport(udp, true); err != nil {
-			t.Fatalf("mgr.TrackTransport(udp, true) error = %v, want nil", err)
+		if err := mgr.TrackTransport(udp); err != nil {
+			t.Fatalf("mgr.TrackTransport(udp) error = %v, want nil", err)
 		}
 
-		if err := mgr.TrackTransport(tcp, false); err != nil {
-			t.Fatalf("mgr.TrackTransport(tcp, false) error = %v, want nil", err)
+		if err := mgr.TrackTransport(tcp); err != nil {
+			t.Fatalf("mgr.TrackTransport(tcp) error = %v, want nil", err)
 		}
 
 		if err := mgr.SendResponse(t.Context(), newTestOutboundResponseEnvelope(t, "TCP"), nil); err != nil {
 			t.Fatalf("mgr.SendResponse(tcp) error = %v, want nil", err)
 		}
 
-		if err := mgr.SendResponse(t.Context(), newTestOutboundResponseEnvelope(t, "TLS"), nil); err != nil {
-			t.Fatalf("mgr.SendResponse(default) error = %v, want nil", err)
+		if err := mgr.SendResponse(t.Context(), newTestOutboundResponseEnvelope(t, "TLS"), nil); !errors.Is(err, sip.ErrNoTransport) {
+			t.Fatalf("mgr.SendResponse(unknown proto) error = %v, want wraps %v", err, sip.ErrNoTransport)
 		}
 
 		if got, want := tcp.counts().sendResCalls, 1; got != want {
 			t.Fatalf("tcp.SendResponse calls = %v, want %v", got, want)
 		}
 
-		if got, want := udp.counts().sendResCalls, 1; got != want {
+		if got, want := udp.counts().sendResCalls, 0; got != want {
 			t.Fatalf("udp.SendResponse calls = %v, want %v", got, want)
 		}
 	})
@@ -579,35 +575,35 @@ func TestTransportManager_Delegation(t *testing.T) {
 
 		var mgr sip.TransportManager
 
-		udp := newSpyTransport(newTransportMeta("UDP", "udp", 5060, 0))
-		tcp := newSpyTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed))
+		udp := newSpyTransport(sip.UDPTransportMetadata())
+		tcp := newSpyTransport(sip.TCPTransportMetadata())
 
-		if err := mgr.TrackTransport(udp, true); err != nil {
-			t.Fatalf("mgr.TrackTransport(udp, true) error = %v, want nil", err)
+		if err := mgr.TrackTransport(udp); err != nil {
+			t.Fatalf("mgr.TrackTransport(udp) error = %v, want nil", err)
 		}
 
-		if err := mgr.TrackTransport(tcp, false); err != nil {
-			t.Fatalf("mgr.TrackTransport(tcp, false) error = %v, want nil", err)
+		if err := mgr.TrackTransport(tcp); err != nil {
+			t.Fatalf("mgr.TrackTransport(tcp) error = %v, want nil", err)
 		}
 
 		if err := mgr.ListenAndServe(t.Context(), "TCP", "127.0.0.1:5080"); err != nil {
 			t.Fatalf("mgr.ListenAndServe(tcp) error = %v, want nil", err)
 		}
 
-		if err := mgr.ListenAndServe(t.Context(), "TLS", "127.0.0.1:5081"); err != nil {
-			t.Fatalf("mgr.ListenAndServe(default) error = %v, want nil", err)
+		if err := mgr.ListenAndServe(t.Context(), "TLS", "127.0.0.1:5081"); !errors.Is(err, sip.ErrNoTransport) {
+			t.Fatalf("mgr.ListenAndServe(unknown proto) error = %v, want wraps %v", err, sip.ErrNoTransport)
 		}
 
 		if got, want := tcp.counts().listenCalls, 1; got != want {
 			t.Fatalf("tcp.ListenAndServe calls = %v, want %v", got, want)
 		}
 
-		if got, want := udp.counts().listenCalls, 1; got != want {
+		if got, want := udp.counts().listenCalls, 0; got != want {
 			t.Fatalf("udp.ListenAndServe calls = %v, want %v", got, want)
 		}
 	})
 
-	t.Run("returns ErrNoTransport without tracked/default transport", func(t *testing.T) {
+	t.Run("returns ErrNoTransport without tracked and default transport", func(t *testing.T) {
 		t.Parallel()
 
 		var mgr sip.TransportManager
@@ -631,9 +627,9 @@ func TestTransportManager_Respond_DelegatesToTransport(t *testing.T) {
 
 	var mgr sip.TransportManager
 
-	tp := newSpyTransport(newTransportMeta("UDP", "udp", 5060, 0))
-	if err := mgr.TrackTransport(tp, true); err != nil {
-		t.Fatalf("mgr.TrackTransport(tp, true) error = %v, want nil", err)
+	tp := newSpyTransport(sip.UDPTransportMetadata())
+	if err := mgr.TrackTransport(tp); err != nil {
+		t.Fatalf("mgr.TrackTransport(tp) error = %v, want nil", err)
 	}
 
 	if err := mgr.Respond(t.Context(), newTestInboundRequestEnvelope(t, "UDP"), sip.ResponseStatusOK, nil); err != nil {
@@ -652,20 +648,20 @@ func TestTransportManager_CloseAndClosedGuards(t *testing.T) {
 
 	var mgr sip.TransportManager
 
-	udp := newSpyTransport(newTransportMeta("UDP", "udp", 5060, 0))
-	tcp := newSpyTransport(newTransportMeta("TCP", "tcp", 5060, sip.TransportFlagReliable|sip.TransportFlagStreamed))
+	udp := newSpyTransport(sip.UDPTransportMetadata())
+	tcp := newSpyTransport(sip.TCPTransportMetadata())
 	tcp.closeErr = closeErr
 
-	if err := mgr.TrackTransport(udp, true); err != nil {
-		t.Fatalf("mgr.TrackTransport(udp, true) error = %v, want nil", err)
+	if err := mgr.TrackTransport(udp); err != nil {
+		t.Fatalf("mgr.TrackTransport(udp) error = %v, want nil", err)
 	}
 
-	if err := mgr.TrackTransport(tcp, false); err != nil {
-		t.Fatalf("mgr.TrackTransport(tcp, false) error = %v, want nil", err)
+	if err := mgr.TrackTransport(tcp); err != nil {
+		t.Fatalf("mgr.TrackTransport(tcp) error = %v, want nil", err)
 	}
 
-	err := mgr.Close()
-	if err == nil {
+	var err error
+	if err = mgr.Close(); err == nil {
 		t.Fatal("mgr.Close() error = nil, want non-nil")
 	}
 
@@ -681,8 +677,8 @@ func TestTransportManager_CloseAndClosedGuards(t *testing.T) {
 		t.Fatalf("tcp.Close calls = %v, want %v", got, want)
 	}
 
-	if err := mgr.Close(); err != nil {
-		t.Fatalf("mgr.Close(second) error = %v, want nil", err)
+	if !strings.Contains(err.Error(), closeErr.Error()) {
+		t.Fatalf("mgr.Close() error = %v, want contain %q", err, closeErr)
 	}
 
 	if got, want := udp.counts().closeCalls, 1; got != want {
@@ -693,10 +689,7 @@ func TestTransportManager_CloseAndClosedGuards(t *testing.T) {
 		t.Fatalf("tcp.Close calls after second close = %v, want %v", got, want)
 	}
 
-	if err := mgr.TrackTransport(
-		newSpyTransport(newTransportMeta("TLS", "tcp", 5061, sip.TransportFlagReliable|sip.TransportFlagStreamed)),
-		false,
-	); !errors.Is(err, sip.ErrTransportManagerClosed) {
+	if err := mgr.TrackTransport(newSpyTransport(sip.TLSTransportMetadata())); !errors.Is(err, sip.ErrTransportManagerClosed) {
 		t.Fatalf("mgr.TrackTransport() when closed error = %v, want wraps %v", err, sip.ErrTransportManagerClosed)
 	}
 
@@ -704,36 +697,19 @@ func TestTransportManager_CloseAndClosedGuards(t *testing.T) {
 		t.Fatalf("mgr.UntrackTransport() when closed error = %v, want wraps %v", err, sip.ErrTransportManagerClosed)
 	}
 
-	if err := mgr.SendRequest(
-		t.Context(),
-		newTestOutboundRequestEnvelope(t, "UDP"),
-		nil,
-	); !errors.Is(err, sip.ErrTransportClosed) {
-		t.Fatalf("mgr.SendRequest() when closed error = %v, want wraps %v", err, sip.ErrTransportClosed)
+	if err := mgr.SendRequest(t.Context(), newTestOutboundRequestEnvelope(t, "UDP"), nil); !errors.Is(err, sip.ErrTransportManagerClosed) {
+		t.Fatalf("mgr.SendRequest() when closed error = %v, want wraps %v", err, sip.ErrTransportManagerClosed)
 	}
 
-	if err := mgr.SendResponse(
-		t.Context(),
-		newTestOutboundResponseEnvelope(t, "UDP"),
-		nil,
-	); !errors.Is(err, sip.ErrTransportClosed) {
-		t.Fatalf("mgr.SendResponse() when closed error = %v, want wraps %v", err, sip.ErrTransportClosed)
+	if err := mgr.SendResponse(t.Context(), newTestOutboundResponseEnvelope(t, "UDP"), nil); !errors.Is(err, sip.ErrTransportManagerClosed) {
+		t.Fatalf("mgr.SendResponse() when closed error = %v, want wraps %v", err, sip.ErrTransportManagerClosed)
 	}
 
-	if err := mgr.Respond(
-		t.Context(),
-		newTestInboundRequestEnvelope(t, "UDP"),
-		sip.ResponseStatusOK,
-		nil,
-	); !errors.Is(err, sip.ErrTransportClosed) {
-		t.Fatalf("mgr.Respond() when closed error = %v, want wraps %v", err, sip.ErrTransportClosed)
+	if err := mgr.Respond(t.Context(), newTestInboundRequestEnvelope(t, "UDP"), sip.ResponseStatusOK, nil); !errors.Is(err, sip.ErrTransportManagerClosed) {
+		t.Fatalf("mgr.Respond() when closed error = %v, want wraps %v", err, sip.ErrTransportManagerClosed)
 	}
 
-	if err := mgr.ListenAndServe(
-		t.Context(),
-		"UDP",
-		"127.0.0.1:5090",
-	); !errors.Is(err, sip.ErrTransportClosed) {
-		t.Fatalf("mgr.ListenAndServe() when closed error = %v, want wraps %v", err, sip.ErrTransportClosed)
+	if err := mgr.ListenAndServe(t.Context(), "UDP", "127.0.0.1:5090"); !errors.Is(err, sip.ErrTransportManagerClosed) {
+		t.Fatalf("mgr.ListenAndServe() when closed error = %v, want wraps %v", err, sip.ErrTransportManagerClosed)
 	}
 }

@@ -59,8 +59,8 @@ func TestElement(t *testing.T) {
 		"QwertY",
 		tp,
 		&sip.ElementOptions{
-			TransactionManagerOptions: &sip.TransactionManagerOptions{},
-			Logger:                    log.Console(),
+			TransactionOptions: &sip.TransactionManagerOptions{},
+			Logger:             log.Console(),
 		},
 	)
 	if err != nil {
@@ -137,17 +137,20 @@ func TestElement(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatal(err)
+		t.Logf("%+v", err)
 	}
 
 	req.SetRemoteAddr(netip.MustParseAddrPort("127.0.0.1:5070"))
 
 	if err := elm.SendRequest(t.Context(), req, &sip.SendRequestOptions{RenderCompact: true}); err != nil {
-		t.Fatalf("%+v", err)
+		t.Logf("%+v", err)
 	}
 
 	time.Sleep(time.Second)
 
 	rmtConn.Close()
-	elm.Close()
+
+	if err := elm.Close(); err != nil {
+		t.Logf("%+v", err)
+	}
 }

@@ -1068,7 +1068,7 @@ func TestNonInviteServerTransaction_SendResponseMismatchVia(t *testing.T) {
 	}
 
 	res.AccessMessage(func(r *sip.Response) {
-		if via, ok := r.Headers.FirstVia(); ok && via != nil {
+		if via, ok := r.Headers.FirstViaHop(); ok && via != nil {
 			via.Params.Set("branch", sip.MagicCookie+".other-branch")
 		}
 	})

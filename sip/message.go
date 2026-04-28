@@ -638,11 +638,11 @@ func (m *outboundMessageEnvelope[T]) Message() T {
 	return m.messageEnvelope.Message()
 }
 
-func (m *outboundMessageEnvelope[T]) AccessMessage(update func(T)) {
+func (m *outboundMessageEnvelope[T]) AccessMessage(fn func(T)) {
 	m.msgMu.Lock()
 	defer m.msgMu.Unlock()
 
-	update(m.msg)
+	fn(m.msg)
 	m.msgBuf.Reset()
 }
 

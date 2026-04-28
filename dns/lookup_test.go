@@ -16,9 +16,9 @@ import (
 func TestResolver_LookupIP(t *testing.T) {
 	t.Parallel()
 
-	resolver := newTestResolver(startTestDNSServer(t))
+	rslvr := newTestResolver(startTestDNSServer(t))
 
-	got, err := resolver.LookupIP(t.Context(), "ip", "host.example.test")
+	got, err := rslvr.LookupIP(t.Context(), "ip", "host.example.test")
 	if err != nil {
 		t.Fatalf("resolver.LookupIP(ctx, %q, %q) error = %v, want nil", "ip", "host.example.test", err)
 	}
@@ -59,9 +59,9 @@ func TestResolver_LookupIP(t *testing.T) {
 func TestResolver_LookupSRV(t *testing.T) {
 	t.Parallel()
 
-	resolver := newTestResolver(startTestDNSServer(t))
+	rslvr := newTestResolver(startTestDNSServer(t))
 
-	got, err := resolver.LookupSRV(t.Context(), "sip", "udp", "example.test")
+	got, err := rslvr.LookupSRV(t.Context(), "sip", "udp", "example.test")
 	if err != nil {
 		t.Fatalf("resolver.LookupSRV(ctx, %q, %q, %q) error = %v, want nil", "sip", "udp", "example.test", err)
 	}
@@ -82,12 +82,12 @@ func TestResolver_LookupSRV(t *testing.T) {
 func TestResolver_LookupNAPTR(t *testing.T) {
 	t.Parallel()
 
-	resolver := newTestResolver(startTestDNSServer(t))
+	rslvr := newTestResolver(startTestDNSServer(t))
 
 	t.Run("sort records by order and preference", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := resolver.LookupNAPTR(t.Context(), "example.test")
+		got, err := rslvr.LookupNAPTR(t.Context(), "example.test")
 		if err != nil {
 			t.Fatalf("resolver.LookupNAPTR(ctx, %q) error = %v, want nil", "example.test", err)
 		}
@@ -118,7 +118,7 @@ func TestResolver_LookupNAPTR(t *testing.T) {
 	t.Run("return not found error for nxdomain", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := resolver.LookupNAPTR(t.Context(), "missing.example.test")
+		_, err := rslvr.LookupNAPTR(t.Context(), "missing.example.test")
 		if err == nil {
 			t.Fatalf("resolver.LookupNAPTR(ctx, %q) error = nil, want error", "missing.example.test")
 		}

@@ -561,11 +561,7 @@ type InboundRequestEnvelope struct {
 	*inboundMessageEnvelope[*Request]
 }
 
-func NewInboundRequestEnvelope(
-	req *Request,
-	tp TransportProto,
-	laddr, raddr netip.AddrPort,
-) (*InboundRequestEnvelope, error) {
+func NewInboundRequestEnvelope(req *Request, tp TransportProto, laddr, raddr netip.AddrPort) (*InboundRequestEnvelope, error) {
 	if req == nil {
 		return nil, errors.NewInvalidArgumentErrorWrap("nil request")
 	}
@@ -666,10 +662,7 @@ func (r *InboundRequestEnvelope) URI() URI {
 
 var reqTimeDataKey = "sip.request_time"
 
-func (r *InboundRequestEnvelope) NewResponse(
-	sts ResponseStatus,
-	opts *ResponseOptions,
-) (*OutboundResponseEnvelope, error) {
+func (r *InboundRequestEnvelope) NewResponse(sts ResponseStatus, opts *ResponseOptions) (*OutboundResponseEnvelope, error) {
 	if r == nil {
 		return nil, errors.NewInvalidArgumentErrorWrap("nil envelope")
 	}
@@ -818,12 +811,12 @@ func (r *OutboundRequestEnvelope) Message() *Request {
 	return r.outboundMessageEnvelope.Message()
 }
 
-func (r *OutboundRequestEnvelope) AccessMessage(update func(*Request)) {
+func (r *OutboundRequestEnvelope) AccessMessage(fn func(*Request)) {
 	if r == nil {
 		return
 	}
 
-	r.outboundMessageEnvelope.AccessMessage(update)
+	r.outboundMessageEnvelope.AccessMessage(fn)
 }
 
 func (r *OutboundRequestEnvelope) Headers() Headers {
@@ -1053,11 +1046,7 @@ type RequestSender interface {
 
 type RequestSenderFunc func(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions) error
 
-func (fn RequestSenderFunc) SendRequest(
-	ctx context.Context,
-	req *OutboundRequestEnvelope,
-	opts *SendRequestOptions,
-) error {
+func (fn RequestSenderFunc) SendRequest(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions) error {
 	return errors.Wrap(fn(ctx, req, opts))
 }
 

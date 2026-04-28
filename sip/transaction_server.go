@@ -93,7 +93,7 @@ type ServerTransactionOptions struct {
 	// Key should be unique for the transaction and match the request that created the transaction.
 	Key ServerTransactionKey
 	// Timings is the SIP timing config that will be used with the transaction.
-	// If zero, the default SIP timing config will be used.
+	// If zero, [DefaultTimings] will be used.
 	Timings TimingConfig
 	// Logger is the logger that will be used with the transaction.
 	// If nil, the [log.Default] will be used.
@@ -286,12 +286,12 @@ func (tx *serverTransact) matchRes(res Message) error {
 	reqHdrs := tx.req.Headers()
 	resHdrs := GetMessageHeaders(res)
 
-	reqVia, ok := reqHdrs.FirstVia()
+	reqVia, ok := reqHdrs.FirstViaHop()
 	if !ok || reqVia == nil {
 		return errors.NewInvalidArgumentErrorWrap("missing request Via")
 	}
 
-	resVia, ok := resHdrs.FirstVia()
+	resVia, ok := resHdrs.FirstViaHop()
 	if !ok || resVia == nil {
 		return errors.NewInvalidArgumentErrorWrap("missing response Via")
 	}
@@ -424,11 +424,7 @@ func (tx *serverTransact) Respond(ctx context.Context, sts ResponseStatus, opts 
 
 // SendResponse sends a response to the remote address with specified options.
 // Response will be passed to the transport layer by the transaction's FSM.
-func (tx *serverTransact) SendResponse(
-	ctx context.Context,
-	res *OutboundResponseEnvelope,
-	opts *SendResponseOptions,
-) error {
+func (tx *serverTransact) SendResponse(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error {
 	if err := res.Validate(); err != nil {
 		return errors.Wrap(err)
 	}
@@ -449,17 +445,9 @@ func (tx *serverTransact) SendResponse(
 	}
 }
 
-func (tx *serverTransact) sendRes(
-	ctx context.Context,
-	res *OutboundResponseEnvelope,
-	opts *SendResponseOptions,
-) error {
+func (tx *serverTransact) sendRes(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error {
 	if err := tx.tp.SendResponse(ctx, res, opts); err != nil {
-		if err := tx.fsm.FireCtx(
-			ctx,
-			txEvtTranspErr,
-			errors.ErrorfWrap("send %q response: %w", res.Status(), err),
-		); err != nil {
+		if err := tx.fsm.FireCtx(ctx, txEvtTranspErr, errors.ErrorfWrap("send %q response: %w", res.Status(), err)); err != nil {
 			panic(errors.ErrorfWrap("fire %q in state %q: %w", txEvtTranspErr, tx.State(), err))
 		}
 
@@ -659,7 +647,7 @@ func MakeServerTransactionKey(msg Message) (ServerTransactionKey, error) {
 
 	hdrs := GetMessageHeaders(msg)
 
-	via, _ := hdrs.FirstVia()
+	via, _ := hdrs.FirstViaHop()
 	if branch, _ := via.Branch(); IsRFC3261Branch(branch) {
 		return makeSrvTransactKey3261(hdrs, via), nil
 	}
@@ -1023,10 +1011,7 @@ func NewMemoryServerTransactionStore() *MemoryServerTransactionStore {
 	}
 }
 
-func (s *MemoryServerTransactionStore) Load(
-	_ context.Context,
-	key ServerTransactionKey,
-) (ServerTransaction, error) {
+func (s *MemoryServerTransactionStore) Load(_ context.Context, key ServerTransactionKey) (ServerTransaction, error) {
 	// match inbound RFC 3261/2345 request retransmits
 	if tx, ok := s.main.Load(key); ok {
 		return tx, nil
@@ -1046,10 +1031,7 @@ func (s *MemoryServerTransactionStore) Load(
 	return tx, nil
 }
 
-func (s *MemoryServerTransactionStore) MatchMessage(
-	ctx context.Context,
-	msg Message,
-) (ServerTransaction, error) {
+func (s *MemoryServerTransactionStore) MatchMessage(ctx context.Context, msg Message) (ServerTransaction, error) {
 	key, err := MakeServerTransactionKey(msg)
 	if err != nil {
 		return nil, errors.Wrap(err)
@@ -1067,10 +1049,7 @@ func (s *MemoryServerTransactionStore) MatchMessage(
 	return tx, nil
 }
 
-func (s *MemoryServerTransactionStore) LookupMerged(
-	_ context.Context,
-	key ServerTransactionKey,
-) (ServerTransaction, error) {
+func (s *MemoryServerTransactionStore) LookupMerged(_ context.Context, key ServerTransactionKey) (ServerTransaction, error) {
 	key.Branch = ""
 	key.SentBy = ""
 	key.URI = ""

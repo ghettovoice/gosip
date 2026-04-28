@@ -101,7 +101,7 @@ func newAckReq(tb testing.TB, invite *sip.Request, res *sip.Response) *sip.Reque
 	ack := invite.Clone().(*sip.Request) //nolint:forcetypeassert
 
 	ack.Method = sip.RequestMethodAck
-	if via, ok := ack.Headers.FirstVia(); ok && res.Status.IsSuccessful() {
+	if via, ok := ack.Headers.FirstViaHop(); ok && res.Status.IsSuccessful() {
 		if branch, _ := via.Branch(); sip.IsRFC3261Branch(branch) {
 			via.Params.Set("branch", branch+".ack")
 		}

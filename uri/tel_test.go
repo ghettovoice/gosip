@@ -340,7 +340,7 @@ func TestTel_ToSIP(t *testing.T) {
 					Append("phone-context", "example.com"),
 			},
 			&uri.SIP{
-				User:   uri.User("123;ext=555;baz;foo=bar"),
+				User:   uri.User("123;ext=555;phone-context=example.com;baz;foo=bar"),
 				Addr:   uri.AddrFromHost("example.com"),
 				Params: make(uri.Values).Set("user", "phone"),
 			},

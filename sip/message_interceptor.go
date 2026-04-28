@@ -12,17 +12,9 @@ type InboundRequestInterceptor interface {
 	InterceptInboundRequest(ctx context.Context, req *InboundRequestEnvelope, next RequestReceiver) error
 }
 
-type InboundRequestInterceptorFunc func(
-	ctx context.Context,
-	req *InboundRequestEnvelope,
-	next RequestReceiver,
-) error
+type InboundRequestInterceptorFunc func(ctx context.Context, req *InboundRequestEnvelope, next RequestReceiver) error
 
-func (fn InboundRequestInterceptorFunc) InterceptInboundRequest(
-	ctx context.Context,
-	req *InboundRequestEnvelope,
-	next RequestReceiver,
-) error {
+func (fn InboundRequestInterceptorFunc) InterceptInboundRequest(ctx context.Context, req *InboundRequestEnvelope, next RequestReceiver) error {
 	return errors.Wrap(fn(ctx, req, next))
 }
 
@@ -31,69 +23,31 @@ type InboundResponseInterceptor interface {
 	InterceptInboundResponse(ctx context.Context, res *InboundResponseEnvelope, next ResponseReceiver) error
 }
 
-type InboundResponseInterceptorFunc func(
-	ctx context.Context,
-	res *InboundResponseEnvelope,
-	next ResponseReceiver,
-) error
+type InboundResponseInterceptorFunc func(ctx context.Context, res *InboundResponseEnvelope, next ResponseReceiver) error
 
-func (fn InboundResponseInterceptorFunc) InterceptInboundResponse(
-	ctx context.Context,
-	res *InboundResponseEnvelope,
-	next ResponseReceiver,
-) error {
+func (fn InboundResponseInterceptorFunc) InterceptInboundResponse(ctx context.Context, res *InboundResponseEnvelope, next ResponseReceiver) error {
 	return errors.Wrap(fn(ctx, res, next))
 }
 
 // OutboundRequestInterceptor intercepts outbound requests before they are sent.
 type OutboundRequestInterceptor interface {
-	InterceptOutboundRequest(
-		ctx context.Context,
-		req *OutboundRequestEnvelope,
-		opts *SendRequestOptions,
-		next RequestSender,
-	) error
+	InterceptOutboundRequest(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions, next RequestSender) error
 }
 
-type OutboundRequestInterceptorFunc func(
-	ctx context.Context,
-	req *OutboundRequestEnvelope,
-	opts *SendRequestOptions,
-	next RequestSender,
-) error
+type OutboundRequestInterceptorFunc func(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions, next RequestSender) error
 
-func (fn OutboundRequestInterceptorFunc) InterceptOutboundRequest(
-	ctx context.Context,
-	req *OutboundRequestEnvelope,
-	opts *SendRequestOptions,
-	next RequestSender,
-) error {
+func (fn OutboundRequestInterceptorFunc) InterceptOutboundRequest(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions, next RequestSender) error {
 	return errors.Wrap(fn(ctx, req, opts, next))
 }
 
 // OutboundResponseInterceptor intercepts outbound responses before they are sent.
 type OutboundResponseInterceptor interface {
-	InterceptOutboundResponse(
-		ctx context.Context,
-		res *OutboundResponseEnvelope,
-		opts *SendResponseOptions,
-		next ResponseSender,
-	) error
+	InterceptOutboundResponse(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions, next ResponseSender) error
 }
 
-type OutboundResponseInterceptorFunc func(
-	ctx context.Context,
-	res *OutboundResponseEnvelope,
-	opts *SendResponseOptions,
-	next ResponseSender,
-) error
+type OutboundResponseInterceptorFunc func(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions, next ResponseSender) error
 
-func (fn OutboundResponseInterceptorFunc) InterceptOutboundResponse(
-	ctx context.Context,
-	res *OutboundResponseEnvelope,
-	opts *SendResponseOptions,
-	next ResponseSender,
-) error {
+func (fn OutboundResponseInterceptorFunc) InterceptOutboundResponse(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions, next ResponseSender) error {
 	return errors.Wrap(fn(ctx, res, opts, next))
 }
 
@@ -193,11 +147,9 @@ func InterceptOutboundRequest(interceptors []OutboundRequestInterceptor, final R
 		}
 
 		next := sender
-		sender = RequestSenderFunc(
-			func(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions) error {
-				return errors.Wrap(interceptor.InterceptOutboundRequest(ctx, req, opts, next))
-			},
-		)
+		sender = RequestSenderFunc(func(ctx context.Context, req *OutboundRequestEnvelope, opts *SendRequestOptions) error {
+			return errors.Wrap(interceptor.InterceptOutboundRequest(ctx, req, opts, next))
+		})
 	}
 
 	return sender
@@ -217,11 +169,9 @@ func InterceptOutboundResponse(interceptors []OutboundResponseInterceptor, final
 		}
 
 		next := sender
-		sender = ResponseSenderFunc(
-			func(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error {
-				return errors.Wrap(interceptor.InterceptOutboundResponse(ctx, res, opts, next))
-			},
-		)
+		sender = ResponseSenderFunc(func(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error {
+			return errors.Wrap(interceptor.InterceptOutboundResponse(ctx, res, opts, next))
+		})
 	}
 
 	return sender

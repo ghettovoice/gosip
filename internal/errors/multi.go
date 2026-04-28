@@ -8,6 +8,8 @@ import (
 )
 
 func Join(errs ...error) error {
+	errs = filterNilErrors(errs)
+
 	if len(errs) == 0 {
 		return nil
 	}
@@ -20,6 +22,8 @@ func Join(errs ...error) error {
 }
 
 func JoinPrefix(prefix string, errs ...error) error {
+	errs = filterNilErrors(errs)
+
 	if len(errs) == 0 {
 		return nil
 	}
@@ -29,6 +33,17 @@ func JoinPrefix(prefix string, errs ...error) error {
 	}
 
 	return &multiError{prefix: prefix, errs: errs} //errtrace:skip
+}
+
+func filterNilErrors(errs []error) []error {
+	filtered := errs[:0]
+	for _, err := range errs {
+		if err != nil {
+			filtered = append(filtered, err)
+		}
+	}
+
+	return filtered
 }
 
 type multiError struct {

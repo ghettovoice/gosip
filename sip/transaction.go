@@ -143,12 +143,7 @@ func (tx *baseTransact) deliverPendingStates() {
 
 	for fn := range tx.onStateChanged.All() {
 		for _, e := range states {
-			//nolint:forcetypeassert
-			fn(
-				e.ctx,
-				e.transition.Source.(TransactionState),
-				e.transition.Destination.(TransactionState),
-			)
+			fn(e.ctx, e.transition.Source.(TransactionState), e.transition.Destination.(TransactionState)) //nolint:forcetypeassert
 		}
 	}
 }
@@ -267,3 +262,11 @@ func (tx *baseTransact) Terminate(ctx context.Context) error {
 	}
 	return errors.Wrap(tx.fsm.FireCtx(ContextWithTransaction(ctx, tx.impl), txEvtTerminate))
 }
+
+// TransactionTransport is an adapter that wraps a [Transport] and
+// implements the [ClientTransport], [ServerTransport] interfaces.
+type TransactionTransport struct {
+	Transport
+}
+
+func (tp TransactionTransport) Reliable() bool { return tp.Transport.Metadata().Reliable() }

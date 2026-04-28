@@ -171,8 +171,7 @@ func TestTransportOptions_sentBy_Validation(t *testing.T) {
 				(func() bool { p, ok := result.Port(); return ok && p == 0 }())
 
 			if tt.shouldUseDirectly == needsFinalization {
-				t.Errorf(
-					"TransportOptions.sentBy() validation failed: expected direct use=%v, but needs finalization=%v",
+				t.Errorf("TransportOptions.sentBy() validation failed: expected direct use=%v, but needs finalization=%v",
 					tt.shouldUseDirectly,
 					needsFinalization,
 				)

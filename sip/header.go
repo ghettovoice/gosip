@@ -298,6 +298,22 @@ func (hdrs Headers) Route() iter.Seq[*header.RouteHop] {
 	return AllHeaderElems[header.Route](hdrs, "Route")
 }
 
+func (hdrs Headers) FirstRouteHop() (*header.RouteHop, bool) {
+	return FirstHeaderElem[header.Route](hdrs, "Route")
+}
+
+func (hdrs Headers) PopFirstRouteHop() (*header.RouteHop, bool) {
+	return PopFirstHeaderElem[header.Route](hdrs, "Route")
+}
+
+func (hdrs Headers) PrependRouteHop(hop header.RouteHop) Headers {
+	return hdrs.Prepend(header.Route{hop})
+}
+
+func (hdrs Headers) AppendRouteHop(hop header.RouteHop) Headers {
+	return hdrs.Append(header.Route{hop})
+}
+
 // To returns the first To header.
 func (hdrs Headers) To() (*header.To, bool) {
 	return FirstHeader[*header.To](hdrs, "To")
@@ -308,14 +324,22 @@ func (hdrs Headers) Via() iter.Seq[*header.ViaHop] {
 	return AllHeaderElems[header.Via](hdrs, "Via")
 }
 
-func (hdrs Headers) FirstVia() (*header.ViaHop, bool) {
+func (hdrs Headers) FirstViaHop() (*header.ViaHop, bool) {
 	return FirstHeaderElem[header.Via](hdrs, "Via")
 }
 
-// PopFirstVia removes and returns the first Via header element.
+// PopFirstViaHop removes and returns the first Via header element.
 // It returns false if no such element exists.
-func (hdrs Headers) PopFirstVia() (*header.ViaHop, bool) {
+func (hdrs Headers) PopFirstViaHop() (*header.ViaHop, bool) {
 	return PopFirstHeaderElem[header.Via](hdrs, "Via")
+}
+
+func (hdrs Headers) PrependViaHop(hop header.ViaHop) Headers {
+	return hdrs.Prepend(header.Via{hop})
+}
+
+func (hdrs Headers) AppendViaHop(hop header.ViaHop) Headers {
+	return hdrs.Append(header.Via{hop})
 }
 
 // WWWAuthenticate returns an iterator over all WWW-Authenticate header elements.

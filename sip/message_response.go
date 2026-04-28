@@ -370,11 +370,7 @@ type InboundResponseEnvelope struct {
 	*inboundMessageEnvelope[*Response]
 }
 
-func NewInboundResponseEnvelope(
-	res *Response,
-	tp TransportProto,
-	laddr, raddr netip.AddrPort,
-) (*InboundResponseEnvelope, error) {
+func NewInboundResponseEnvelope(res *Response, tp TransportProto, laddr, raddr netip.AddrPort) (*InboundResponseEnvelope, error) {
 	if res == nil {
 		return nil, errors.NewInvalidArgumentErrorWrap("nil response")
 	}
@@ -599,12 +595,12 @@ func (r *OutboundResponseEnvelope) Message() *Response {
 	return r.outboundMessageEnvelope.Message()
 }
 
-func (r *OutboundResponseEnvelope) AccessMessage(update func(*Response)) {
+func (r *OutboundResponseEnvelope) AccessMessage(fn func(*Response)) {
 	if r == nil {
 		return
 	}
 
-	r.outboundMessageEnvelope.AccessMessage(update)
+	r.outboundMessageEnvelope.AccessMessage(fn)
 }
 
 func (r *OutboundResponseEnvelope) Headers() Headers {
@@ -836,11 +832,7 @@ type ResponseSender interface {
 
 type ResponseSenderFunc func(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error
 
-func (fn ResponseSenderFunc) SendResponse(
-	ctx context.Context,
-	res *OutboundResponseEnvelope,
-	opts *SendResponseOptions,
-) error {
+func (fn ResponseSenderFunc) SendResponse(ctx context.Context, res *OutboundResponseEnvelope, opts *SendResponseOptions) error {
 	return errors.Wrap(fn(ctx, res, opts))
 }
 
@@ -883,8 +875,8 @@ func cloneSendResOpts(opts *SendResponseOptions) *SendResponseOptions {
 
 // RespondOptions are options for respond helper functions.
 type RespondOptions struct {
-	*ResponseOptions     `json:"response_options,omitempty"`
-	*SendResponseOptions `json:"send_response_options,omitempty"`
+	ResponseOptions *ResponseOptions
+	SendOptions     *SendResponseOptions
 }
 
 func (o *RespondOptions) resOpts() *ResponseOptions {
@@ -898,5 +890,5 @@ func (o *RespondOptions) sendOpts() *SendResponseOptions {
 	if o == nil {
 		return nil
 	}
-	return o.SendResponseOptions
+	return o.SendOptions
 }
