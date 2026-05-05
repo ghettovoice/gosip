@@ -1082,7 +1082,7 @@ func newConnListener(ctx context.Context, base net.Listener, logger *slog.Logger
 	}
 	l.Listener = netutil.WrapListener([]netutil.ListenerDecorator{
 		netutil.NewCloseOnceListenerDecorator(),
-		netutil.NewLogListenerDecorator(logger.With("listener", l), slog.LevelDebug),
+		netutil.NewLogListenerDecorator(logger.With(slog.Any("listener", l)), slog.LevelDebug),
 	}...)(ctx, base)
 
 	return l

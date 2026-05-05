@@ -233,7 +233,7 @@ func (res *Response) LogValue() slog.Value {
 	}
 
 	if callID, ok := res.Headers.CallID(); ok {
-		attrs = append(attrs, slog.Any("call-id", callID))
+		attrs = append(attrs, slog.Any("call_id", callID))
 	}
 
 	if cseq, ok := res.Headers.CSeq(); ok {

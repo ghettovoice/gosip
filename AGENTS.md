@@ -70,12 +70,12 @@ Mandatory linting requirements for all code changes. Specifies:
 # Run linter to check compliance
 golangci-lint run ./...
 # or
-make lint
+task lint
 
 # Run all tests
 go test -race -vet=all -timeout=30s ./...
 # or
-make test
+task test
 
 # Apply automatic fixes
 go fix ./...

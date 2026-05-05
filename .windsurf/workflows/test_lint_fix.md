@@ -11,7 +11,7 @@ Run tests and linter sequentially, fix any errors found.
 1. **Run tests**:
 
    ```bash
-   go test -race -vet=all ./...
+   go test -race -vet=all -timeout=30s ./...
    ```
 
    - If tests fail, analyze the error output

@@ -1244,7 +1244,7 @@ func (tx *InviteServerTransaction) actSend100(ctx context.Context, _ ...any) err
 
 func (tx *InviteServerTransaction) actSendRes(ctx context.Context, args ...any) error {
 	if tmr := tx.tmr1xx.Swap(nil); tmr != nil && tmr.Stop() {
-		tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer stopped", slog.Any("transaction", tx)) //nolint:sloglint
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer stopped", slog.Any("transaction", tx))
 	}
 	return errors.Wrap(tx.serverTransact.actSendRes(ctx, args...))
 }
@@ -1286,7 +1286,7 @@ func (tx *InviteServerTransaction) actProceeding(ctx context.Context, args ...an
 	tmr := timeutil.AfterFunc(tx.timings.Time100(), tx.timer1xxHdlr(ctx))
 	tx.tmr1xx.Store(tmr)
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer started", //nolint:sloglint
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer started",
 		slog.Any("transaction", tx),
 		slog.Time("expires_at", time.Now().Add(tmr.Left())),
 	)
@@ -1296,7 +1296,7 @@ func (tx *InviteServerTransaction) actProceeding(ctx context.Context, args ...an
 
 func (tx *InviteServerTransaction) timer1xxHdlr(ctx context.Context) func() {
 	return func() {
-		tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer expired", slog.Any("transaction", tx)) //nolint:sloglint
+		tx.log.LogAttrs(ctx, slog.LevelDebug, "1xx timer expired", slog.Any("transaction", tx))
 
 		tx.tmr1xx.Store(nil)
 

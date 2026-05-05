@@ -283,7 +283,7 @@ func (tpm *TransportManager) UseOutboundResponseInterceptor(interceptor Outbound
 	}
 }
 
-func (tpm *TransportManager) UseInterceptor(interceptor MessageInterceptor) (unbind func()) {
+func (tpm *TransportManager) UseMessageInterceptor(interceptor MessageInterceptor) (unbind func()) {
 	if interceptor == nil || tpm.closed.Load() {
 		return func() {}
 	}

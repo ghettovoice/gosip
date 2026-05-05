@@ -88,8 +88,8 @@ func (hdrs Headers) Prepend(hdr Header, hds ...Header) Headers {
 
 func (hdrs Headers) PrependFrom(other Headers) Headers {
 	for _, hs := range other {
-		for i := len(hs) - 1; i >= 0; i-- {
-			hdrs.Prepend(hs[i])
+		for _, h := range slices.Backward(hs) {
+			hdrs.Prepend(h)
 		}
 	}
 

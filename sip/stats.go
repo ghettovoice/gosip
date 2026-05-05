@@ -366,7 +366,7 @@ package sip
 // ) (unbind func()) {
 // 	unbinds := make([]func(), 0, 2)
 // 	if msgChain != nil {
-// 		unbinds = append(unbinds, msgChain.UseInterceptor(rcdr))
+// 		unbinds = append(unbinds, msgChain.UseMessageInterceptor(rcdr))
 // 	}
 // 	if txHdlrs != nil {
 // 		unbinds = append(unbinds, rcdr.BindTransactionInitHandlers(txHdlrs))

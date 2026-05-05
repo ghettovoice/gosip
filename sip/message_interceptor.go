@@ -2,6 +2,7 @@ package sip
 
 import (
 	"context"
+	"slices"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/types"
@@ -96,8 +97,7 @@ func InterceptInboundRequest(interceptors []InboundRequestInterceptor, final Req
 	}
 
 	receiver := final
-	for i := len(interceptors) - 1; i >= 0; i-- {
-		interceptor := interceptors[i]
+	for _, interceptor := range slices.Backward(interceptors) {
 		if interceptor == nil {
 			continue
 		}
@@ -118,8 +118,7 @@ func InterceptInboundResponse(interceptors []InboundResponseInterceptor, final R
 	}
 
 	receiver := final
-	for i := len(interceptors) - 1; i >= 0; i-- {
-		interceptor := interceptors[i]
+	for _, interceptor := range slices.Backward(interceptors) {
 		if interceptor == nil {
 			continue
 		}
@@ -206,9 +205,9 @@ type MessageInterceptorChain interface {
 	InboundResponseInterceptorChain
 	OutboundRequestInterceptorChain
 	OutboundResponseInterceptorChain
-	// UseInterceptor adds all non-nil interceptors from the provided object.
+	// UseMessageInterceptor adds all non-nil interceptors from the provided object.
 	// The interceptor can be removed by calling the returned unbind function.
-	UseInterceptor(interceptor MessageInterceptor) (unbind func())
+	UseMessageInterceptor(interceptor MessageInterceptor) (unbind func())
 }
 
 type baseMessageInterceptorChain struct {
@@ -234,7 +233,7 @@ func (ch *baseMessageInterceptorChain) UseOutboundResponseInterceptor(intercepto
 	return ch.outResInts.Add(interceptor)
 }
 
-func (ch *baseMessageInterceptorChain) UseInterceptor(interceptor MessageInterceptor) (unbind func()) {
+func (ch *baseMessageInterceptorChain) UseMessageInterceptor(interceptor MessageInterceptor) (unbind func()) {
 	if interceptor == nil {
 		return func() {}
 	}

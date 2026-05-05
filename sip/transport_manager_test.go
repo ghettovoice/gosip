@@ -160,7 +160,7 @@ func (s *spyTransport) UseOutboundResponseInterceptor(sip.OutboundResponseInterc
 	}
 }
 
-func (s *spyTransport) UseInterceptor(interceptor sip.MessageInterceptor) func() {
+func (s *spyTransport) UseMessageInterceptor(interceptor sip.MessageInterceptor) func() {
 	if interceptor == nil {
 		return func() {}
 	}
@@ -455,7 +455,7 @@ func TestTransportManager_InterceptorLifecycle(t *testing.T) {
 	}
 }
 
-func TestTransportManager_UseInterceptor_BindsOnlyNonNil(t *testing.T) {
+func TestTransportManager_UseMessageInterceptor_BindsOnlyNonNil(t *testing.T) {
 	t.Parallel()
 
 	var mgr sip.TransportManager
@@ -465,7 +465,7 @@ func TestTransportManager_UseInterceptor_BindsOnlyNonNil(t *testing.T) {
 		t.Fatalf("mgr.TrackTransport(tp) error = %v, want nil", err)
 	}
 
-	unbind := mgr.UseInterceptor(testMessageInterceptor{
+	unbind := mgr.UseMessageInterceptor(testMessageInterceptor{
 		inReq: sip.InboundRequestInterceptorFunc(func(ctx context.Context, req *sip.InboundRequestEnvelope, next sip.RequestReceiver) error {
 			return next.RecvRequest(ctx, req)
 		}),

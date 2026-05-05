@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"slices"
 	"time"
 )
 
@@ -16,9 +17,9 @@ type ListenerDecorator = func(context.Context, net.Listener) net.Listener
 // will be the outermost wrapper.
 func WrapListener(ds ...ListenerDecorator) ListenerDecorator {
 	return func(ctx context.Context, ls net.Listener) net.Listener {
-		for i := len(ds) - 1; i >= 0; i-- {
-			if ds[i] != nil {
-				ls = ds[i](ctx, ls)
+		for _, d := range slices.Backward(ds) {
+			if d != nil {
+				ls = d(ctx, ls)
 			}
 		}
 
@@ -48,9 +49,9 @@ type ConnDecorator = func(context.Context, net.Conn) net.Conn
 // For example: auto-close -> close-once -> log.
 func WrapConn(ds ...ConnDecorator) ConnDecorator {
 	return func(ctx context.Context, conn net.Conn) net.Conn {
-		for i := len(ds) - 1; i >= 0; i-- {
-			if ds[i] != nil {
-				conn = ds[i](ctx, conn)
+		for _, d := range slices.Backward(ds) {
+			if d != nil {
+				conn = d(ctx, conn)
 			}
 		}
 
@@ -92,9 +93,9 @@ type PacketConnDecorator = func(context.Context, net.PacketConn) net.PacketConn
 // For example: close-once -> log.
 func WrapPacketConn(ds ...PacketConnDecorator) PacketConnDecorator {
 	return func(ctx context.Context, conn net.PacketConn) net.PacketConn {
-		for i := len(ds) - 1; i >= 0; i-- {
-			if ds[i] != nil {
-				conn = ds[i](ctx, conn)
+		for _, d := range slices.Backward(ds) {
+			if d != nil {
+				conn = d(ctx, conn)
 			}
 		}
 

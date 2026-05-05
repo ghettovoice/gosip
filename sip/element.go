@@ -11,6 +11,8 @@ import (
 	"github.com/ghettovoice/gosip/uri"
 )
 
+const ErrStatelessElement errors.Error = "element is stateless"
+
 // Element setups basic inbound/outbound message pipeline and
 // provides common SIP element message processing.
 type Element struct {
@@ -88,10 +90,10 @@ func NewElement(name string, tp Transport, opts *ElementOptions) (*Element, erro
 		}
 
 		elm.txm = NewTransactionManager(txOpts)
+		elm.tpm.UseMessageInterceptor(elm.txm)
 	}
 
-	elm.tpm.UseInterceptor(elm.txm)
-	elm.tpm.UseInterceptor(StdMessageInterceptor{
+	elm.tpm.UseMessageInterceptor(StdMessageInterceptor{
 		OutboundRequest:  OutboundRequestInterceptorFunc(elm.interceptOutboundRequest),
 		OutboundResponse: OutboundResponseInterceptorFunc(elm.interceptOutboundResponse),
 	})
@@ -187,7 +189,7 @@ func (elm *Element) Close() error {
 	return errors.JoinPrefixWrap("element close errors:", elm.txm.Close(), elm.tpm.Close())
 }
 
-func (*Element) resolveTargetURI(req *OutboundRequestEnvelope) *uri.SIP {
+func resolveReqTargetURI(req *OutboundRequestEnvelope) *uri.SIP {
 	var targetURI uri.URI
 	req.AccessMessage(func(r *Request) {
 		targetURI = r.URI.Clone()
@@ -223,7 +225,7 @@ func (elm *Element) SendRequest(ctx context.Context, req *OutboundRequestEnvelop
 	// Default SIP element behavior - resolve target URI, lookup remote server,
 	// then try to send to each resolved address until success.
 	// RFC 3261 Section 8.1.2.
-	targetURI := elm.resolveTargetURI(req)
+	targetURI := resolveReqTargetURI(req)
 	if !targetURI.IsValid() {
 		return errors.Wrap(ErrNoDestAddressResolved)
 	}
@@ -287,6 +289,10 @@ func (elm *Element) SendRequestStateful(
 	req *OutboundRequestEnvelope,
 	opts *ClientTransactionOptions,
 ) (ClientTransaction, error) {
+	if elm.txm == nil {
+		return nil, errors.NewInvalidArgumentErrorWrap(ErrStatelessElement)
+	}
+
 	if tp := elm.tpm.resolveReqTransp(req); tp != nil && req.RemoteAddr().IsValid() {
 		// Transport and remote address are already set, send directly.
 		return errors.Wrap2(elm.txm.NewClientTransaction(ctx, req, TransactionTransport{tp}, opts))
@@ -295,7 +301,7 @@ func (elm *Element) SendRequestStateful(
 	// Default SIP element behavior - resolve target URI, lookup remote server,
 	// then try to send to each resolved address until success.
 	// RFC 3261 Section 8.1.2.
-	targetURI := elm.resolveTargetURI(req)
+	targetURI := resolveReqTargetURI(req)
 	if !targetURI.IsValid() {
 		return nil, errors.Wrap(ErrNoDestAddressResolved)
 	}
@@ -389,6 +395,10 @@ func (elm *Element) SendResponseStateful(
 	res *OutboundResponseEnvelope,
 	opts *SendResponseStatefulOptions,
 ) (ServerTransaction, error) {
+	if elm.txm == nil {
+		return nil, errors.NewInvalidArgumentErrorWrap(ErrStatelessElement)
+	}
+
 	tp := elm.tpm.resolveResTransp(res)
 	if tp == nil {
 		return nil, errors.NewInvalidArgumentErrorWrap("no transport resolved for response")
@@ -468,6 +478,10 @@ func (elm *Element) RespondStateful(
 	sts ResponseStatus,
 	opts *RespondStatefulOptions,
 ) (ServerTransaction, error) {
+	if elm.txm == nil {
+		return nil, errors.NewInvalidArgumentErrorWrap(ErrStatelessElement)
+	}
+
 	res, err := req.NewResponse(sts, opts.resOpts())
 	if err != nil {
 		return nil, errors.Wrap(err)
