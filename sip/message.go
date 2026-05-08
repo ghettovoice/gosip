@@ -95,6 +95,8 @@ type Message interface {
 	Via() (ViaHeader, bool)
 	// ViaHop returns the first segment of the top 'Via' header.
 	ViaHop() (*ViaHop, bool)
+	// SetViaHop replaces the first segment of the top 'Via' header.
+	SetViaHop(hop *ViaHop) bool
 	// From returns 'From' header field.
 	From() (*FromHeader, bool)
 	// To returns 'To' header field.
@@ -320,7 +322,14 @@ func (hs *headers) Via() (ViaHeader, bool) {
 }
 
 func (hs *headers) ViaHop() (*ViaHop, bool) {
-	via, ok := hs.Via()
+	hs.mu.RLock()
+	defer hs.mu.RUnlock()
+
+	hdrs, ok := hs.headers["via"]
+	if !ok || len(hdrs) == 0 {
+		return nil, false
+	}
+	via, ok := hdrs[0].(ViaHeader)
 	if !ok {
 		return nil, false
 	}
@@ -329,7 +338,31 @@ func (hs *headers) ViaHop() (*ViaHop, bool) {
 		return nil, false
 	}
 
-	return hops[0], true
+	return hops[0].Clone(), true
+}
+
+// SetViaHop replaces the first ViaHop in the Via header with the provided one.
+// This method is thread-safe and should be used when modifying Via headers
+// to avoid data races when the same message is accessed concurrently.
+func (hs *headers) SetViaHop(hop *ViaHop) bool {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	hdrs, ok := hs.headers["via"]
+	if !ok || len(hdrs) == 0 {
+		return false
+	}
+	via, ok := hdrs[0].(ViaHeader)
+	if !ok {
+		return false
+	}
+	hops := []*ViaHop(via)
+	if len(hops) == 0 {
+		return false
+	}
+
+	via[0] = hop
+	return true
 }
 
 func (hs *headers) From() (*FromHeader, bool) {

@@ -224,6 +224,7 @@ func (tpl *layer) Send(msg sip.Message) error {
 	// RFC 3261 - 18.1.1.
 	case sip.Request:
 		network := msg.Transport()
+		viaHop = viaHop.Clone()
 		// rewrite sent-by transport
 		viaHop.Transport = strings.ToUpper(network)
 		hostStr := tpl.ip.String()
@@ -231,11 +232,6 @@ func (tpl *layer) Send(msg sip.Message) error {
 			hostStr = fmt.Sprintf("[%s]", hostStr)
 		}
 		viaHop.Host = hostStr
-
-		protocol, err := tpl.getProtocol(network)
-		if err != nil {
-			return err
-		}
 
 		// rewrite sent-by port
 		if viaHop.Port == nil {
@@ -246,6 +242,13 @@ func (tpl *layer) Send(msg sip.Message) error {
 				defPort := sip.DefaultPort(network)
 				viaHop.Port = &defPort
 			}
+		}
+
+		msg.SetViaHop(viaHop)
+
+		protocol, err := tpl.getProtocol(network)
+		if err != nil {
+			return err
 		}
 
 		target, err := NewTargetFromAddr(msg.Destination())
