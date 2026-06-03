@@ -76,6 +76,7 @@ func prepareClientRequest(origin sip.Request) sip.Request {
 		}
 		if !viaHop.Params.Has("branch") {
 			viaHop.Params.Add("branch", sip.String{Str: sip.GenerateBranch()})
+			origin.SetViaHop(viaHop)
 		}
 	} else {
 		viaHop = &sip.ViaHop{
@@ -430,7 +431,6 @@ func (tx *clientTx) initInviteFSM() {
 		client_state_def_accepted,
 		client_state_def_terminated,
 	)
-
 	if err != nil {
 		tx.Log().Errorf("define INVITE transaction FSM failed: %s", err)
 
@@ -511,7 +511,6 @@ func (tx *clientTx) initNonInviteFSM() {
 		client_state_def_completed,
 		client_state_def_terminated,
 	)
-
 	if err != nil {
 		tx.Log().Errorf("define non-INVITE transaction FSM failed: %s", err)
 

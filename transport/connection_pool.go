@@ -665,6 +665,8 @@ func (handler *connectionHandler) handleMessage(msg sip.Message, raddr string) {
 			viaHop.Params.Add("rport", sip.String{Str: rport})
 		}
 
+		msg.SetViaHop(viaHop)
+
 		if !handler.Connection().Streamed() {
 			if !viaHop.Params.Has("rport") {
 				var port sip.Port

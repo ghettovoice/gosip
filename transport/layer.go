@@ -224,7 +224,6 @@ func (tpl *layer) Send(msg sip.Message) error {
 	// RFC 3261 - 18.1.1.
 	case sip.Request:
 		network := msg.Transport()
-		viaHop = viaHop.Clone()
 		// rewrite sent-by transport
 		viaHop.Transport = strings.ToUpper(network)
 		hostStr := tpl.ip.String()

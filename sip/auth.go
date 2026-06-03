@@ -261,6 +261,7 @@ func AuthorizeRequest(request Request, response Response, user, password MaybeSt
 
 	if viaHop, ok := request.ViaHop(); ok {
 		viaHop.Params.Add("branch", String{Str: GenerateBranch()})
+		request.SetViaHop(viaHop)
 	}
 
 	if cseq, ok := request.CSeq(); ok {

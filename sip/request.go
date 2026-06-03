@@ -79,6 +79,7 @@ func (req *request) Method() RequestMethod {
 	defer req.mu.RUnlock()
 	return req.method
 }
+
 func (req *request) SetMethod(method RequestMethod) {
 	req.mu.Lock()
 	req.method = method
@@ -90,6 +91,7 @@ func (req *request) Recipient() Uri {
 	defer req.mu.RUnlock()
 	return req.recipient
 }
+
 func (req *request) SetRecipient(recipient Uri) {
 	req.mu.Lock()
 	req.recipient = recipient
@@ -285,6 +287,7 @@ func NewAckRequest(ackID MessageID, inviteRequest Request, inviteResponse Respon
 		// update branch, 2xx ACK is separate Tx
 		viaHop, _ := ackRequest.ViaHop()
 		viaHop.Params.Add("branch", String{Str: GenerateBranch()})
+		ackRequest.SetViaHop(viaHop)
 	}
 
 	if len(inviteRequest.GetHeaders("Route")) > 0 {

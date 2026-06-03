@@ -159,9 +159,18 @@ func (params *headerParams) Clone() Params {
 		return dup
 	}
 
+	params.mu.RLock()
+	keys := make([]string, len(params.paramOrder))
+	copy(keys, params.paramOrder)
+	vals := make(map[string]MaybeString, len(params.params))
+	for k, v := range params.params {
+		vals[k] = v
+	}
+	params.mu.RUnlock()
+
 	dup := NewParams()
-	for _, key := range params.Keys() {
-		if val, ok := params.Get(key); ok {
+	for _, key := range keys {
+		if val, ok := vals[key]; ok {
 			dup.Add(key, val)
 		}
 	}

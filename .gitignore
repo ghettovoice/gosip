@@ -158,6 +158,14 @@ fabric.properties
 .idea/**/markdown-navigator.xml
 .idea/**/markdown-navigator/
 
+### VisualStudioCode ###
+.vscode/*
+.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+
 ### App rules
 out
 *.coverprofile
