@@ -1,444 +1,335 @@
 package header_test
 
 import (
-	"reflect"
+	"strings"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/ghettovoice/gosip/sip/header"
-	"github.com/ghettovoice/gosip/sip/uri"
+	"github.com/ghettovoice/gosip/uri"
 )
 
-var _ = Describe("Header", Label("sip", "header"), func() {
-	Describe("Proxy-Authorization", func() {
-		assertHeaderParsing(
-			// region
-			Entry(nil, "Proxy-Authorization: qwerty", &header.Any{Name: "Proxy-Authorization", Value: "qwerty"}, nil),
-			Entry(nil,
-				"Proxy-Authorization: Digest username=\"root\", realm=\"example.com\", nonce=\"qwerty\",\r\n"+
-					"\turi=\"sip:example.com\", response=\"587245234b3434cc3412213e5f113a54\", algorithm=MD5,\r\n"+
-					"\tcnonce=\"1q2w3e\", opaque=\"zxc\", qop=auth, nc=00000005, p1=abc, p2=\"a b c\"",
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:   "root",
-						Realm:      "example.com",
-						Nonce:      "qwerty",
-						URI:        &uri.SIP{Addr: uri.Host("example.com")},
-						Response:   "587245234b3434cc3412213e5f113a54",
-						Algorithm:  "MD5",
-						CNonce:     "1q2w3e",
-						Opaque:     "zxc",
-						QOP:        "auth",
-						NonceCount: 5,
-						Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				nil,
-			),
-			Entry(nil,
-				"Proxy-Authorization: Bearer QweRTY123",
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{
-						Token: "QweRTY123",
-					},
-				},
-				nil,
-			),
-			Entry(nil,
-				"Proxy-Authorization: Custom p1=abc, p2=\"a b c\"",
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Custom",
-						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				nil,
-			),
-			// endregion
-		)
+func TestProxyAuthorization_Render(t *testing.T) {
+	t.Parallel()
 
-		assertHeaderRendering(
-			// region
-			Entry(nil, (*header.ProxyAuthorization)(nil), ""),
-			Entry(nil, &header.ProxyAuthorization{}, "Proxy-Authorization: "),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:   "root",
-						Realm:      "example.com",
-						Nonce:      "qwerty",
-						URI:        &uri.SIP{Addr: uri.Host("example.com")},
-						Response:   "587245234b3434cc3412213e5f113a54",
-						Algorithm:  "MD5",
-						CNonce:     "1q2w3e",
-						Opaque:     "zxc",
-						QOP:        "auth",
-						NonceCount: 5,
-						Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthorization
+		want string
+	}{
+		{"nil", nil, ""},
+		{"zero", &header.ProxyAuthorization{}, "Proxy-Authorization: "},
+		{
+			"digest",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.DigestCredentials{
+					Username:   "root",
+					Realm:      "example.com",
+					Nonce:      "qwerty",
+					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					Response:   "587245234b3434cc3412213e5f113a54",
+					Algorithm:  "MD5",
+					CNonce:     "1q2w3e",
+					Opaque:     "zxc",
+					QOP:        "auth",
+					NonceCount: 5,
+					Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				},
-				"Proxy-Authorization: Digest algorithm=MD5, cnonce=\"1q2w3e\", nc=00000005, nonce=\"qwerty\", opaque=\"zxc\", "+
-					"qop=auth, realm=\"example.com\", response=\"587245234b3434cc3412213e5f113a54\", username=\"root\", "+
-					"uri=\"sip:example.com\", p1=abc, p2=\"a b c\"",
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{
-						Token: "QweRTY123",
-					},
-				},
-				"Proxy-Authorization: Bearer QweRTY123",
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Custom",
-						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				"Proxy-Authorization: Custom p1=abc, p2=\"a b c\"",
-			),
-			// endregion
-		)
-
-		assertHeaderComparing(
-			// region
-			Entry(nil, (*header.ProxyAuthorization)(nil), nil, false),
-			Entry(nil, (*header.ProxyAuthorization)(nil), (*header.ProxyAuthorization)(nil), true),
-			Entry(nil, &header.ProxyAuthorization{}, (*header.ProxyAuthorization)(nil), false),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:   "root",
-						Realm:      "example.com",
-						Nonce:      "qwerty",
-						URI:        &uri.SIP{Addr: uri.Host("example.com")},
-						Response:   "587245234b3434cc3412213e5f113a54",
-						Algorithm:  "MD5",
-						CNonce:     "1q2w3e",
-						Opaque:     "zxc",
-						QOP:        "auth",
-						NonceCount: 5,
-						Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:   "root",
-						Realm:      "example.com",
-						Nonce:      "qwerty",
-						URI:        &uri.SIP{Addr: uri.Host("example.com")},
-						Response:   "587245234b3434cc3412213e5f113a54",
-						Algorithm:  "md5",
-						CNonce:     "1q2w3e",
-						Opaque:     "zxc",
-						QOP:        "AUTH",
-						NonceCount: 5,
-						Params:     make(header.Values).Set("p1", "ABC").Set("p2", `"a b c"`),
-					},
-				},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:   "root",
-						Realm:      "example.com",
-						Nonce:      "qwerty",
-						URI:        &uri.SIP{Addr: uri.Host("example.com")},
-						Response:   "587245234b3434cc3412213e5f113a54",
-						Algorithm:  "MD5",
-						CNonce:     "1q2w3e",
-						Opaque:     "zxc",
-						QOP:        "auth",
-						NonceCount: 5,
-						Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:   "ROOT",
-						Realm:      "example.com",
-						Nonce:      "qwerty",
-						URI:        &uri.SIP{Addr: uri.Host("example.com")},
-						Response:   "587245234b3434cc3412213e5f113a54",
-						Algorithm:  "MD5",
-						CNonce:     "1q2w3e",
-						Opaque:     "zxc",
-						QOP:        "auth",
-						NonceCount: 5,
-						Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:   "root",
-						Realm:      "example.com",
-						Nonce:      "qwerty",
-						URI:        &uri.SIP{Addr: uri.Host("example.com")},
-						Response:   "587245234b3434cc3412213e5f113a54",
-						Algorithm:  "MD5",
-						CNonce:     "1q2w3e",
-						Opaque:     "zxc",
-						QOP:        "auth",
-						NonceCount: 5,
-						Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				&header.ProxyAuthorization{
-					AuthCredentials: (*header.DigestCredentials)(nil),
-				},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:   "root",
-						Realm:      "example.com",
-						Nonce:      "qwerty",
-						URI:        &uri.SIP{Addr: uri.Host("example.com")},
-						Response:   "587245234b3434cc3412213e5f113a54",
-						Algorithm:  "MD5",
-						CNonce:     "1q2w3e",
-						Opaque:     "zxc",
-						QOP:        "auth",
-						NonceCount: 5,
-						Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{
-						Token: "QwertY",
-					},
-				},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{
-						Token: "QWERTY",
-					},
-				},
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{
-						Token: "qwerty",
-					},
-				},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{
-						Token: "QwertY",
-					},
-				},
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{
-						Token: "QwertY",
-					},
-				},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "custom",
-						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Custom",
-						Params: make(header.Values).Set("p1", "ABC").Set("p2", `"a b c"`),
-					},
-				},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Custom",
-						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Qwerty",
-						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Custom",
-						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
-				},
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Custom",
-						Params: make(header.Values).Set("p1", "abc").Set("p2", `"zxc"`),
-					},
-				},
-				false,
-			),
-			// endregion
-		)
-
-		assertHeaderValidating(
-			// region
-			Entry(nil, (*header.ProxyAuthorization)(nil), false),
-			Entry(nil, &header.ProxyAuthorization{}, false),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username: "root",
-						Response: "587245234b3434cc3412213e5f113a54",
-					},
-				},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:  "root",
-						Realm:     "example.com",
-						Nonce:     "qwerty",
-						URI:       &uri.SIP{Addr: uri.Host("example.com")},
-						Response:  "587245234b3434cc3412213e5f113a54",
-						Algorithm: "MD5",
-						QOP:       "auth",
-					},
-				},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{},
-				},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{Token: "QwertY"},
-				},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{},
-				},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Custom",
-						Params: make(header.Values),
-					},
-				},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Custom",
-						Params: make(header.Values).Set("p1", "abc"),
-					},
-				},
-				true,
-			),
-			// endregion
-		)
-
-		assertHeaderCloning(
-			// region
-			func(hdr1, hdr2 *header.ProxyAuthorization) {
-				Expect(reflect.ValueOf(hdr2).Pointer()).ToNot(Equal(reflect.ValueOf(hdr1).Pointer()))
-				switch crd1 := hdr1.AuthCredentials.(type) {
-				case *header.DigestCredentials:
-					crd2, _ := hdr2.AuthCredentials.(*header.DigestCredentials)
-					if crd1 == nil || reflect.ValueOf(crd1).IsNil() {
-						Expect(crd2).To(BeNil())
-					} else {
-						Expect(reflect.ValueOf(crd2).Pointer()).
-							ToNot(Equal(reflect.ValueOf(crd1).Pointer()))
-						if crd1.URI == nil || reflect.ValueOf(crd1.URI).IsNil() {
-							Expect(crd2.URI).To(BeNil())
-						} else {
-							Expect(reflect.ValueOf(crd2.URI).Pointer()).
-								ToNot(Equal(reflect.ValueOf(crd1.URI).Pointer()))
-						}
-						if crd1.Params == nil {
-							Expect(crd2.Params).To(BeNil())
-						} else {
-							Expect(reflect.ValueOf(crd2.Params).Pointer()).
-								ToNot(Equal(reflect.ValueOf(crd1.Params).Pointer()))
-						}
-					}
-				case *header.BearerCredentials:
-					crd2, _ := hdr2.AuthCredentials.(*header.BearerCredentials)
-					if crd1 == nil || reflect.ValueOf(crd1).IsNil() {
-						Expect(crd2).To(BeNil())
-					} else {
-						Expect(reflect.ValueOf(crd2).Pointer()).ToNot(Equal(reflect.ValueOf(crd1).Pointer()))
-					}
-				case *header.AnyCredentials:
-					crd2, _ := hdr2.AuthCredentials.(*header.AnyCredentials)
-					if crd1 == nil || reflect.ValueOf(crd1).IsNil() {
-						Expect(crd2).To(BeNil())
-					} else {
-						Expect(reflect.ValueOf(crd2).Pointer()).ToNot(Equal(reflect.ValueOf(crd1).Pointer()))
-						if crd1.Params == nil {
-							Expect(crd2.Params).To(BeNil())
-						} else {
-							Expect(reflect.ValueOf(crd2.Params).Pointer()).
-								ToNot(Equal(reflect.ValueOf(crd1.Params).Pointer()))
-						}
-					}
-				}
 			},
-			Entry(nil, (*header.ProxyAuthorization)(nil)),
-			Entry(nil, &header.ProxyAuthorization{}),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.DigestCredentials{
-						Username:   "root",
-						Realm:      "example.com",
-						Nonce:      "qwerty",
-						URI:        &uri.SIP{Addr: uri.Host("example.com")},
-						Response:   "587245234b3434cc3412213e5f113a54",
-						Algorithm:  "MD5",
-						CNonce:     "1q2w3e",
-						Opaque:     "zxc",
-						QOP:        "auth",
-						NonceCount: 5,
-						Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
+			"Proxy-Authorization: Digest algorithm=MD5, cnonce=\"1q2w3e\", nc=00000005, nonce=\"qwerty\", opaque=\"zxc\", " +
+				"qop=auth, realm=\"example.com\", response=\"587245234b3434cc3412213e5f113a54\", username=\"root\", " +
+				"uri=\"sip:example.com\", p1=abc, p2=\"a b c\"",
+		},
+		{
+			"bearer",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.BearerCredentials{Token: "QweRTY123"},
+			},
+			"Proxy-Authorization: Bearer QweRTY123",
+		},
+		{
+			"custom",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.AnyCredentials{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				},
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.BearerCredentials{
-						Token: "QweRTY123",
-					},
+			},
+			"Proxy-Authorization: Custom p1=abc, p2=\"a b c\"",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.Render(); got != c.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProxyAuthorization_RenderTo(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		hdr     *header.ProxyAuthorization
+		wantRes string
+		wantErr error
+	}{
+		{"nil", nil, "", nil},
+		{"zero", &header.ProxyAuthorization{}, "Proxy-Authorization: ", nil},
+		{
+			"custom",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.AnyCredentials{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				},
-			),
-			Entry(nil,
-				&header.ProxyAuthorization{
-					AuthCredentials: &header.AnyCredentials{
-						Scheme: "Custom",
-						Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-					},
+			},
+			"Proxy-Authorization: Custom p1=abc, p2=\"a b c\"",
+			nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sb strings.Builder
+
+			_, err := c.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			}
+
+			if got := sb.String(); got != c.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			}
+		})
+	}
+}
+
+func TestProxyAuthorization_String(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthorization
+		want string
+	}{
+		{"nil", nil, ""},
+		{"zero", &header.ProxyAuthorization{}, ""},
+		{
+			"custom",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.AnyCredentials{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
 				},
-			),
-			// endregion
-		)
-	})
-})
+			},
+			"Custom p1=abc, p2=\"a b c\"",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.String(); got != c.want {
+				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProxyAuthorization_Equal(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthorization
+		val  any
+		want bool
+	}{
+		{"nil ptr to nil", nil, nil, false},
+		{"nil ptr to nil ptr", nil, (*header.ProxyAuthorization)(nil), true},
+		{"zero ptr to nil ptr", &header.ProxyAuthorization{}, (*header.ProxyAuthorization)(nil), false},
+		{"zero to zero", &header.ProxyAuthorization{}, header.ProxyAuthorization{}, true},
+		{
+			"not match 1",
+			&header.ProxyAuthorization{},
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.AnyCredentials{
+					Scheme: "Qwerty",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			false,
+		},
+		{
+			"not match 2",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.DigestCredentials{
+					Username:   "root",
+					Realm:      "example.com",
+					Nonce:      "qwerty",
+					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					Response:   "587245234b3434cc3412213e5f113a54",
+					Algorithm:  "MD5",
+					CNonce:     "1q2w3e",
+					Opaque:     "zxc",
+					QOP:        "auth",
+					NonceCount: 5,
+					Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.BearerCredentials{
+					Token: "QwertY",
+				},
+			},
+			false,
+		},
+		{
+			"match",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.AnyCredentials{
+					Scheme: "custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.AnyCredentials{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "ABC").Set("p2", `"a b c"`),
+				},
+			},
+			true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.Equal(c.val); got != c.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProxyAuthorization_IsValid(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthorization
+		want bool
+	}{
+		{"nil", nil, false},
+		{"zero", &header.ProxyAuthorization{}, false},
+		{
+			"invalid 1",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.DigestCredentials{
+					Username: "root",
+					Response: "587245234b3434cc3412213e5f113a54",
+				},
+			},
+			false,
+		},
+		{"invalid 2", &header.ProxyAuthorization{AuthCredentials: &header.BearerCredentials{}}, false},
+		{"invalid 3", &header.ProxyAuthorization{AuthCredentials: (*header.AnyCredentials)(nil)}, false},
+		{
+			"valid",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.AnyCredentials{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc"),
+				},
+			},
+			true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.IsValid(); got != c.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProxyAuthorization_Clone(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthorization
+	}{
+		{"nil", nil},
+		{"zero", &header.ProxyAuthorization{}},
+		{
+			"digest",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.DigestCredentials{
+					Username:   "root",
+					Realm:      "example.com",
+					Nonce:      "qwerty",
+					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					Response:   "587245234b3434cc3412213e5f113a54",
+					Algorithm:  "MD5",
+					CNonce:     "1q2w3e",
+					Opaque:     "zxc",
+					QOP:        "auth",
+					NonceCount: 5,
+					Params:     make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+		},
+		{
+			"bearer",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.BearerCredentials{
+					Token: "QweRTY123",
+				},
+			},
+		},
+		{
+			"custom",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.AnyCredentials{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := c.hdr.Clone()
+			if c.hdr == nil {
+				if got != nil {
+					t.Errorf("hdr.Clone() = %+v, want nil", got)
+				}
+				return
+			}
+
+			if diff := cmp.Diff(got, c.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			}
+		})
+	}
+}

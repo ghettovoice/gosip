@@ -4,49 +4,99 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type Route []EntityAddr
+// Route represents the Route header field.
+// The Route header field is used to force routing for a request through the listed set of proxies.
+type Route []RouteHop
 
+// CanonicName returns the canonical name of the header.
 func (Route) CanonicName() Name { return "Route" }
 
-func (hdr Route) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header (Route has no compact form).
+func (Route) CompactName() Name { return "Route" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr Route) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(hdr.renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr Route) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
+func (hdr Route) renderValueTo(w io.Writer) (num int, err error) {
+	return errors.Wrap2(renderHdrEntries(w, hdr))
+}
 
-func (hdr Route) Render() string {
+// Render returns the string representation of the header.
+func (hdr Route) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr Route) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	sb.WriteByte('[')
-	_ = hdr.renderValue(sb)
-	sb.WriteByte(']')
+// RenderValue returns the header value without the name prefix.
+func (hdr Route) RenderValue() string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
 }
 
-func (hdr Route) Clone() Header { return cloneHeaderEntries(hdr) }
+// String returns the string representation of the header value.
+func (hdr Route) String() string { return hdr.RenderValue() }
 
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr Route) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods Route
+			Route       hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), Route(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
+func (hdr Route) Clone() Header { return cloneHdrEntries(hdr) }
+
+// Equal compares this header with another for equality.
 func (hdr Route) Equal(val any) bool {
 	var other Route
 	switch v := val.(type) {
@@ -60,18 +110,50 @@ func (hdr Route) Equal(val any) bool {
 	default:
 		return false
 	}
-	return slices.EqualFunc(hdr, other, func(addr1, addr2 EntityAddr) bool { return addr1.Equal(addr2) })
+
+	return slices.EqualFunc(hdr, other, func(addr1, addr2 NameAddr) bool { return addr1.Equal(addr2) })
 }
 
+// IsValid checks whether the header is syntactically valid.
 func (hdr Route) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(addr EntityAddr) bool { return !addr.IsValid() })
+	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(addr NameAddr) bool { return !addr.IsValid() })
+}
+
+func (hdr Route) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *Route) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = nil
+		return nil
+	}
+
+	h, ok := gh.(Route)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
 }
 
 func buildFromRouteNode(node *abnf.Node) Route {
 	addrNodes := node.GetNodes("route-param")
 	hdr := make(Route, 0, len(addrNodes))
 	for i := range addrNodes {
-		hdr = append(hdr, buildFromHeaderAddrNode(addrNodes[i], "generic-param"))
+		hdr = append(hdr, buildFromNameAddrNode(addrNodes[i], "generic-param"))
 	}
 	return hdr
 }
+
+type RouteHop = NameAddr

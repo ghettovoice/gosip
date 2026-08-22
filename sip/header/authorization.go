@@ -8,17 +8,19 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/abnfutils"
-	"github.com/ghettovoice/gosip/internal/stringutils"
-	"github.com/ghettovoice/gosip/internal/utils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
-	"github.com/ghettovoice/gosip/sip/uri"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/uri"
 )
 
 type AuthCredentials interface {
-	Render() string
-	RenderTo(w io.Writer) error
-	Clone() AuthCredentials
+	types.Renderer
+	types.Equalable
+	types.ValidFlag
+	types.Cloneable[AuthCredentials]
 }
 
 // Authorization is an implementation of the Authorization header.
@@ -28,51 +30,87 @@ type Authorization struct {
 
 func (*Authorization) CanonicName() Name { return "Authorization" }
 
-func (hdr *Authorization) RenderTo(w io.Writer) error {
+func (*Authorization) CompactName() Name { return "Authorization" }
+
+func (hdr *Authorization) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(func(w io.Writer) (int, error) { return errors.Wrap2(hdr.renderValueTo(w, opts...)) })
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr *Authorization) renderValue(w io.Writer) error {
-	if hdr.AuthCredentials != nil {
-		if err := hdr.AuthCredentials.RenderTo(w); err != nil {
-			return err
-		}
+func (hdr *Authorization) renderValueTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
+	if hdr.AuthCredentials == nil {
+		return 0, nil
 	}
-	return nil
+	return errors.Wrap2(hdr.AuthCredentials.RenderTo(w, opts...))
 }
 
-func (hdr *Authorization) Render() string {
+func (hdr *Authorization) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr *Authorization) String() string {
-	if hdr == nil {
-		return nilTag
+func (hdr *Authorization) RenderValue() string {
+	if hdr == nil || hdr.AuthCredentials == nil {
+		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.renderValue(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
+}
+
+func (hdr *Authorization) String() string { return hdr.RenderValue() }
+
+func (hdr *Authorization) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods   Authorization
+			Authorization hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*Authorization)(hdr))
+		return
+	}
 }
 
 func (hdr *Authorization) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
+
 	hdr2 := *hdr
-	hdr2.AuthCredentials = utils.Clone[AuthCredentials](hdr.AuthCredentials)
+	hdr2.AuthCredentials = types.Clone[AuthCredentials](hdr.AuthCredentials)
 	return &hdr2
 }
 
@@ -93,17 +131,46 @@ func (hdr *Authorization) Equal(val any) bool {
 		return false
 	}
 
-	return utils.IsEqual(hdr.AuthCredentials, other.AuthCredentials)
+	return types.IsEqual(hdr.AuthCredentials, other.AuthCredentials)
 }
 
 func (hdr *Authorization) IsValid() bool {
-	return hdr != nil && utils.IsValid(hdr.AuthCredentials)
+	return hdr != nil && types.IsValid(hdr.AuthCredentials)
+}
+
+func (hdr *Authorization) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *Authorization) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = Authorization{}
+		return nil
+	}
+
+	h, ok := gh.(*Authorization)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = *h
+	return nil
 }
 
 func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
 	var hdr Authorization
-	node = abnfutils.MustGetNode(node, "credentials")
-	switch scheme := node.Children[0].Children[0].String(); stringutils.LCase(scheme) {
+
+	node = grammar.MustGetNode(node, "credentials")
+	switch scheme := node.Children[0].Children[0].String(); util.LCase(scheme) {
 	case "digest":
 		crd := &DigestCredentials{}
 		hdr.AuthCredentials = crd
@@ -117,7 +184,7 @@ func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
 			case "nonce":
 				crd.Nonce = grammar.Unquote(paramNode.Children[2].String())
 			case "digest-uri":
-				crd.URI = uri.FromABNF(paramNode.Children[3].Children[0])
+				crd.URI = util.Must2(uri.FromABNF(grammar.MustGetNode(paramNode, "Request-URI").Children[0]))
 			case "dresponse":
 				crd.Response = grammar.Unquote(paramNode.Children[2].String())
 			case "algorithm":
@@ -141,7 +208,7 @@ func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
 		}
 	case "bearer":
 		hdr.AuthCredentials = &BearerCredentials{
-			Token: abnfutils.MustGetNode(node, "bearer-response").String(),
+			Token: grammar.MustGetNode(node, "bearer-response").String(),
 		}
 	default:
 		crd := &AnyCredentials{
@@ -155,6 +222,7 @@ func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
 			crd.Params.Set(paramNode.Children[0].String(), paramNode.Children[2].String())
 		}
 	}
+
 	return &hdr
 }
 
@@ -177,22 +245,24 @@ func (crd *DigestCredentials) Clone() AuthCredentials {
 	if crd == nil {
 		return nil
 	}
+
 	crd2 := *crd
-	crd2.URI = utils.Clone[uri.URI](crd.URI)
+	crd2.URI = types.Clone[uri.URI](crd.URI)
 	crd2.Params = crd.Params.Clone()
 	return &crd2
 }
 
-//nolint:gocognit
-func (crd *DigestCredentials) RenderTo(w io.Writer) error {
+func (crd *DigestCredentials) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if crd == nil {
-		return nil
-	}
-	if _, err := fmt.Fprint(w, "Digest "); err != nil {
-		return err
+		return 0, nil
 	}
 
-	var kvs [][]string //nolint:prealloc
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint("Digest ")
+
+	var kvs [][]string
 	// resolve and write all non-empty std scalar parameters in alphabet order
 	for k, v := range map[string]string{
 		"username":  crd.Username,
@@ -207,84 +277,104 @@ func (crd *DigestCredentials) RenderTo(w io.Writer) error {
 		if v == "" {
 			continue
 		}
+
 		switch k {
 		case "username", "realm", "nonce", "response", "cnonce", "opaque":
 			v = grammar.Quote(v)
 		}
 		kvs = append(kvs, []string{k, v})
 	}
+
 	if crd.NonceCount > 0 {
 		kvs = append(kvs, []string{"nc", fmt.Sprintf("%08x", crd.NonceCount)})
 	}
+
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+		slices.SortFunc(kvs, util.CmpKVs)
+
 		for i, kv := range kvs {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
+				cw.Fprint(", ")
 			}
-			if _, err := fmt.Fprint(w, kv[0], "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
 
 	if crd.URI != nil {
 		if len(kvs) > 0 {
-			if _, err := fmt.Fprint(w, ", "); err != nil {
-				return err
-			}
+			cw.Fprint(", ")
 		}
-		if err := stringutils.RenderTo(w, "uri=\"", crd.URI, "\""); err != nil {
-			return err
-		}
+		cw.Fprint("uri=\"")
+		cw.Call(func(w io.Writer) (int, error) {
+			return errors.Wrap2(crd.URI.RenderTo(w, opts...))
+		})
+		cw.Fprint("\"")
 	}
 
 	// append custom parameters if present
 	if len(crd.Params) > 0 {
-		if len(kvs) > 0 || crd.URI != nil {
-			if _, err := fmt.Fprint(w, ", "); err != nil {
-				return err
-			}
-		}
-
 		clear(kvs)
 		kvs = kvs[:0]
 		for k := range crd.Params {
-			kvs = append(kvs, []string{stringutils.LCase(k), crd.Params.Last(k)})
+			v, _ := crd.Params.Last(k)
+			kvs = append(kvs, []string{util.LCase(k), v})
 		}
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+
+		slices.SortFunc(kvs, util.CmpKVs)
+
+		if len(kvs) > 0 || crd.URI != nil {
+			cw.Fprint(", ")
+		}
+
 		for i, kv := range kvs {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
+				cw.Fprint(", ")
 			}
-			if _, err := fmt.Fprint(w, kv[0], "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
 
-	return nil
+	return errors.Wrap2(cw.Result())
 }
 
-func (crd *DigestCredentials) Render() string {
+func (crd *DigestCredentials) Render(opts ...RenderOptions) string {
 	if crd == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = crd.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = crd.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (crd *DigestCredentials) String() string {
-	if crd == nil {
-		return nilTag
+func (crd *DigestCredentials) String() string { return crd.Render() }
+
+func (crd *DigestCredentials) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = crd.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, crd.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(crd.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(crd.String()))
+		return
+	default:
+		type (
+			hideMethods       DigestCredentials
+			DigestCredentials hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*DigestCredentials)(crd))
+		return
 	}
-	return crd.Render()
 }
 
 func (crd *DigestCredentials) Equal(val any) bool {
@@ -305,16 +395,16 @@ func (crd *DigestCredentials) Equal(val any) bool {
 	}
 
 	return crd.Username == other.Username &&
-		stringutils.LCase(crd.Realm) == stringutils.LCase(other.Realm) &&
+		util.EqFold(crd.Realm, other.Realm) &&
 		crd.Nonce == other.Nonce &&
 		crd.Response == other.Response &&
-		stringutils.LCase(crd.Algorithm) == stringutils.LCase(other.Algorithm) &&
+		util.EqFold(crd.Algorithm, other.Algorithm) &&
 		crd.CNonce == other.CNonce &&
 		crd.Opaque == other.Opaque &&
-		stringutils.LCase(crd.QOP) == stringutils.LCase(other.QOP) &&
+		util.EqFold(crd.QOP, other.QOP) &&
 		crd.NonceCount == other.NonceCount &&
-		utils.IsEqual(crd.URI, other.URI) &&
-		compareHeaderParams(crd.Params, other.Params, nil)
+		types.IsEqual(crd.URI, other.URI) &&
+		compareHdrParams(crd.Params, other.Params, nil)
 }
 
 func (crd *DigestCredentials) IsValid() bool {
@@ -323,7 +413,7 @@ func (crd *DigestCredentials) IsValid() bool {
 		len(crd.Response) == 32 &&
 		(crd.Algorithm == "" || grammar.IsToken(crd.Algorithm)) &&
 		(crd.QOP == "" || grammar.IsToken(crd.QOP)) &&
-		utils.IsValid(crd.URI) && validateHeaderParams(crd.Params)
+		types.IsValid(crd.URI) && validateHdrParams(crd.Params)
 }
 
 // BearerCredentials represents the bearer authentication credentials.
@@ -335,33 +425,56 @@ func (crd *BearerCredentials) Clone() AuthCredentials {
 	if crd == nil {
 		return nil
 	}
+
 	crd2 := *crd
 	return &crd2
 }
 
-func (crd *BearerCredentials) RenderTo(w io.Writer) error {
+func (crd *BearerCredentials) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if crd == nil {
-		return nil
+		return 0, nil
 	}
-	_, err := fmt.Fprint(w, "Bearer ", crd.Token)
-	return err
+	return errors.Wrap2(fmt.Fprint(w, "Bearer ", crd.Token))
 }
 
-func (crd *BearerCredentials) Render() string {
+func (crd *BearerCredentials) Render(opts ...RenderOptions) string {
 	if crd == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = crd.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = crd.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (crd *BearerCredentials) String() string {
-	if crd == nil {
-		return nilTag
+func (crd *BearerCredentials) String() string { return crd.Render() }
+
+func (crd *BearerCredentials) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = crd.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, crd.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(crd.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(crd.String()))
+		return
+	default:
+		type (
+			hideMethods       BearerCredentials
+			BearerCredentials hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*BearerCredentials)(crd))
+		return
 	}
-	return crd.Render()
 }
 
 func (crd *BearerCredentials) Equal(val any) bool {
@@ -396,55 +509,80 @@ func (crd *AnyCredentials) Clone() AuthCredentials {
 	if crd == nil {
 		return nil
 	}
+
 	crd2 := *crd
 	crd2.Params = crd.Params.Clone()
 	return &crd2
 }
 
-func (crd *AnyCredentials) RenderTo(w io.Writer) error {
+func (crd *AnyCredentials) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if crd == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, crd.Scheme, " "); err != nil {
-		return err
-	}
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(crd.Scheme, " ")
 
 	kvs := make([][]string, 0, len(crd.Params))
 	for k := range crd.Params {
-		kvs = append(kvs, []string{stringutils.LCase(k), crd.Params.Last(k)})
+		v, _ := crd.Params.Last(k)
+		kvs = append(kvs, []string{util.LCase(k), v})
 	}
+
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+		slices.SortFunc(kvs, util.CmpKVs)
+
 		for i, kv := range kvs {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
+				cw.Fprint(", ")
 			}
-			if _, err := fmt.Fprint(w, kv[0], "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
 
-	return nil
+	return errors.Wrap2(cw.Result())
 }
 
-func (crd *AnyCredentials) Render() string {
+func (crd *AnyCredentials) Render(opts ...RenderOptions) string {
 	if crd == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = crd.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = crd.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (crd *AnyCredentials) String() string {
-	if crd == nil {
-		return nilTag
+func (crd *AnyCredentials) String() string { return crd.Render() }
+
+func (crd *AnyCredentials) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = crd.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, crd.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(crd.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(crd.String()))
+		return
+	default:
+		type (
+			hideMethods    AnyCredentials
+			AnyCredentials hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*AnyCredentials)(crd))
+		return
 	}
-	return crd.Render()
 }
 
 func (crd *AnyCredentials) Equal(val any) bool {
@@ -464,11 +602,13 @@ func (crd *AnyCredentials) Equal(val any) bool {
 		return false
 	}
 
-	return stringutils.LCase(crd.Scheme) == stringutils.LCase(other.Scheme) &&
-		compareHeaderParams(crd.Params, other.Params, nil)
+	return util.EqFold(crd.Scheme, other.Scheme) &&
+		compareHdrParams(crd.Params, other.Params, nil)
 }
 
 func (crd *AnyCredentials) IsValid() bool {
-	return crd != nil && grammar.IsToken(crd.Scheme) && len(crd.Params) > 0 &&
-		validateHeaderParams(crd.Params)
+	return crd != nil &&
+		grammar.IsToken(crd.Scheme) &&
+		len(crd.Params) > 0 &&
+		validateHdrParams(crd.Params)
 }

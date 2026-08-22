@@ -4,21 +4,24 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/abnfutils"
-	"github.com/ghettovoice/gosip/internal/stringutils"
-	"github.com/ghettovoice/gosip/internal/utils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
-	"github.com/ghettovoice/gosip/sip/uri"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/uri"
 )
 
 type AuthChallenge interface {
-	Render() string
-	RenderTo(w io.Writer) error
-	Clone() AuthChallenge
+	types.Renderer
+	types.ValidFlag
+	types.Equalable
+	types.Cloneable[AuthChallenge]
 }
 
 type WWWAuthenticate struct {
@@ -27,51 +30,89 @@ type WWWAuthenticate struct {
 
 func (*WWWAuthenticate) CanonicName() Name { return "WWW-Authenticate" }
 
-func (hdr *WWWAuthenticate) RenderTo(w io.Writer) error {
+func (*WWWAuthenticate) CompactName() Name { return "WWW-Authenticate" }
+
+func (hdr *WWWAuthenticate) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(func(w io.Writer) (int, error) {
+		return errors.Wrap2(hdr.renderValueTo(w, opts...))
+	})
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr *WWWAuthenticate) renderValue(w io.Writer) error {
-	if hdr.AuthChallenge != nil {
-		if err := hdr.AuthChallenge.RenderTo(w); err != nil {
-			return err
-		}
+func (hdr *WWWAuthenticate) renderValueTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
+	if hdr.AuthChallenge == nil {
+		return 0, nil
 	}
-	return nil
+	return errors.Wrap2(hdr.AuthChallenge.RenderTo(w, opts...))
 }
 
-func (hdr *WWWAuthenticate) Render() string {
+func (hdr *WWWAuthenticate) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr *WWWAuthenticate) String() string {
-	if hdr == nil {
-		return nilTag
+func (hdr *WWWAuthenticate) RenderValue() string {
+	if hdr == nil || hdr.AuthChallenge == nil {
+		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.renderValue(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
+}
+
+func (hdr *WWWAuthenticate) String() string { return hdr.RenderValue() }
+
+func (hdr *WWWAuthenticate) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods     WWWAuthenticate
+			WWWAuthenticate hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*WWWAuthenticate)(hdr))
+		return
+	}
 }
 
 func (hdr *WWWAuthenticate) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
+
 	hdr2 := *hdr
-	hdr2.AuthChallenge = utils.Clone[AuthChallenge](hdr.AuthChallenge)
+	hdr2.AuthChallenge = types.Clone[AuthChallenge](hdr.AuthChallenge)
 	return &hdr2
 }
 
@@ -92,18 +133,47 @@ func (hdr *WWWAuthenticate) Equal(val any) bool {
 		return false
 	}
 
-	return utils.IsEqual(hdr.AuthChallenge, other.AuthChallenge)
+	return types.IsEqual(hdr.AuthChallenge, other.AuthChallenge)
 }
 
 func (hdr *WWWAuthenticate) IsValid() bool {
-	return hdr != nil && utils.IsValid(hdr.AuthChallenge)
+	return hdr != nil && types.IsValid(hdr.AuthChallenge)
+}
+
+func (hdr *WWWAuthenticate) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *WWWAuthenticate) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = WWWAuthenticate{}
+		return nil
+	}
+
+	h, ok := gh.(*WWWAuthenticate)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = *h
+	return nil
 }
 
 //nolint:gocognit
 func buildFromWWWAuthenticateNode(node *abnf.Node) *WWWAuthenticate {
 	var hdr WWWAuthenticate
-	node = abnfutils.MustGetNode(node, "challenge")
-	switch scheme := node.Children[0].Children[0].String(); stringutils.LCase(scheme) {
+
+	node = grammar.MustGetNode(node, "challenge")
+	switch scheme := node.Children[0].Children[0].String(); util.LCase(scheme) {
 	case "digest":
 		cln := &DigestChallenge{}
 		hdr.AuthChallenge = cln
@@ -114,14 +184,14 @@ func buildFromWWWAuthenticateNode(node *abnf.Node) *WWWAuthenticate {
 				cln.Realm = grammar.Unquote(paramNode.Children[2].String())
 			case "domain":
 				for _, n := range paramNode.GetNodes("URI") {
-					cln.Domain = append(cln.Domain, uri.FromABNF(n.Children[0]))
+					cln.Domain = append(cln.Domain, util.Must2(uri.FromABNF(n.Children[0])))
 				}
 			case "nonce":
 				cln.Nonce = grammar.Unquote(paramNode.Children[2].String())
 			case "opaque":
 				cln.Opaque = grammar.Unquote(paramNode.Children[2].String())
 			case "stale":
-				cln.Stale = stringutils.LCase(paramNode.Children[2].String()) == "true"
+				cln.Stale = util.EqFold(paramNode.Children[2].String(), "true")
 			case "algorithm":
 				cln.Algorithm = paramNode.Children[2].String()
 			case "qop-options":
@@ -146,7 +216,7 @@ func buildFromWWWAuthenticateNode(node *abnf.Node) *WWWAuthenticate {
 			case "scope-param":
 				cln.Scope = paramNode.Children[3].String()
 			case "authz-server-param":
-				cln.AuthzServer = uri.FromABNF(paramNode.Children[3])
+				cln.AuthzServer = util.Must2(uri.FromABNF(paramNode.Children[3]))
 			case "error-param":
 				cln.Error = paramNode.Children[3].String()
 			default:
@@ -168,6 +238,7 @@ func buildFromWWWAuthenticateNode(node *abnf.Node) *WWWAuthenticate {
 			cln.Params.Set(paramNode.Children[0].String(), paramNode.Children[2].String())
 		}
 	}
+
 	return &hdr
 }
 
@@ -186,12 +257,13 @@ func (cln *DigestChallenge) Clone() AuthChallenge {
 	if cln == nil {
 		return nil
 	}
+
 	cln2 := *cln
 	cln2.QOP = slices.Clone(cln.QOP)
 	if cln.Domain != nil {
 		cln2.Domain = make([]uri.URI, len(cln.Domain))
 		for i := range cln.Domain {
-			cln2.Domain[i] = utils.Clone[uri.URI](cln.Domain[i])
+			cln2.Domain[i] = types.Clone[uri.URI](cln.Domain[i])
 		}
 	}
 	cln2.Params = cln.Params.Clone()
@@ -199,15 +271,17 @@ func (cln *DigestChallenge) Clone() AuthChallenge {
 }
 
 //nolint:gocognit
-func (cln *DigestChallenge) RenderTo(w io.Writer) error {
+func (cln *DigestChallenge) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if cln == nil {
-		return nil
-	}
-	if _, err := fmt.Fprint(w, "Digest "); err != nil {
-		return err
+		return 0, nil
 	}
 
-	var kvs [][]string //nolint:prealloc
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint("Digest ")
+
+	var kvs [][]string
 	// resolve and write all non-empty std scalar parameters in alphabet order
 	for k, v := range map[string]string{
 		"realm":     cln.Realm,
@@ -219,102 +293,123 @@ func (cln *DigestChallenge) RenderTo(w io.Writer) error {
 		if v == "" {
 			continue
 		}
+
 		switch k {
 		case "realm", "nonce", "opaque", "qop":
 			v = grammar.Quote(v)
 		}
 		kvs = append(kvs, []string{k, v})
 	}
+
 	if cln.Stale {
 		kvs = append(kvs, []string{"stale", "true"})
 	}
+
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+		slices.SortFunc(kvs, util.CmpKVs)
+
 		for i, kv := range kvs {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
+				cw.Fprint(", ")
 			}
-			if _, err := fmt.Fprint(w, kv[0], "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
 
 	if len(cln.Domain) > 0 {
 		if len(kvs) > 0 {
-			if _, err := fmt.Fprint(w, ", "); err != nil {
-				return err
-			}
+			cw.Fprint(", ")
 		}
-		if _, err := fmt.Fprint(w, "domain=\""); err != nil {
-			return err
-		}
+
+		cw.Fprint("domain=\"")
+
 		var j int
 		for i := range cln.Domain {
 			if cln.Domain[i] == nil {
 				continue
 			}
+
 			if j > 0 {
-				if _, err := fmt.Fprint(w, " "); err != nil {
-					return err
-				}
+				cw.Fprint(" ")
 			}
-			if err := stringutils.RenderTo(w, cln.Domain[i]); err != nil {
-				return err
-			}
+			cw.Call(func(w io.Writer) (int, error) {
+				return errors.Wrap2(cln.Domain[i].RenderTo(w, opts...))
+			})
 			j++
 		}
-		if _, err := fmt.Fprint(w, "\""); err != nil {
-			return err
-		}
+
+		cw.Fprint("\"")
 	}
 
 	// append custom parameters if present
 	if len(cln.Params) > 0 {
-		if len(kvs) > 0 || len(cln.Domain) > 0 {
-			if _, err := fmt.Fprint(w, ", "); err != nil {
-				return err
-			}
-		}
-
 		clear(kvs)
 		kvs = kvs[:0]
 		for k := range cln.Params {
-			kvs = append(kvs, []string{stringutils.LCase(k), cln.Params.Last(k)})
+			v, _ := cln.Params.Last(k)
+			kvs = append(kvs, []string{util.LCase(k), v})
 		}
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+
+		slices.SortFunc(kvs, util.CmpKVs)
+
+		if len(kvs) > 0 || len(cln.Domain) > 0 {
+			cw.Fprint(", ")
+		}
+
 		for i, kv := range kvs {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
+				cw.Fprint(", ")
 			}
-			if _, err := fmt.Fprint(w, kv[0], "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
 
-	return nil
+	return errors.Wrap2(cw.Result())
 }
 
-func (cln *DigestChallenge) Render() string {
+func (cln *DigestChallenge) Render(opts ...RenderOptions) string {
 	if cln == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = cln.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = cln.RenderTo(sb, opts...)
 	return sb.String()
 }
 
 func (cln *DigestChallenge) String() string {
 	if cln == nil {
-		return nilTag
+		return ""
 	}
 	return cln.Render()
+}
+
+func (cln *DigestChallenge) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = cln.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, cln.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(cln.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(cln.String()))
+		return
+	default:
+		type (
+			hideMethods     DigestChallenge
+			DigestChallenge hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*DigestChallenge)(cln))
+		return
+	}
 }
 
 func (cln *DigestChallenge) Equal(val any) bool {
@@ -334,14 +429,14 @@ func (cln *DigestChallenge) Equal(val any) bool {
 		return false
 	}
 
-	return stringutils.LCase(cln.Realm) == stringutils.LCase(other.Realm) &&
+	return util.EqFold(cln.Realm, other.Realm) &&
 		cln.Nonce == other.Nonce &&
 		cln.Opaque == other.Opaque &&
-		stringutils.LCase(cln.Algorithm) == stringutils.LCase(other.Algorithm) &&
-		slices.EqualFunc(cln.Domain, other.Domain, func(v1, v2 uri.URI) bool { return utils.IsEqual(v1, v2) }) &&
-		slices.EqualFunc(cln.QOP, other.QOP, func(v1, v2 string) bool { return stringutils.LCase(v1) == stringutils.LCase(v2) }) &&
+		util.EqFold(cln.Algorithm, other.Algorithm) &&
+		slices.EqualFunc(cln.Domain, other.Domain, func(v1, v2 uri.URI) bool { return types.IsEqual(v1, v2) }) &&
+		slices.EqualFunc(cln.QOP, other.QOP, util.EqFold) &&
 		cln.Stale == other.Stale &&
-		compareHeaderParams(cln.Params, other.Params, nil)
+		compareHdrParams(cln.Params, other.Params, nil)
 }
 
 func (cln *DigestChallenge) IsValid() bool {
@@ -349,8 +444,8 @@ func (cln *DigestChallenge) IsValid() bool {
 		cln.Realm != "" && cln.Nonce != "" &&
 		(cln.Algorithm == "" || grammar.IsToken(cln.Algorithm)) &&
 		!slices.ContainsFunc(cln.QOP, func(v string) bool { return !grammar.IsToken(v) }) &&
-		!slices.ContainsFunc(cln.Domain, func(v uri.URI) bool { return !utils.IsValid(v) }) &&
-		validateHeaderParams(cln.Params)
+		!slices.ContainsFunc(cln.Domain, func(v uri.URI) bool { return !types.IsValid(v) }) &&
+		validateHdrParams(cln.Params)
 }
 
 // BearerChallenge represents a bearer authentication challenge.
@@ -366,23 +461,25 @@ func (cln *BearerChallenge) Clone() AuthChallenge {
 	if cln == nil {
 		return nil
 	}
+
 	cln2 := *cln
-	cln2.AuthzServer = utils.Clone[uri.URI](cln.AuthzServer)
+	cln2.AuthzServer = types.Clone[uri.URI](cln.AuthzServer)
 	cln2.Params = cln.Params.Clone()
 	return &cln2
 }
 
-//nolint:gocognit
-func (cln *BearerChallenge) RenderTo(w io.Writer) error {
+func (cln *BearerChallenge) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if cln == nil {
-		return nil
-	}
-	if _, err := fmt.Fprint(w, "Bearer "); err != nil {
-		return err
+		return 0, nil
 	}
 
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint("Bearer ")
+
 	// write std parameters
-	var kvs [][]string //nolint:prealloc
+	var kvs [][]string
 	for k, v := range map[string]string{
 		"realm": cln.Realm,
 		"scope": cln.Scope,
@@ -391,81 +488,105 @@ func (cln *BearerChallenge) RenderTo(w io.Writer) error {
 		if v == "" {
 			continue
 		}
+
 		switch k {
 		case "realm", "scope", "error":
 			v = grammar.Quote(v)
 		}
 		kvs = append(kvs, []string{k, v})
 	}
+
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+		slices.SortFunc(kvs, util.CmpKVs)
+
 		for i, kv := range kvs {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
+				cw.Fprint(", ")
 			}
-			if _, err := fmt.Fprint(w, kv[0], "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
 
 	if cln.AuthzServer != nil {
 		if len(kvs) > 0 {
-			if _, err := fmt.Fprint(w, ", "); err != nil {
-				return err
-			}
+			cw.Fprint(", ")
 		}
-		if err := stringutils.RenderTo(w, "authz_server=\"", cln.AuthzServer, "\""); err != nil {
-			return err
-		}
+		cw.Fprint("authz_server=\"")
+		cw.Call(func(w io.Writer) (int, error) {
+			return errors.Wrap2(cln.AuthzServer.RenderTo(w, opts...))
+		})
+		cw.Fprint("\"")
 	}
 
 	// append custom parameters if present
 	if len(cln.Params) > 0 {
-		if len(kvs) > 0 || cln.AuthzServer != nil {
-			if _, err := fmt.Fprint(w, ", "); err != nil {
-				return err
-			}
-		}
-
 		clear(kvs)
 		kvs = kvs[:0]
 		for k := range cln.Params {
-			kvs = append(kvs, []string{stringutils.LCase(k), cln.Params.Last(k)})
+			v, _ := cln.Params.Last(k)
+			kvs = append(kvs, []string{util.LCase(k), v})
 		}
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+
+		slices.SortFunc(kvs, util.CmpKVs)
+
+		if len(kvs) > 0 || cln.AuthzServer != nil {
+			cw.Fprint(", ")
+		}
+
 		for i, kv := range kvs {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
+				cw.Fprint(", ")
 			}
-			if _, err := fmt.Fprint(w, kv[0], "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
 
-	return nil
+	return errors.Wrap2(cw.Result())
 }
 
-func (cln *BearerChallenge) Render() string {
+func (cln *BearerChallenge) Render(opts ...RenderOptions) string {
 	if cln == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = cln.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = cln.RenderTo(sb, opts...)
 	return sb.String()
 }
 
 func (cln *BearerChallenge) String() string {
 	if cln == nil {
-		return nilTag
+		return ""
 	}
 	return cln.Render()
+}
+
+func (cln *BearerChallenge) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = cln.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, cln.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(cln.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(cln.String()))
+		return
+	default:
+		type (
+			hideMethods     BearerChallenge
+			BearerChallenge hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*BearerChallenge)(cln))
+		return
+	}
 }
 
 func (cln *BearerChallenge) Equal(val any) bool {
@@ -485,15 +606,15 @@ func (cln *BearerChallenge) Equal(val any) bool {
 		return false
 	}
 
-	return stringutils.LCase(cln.Realm) == stringutils.LCase(other.Realm) &&
+	return util.EqFold(cln.Realm, other.Realm) &&
 		cln.Scope == other.Scope &&
 		cln.Error == other.Error &&
-		utils.IsEqual(cln.AuthzServer, other.AuthzServer) &&
-		compareHeaderParams(cln.Params, other.Params, nil)
+		types.IsEqual(cln.AuthzServer, other.AuthzServer) &&
+		compareHdrParams(cln.Params, other.Params, nil)
 }
 
 func (cln *BearerChallenge) IsValid() bool {
-	return cln != nil && utils.IsValid(cln.AuthzServer) && validateHeaderParams(cln.Params)
+	return cln != nil && types.IsValid(cln.AuthzServer) && validateHdrParams(cln.Params)
 }
 
 // AnyChallenge represents a generic authentication challenge.
@@ -506,55 +627,85 @@ func (cln *AnyChallenge) Clone() AuthChallenge {
 	if cln == nil {
 		return nil
 	}
+
 	cln2 := *cln
 	cln2.Params = cln.Params.Clone()
 	return &cln2
 }
 
-func (cln *AnyChallenge) RenderTo(w io.Writer) error {
+func (cln *AnyChallenge) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if cln == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, cln.Scheme, " "); err != nil {
-		return err
-	}
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(cln.Scheme, " ")
 
 	kvs := make([][]string, 0, len(cln.Params))
 	for k := range cln.Params {
-		kvs = append(kvs, []string{stringutils.LCase(k), cln.Params.Last(k)})
+		v, _ := cln.Params.Last(k)
+		kvs = append(kvs, []string{util.LCase(k), v})
 	}
+
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+		slices.SortFunc(kvs, util.CmpKVs)
+
 		for i, kv := range kvs {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
+				cw.Fprint(", ")
 			}
-			if _, err := fmt.Fprint(w, kv[0], "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
 
-	return nil
+	return errors.Wrap2(cw.Result())
 }
 
-func (cln *AnyChallenge) Render() string {
+func (cln *AnyChallenge) Render(opts ...RenderOptions) string {
 	if cln == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = cln.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = cln.RenderTo(sb, opts...)
 	return sb.String()
 }
 
 func (cln *AnyChallenge) String() string {
 	if cln == nil {
-		return nilTag
+		return ""
 	}
 	return cln.Render()
+}
+
+func (cln *AnyChallenge) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = cln.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, cln.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(cln.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(cln.String()))
+		return
+	default:
+		type (
+			hideMethods  AnyChallenge
+			AnyChallenge hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*AnyChallenge)(cln))
+		return
+	}
 }
 
 func (cln *AnyChallenge) Equal(val any) bool {
@@ -574,13 +725,13 @@ func (cln *AnyChallenge) Equal(val any) bool {
 		return false
 	}
 
-	return stringutils.LCase(cln.Scheme) == stringutils.LCase(other.Scheme) &&
-		compareHeaderParams(cln.Params, other.Params, nil)
+	return util.EqFold(cln.Scheme, other.Scheme) &&
+		compareHdrParams(cln.Params, other.Params, nil)
 }
 
 func (cln *AnyChallenge) IsValid() bool {
 	return cln != nil &&
 		grammar.IsToken(cln.Scheme) &&
 		len(cln.Params) > 0 &&
-		validateHeaderParams(cln.Params)
+		validateHdrParams(cln.Params)
 }

@@ -1,6 +1,7 @@
 package header
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"slices"
@@ -8,47 +9,86 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/abnfutils"
-	"github.com/ghettovoice/gosip/internal/stringutils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type Warning []WarningItem
+type Warning []WarningEntry
 
 func (Warning) CanonicName() Name { return "Warning" }
 
-func (hdr Warning) RenderTo(w io.Writer) error {
+func (Warning) CompactName() Name { return "Warning" }
+
+func (hdr Warning) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(hdr.renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr Warning) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
+func (hdr Warning) renderValueTo(w io.Writer) (num int, err error) {
+	return errors.Wrap2(renderHdrEntries(w, hdr))
+}
 
-func (hdr Warning) Render() string {
+func (hdr Warning) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
 func (hdr Warning) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	sb.WriteByte('[')
-	_ = hdr.renderValue(sb)
-	sb.WriteByte(']')
+	return hdr.RenderValue()
+}
+
+func (hdr Warning) RenderValue() string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
 }
 
-func (hdr Warning) Clone() Header { return cloneHeaderEntries(hdr) }
+func (hdr Warning) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods Warning
+			Warning     hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), Warning(hdr))
+		return
+	}
+}
+
+func (hdr Warning) Clone() Header { return cloneHdrEntries(hdr) }
 
 func (hdr Warning) Equal(val any) bool {
 	var other Warning
@@ -63,32 +103,94 @@ func (hdr Warning) Equal(val any) bool {
 	default:
 		return false
 	}
-	return slices.EqualFunc(hdr, other, func(wrn1, wrn2 WarningItem) bool { return wrn1.Equal(wrn2) })
+
+	return slices.EqualFunc(hdr, other, func(wrn1, wrn2 WarningEntry) bool { return wrn1.Equal(wrn2) })
 }
 
 func (hdr Warning) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(wrn WarningItem) bool { return !wrn.IsValid() })
+	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(wrn WarningEntry) bool { return !wrn.IsValid() })
 }
 
-type WarningItem struct {
+func (hdr Warning) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *Warning) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = nil
+		return nil
+	}
+
+	h, ok := gh.(Warning)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
+}
+
+func buildFromWarningNode(node *abnf.Node) Warning {
+	warnNodes := node.GetNodes("warning-value")
+	h := make(Warning, len(warnNodes))
+	for i, warnNode := range warnNodes {
+		h[i] = buildFromWarningEntryNode(warnNode)
+	}
+	return h
+}
+
+type WarningEntry struct {
 	Code  uint
 	Agent string
 	Text  string
 }
 
-func (wrn WarningItem) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_, _ = fmt.Fprintf(sb, "%d %s \"%s\"", wrn.Code, wrn.Agent, wrn.Text)
+func (wrn WarningEntry) String() string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	fmt.Fprintf(sb, "%d %s %q", wrn.Code, wrn.Agent, wrn.Text)
 	return sb.String()
 }
 
-func (wrn WarningItem) Equal(val any) bool {
-	var other WarningItem
+func (wrn WarningEntry) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		fmt.Fprint(f, wrn.String())
+		return
+	case 'q':
+		fmt.Fprint(f, strconv.Quote(wrn.String()))
+		return
+	default:
+		if !f.Flag('+') && !f.Flag('#') {
+			fmt.Fprint(f, wrn.String())
+			return
+		}
+
+		type (
+			hideMethods WarningEntry
+			WarningItem hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), WarningItem(wrn))
+		return
+	}
+}
+
+func (wrn WarningEntry) Equal(val any) bool {
+	var other WarningEntry
 	switch v := val.(type) {
-	case WarningItem:
+	case WarningEntry:
 		other = v
-	case *WarningItem:
+	case *WarningEntry:
 		if v == nil {
 			return false
 		}
@@ -96,25 +198,60 @@ func (wrn WarningItem) Equal(val any) bool {
 	default:
 		return false
 	}
-	return wrn.Code == other.Code && stringutils.LCase(wrn.Agent) == stringutils.LCase(other.Agent) && wrn.Text == other.Text
+
+	return wrn.Code == other.Code &&
+		util.EqFold(wrn.Agent, other.Agent) &&
+		wrn.Text == other.Text
 }
 
-func (wrn WarningItem) IsValid() bool { return wrn.Code > 0 && grammar.IsToken(wrn.Agent) }
+func (wrn WarningEntry) IsValid() bool { return wrn.Code > 0 && grammar.IsToken(wrn.Agent) }
 
-func (wrn WarningItem) IsZero() bool { return wrn.Code == 0 && wrn.Agent == "" && wrn.Text == "" }
+func (wrn WarningEntry) IsZero() bool { return wrn.Code == 0 && wrn.Agent == "" && wrn.Text == "" }
 
-func (wrn WarningItem) Clone() WarningItem { return wrn }
+func (wrn WarningEntry) Clone() WarningEntry { return wrn }
 
-func buildFromWarningNode(node *abnf.Node) Warning {
-	warnNodes := node.GetNodes("warning-value")
-	h := make(Warning, len(warnNodes))
-	for i, warnNode := range warnNodes {
-		c, _ := strconv.ParseUint(abnfutils.MustGetNode(warnNode, "warn-code").String(), 10, 64)
-		h[i] = WarningItem{
-			Code:  uint(c),
-			Agent: abnfutils.MustGetNode(warnNode, "warn-agent").String(),
-			Text:  grammar.Unquote(warnNode.Children[4].String()),
-		}
+func (wrn WarningEntry) MarshalText() ([]byte, error) {
+	return []byte(wrn.String()), nil
+}
+
+func (wrn WarningEntry) AppendText(b []byte) ([]byte, error) {
+	return append(b, wrn.String()...), nil
+}
+
+func (wrn *WarningEntry) UnmarshalText(data []byte) (finErr error) {
+	if len(data) == 0 || bytes.Equal(data, []byte(`0  ""`)) {
+		*wrn = WarningEntry{}
+		return nil
 	}
-	return h
+
+	defer func() {
+		if rv := recover(); rv != nil {
+			if e, ok := rv.(error); ok {
+				finErr = errors.Wrap(e)
+			} else {
+				finErr = errors.ErrorfWrap("%v", rv)
+			}
+		}
+	}()
+
+	node, err := grammar.ParseWarningValue(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	*wrn = buildFromWarningEntryNode(node)
+	return nil
+}
+
+func buildFromWarningEntryNode(node *abnf.Node) WarningEntry {
+	codeNode := grammar.MustGetNode(node, "warn-code")
+	code, err := strconv.ParseUint(codeNode.String(), 10, 64)
+	if err != nil {
+		panic(errors.ErrorfWrap("invalid warning code: %w", err))
+	}
+	return WarningEntry{
+		Code:  uint(code),
+		Agent: grammar.MustGetNode(node, "warn-agent").String(),
+		Text:  grammar.Unquote(node.Children[4].String()),
+	}
 }

@@ -3,42 +3,97 @@ package header
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
+// RecordRoute represents the Record-Route header field.
+// The Record-Route header field is inserted by proxies in a request to force future requests in the dialog to be routed through the proxy.
 type RecordRoute Route
 
+// CanonicName returns the canonical name of the header.
 func (RecordRoute) CanonicName() Name { return "Record-Route" }
 
-func (hdr RecordRoute) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header (Record-Route has no compact form).
+func (RecordRoute) CompactName() Name { return "Record-Route" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr RecordRoute) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return Route(hdr).renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(Route(hdr).renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr RecordRoute) Render() string {
+// Render returns the string representation of the header.
+func (hdr RecordRoute) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr RecordRoute) String() string { return Route(hdr).String() }
-
-func (hdr RecordRoute) Clone() Header {
-	return RecordRoute(Route(hdr).Clone().(Route)) //nolint:forcetypeassert
+// RenderValue returns the header value without the name prefix.
+func (hdr RecordRoute) RenderValue() string {
+	return Route(hdr).RenderValue()
 }
 
+// String returns the string representation of the header value.
+func (hdr RecordRoute) String() string { return hdr.RenderValue() }
+
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr RecordRoute) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods RecordRoute
+			RecordRoute hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), RecordRoute(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
+func (hdr RecordRoute) Clone() Header {
+	hdr2, ok := Route(hdr).Clone().(Route)
+	if !ok {
+		return nil
+	}
+	return RecordRoute(hdr2)
+}
+
+// Equal compares this header with another for equality.
 func (hdr RecordRoute) Equal(val any) bool {
 	var other RecordRoute
 	switch v := val.(type) {
@@ -52,16 +107,46 @@ func (hdr RecordRoute) Equal(val any) bool {
 	default:
 		return false
 	}
+
 	return Route(hdr).Equal(Route(other))
 }
 
+// IsValid checks whether the header is syntactically valid.
 func (hdr RecordRoute) IsValid() bool { return Route(hdr).IsValid() }
+
+func (hdr RecordRoute) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *RecordRoute) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = nil
+		return nil
+	}
+
+	h, ok := gh.(RecordRoute)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
+}
 
 func buildFromRecordRouteNode(node *abnf.Node) RecordRoute {
 	addrNodes := node.GetNodes("rec-route")
 	hdr := make(RecordRoute, 0, len(addrNodes))
 	for i := range addrNodes {
-		hdr = append(hdr, buildFromHeaderAddrNode(addrNodes[i], "generic-param"))
+		hdr = append(hdr, buildFromNameAddrNode(addrNodes[i], "generic-param"))
 	}
 	return hdr
 }

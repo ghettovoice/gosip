@@ -3,49 +3,94 @@ package header
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type ReplyTo EntityAddr
+// ReplyTo represents the Reply-To header field.
+// The Reply-To header field contains a logical return URI that may be different from the From header field.
+type ReplyTo NameAddr
 
+// CanonicName returns the canonical name of the header.
 func (*ReplyTo) CanonicName() Name { return "Reply-To" }
 
-func (hdr *ReplyTo) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header (Reply-To has no compact form).
+func (*ReplyTo) CompactName() Name { return "Reply-To" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr *ReplyTo) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", EntityAddr(*hdr))
-	return err
+	return errors.Wrap2(fmt.Fprint(w, hdr.CanonicName(), ": ", hdr.RenderValue()))
 }
 
-func (hdr *ReplyTo) Render() string {
+// Render returns the string representation of the header.
+func (hdr *ReplyTo) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr *ReplyTo) String() string {
+// RenderValue returns the header value without the name prefix.
+func (hdr *ReplyTo) RenderValue() string {
 	if hdr == nil {
-		return nilTag
+		return ""
 	}
-	return EntityAddr(*hdr).String()
+	return NameAddr(*hdr).String()
 }
 
+// String returns the string representation of the header value.
+func (hdr *ReplyTo) String() string { return hdr.RenderValue() }
+
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr *ReplyTo) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods ReplyTo
+			ReplyTo     hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*ReplyTo)(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
 func (hdr *ReplyTo) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
-	hdr2 := ReplyTo(EntityAddr(*hdr).Clone())
+
+	hdr2 := ReplyTo(NameAddr(*hdr).Clone())
 	return &hdr2
 }
 
+// Equal compares this header with another for equality.
 func (hdr *ReplyTo) Equal(val any) bool {
 	var other *ReplyTo
 	switch v := val.(type) {
@@ -63,12 +108,41 @@ func (hdr *ReplyTo) Equal(val any) bool {
 		return false
 	}
 
-	return EntityAddr(*hdr).Equal(EntityAddr(*other))
+	return NameAddr(*hdr).Equal(NameAddr(*other))
 }
 
-func (hdr *ReplyTo) IsValid() bool { return hdr != nil && EntityAddr(*hdr).IsValid() }
+// IsValid checks whether the header is syntactically valid.
+func (hdr *ReplyTo) IsValid() bool { return hdr != nil && NameAddr(*hdr).IsValid() }
+
+func (hdr *ReplyTo) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *ReplyTo) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = ReplyTo{}
+		return nil
+	}
+
+	h, ok := gh.(*ReplyTo)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && (len(ah.Value) == 0 || ah.Value == "<>") {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = *h
+	return nil
+}
 
 func buildFromReplyToNode(node *abnf.Node) *ReplyTo {
-	hdr := ReplyTo(buildFromHeaderAddrNode(node, "generic-param"))
+	hdr := ReplyTo(buildFromNameAddrNode(node, "generic-param"))
 	return &hdr
 }

@@ -4,49 +4,99 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
+// InReplyTo represents the In-Reply-To header field.
+// The In-Reply-To header field enumerates the Call-IDs that this call references or returns.
 type InReplyTo []CallID
 
+// CanonicName returns the canonical name of the header.
 func (InReplyTo) CanonicName() Name { return "In-Reply-To" }
 
-func (hdr InReplyTo) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header (In-Reply-To has no compact form).
+func (InReplyTo) CompactName() Name { return "In-Reply-To" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr InReplyTo) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(hdr.renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr InReplyTo) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
+func (hdr InReplyTo) renderValueTo(w io.Writer) (num int, err error) {
+	return errors.Wrap2(renderHdrEntries(w, hdr))
+}
 
-func (hdr InReplyTo) Render() string {
+// Render returns the string representation of the header.
+func (hdr InReplyTo) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr InReplyTo) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	sb.WriteByte('[')
-	_ = hdr.renderValue(sb)
-	sb.WriteByte(']')
+// String returns the string representation of the header value.
+func (hdr InReplyTo) String() string { return hdr.RenderValue() }
+
+// RenderValue returns the header value without the name prefix.
+func (hdr InReplyTo) RenderValue() string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
 }
 
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr InReplyTo) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods InReplyTo
+			InReplyTo   hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), InReplyTo(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
 func (hdr InReplyTo) Clone() Header { return slices.Clone(hdr) }
 
+// Equal compares this header with another for equality.
 func (hdr InReplyTo) Equal(val any) bool {
 	var other InReplyTo
 	switch v := val.(type) {
@@ -60,11 +110,41 @@ func (hdr InReplyTo) Equal(val any) bool {
 	default:
 		return false
 	}
+
 	return slices.EqualFunc(hdr, other, func(id1, id2 CallID) bool { return id1.Equal(id2) })
 }
 
+// IsValid checks whether the header is syntactically valid.
 func (hdr InReplyTo) IsValid() bool {
 	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(id CallID) bool { return !id.IsValid() })
+}
+
+func (hdr InReplyTo) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *InReplyTo) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = nil
+		return nil
+	}
+
+	h, ok := gh.(InReplyTo)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
 }
 
 func buildFromInReplyToNode(node *abnf.Node) InReplyTo {

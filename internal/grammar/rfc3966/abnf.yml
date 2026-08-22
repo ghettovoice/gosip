@@ -1,0 +1,12 @@
+# input ABNF files
+inputs:
+    - rules.abnf
+# output package name
+package: rfc3966
+# output file path
+output: rules.go
+# external ABNF rules
+external:
+    - path: github.com/ghettovoice/abnf/pkg/abnf_core
+      name: abnf_core
+      rules: [ALPHA, BIT, CHAR, CR, CRLF, CTL, DIGIT, DQUOTE, HEXDIG, HTAB, LF, LWSP, OCTET, SP, VCHAR, WSP]

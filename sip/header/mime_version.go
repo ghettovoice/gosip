@@ -3,26 +3,60 @@ package header
 import (
 	"fmt"
 	"io"
+	"regexp"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 type MIMEVersion string
 
 func (MIMEVersion) CanonicName() Name { return "MIME-Version" }
 
-func (hdr MIMEVersion) RenderTo(w io.Writer) error {
-	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", string(hdr))
-	return err
+func (MIMEVersion) CompactName() Name { return "MIME-Version" }
+
+func (hdr MIMEVersion) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(fmt.Fprint(w, hdr.CanonicName(), ": ", hdr.RenderValue()))
 }
 
-func (hdr MIMEVersion) Render() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+func (hdr MIMEVersion) Render(opts ...RenderOptions) string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
+}
+
+// RenderValue returns the header value without the name prefix.
+func (hdr MIMEVersion) RenderValue() string { return string(hdr) }
+
+func (hdr MIMEVersion) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, string(hdr))
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(string(hdr)))
+		return
+	default:
+		type (
+			hideMethods MIMEVersion
+			MIMEVersion hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), MIMEVersion(hdr))
+		return
+	}
 }
 
 func (hdr MIMEVersion) Clone() Header { return hdr }
@@ -40,10 +74,41 @@ func (hdr MIMEVersion) Equal(val any) bool {
 	default:
 		return false
 	}
-	return stringutils.LCase(string(hdr)) == stringutils.LCase(string(other))
+
+	return util.EqFold(hdr, other)
 }
 
-func (hdr MIMEVersion) IsValid() bool { return len(hdr) > 0 }
+var mimeVerRe = regexp.MustCompile(`^\d+\.\d+$`)
+
+func (hdr MIMEVersion) IsValid() bool { return len(hdr) > 0 && mimeVerRe.MatchString(string(hdr)) }
+
+func (hdr MIMEVersion) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *MIMEVersion) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = ""
+		return nil
+	}
+
+	h, ok := gh.(MIMEVersion)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
+}
 
 func buildFromMIMEVersionNode(node *abnf.Node) MIMEVersion {
 	var s []byte

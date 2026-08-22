@@ -9,8 +9,10 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/abnfutils"
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 type RetryAfter struct {
@@ -21,50 +23,92 @@ type RetryAfter struct {
 
 func (*RetryAfter) CanonicName() Name { return "Retry-After" }
 
-func (hdr *RetryAfter) RenderTo(w io.Writer) error {
+func (*RetryAfter) CompactName() Name { return "Retry-After" }
+
+func (hdr *RetryAfter) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(hdr.renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr *RetryAfter) renderValue(w io.Writer) error {
-	if _, err := fmt.Fprint(w, int(hdr.Delay.Seconds())); err != nil {
-		return err
-	}
+func (hdr *RetryAfter) renderValueTo(w io.Writer) (num int, err error) {
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(int64(hdr.Delay.Seconds()))
 	if hdr.Comment != "" {
-		_, _ = fmt.Fprint(w, " (", hdr.Comment, ")")
+		cw.Fprint(" (", hdr.Comment, ")")
 	}
-	return renderHeaderParams(w, hdr.Params, false)
+	cw.Call(func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderHdrParams(w, hdr.Params, false))
+	})
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr *RetryAfter) Render() string {
+func (hdr *RetryAfter) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr *RetryAfter) String() string {
+func (hdr *RetryAfter) RenderValue() string {
 	if hdr == nil {
-		return nilTag
+		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.renderValue(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
+}
+
+func (hdr *RetryAfter) String() string { return hdr.RenderValue() }
+
+func (hdr *RetryAfter) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods RetryAfter
+			RetryAfter  hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*RetryAfter)(hdr))
+		return
+	}
 }
 
 func (hdr *RetryAfter) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
+
 	hdr2 := *hdr
 	hdr2.Params = hdr.Params.Clone()
 	return &hdr2
@@ -87,19 +131,57 @@ func (hdr *RetryAfter) Equal(val any) bool {
 		return false
 	}
 
-	return int(hdr.Delay.Seconds()) == int(other.Delay.Seconds()) && hdr.Comment == other.Comment &&
-		compareHeaderParams(hdr.Params, other.Params, map[string]bool{"duration": true})
+	return hdr.Delay == other.Delay &&
+		hdr.Comment == other.Comment &&
+		compareHdrParams(hdr.Params, other.Params, map[string]bool{"duration": true})
 }
 
 func (hdr *RetryAfter) IsValid() bool {
-	return hdr != nil && hdr.Delay >= 0 && validateHeaderParams(hdr.Params)
+	return hdr != nil && validateHdrParams(hdr.Params)
+}
+
+func (hdr *RetryAfter) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *RetryAfter) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = RetryAfter{}
+		return nil
+	}
+
+	h, ok := gh.(*RetryAfter)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = *h
+	return nil
 }
 
 func buildFromRetryAfterNode(node *abnf.Node) *RetryAfter {
-	sec, _ := strconv.ParseUint(abnfutils.MustGetNode(node, "delta-seconds").String(), 10, 64)
+	sec, err := strconv.ParseUint(grammar.MustGetNode(node, "delta-seconds").String(), 10, 64)
+	if err != nil {
+		panic(errors.ErrorfWrap("invalid retry delay value: %w", err))
+	}
+
+	var comment string
+	if n, _ := node.GetNode("comment"); n != nil {
+		comment = strings.Trim(n.String(), "() \r\n\t")
+	}
+
 	return &RetryAfter{
 		Delay:   time.Duration(sec) * time.Second,
-		Comment: strings.Trim(abnfutils.MustGetNode(node, "comment").String(), "()"),
+		Comment: comment,
 		Params:  buildFromHeaderParamNodes(node.GetNodes("retry-param"), nil),
 	}
 }

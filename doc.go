@@ -1,0 +1,3 @@
+// Package gosip ...
+// TODO: add description
+package gosip

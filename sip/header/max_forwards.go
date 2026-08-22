@@ -7,27 +7,70 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
+// MaxForwards represents the Max-Forwards header field.
+// The Max-Forwards header field limits the number of proxies or gateways that can forward the request.
 type MaxForwards uint
 
+// CanonicName returns the canonical name of the header.
 func (MaxForwards) CanonicName() Name { return "Max-Forwards" }
 
-func (hdr MaxForwards) RenderTo(w io.Writer) error {
-	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", uint(hdr))
-	return err
+// CompactName returns the compact name of the header (Max-Forwards has no compact form).
+func (MaxForwards) CompactName() Name { return "Max-Forwards" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr MaxForwards) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(fmt.Fprint(w, hdr.CanonicName(), ": ", hdr.RenderValue()))
 }
 
-func (hdr MaxForwards) Render() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+// Render returns the string representation of the header.
+func (hdr MaxForwards) Render(opts ...RenderOptions) string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
+// RenderValue returns the header value without the name prefix.
+func (hdr MaxForwards) RenderValue() string { return strconv.FormatUint(uint64(hdr), 10) }
+
+func (hdr MaxForwards) String() string { return hdr.RenderValue() }
+
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr MaxForwards) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods MaxForwards
+			MaxForwards hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), MaxForwards(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
 func (hdr MaxForwards) Clone() Header { return hdr }
 
+// Equal compares this header with another for equality.
 func (hdr MaxForwards) Equal(val any) bool {
 	var other MaxForwards
 	switch v := val.(type) {
@@ -41,10 +84,40 @@ func (hdr MaxForwards) Equal(val any) bool {
 	default:
 		return false
 	}
+
 	return hdr == other
 }
 
+// IsValid checks whether the header is syntactically valid.
 func (MaxForwards) IsValid() bool { return true }
+
+func (hdr MaxForwards) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *MaxForwards) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = 0
+		return nil
+	}
+
+	h, ok := gh.(MaxForwards)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
+}
 
 func buildFromMaxForwardsNode(node *abnf.Node) MaxForwards {
 	v, _ := strconv.ParseUint(node.Children[2].String(), 10, 8)

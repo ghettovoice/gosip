@@ -3,49 +3,97 @@ package header
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
+// ProxyRequire represents the Proxy-Require header field.
+// The Proxy-Require header field is used to indicate proxy-sensitive features that must be supported by the proxy.
 type ProxyRequire Require
 
+// CanonicName returns the canonical name of the header.
 func (ProxyRequire) CanonicName() Name { return "Proxy-Require" }
 
-func (hdr ProxyRequire) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header (Proxy-Require has no compact form).
+func (ProxyRequire) CompactName() Name { return "Proxy-Require" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr ProxyRequire) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return Require(hdr).renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(Require(hdr).renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr ProxyRequire) Render() string {
+// Render returns the string representation of the header.
+func (hdr ProxyRequire) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr ProxyRequire) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	sb.WriteByte('[')
-	_ = Require(hdr).renderValue(sb)
-	sb.WriteByte(']')
-	return sb.String()
+// RenderValue returns the header value without the name prefix.
+func (hdr ProxyRequire) RenderValue() string {
+	return Require(hdr).RenderValue()
 }
 
+// String returns the string representation of the header value.
+func (hdr ProxyRequire) String() string { return hdr.RenderValue() }
+
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr ProxyRequire) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods  ProxyRequire
+			ProxyRequire hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), ProxyRequire(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
 func (hdr ProxyRequire) Clone() Header {
-	return ProxyRequire(Require(hdr).Clone().(Require)) //nolint:forcetypeassert
+	hdr2, ok := Require(hdr).Clone().(Require)
+	if !ok {
+		return nil
+	}
+	return ProxyRequire(hdr2)
 }
 
+// Equal compares this header with another for equality.
 func (hdr ProxyRequire) Equal(val any) bool {
 	var other ProxyRequire
 	switch v := val.(type) {
@@ -59,10 +107,36 @@ func (hdr ProxyRequire) Equal(val any) bool {
 	default:
 		return false
 	}
+
 	return Require(hdr).Equal(Require(other))
 }
 
+// IsValid checks whether the header is syntactically valid.
 func (hdr ProxyRequire) IsValid() bool { return Require(hdr).IsValid() }
+
+func (hdr ProxyRequire) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *ProxyRequire) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = nil
+		return nil
+	}
+
+	h, ok := gh.(ProxyRequire)
+	if !ok {
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
+}
 
 func buildFromProxyRequireNode(node *abnf.Node) ProxyRequire {
 	return ProxyRequire(buildFromRequireNode(node))

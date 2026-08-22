@@ -2,10 +2,17 @@ package sip
 
 import (
 	"bufio"
-	"bytes"
+	"context"
 	"io"
+	"math"
 	"net/textproto"
 	"sync"
+)
+
+var (
+	sNilTag  = "<nil>"
+	bNilTag  = []byte(sNilTag)
+	jsonNull = []byte("null")
 )
 
 var txtProtoRdrPool = sync.Pool{
@@ -13,7 +20,7 @@ var txtProtoRdrPool = sync.Pool{
 }
 
 func getTxtProtoRdr(r *bufio.Reader) *textproto.Reader {
-	tr, _ := txtProtoRdrPool.Get().(*textproto.Reader)
+	tr := txtProtoRdrPool.Get().(*textproto.Reader) //nolint:forcetypeassert
 	tr.R = r
 	return tr
 }
@@ -23,34 +30,28 @@ func freeTxtProtoRdr(r *textproto.Reader) {
 	txtProtoRdrPool.Put(r)
 }
 
-var bytesRdrPool = sync.Pool{
-	New: func() any { return bytes.NewReader(nil) },
+var bufferedRdrPool = sync.Pool{
+	New: func() any { return bufio.NewReaderSize(nil, math.MaxUint16) },
 }
 
-func getBytesRdr(b []byte) *bytes.Reader {
-	r, _ := bytesRdrPool.Get().(*bytes.Reader)
-	r.Reset(b)
-	return r
-}
-
-func freeBytesRdr(r *bytes.Reader) {
-	r.Reset(nil)
-	bytesRdrPool.Put(r)
-}
-
-var bufRdrPool = sync.Pool{
-	New: func() any {
-		return bufio.NewReaderSize(nil, MaxMsgSize)
-	},
-}
-
-func getBufRdr(r io.Reader) *bufio.Reader {
-	br, _ := bufRdrPool.Get().(*bufio.Reader)
+func getBufferedRdr(r io.Reader) *bufio.Reader {
+	br := bufferedRdrPool.Get().(*bufio.Reader) //nolint:forcetypeassert
 	br.Reset(r)
 	return br
 }
 
-func freeBufRdr(r *bufio.Reader) {
+func freeBufferedRdr(r *bufio.Reader) {
 	r.Reset(nil)
-	bufRdrPool.Put(r)
+	bufferedRdrPool.Put(r)
+}
+
+func clampToUint64(value int64) uint64 {
+	if value <= 0 {
+		return 0
+	}
+	return uint64(value)
+}
+
+type closer interface {
+	Close(ctx context.Context) error
 }

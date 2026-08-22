@@ -2,107 +2,74 @@ package sip
 
 import (
 	"context"
-	"math"
+	"iter"
 	"net/netip"
-	"time"
 
-	"github.com/ghettovoice/gosip/sip/internal/shared"
+	"github.com/ghettovoice/gosip/internal/errors"
 )
 
-var (
-	MTU        = 1500 // Maximum Transport Unit.
-	MaxMsgSize = math.MaxUint16
-)
+// IsTransportError reports whether err belongs to the transport error class.
+func IsTransportError(err error) bool {
+	return errors.IsNetError(err) || errors.Is(err, ErrClassTransport)
+}
 
-type TransportProto = shared.TransportProto
-
-// Transport represents a SIP transport.
-// It provides methods for both sides (server and client).
-// RFC 3261 Section 18.
+// Transport represents a combination of client and server transport functions.
 type Transport interface {
-	Proto() TransportProto
-	ListenAndServe(ctx context.Context, addr netip.AddrPort, opts ...any) error
-	GetOrDial(ctx context.Context, addr netip.AddrPort, opts ...any) (RequestWriter, error)
-	Shutdown() error
-	Stats() TransportReport
-
-	OnInboundRequest(fn func(context.Context, *Request, ResponseWriter) error)
-	OnInboundResponse(fn func(context.Context, *Response) error)
-	OnOutboundRequest(fn func(context.Context, *Request) error)
-	OnOutboundResponse(fn func(context.Context, *Response) error)
+	RequestSender
+	ResponseSender
+	Responder
+	MessageInterceptorChain
+	// Metadata returns transport metadata.
+	Metadata() TransportMetadata
+	// Close closes the transport and all listeners and connections currently tracked by it.
+	Close(ctx context.Context) error
+	// Listen binds a new listener to the given local address and registers it as a
+	// transport-owned resource.
+	// It does not start serving the listener.
+	Listen(ctx context.Context, addr string) (TransportListener, error)
+	// MatchSentBy checks whether the send-by address matches one of the transport's
+	// public addresses.
+	MatchSentBy(sentBy Addr) bool
 }
 
-// TransportReport provides statistics about the transport.
-type TransportReport struct {
-	Proto TransportProto `json:"proto"       yaml:"proto"`
-	// Number of running listeners.
-	Listeners uint32 `json:"listeners"   yaml:"listeners"`
-	// Number of running connections.
-	Connections uint32 `json:"connections" yaml:"connections"`
-
-	InboundRequests          uint64 `json:"inbound_requests"           yaml:"inbound_requests"`
-	InboundRequestsRejected  uint64 `json:"inbound_requests_rejected"  yaml:"inbound_requests_rejected"`
-	InboundResponses         uint64 `json:"inbound_responses"          yaml:"inbound_responses"`
-	InboundResponsesRejected uint64 `json:"inbound_responses_rejected" yaml:"inbound_responses_rejected"`
-
-	OutboundRequests          uint64 `json:"outbound_requests"           yaml:"outbound_requests"`
-	OutboundRequestsRejected  uint64 `json:"outbound_requests_rejected"  yaml:"outbound_requests_rejected"`
-	OutboundResponses         uint64 `json:"outbound_responses"          yaml:"outbound_responses"`
-	OutboundResponsesRejected uint64 `json:"outbound_responses_rejected" yaml:"outbound_responses_rejected"`
-
-	// Average round trip time over network.
-	MessageRTT time.Duration `json:"message_rtt"              yaml:"message_rtt"`
-	// Number of measurements of the RTT.
-	MessageRTTMeasurements uint64 `json:"message_rtt_measurements" yaml:"message_rtt_measurements"`
+// TransportListener represents a transport listener.
+type TransportListener interface {
+	// Metadata returns the transport metadata of the listener.
+	Metadata() TransportMetadata
+	// LocalAddr returns the local address of the listener.
+	LocalAddr() netip.AddrPort
+	// Serve starts serving the listener.
+	//
+	// For a listener created by [Transport.Listen], cancelling ctx closes the
+	// transport-owned listener and unblocks Serve.
+	//
+	// It blocks until the context is cancelled, a non-temporary error occurs, or the
+	// listener is closed. The last breaking error is returned.
+	Serve(ctx context.Context) error
+	// Close closes the underlying listener.
+	Close(ctx context.Context) error
 }
 
-// TransportFactory creates a new transport.
-type TransportFactory interface {
-	NewTransport() (Transport, error)
-}
-
-// TransportMetadata describes a transport.
-// It is used to register a transports in the library registry.
-type TransportMetadata struct {
-	Proto       TransportProto
-	Network     string
-	DefaultPort uint16
-	IsReliable  bool
-	IsSecured   bool
-	Factory     TransportFactory
-}
-
-var transportRegistry = make(map[TransportProto]TransportMetadata)
-
-// RegisterTransport registers a transport in the library registry.
-func RegisterTransport(md TransportMetadata) {
-	transportRegistry[md.Proto.ToUpper()] = md
-}
-
-func IsReliableTransport(proto TransportProto) bool {
-	if md, ok := transportRegistry[proto.ToUpper()]; ok {
-		return md.IsReliable
-	}
-	return false
-}
-
-func IsSecuredTransport(proto TransportProto) bool {
-	if md, ok := transportRegistry[proto.ToUpper()]; ok {
-		return md.IsSecured
-	}
-	return false
-}
-
-func TransportDefaultPort(proto TransportProto) uint16 {
-	if md, ok := transportRegistry[proto.ToUpper()]; ok {
-		return md.DefaultPort
-	}
-	return 0
-}
-
-func TransportNetwork(proto TransportProto) string {
-	if md, ok := transportRegistry[proto.ToUpper()]; ok {
-		return md.Network
-	}
-	return ""
+// TransportConnection represents a transport peer-to-peer connection.
+type TransportConnection interface {
+	// Metadata returns the transport metadata of the connection.
+	Metadata() TransportMetadata
+	// LocalAddr returns the local address of the connection.
+	LocalAddr() netip.AddrPort
+	// RemoteAddr returns the remote address of the connection.
+	RemoteAddr() netip.AddrPort
+	// Close closes the connection.
+	Close(ctx context.Context) error
+	// Messages returns iterator of messages and possible read/parse errors received
+	// on the connection.
+	//
+	// Context can be used to yield last error and stop the iterator.
+	Messages(ctx context.Context) iter.Seq2[Message, error]
+	// WriteMessage writes a message to the connection.
+	WriteMessage(
+		ctx context.Context,
+		msg Message,
+		raddr netip.AddrPort,
+		opts ...RenderOptions,
+	) error
 }

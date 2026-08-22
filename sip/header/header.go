@@ -1,36 +1,75 @@
-// Package header implements various SIP headers defined in the RFC 3261.
 package header
 
 import (
-	"fmt"
+	"encoding/json"
 	"io"
+	"net"
 	"net/textproto"
 	"slices"
+	"sync"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/abnfutils"
-	"github.com/ghettovoice/gosip/internal/constraints"
-	"github.com/ghettovoice/gosip/internal/stringutils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
-	"github.com/ghettovoice/gosip/sip/internal/shared"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
 )
+
+// Addr represents a network address consisting of a host and optional port.
+type Addr = types.Addr
+
+// AddrFromHost creates an Addr from a hostname without a port.
+func AddrFromHost(host string) Addr { return types.AddrFromHost(host) }
+
+// AddrFromHostPort creates an Addr from a hostname and port.
+func AddrFromHostPort(host string, port uint16) Addr { return types.AddrFromHostPort(host, port) }
+
+func AddrFromIP(ip net.IP) Addr { return types.AddrFromIP(ip) }
+
+func AddrFromIPPort(ip net.IP, port uint16) Addr { return types.AddrFromIPPort(ip, port) }
+
+// ParseAddr parses a network address from the given input s (string or []byte).
+func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }
+
+// Values represents header parameters as a multi-value map.
+type Values = types.Values
+
+// ProtoInfo represents SIP protocol information (name and version).
+type ProtoInfo = types.ProtoInfo
+
+// TransportProto represents a transport protocol (UDP, TCP, TLS, SCTP, WS, WSS).
+type TransportProto = types.TransportProto
+
+// RequestMethod represents a SIP request method (INVITE, ACK, BYE, etc.).
+type RequestMethod = types.RequestMethod
+
+// RenderOptions contains options for rendering headers and URIs.
+type RenderOptions = types.RenderOptions
 
 // Header represents a generic SIP header.
 type Header interface {
+	types.Renderer
+	types.Cloneable[Header]
+	types.ValidFlag
+	types.Equalable
 	CanonicName() Name
-	Render() string
-	RenderTo(w io.Writer) error
-	Clone() Header
+	CompactName() Name
+	RenderValue() string
 }
 
+// Name represents a SIP header name.
 type Name string
 
-func (n Name) ToCanonic() Name { return CanonicName(n) }
+// Canonic converts the Name to its canonical form.
+func (n Name) Canonic() Name { return CanonicName(n) }
 
+// IsValid checks whether the Name is syntactically valid.
 func (n Name) IsValid() bool { return grammar.IsToken(n) }
 
-func (n Name) IsEqual(val any) bool {
+// Equal compares this Name with another for equality.
+func (n Name) Equal(val any) bool {
 	var other Name
 	switch v := val.(type) {
 	case Name:
@@ -43,10 +82,11 @@ func (n Name) IsEqual(val any) bool {
 	default:
 		return false
 	}
+
 	return CanonicName(n) == CanonicName(other)
 }
 
-var headerNames = map[string]Name{
+var hdrNames = map[string]Name{
 	"c":                "Content-Type",
 	"e":                "Content-Encoding",
 	"f":                "From",
@@ -68,76 +108,80 @@ var headerNames = map[string]Name{
 // the rest are converted to lowercase. For example, the canonical name for "accept-encoding" is "Accept-Encoding".
 // Also, any compact name is converted to its full canonical form. For example, "c" converts to "Content-Type".
 func CanonicName[T ~string](name T) Name {
-	name = stringutils.TrimSP(name)
-	if n, ok := headerNames[string(name)]; ok {
+	name = util.TrimSP(name)
+	if n, ok := hdrNames[string(name)]; ok {
 		return n
 	}
 
 	name = T(textproto.CanonicalMIMEHeaderKey(string(name)))
-	if n, ok := headerNames[string(name)]; ok {
+	if n, ok := hdrNames[string(name)]; ok {
 		return n
 	}
+
 	return Name(name)
 }
 
-func renderHeaderEntries[H ~[]E, E any](w io.Writer, hdr H) error {
+func renderHdrEntries[H ~[]E, E any](w io.Writer, hdr H) (num int, err error) {
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
 	for i := range hdr {
 		if i > 0 {
-			if _, err := fmt.Fprint(w, ", "); err != nil {
-				return err
-			}
+			cw.Fprint(", ")
 		}
-		if _, err := fmt.Fprint(w, hdr[i]); err != nil {
-			return err
-		}
+		cw.Fprint(hdr[i])
 	}
-	return nil
+	return errors.Wrap2(cw.Result())
 }
 
-func renderHeaderParams(w io.Writer, params Values, addQParam bool) error {
+func renderHdrParams(w io.Writer, params Values, addQParam bool) (num int, err error) {
 	if len(params) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// Sort parameters in alphabet order, but with "q" parameter always the first place.
 	// If missing the "q" param, then dump it with the default value.
 	// RFC 2616 Section 14.1.
-	var kvs [][]string //nolint:prealloc
+	var kvs [][]string
 	if addQParam && !params.Has("q") {
 		kvs = append(kvs, []string{"q", "1"})
 	}
+
 	for k := range params {
-		kvs = append(kvs, []string{stringutils.LCase(k), params.Last(k)})
+		v, _ := params.Last(k)
+		kvs = append(kvs, []string{util.LCase(k), v})
 	}
+
 	slices.SortFunc(kvs, func(a, b []string) int {
 		if a[0] == "q" && b[0] != "q" {
 			return -1
 		} else if a[0] != "q" && b[0] == "q" {
 			return 1
 		}
-		return stringutils.CmpKVs(a, b)
+		return util.CmpKVs(a, b)
 	})
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
 	for _, kv := range kvs {
-		if _, err := fmt.Fprint(w, ";", kv[0]); err != nil {
-			return err
-		}
+		cw.Fprint(";", kv[0])
 		if kv[1] != "" {
-			if _, err := fmt.Fprint(w, "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint("=", kv[1])
 		}
 	}
-	return nil
+
+	return errors.Wrap2(cw.Result())
 }
 
-func compareHeaderParams(params1, params2 Values, specParams map[string]bool) bool {
+func compareHdrParams(params1, params2 Values, specParams map[string]bool) bool {
 	switch {
 	case len(params1) == 0 && len(params2) == 0:
 		return true
 	case len(params1) == 0:
-		return !hasSpecHeaderParam(params2, specParams)
+		return !hasSpecHdrParam(params2, specParams)
 	case len(params2) == 0:
-		return !hasSpecHeaderParam(params1, specParams)
+		return !hasSpecHdrParam(params1, specParams)
 	}
 
 	checked := map[string]bool{}
@@ -147,21 +191,23 @@ func compareHeaderParams(params1, params2 Values, specParams map[string]bool) bo
 	for k := range params1 {
 		if params2.Has(k) {
 			// Any parameter appearing in both URIs must match.
-			v1, v2 := params1.Last(k), params2.Last(k)
+			v1, _ := params1.Last(k)
+			v2, _ := params2.Last(k)
 			if !grammar.IsQuoted(v1) {
-				v1 = stringutils.LCase(v1)
+				v1 = util.LCase(v1)
 			}
-			if !grammar.IsQuoted(v1) {
-				v2 = stringutils.LCase(v2)
+			if !grammar.IsQuoted(v2) {
+				v2 = util.LCase(v2)
 			}
 			if v1 != v2 {
 				return false
 			}
-		} else if specParams[stringutils.LCase(k)] {
+		} else if specParams[util.LCase(k)] {
 			// Any special SIP URI parameter appearing in one URI must appear in the other.
 			return false
 		}
-		checked[stringutils.LCase(k)] = true
+
+		checked[util.LCase(k)] = true
 	}
 	// Then need only check that there are no non-checked special parameters in the other list.
 	for k := range specParams {
@@ -172,10 +218,11 @@ func compareHeaderParams(params1, params2 Values, specParams map[string]bool) bo
 			return false
 		}
 	}
+
 	return true
 }
 
-func hasSpecHeaderParam(params Values, specParams map[string]bool) bool {
+func hasSpecHdrParam(params Values, specParams map[string]bool) bool {
 	for k := range specParams {
 		if params.Has(k) {
 			return true
@@ -184,24 +231,26 @@ func hasSpecHeaderParam(params Values, specParams map[string]bool) bool {
 	return false
 }
 
-func validateHeaderParams(params Values) bool {
+func validateHdrParams(params Values) bool {
 	for k := range params {
 		if !grammar.IsToken(k) {
 			return false
 		}
-		v := params.Last(k)
-		if !(grammar.IsToken(v) || grammar.IsHost(v) || grammar.IsQuoted(v)) {
+
+		v, _ := params.Last(k)
+		if v != "" && (!grammar.IsToken(v) && !grammar.IsHost(v) && !grammar.IsQuoted(v)) {
 			return false
 		}
 	}
 	return true
 }
 
-func cloneHeaderEntries[H ~[]E, E interface{ Clone() E }](hdr H) H {
+func cloneHdrEntries[H ~[]E, E interface{ Clone() E }](hdr H) H {
 	var hdr2 H
 	if hdr == nil {
 		return hdr2
 	}
+
 	hdr2 = make(H, len(hdr))
 	for i := range hdr {
 		hdr2[i] = hdr[i].Clone()
@@ -210,122 +259,150 @@ func cloneHeaderEntries[H ~[]E, E interface{ Clone() E }](hdr H) H {
 }
 
 // Parser is a function type for parsing a custom SIP header.
-type Parser func(name string, value []byte) Header
+type Parser func(name string, value []byte) (Header, error)
 
-// Parse parses the header from the given input s (string or a []byte) and
+var customParsers sync.Map // map[string]Parser
+
+// RegisterParser registers a custom SIP header parser.
+func RegisterParser(name string, parser Parser) {
+	customParsers.Store(util.LCase(name), parser)
+}
+
+// UnregisterParser unregisters a custom SIP header parser.
+func UnregisterParser(name string) {
+	customParsers.Delete(util.LCase(name))
+}
+
+// Parse parses a SIP header from the given input s (string or []byte) and
 // returns the parsed header as an instance of [Header].
 // If the parsing fails, an error is returned along with nil as the header value.
 //
 // Example usage:
 //
-//	hdr, err := header.Parse("From: <sip:alice@example.com;foo>;tag=qwerty", nil)
-func Parse[T constraints.Byteseq](s T, hdrPrs map[string]Parser) (Header, error) {
+//	hdr, err := header.Parse("From: <sip:alice@example.com;foo>;tag=qwerty")
+func Parse[T ~string | ~[]byte](s T) (Header, error) {
 	node, err := grammar.ParseMessageHeader(s)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err)
 	}
-	return FromABNF(node.Children[0].Children[0], hdrPrs), nil
+	return errors.Wrap2(FromABNF(node.Children[0].Children[0]))
 }
 
-func FromABNF(node *abnf.Node, hdrPrs map[string]Parser) Header {
-	switch node.Key {
-	case "Accept":
-		return buildFromAcceptNode(node)
-	case "Accept-Encoding":
-		return buildFromAcceptEncodingNode(node)
-	case "Accept-Language":
-		return buildFromAcceptLanguageNode(node)
-	case "Alert-Info":
-		return buildFromAlertInfoNode(node)
-	case "Allow":
-		return buildFromAllowNode(node)
-	case "Authentication-Info":
-		return buildFromAuthenticationInfoNode(node)
-	case "Authorization":
-		return buildFromAuthorizationNode(node)
-	case "Call-ID":
-		return buildFromCallIDNode(node)
-	case "Call-Info":
-		return buildFromCallInfoNode(node)
-	case "Contact":
-		return buildFromContactNode(node)
-	case "Content-Disposition":
-		return buildFromContentDispositionNode(node)
-	case "Content-Encoding":
-		return buildFromContentEncodingNode(node)
-	case "Content-Language":
-		return buildFromContentLanguageNode(node)
-	case "Content-Length":
-		return buildFromContentLengthNode(node)
-	case "Content-Type":
-		return buildFromContentTypeNode(node)
-	case "CSeq":
-		return buildFromCSeqNode(node)
-	case "Date":
-		return buildFromDateNode(node)
-	case "Error-Info":
-		return buildFromErrorInfoNode(node)
-	case "Expires":
-		return buildFromExpiresNode(node)
-	case "From":
-		return buildFromFromNode(node)
-	case "In-Reply-To":
-		return buildFromInReplyToNode(node)
-	case "Max-Forwards":
-		return buildFromMaxForwardsNode(node)
-	case "MIME-Version":
-		return buildFromMIMEVersionNode(node)
-	case "Min-Expires":
-		return buildFromMinExpiresNode(node)
-	case "Organization":
-		return buildFromOrganizationNode(node)
-	case "Priority":
-		return buildFromPriorityNode(node)
-	case "Proxy-Authenticate":
-		return buildFromProxyAuthenticateNode(node)
-	case "Proxy-Authorization":
-		return buildFromProxyAuthorizationNode(node)
-	case "Proxy-Require":
-		return buildFromProxyRequireNode(node)
-	case "Record-Route":
-		return buildFromRecordRouteNode(node)
-	case "Reply-To":
-		return buildFromReplyToNode(node)
-	case "Require":
-		return buildFromRequireNode(node)
-	case "Retry-After":
-		return buildFromRetryAfterNode(node)
-	case "Route":
-		return buildFromRouteNode(node)
-	case "Server":
-		return buildFromServerNode(node)
-	case "Subject":
-		return buildFromSubjectNode(node)
-	case "Supported":
-		return buildFromSupportedNode(node)
-	case "Timestamp":
-		return buildFromTimestampNode(node)
-	case "To":
-		return buildFromToNode(node)
-	case "Unsupported":
-		return buildFromUnsupportedNode(node)
-	case "User-Agent":
-		return buildFromUserAgentNode(node)
-	case "Via":
-		return buildFromViaNode(node)
-	case "Warning":
-		return buildFromWarningNode(node)
-	case "WWW-Authenticate":
-		return buildFromWWWAuthenticateNode(node)
-	case "extension-header":
-		if prs, ok := hdrPrs[stringutils.LCase(string(node.Children[0].Value))]; ok && prs != nil {
-			if hdr := prs(node.Children[0].String(), abnfutils.MustGetNode(node, "header-value").Value); hdr != nil {
-				return hdr
+// FromABNF creates a Header from an ABNF node.
+// This is typically used during parsing and most users should use [Parse] instead.
+func FromABNF(node *abnf.Node) (hdr Header, err error) {
+	defer func() {
+		if rv := recover(); rv != nil {
+			hdr = nil
+			if e, ok := rv.(error); ok {
+				err = errors.Wrap(e)
+			} else {
+				err = errors.ErrorfWrap("%v", rv)
 			}
 		}
-		return buildFromExtensionHeaderNode(node)
+	}()
+
+	switch node.Key {
+	case "Accept":
+		return buildFromAcceptNode(node), nil
+	case "Accept-Encoding":
+		return buildFromAcceptEncodingNode(node), nil
+	case "Accept-Language":
+		return buildFromAcceptLanguageNode(node), nil
+	case "Alert-Info":
+		return buildFromAlertInfoNode(node), nil
+	case "Allow":
+		return buildFromAllowNode(node), nil
+	case "Authentication-Info":
+		return buildFromAuthenticationInfoNode(node), nil
+	case "Authorization":
+		return buildFromAuthorizationNode(node), nil
+	case "Call-ID":
+		return buildFromCallIDNode(node), nil
+	case "Call-Info":
+		return buildFromCallInfoNode(node), nil
+	case "Contact":
+		return buildFromContactNode(node), nil
+	case "Content-Disposition":
+		return buildFromContentDispositionNode(node), nil
+	case "Content-Encoding":
+		return buildFromContentEncodingNode(node), nil
+	case "Content-Language":
+		return buildFromContentLanguageNode(node), nil
+	case "Content-Length":
+		return buildFromContentLengthNode(node), nil
+	case "Content-Type":
+		return buildFromContentTypeNode(node), nil
+	case "CSeq":
+		return buildFromCSeqNode(node), nil
+	case "Date":
+		return buildFromDateNode(node), nil
+	case "Error-Info":
+		return buildFromErrorInfoNode(node), nil
+	case "Expires":
+		return buildFromExpiresNode(node), nil
+	case "From":
+		return buildFromFromNode(node), nil
+	case "In-Reply-To":
+		return buildFromInReplyToNode(node), nil
+	case "Max-Forwards":
+		return buildFromMaxForwardsNode(node), nil
+	case "MIME-Version":
+		return buildFromMIMEVersionNode(node), nil
+	case "Min-Expires":
+		return buildFromMinExpiresNode(node), nil
+	case "Organization":
+		return buildFromOrganizationNode(node), nil
+	case "Priority":
+		return buildFromPriorityNode(node), nil
+	case "Proxy-Authenticate":
+		return buildFromProxyAuthenticateNode(node), nil
+	case "Proxy-Authorization":
+		return buildFromProxyAuthorizationNode(node), nil
+	case "Proxy-Require":
+		return buildFromProxyRequireNode(node), nil
+	case "Record-Route":
+		return buildFromRecordRouteNode(node), nil
+	case "Reply-To":
+		return buildFromReplyToNode(node), nil
+	case "Require":
+		return buildFromRequireNode(node), nil
+	case "Retry-After":
+		return buildFromRetryAfterNode(node), nil
+	case "Route":
+		return buildFromRouteNode(node), nil
+	case "Server":
+		return buildFromServerNode(node), nil
+	case "Subject":
+		return buildFromSubjectNode(node), nil
+	case "Supported":
+		return buildFromSupportedNode(node), nil
+	case "Timestamp":
+		return buildFromTimestampNode(node), nil
+	case "To":
+		return buildFromToNode(node), nil
+	case "Unsupported":
+		return buildFromUnsupportedNode(node), nil
+	case "User-Agent":
+		return buildFromUserAgentNode(node), nil
+	case "Via":
+		return buildFromViaNode(node), nil
+	case "Warning":
+		return buildFromWarningNode(node), nil
+	case "WWW-Authenticate":
+		return buildFromWWWAuthenticateNode(node), nil
+	case "extension-header":
+		name := util.LCase(string(node.Children[0].Value))
+		if prs, ok := customParsers.Load(name); ok && prs != nil {
+			//nolint:forcetypeassert
+			return errors.Wrap2(prs.(Parser)(
+				node.Children[0].String(),
+				grammar.MustGetNode(node, "header-value").Value,
+			))
+		}
+		return buildFromExtensionHeaderNode(node), nil
 	default:
-		return nil
+		return nil, errors.PrefixWrap(grammar.ErrUnexpectedNode, "node %q isn't supported", node.Key)
 	}
 }
 
@@ -338,15 +415,15 @@ func buildFromHeaderParamNodes(nodes abnf.Nodes, params Values) Values {
 		params = make(Values, len(nodes))
 	}
 	for _, node := range nodes {
-		if n := node.GetNode("generic-param"); n != nil {
+		if n, ok := node.GetNode("generic-param"); ok {
 			kv := buildFromGenericParamNode(n)
 			params.Append(kv[0], kv[1])
 			continue
 		}
 
-		if n := node.GetNode("response-port"); n != nil {
+		if n, ok := node.GetNode("response-port"); ok {
 			digits := ""
-			if d := n.GetNode("1*DIGIT"); d != nil {
+			if d, ok := n.GetNode("1*DIGIT"); ok {
 				digits = d.String()
 			}
 			params.Append(n.Children[0].String(), digits)
@@ -355,7 +432,6 @@ func buildFromHeaderParamNodes(nodes abnf.Nodes, params Values) Values {
 
 		node = node.Children[0]
 		var val []byte
-
 		for _, n := range node.Children[2:] {
 			if n.IsEmpty() {
 				continue
@@ -364,30 +440,62 @@ func buildFromHeaderParamNodes(nodes abnf.Nodes, params Values) Values {
 		}
 		params.Append(node.Children[0].String(), string(val))
 	}
+
 	return params
 }
 
 func buildFromGenericParamNode(node *abnf.Node) [2]string {
 	var kv [2]string
 	kv[0] = node.Children[0].String()
-	if valNode := node.GetNode("gen-value"); valNode != nil {
+	if valNode, ok := node.GetNode("gen-value"); ok {
 		kv[1] = valNode.String()
 	}
 	return kv
 }
 
-type Addr = shared.Addr
+type headerData struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
 
-func Host(host string) Addr { return shared.Host(host) }
+var jsonNull = []byte("null")
 
-func HostPort(host string, port uint16) Addr { return shared.HostPort(host, port) }
+// ToJSON encodes a header to JSON.
+func ToJSON(hdr Header) ([]byte, error) {
+	if util.IsNil(hdr) {
+		return jsonNull, nil
+	}
+	return errors.Wrap2(json.Marshal(headerData{
+		Name:  string(hdr.CanonicName()),
+		Value: hdr.RenderValue(),
+	}))
+}
 
-type Values = shared.Values
+// FromJSON decodes a header from JSON.
+// It returns:
+//   - nil header and nil error if the JSON is null
+//   - &Any{Value: hd.Value} and nil error if the JSON is '{}' or '{"value":"..."}'
+//   - the parsed header and nil error if the JSON is '{"name":"...","value":"..."}'
+//   - nil header and error in case of any error
+func FromJSON[T ~string | ~[]byte](data T) (Header, error) {
+	var hd *headerData
+	if err := json.Unmarshal([]byte(data), &hd); err != nil {
+		return nil, errors.Wrap(err)
+	}
 
-type ProtoInfo = shared.ProtoInfo
+	if hd == nil {
+		// json null
+		return nil, nil //nolint:nilnil
+	}
 
-type TransportProto = shared.TransportProto
+	if hd.Name == "" {
+		// json {} or {"value":"..."}
+		return &Any{Value: hd.Value}, nil
+	}
 
-type RequestMethod = shared.RequestMethod
+	return errors.Wrap2(Parse(hd.Name + ":" + hd.Value))
+}
 
-var nilTag = "<nil>"
+func newUnexpectHdrTypeErr(h Header) error {
+	return errors.Errorf("unexpected header type %T", h)
+}

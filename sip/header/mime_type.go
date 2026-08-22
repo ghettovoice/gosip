@@ -1,14 +1,16 @@
 package header
 
 import (
+	"bytes"
 	"fmt"
 	"slices"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/abnfutils"
-	"github.com/ghettovoice/gosip/internal/stringutils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // MIMEType holds media type information.
@@ -19,20 +21,49 @@ type MIMEType struct {
 }
 
 func (mt MIMEType) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_, _ = fmt.Fprint(sb, mt.Type, "/", mt.Subtype)
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	fmt.Fprint(sb, mt.Type, "/", mt.Subtype)
+
 	if len(mt.Params) > 0 {
 		kvs := make([][]string, 0, len(mt.Params))
 		for k := range mt.Params {
-			kvs = append(kvs, []string{stringutils.LCase(k), mt.Params.Last(k)})
+			v, _ := mt.Params.Last(k)
+			kvs = append(kvs, []string{util.LCase(k), v})
 		}
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+
+		slices.SortFunc(kvs, util.CmpKVs)
+
 		for _, kv := range kvs {
-			_, _ = fmt.Fprint(sb, ";", kv[0], "=", kv[1])
+			fmt.Fprint(sb, ";", kv[0], "=", kv[1])
 		}
 	}
+
 	return sb.String()
+}
+
+func (mt MIMEType) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		fmt.Fprint(f, mt.String())
+		return
+	case 'q':
+		fmt.Fprint(f, strconv.Quote(mt.String()))
+		return
+	default:
+		if !f.Flag('+') && !f.Flag('#') {
+			fmt.Fprint(f, mt.String())
+			return
+		}
+
+		type (
+			hideMethods MIMEType
+			MIMEType    hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), MIMEType(mt))
+		return
+	}
 }
 
 func (mt MIMEType) Equal(val any) bool {
@@ -48,21 +79,17 @@ func (mt MIMEType) Equal(val any) bool {
 	default:
 		return false
 	}
-	return stringutils.LCase(mt.Type) == stringutils.LCase(other.Type) &&
-		stringutils.LCase(mt.Subtype) == stringutils.LCase(other.Subtype) &&
-		compareHeaderParams(mt.Params, other.Params, map[string]bool{"charset": true})
+
+	return util.EqFold(mt.Type, other.Type) && util.EqFold(mt.Subtype, other.Subtype) &&
+		compareHdrParams(mt.Params, other.Params, map[string]bool{"charset": true})
 }
 
 func (mt MIMEType) IsValid() bool {
-	return grammar.IsToken(mt.Type) &&
-		grammar.IsToken(mt.Subtype) &&
-		validateHeaderParams(mt.Params)
+	return grammar.IsToken(mt.Type) && grammar.IsToken(mt.Subtype) && validateHdrParams(mt.Params)
 }
 
 func (mt MIMEType) IsZero() bool {
-	return mt.Type == "" &&
-		mt.Subtype == "" &&
-		len(mt.Params) == 0
+	return mt.Type == "" && mt.Subtype == "" && len(mt.Params) == 0
 }
 
 func (mt MIMEType) Clone() MIMEType {
@@ -70,14 +97,58 @@ func (mt MIMEType) Clone() MIMEType {
 	return mt
 }
 
+func (mt MIMEType) MarshalText() ([]byte, error) {
+	return []byte(mt.String()), nil
+}
+
+func (mt MIMEType) AppendText(data []byte) ([]byte, error) {
+	return append(data, mt.String()...), nil
+}
+
+func (mt *MIMEType) UnmarshalText(data []byte) (finErr error) {
+	if len(data) == 0 || bytes.Equal(data, []byte("/")) {
+		*mt = MIMEType{}
+		return nil
+	}
+
+	defer func() {
+		if rv := recover(); rv != nil {
+			if e, ok := rv.(error); ok {
+				finErr = errors.Wrap(e)
+			} else {
+				finErr = errors.ErrorfWrap("%v", rv)
+			}
+		}
+	}()
+
+	node, err := grammar.ParseMediaRange(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	var ps [][2]string
+	*mt, ps = buildFromMIMETypeNode(node)
+	if len(ps) > 0 {
+		if mt.Params == nil {
+			mt.Params = make(Values, len(ps))
+		}
+		for _, kv := range ps {
+			mt.Params.Append(kv[0], kv[1])
+		}
+	}
+
+	return nil
+}
+
 func buildFromMIMETypeNode(node *abnf.Node) (MIMEType, [][2]string) {
 	var mt MIMEType
-	if n := node.GetNode("m-type"); n != nil {
+	if n, ok := node.GetNode("m-type"); ok {
 		mt.Type = n.String()
 	} else if node.Key == "media-range" {
 		mt.Type = "*"
 	}
-	if n := node.GetNode("m-subtype"); n != nil {
+
+	if n, ok := node.GetNode("m-subtype"); ok {
 		mt.Subtype = n.String()
 	} else if node.Key == "media-range" {
 		mt.Subtype = "*"
@@ -89,10 +160,10 @@ func buildFromMIMETypeNode(node *abnf.Node) (MIMEType, [][2]string) {
 	)
 	if paramNodes := node.GetNodes("m-parameter"); len(paramNodes) > 0 {
 		for _, paramNode := range paramNodes {
-			valNode := abnfutils.MustGetNode(paramNode, "m-value")
+			valNode := grammar.MustGetNode(paramNode, "m-value")
 			kv := [2]string{paramNode.Children[0].String(), valNode.String()}
 
-			if otherParamsStarted || stringutils.LCase(kv[0]) == "q" {
+			if otherParamsStarted || util.LCase(kv[0]) == "q" {
 				// media-range usually used as part of accept-range
 				// we interpret 'q' param as a separator between media-range and accept-range params
 				// RFC 2616 Section 14.1.
@@ -107,5 +178,6 @@ func buildFromMIMETypeNode(node *abnf.Node) (MIMEType, [][2]string) {
 			mt.Params.Append(kv[0], kv[1])
 		}
 	}
+
 	return mt, otherParams
 }

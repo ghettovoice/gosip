@@ -1,166 +1,324 @@
 package header_test
 
 import (
-	"reflect"
+	"net/url"
+	"strings"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/ghettovoice/gosip/sip/header"
-	"github.com/ghettovoice/gosip/sip/uri"
+	"github.com/ghettovoice/gosip/uri"
 )
 
-var _ = Describe("Header", Label("sip", "header"), func() {
-	Describe("Error-Info", func() {
-		assertHeaderParsing(
-			// region
-			Entry(nil, "Error-Info: ", &header.Any{Name: "Error-Info"}, nil),
-			Entry(nil, "Error-Info: abc", &header.Any{Name: "Error-Info", Value: "abc"}, nil),
-			Entry(nil,
-				"Error-Info: <sip:not-in-service-recording@atlanta.com;p1=abc>;p2=zzz,\r\n"+
-					"\t<http://example.org/qwerty>",
-				header.ErrorInfo{
-					{
-						URI: &uri.SIP{
-							User:   uri.User("not-in-service-recording"),
-							Addr:   uri.Host("atlanta.com"),
-							Params: make(header.Values).Set("p1", "abc"),
-						},
-						Params: make(header.Values).Set("p2", "zzz"),
-					},
-					{
-						URI: &uri.Any{Scheme: "http", Host: "example.org", Path: "/qwerty"},
-					},
-				},
-				nil,
-			),
-			// endregion
-		)
+func TestErrorInfo_Render(t *testing.T) {
+	t.Parallel()
 
-		assertHeaderRendering(
-			// region
-			Entry(nil, header.ErrorInfo(nil), ""),
-			Entry(nil, header.ErrorInfo{}, "Error-Info: "),
-			Entry(nil,
-				header.ErrorInfo{
-					{
-						URI: &uri.SIP{
-							User:   uri.User("not-in-service-recording"),
-							Addr:   uri.Host("atlanta.com"),
-							Params: make(header.Values).Set("p1", "abc"),
+	cases := []struct {
+		name string
+		hdr  header.ErrorInfo
+		want string
+	}{
+		{"nil", header.ErrorInfo(nil), ""},
+		{"empty", header.ErrorInfo{}, "Error-Info: "},
+		{"empty elem", header.ErrorInfo{{}}, "Error-Info: <>"},
+		{
+			"full",
+			header.ErrorInfo{
+				{
+					URI: &uri.Any{
+						URL: url.URL{
+							Scheme:   "https",
+							Host:     "example.com",
+							Path:     "/a/b/c",
+							RawQuery: "foo=bar",
 						},
-						Params: make(header.Values).Set("p2", "zzz"),
 					},
-					{
-						URI: &uri.Any{Scheme: "http", Host: "example.org", Path: "/qwerty"},
-					},
+					Params: make(header.Values).Set("foo", "bar").Set("baz", ""),
 				},
-				"Error-Info: <sip:not-in-service-recording@atlanta.com;p1=abc>;p2=zzz, <http://example.org/qwerty>",
-			),
-			// endregion
-		)
-
-		assertHeaderComparing(
-			// region
-			Entry(nil, header.ErrorInfo(nil), nil, false),
-			Entry(nil, header.ErrorInfo(nil), header.ErrorInfo(nil), true),
-			Entry(nil, header.ErrorInfo{}, header.ErrorInfo(nil), true),
-			Entry(nil,
-				header.ErrorInfo{
-					{
-						URI: &uri.SIP{
-							User:   uri.User("not-in-service-recording"),
-							Addr:   uri.Host("atlanta.com"),
-							Params: make(header.Values).Set("p1", "abc"),
-						},
-						Params: make(header.Values).Set("p2", "zzz"),
-					},
-					{
-						URI: &uri.Any{Scheme: "http", Host: "example.org", Path: "/qwerty"},
-					},
+				{
+					URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/x/y/z"}},
 				},
-				header.ErrorInfo{
-					{
-						URI: &uri.SIP{
-							User:   uri.User("not-in-service-recording"),
-							Addr:   uri.Host("atlanta.com"),
-							Params: make(header.Values).Set("p1", "abc"),
-						},
-						Params: make(header.Values).Set("p2", "zzz"),
-					},
-					{
-						URI: &uri.Any{Scheme: "http", Host: "example.org", Path: "/qwerty"},
-					},
-				},
-				true,
-			),
-			// endregion
-		)
-
-		assertHeaderValidating(
-			// region
-			Entry(nil, header.ErrorInfo(nil), false),
-			Entry(nil, header.ErrorInfo{}, false),
-			Entry(nil, header.ErrorInfo{{URI: (*uri.SIP)(nil)}}, false),
-			Entry(nil,
-				header.ErrorInfo{
-					{
-						URI: &uri.SIP{
-							User:   uri.User("not-in-service-recording"),
-							Addr:   uri.Host("atlanta.com"),
-							Params: make(header.Values).Set("p1", "abc"),
-						},
-						Params: make(header.Values).Set("p2", "zzz"),
-					},
-					{
-						URI: &uri.Any{Scheme: "http", Host: "example.org", Path: "/qwerty"},
-					},
-				},
-				true,
-			),
-			// endregion
-		)
-
-		assertHeaderCloning(
-			// region
-			func(hdr1, hdr2 header.ErrorInfo) {
-				if len(hdr1) > 0 {
-					Expect(reflect.ValueOf(hdr2).Pointer()).
-						ToNot(Equal(reflect.ValueOf(hdr1).Pointer()))
-					for i := range hdr1 {
-						if hdr1[i].URI == nil {
-							Expect(hdr2[i].URI).To(BeNil())
-						} else {
-							Expect(reflect.ValueOf(hdr2[i].URI).Pointer()).
-								ToNot(Equal(reflect.ValueOf(hdr1[i].URI).Pointer()))
-						}
-						if hdr1[i].Params == nil {
-							Expect(hdr2[i].Params).To(BeNil())
-						} else {
-							Expect(reflect.ValueOf(hdr2[i].Params).Pointer()).
-								ToNot(Equal(reflect.ValueOf(hdr1[i].Params).Pointer()))
-						}
-					}
-				}
 			},
-			Entry(nil, header.ErrorInfo(nil)),
-			Entry(nil, header.ErrorInfo{}),
-			Entry(nil,
-				header.ErrorInfo{
-					{
-						URI: &uri.SIP{
-							User:   uri.User("not-in-service-recording"),
-							Addr:   uri.Host("atlanta.com"),
-							Params: make(header.Values).Set("p1", "abc"),
-						},
-						Params: make(header.Values).Set("p2", "zzz"),
-					},
-					{
-						URI: &uri.Any{Scheme: "http", Host: "example.org", Path: "/qwerty"},
-					},
+			"Error-Info: <https://example.com/a/b/c?foo=bar>;baz;foo=bar, <https://example.com/x/y/z>",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.Render(); got != c.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestErrorInfo_RenderTo(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		hdr     header.ErrorInfo
+		wantRes string
+		wantErr error
+	}{
+		{"nil", header.ErrorInfo(nil), "", nil},
+		{"empty", header.ErrorInfo{}, "Error-Info: ", nil},
+		{
+			"full",
+			header.ErrorInfo{
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}},
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/x/y/z"}}},
+			},
+			"Error-Info: <https://example.com/a/b/c>, <https://example.com/x/y/z>",
+			nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sb strings.Builder
+
+			_, err := c.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			}
+
+			if got := sb.String(); got != c.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			}
+		})
+	}
+}
+
+func TestErrorInfo_String(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.ErrorInfo
+		want string
+	}{
+		{"nil", header.ErrorInfo(nil), ""},
+		{"empty", header.ErrorInfo{}, ""},
+		{
+			"full",
+			header.ErrorInfo{
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}},
+				{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/x/y/z"}}},
+			},
+			"<https://example.com/a/b/c>, <https://example.com/x/y/z>",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.String(); got != c.want {
+				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestErrorInfo_Equal(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.ErrorInfo
+		val  any
+		want bool
+	}{
+		{"nil ptr to nil", header.ErrorInfo(nil), nil, false},
+		{"nil ptr to nil ptr", header.ErrorInfo(nil), header.ErrorInfo(nil), true},
+		{"zero ptr to nil ptr", header.ErrorInfo{}, header.ErrorInfo(nil), true},
+		{"zero to zero", header.ErrorInfo{}, header.ErrorInfo{}, true},
+		{"zero to zero ptr", header.ErrorInfo{}, &header.ErrorInfo{}, true},
+		{"zero to nil ptr", header.ErrorInfo{}, (*header.ErrorInfo)(nil), false},
+		{
+			"not match 1",
+			header.ErrorInfo{{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}}},
+			header.ErrorInfo{},
+			false,
+		},
+		{
+			"not match 2",
+			header.ErrorInfo{
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field1", `"QWERTY"`),
 				},
-			),
-			// endregion
-		)
-	})
-})
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field2", "asd"),
+				},
+			},
+			header.ErrorInfo{
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field2", "asd"),
+				},
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field1", `"QWERTY"`),
+				},
+			},
+			false,
+		},
+		{
+			"not match 3",
+			header.ErrorInfo{
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field1", `"QWERTY"`),
+				},
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field2", "asd"),
+				},
+			},
+			header.ErrorInfo{
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field1", `"qwerty"`),
+				},
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field2", "asd"),
+				},
+			},
+			false,
+		},
+		{
+			"not match 4",
+			header.ErrorInfo{
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("purpose", "qwe"),
+				},
+			},
+			header.ErrorInfo{
+				{
+					URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
+				},
+			},
+			false,
+		},
+		{
+			"match",
+			header.ErrorInfo{
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "abc.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field1", `"QWERTY"`),
+				},
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "asd.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field2", "asd").Set("purpose", "qwe"),
+				},
+			},
+			header.ErrorInfo{
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "HTTPS", Host: "ABC.com", Path: "/a/b/c"}},
+					Params: make(header.Values).Set("field1", `"qwerty"`).Append("field1", `"QWERTY"`),
+				},
+				{
+					URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "ASD.COM", Path: "/a/b/c"}},
+					Params: make(header.Values).
+						Set("purpose", "qwe").
+						Append("field1", "zxc").
+						Append("field2", "ASD"),
+				},
+			},
+			true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.Equal(c.val); got != c.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestErrorInfo_IsValid(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.ErrorInfo
+		want bool
+	}{
+		{"nil", header.ErrorInfo(nil), false},
+		{"empty", header.ErrorInfo{}, false},
+		{
+			"valid",
+			header.ErrorInfo{
+				{
+					URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
+					Params: header.Values{"purpose": {"qwe"}},
+				},
+			},
+			true,
+		},
+		{"invalid 1", header.ErrorInfo{{URI: (*uri.Any)(nil)}}, false},
+		{
+			"invalid 2",
+			header.ErrorInfo{{
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com"}},
+				Params: header.Values{"f i e l d": {"123"}},
+			}},
+			false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.IsValid(); got != c.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestErrorInfo_Clone(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.ErrorInfo
+	}{
+		{"nil", nil},
+		{"empty", header.ErrorInfo{}},
+		{
+			"full",
+			header.ErrorInfo{{
+				URI:    &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}},
+				Params: header.Values{"purpose": {"qwe"}},
+			}},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := c.hdr.Clone()
+			if diff := cmp.Diff(got, c.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			}
+		})
+	}
+}

@@ -3,30 +3,72 @@ package header
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
+// Server represents the Server header field.
+// The Server header field contains information about the software used by the UAS to handle the request.
 type Server string
 
+// CanonicName returns the canonical name of the header.
 func (Server) CanonicName() Name { return "Server" }
 
-func (hdr Server) RenderTo(w io.Writer) error {
-	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", string(hdr))
-	return err
+// CompactName returns the compact name of the header (Server has no compact form).
+func (Server) CompactName() Name { return "Server" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr Server) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(fmt.Fprint(w, hdr.CanonicName(), ": ", hdr.RenderValue()))
 }
 
-func (hdr Server) Render() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+// Render returns the string representation of the header.
+func (hdr Server) Render(opts ...RenderOptions) string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
+// RenderValue returns the header value without the name prefix.
+func (hdr Server) RenderValue() string { return string(hdr) }
+
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr Server) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, string(hdr))
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(string(hdr)))
+		return
+	default:
+		type (
+			hideMethods Server
+			Server      hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), Server(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
 func (hdr Server) Clone() Header { return hdr }
 
+// Equal compares this header with another for equality.
 func (hdr Server) Equal(val any) bool {
 	var other Server
 	switch v := val.(type) {
@@ -40,10 +82,40 @@ func (hdr Server) Equal(val any) bool {
 	default:
 		return false
 	}
+
 	return hdr == other
 }
 
+// IsValid checks whether the header is syntactically valid.
 func (hdr Server) IsValid() bool { return hdr != "" }
+
+func (hdr Server) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *Server) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = ""
+		return nil
+	}
+
+	h, ok := gh.(Server)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
+}
 
 func buildFromServerNode(node *abnf.Node) Server {
 	var s []byte

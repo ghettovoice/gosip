@@ -4,50 +4,99 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type Allow []string
+// Allow represents the Allow header field.
+// The Allow header field lists the set of methods supported by the UA generating the message.
+type Allow []RequestMethod
 
+// CanonicName returns the canonical name of the header.
 func (Allow) CanonicName() Name { return "Allow" }
 
-func (hdr Allow) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header (Allow has no compact form).
+func (Allow) CompactName() Name { return "Allow" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr Allow) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(hdr.renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr Allow) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
+func (hdr Allow) renderValueTo(w io.Writer) (num int, err error) {
+	return errors.Wrap2(renderHdrEntries(w, hdr))
+}
 
-func (hdr Allow) Render() string {
+// Render returns the string representation of the header.
+func (hdr Allow) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr Allow) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	sb.WriteByte('[')
-	_ = hdr.renderValue(sb)
-	sb.WriteByte(']')
+// RenderValue returns the string representation of the header value.
+func (hdr Allow) RenderValue() string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
 }
 
+// String returns the string representation of the header value.
+func (hdr Allow) String() string { return hdr.RenderValue() }
+
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr Allow) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods Allow
+			Allow       hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), Allow(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
 func (hdr Allow) Clone() Header { return slices.Clone(hdr) }
 
+// Equal compares this header with another for equality.
 func (hdr Allow) Equal(val any) bool {
 	var other Allow
 	switch v := val.(type) {
@@ -61,18 +110,44 @@ func (hdr Allow) Equal(val any) bool {
 	default:
 		return false
 	}
-	return slices.EqualFunc(hdr, other, func(mtd1, mtd2 string) bool { return stringutils.UCase(mtd1) == stringutils.UCase(mtd2) })
+
+	return slices.EqualFunc(hdr, other, func(mtd1, mtd2 RequestMethod) bool { return mtd1.Equal(mtd2) })
 }
 
+// IsValid checks whether the header is syntactically valid.
 func (hdr Allow) IsValid() bool {
-	return hdr != nil && !slices.ContainsFunc(hdr, func(mtd string) bool { return !grammar.IsToken(mtd) })
+	return hdr != nil && !slices.ContainsFunc(hdr, func(mtd RequestMethod) bool { return !mtd.IsValid() })
+}
+
+func (hdr Allow) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *Allow) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = nil
+		return nil
+	}
+
+	h, ok := gh.(Allow)
+	if !ok {
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
 }
 
 func buildFromAllowNode(node *abnf.Node) Allow {
 	mthNodes := node.GetNodes("Method")
 	hdr := make(Allow, len(mthNodes))
 	for i, mthNode := range mthNodes {
-		hdr[i] = mthNode.String()
+		hdr[i] = RequestMethod(mthNode.String())
 	}
 	return hdr
 }

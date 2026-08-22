@@ -4,50 +4,100 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type Require []string
+// Require represents the Require header field.
+// The Require header field is used by UACs to tell UASs about options that the UAC expects the UAS to support.
+type Require []OptionTag
 
+// CanonicName returns the canonical name of the header.
 func (Require) CanonicName() Name { return "Require" }
 
-func (hdr Require) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header (Require has no compact form).
+func (Require) CompactName() Name { return "Require" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr Require) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(hdr.renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr Require) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
+func (hdr Require) renderValueTo(w io.Writer) (num int, err error) {
+	return errors.Wrap2(renderHdrEntries(w, hdr))
+}
 
-func (hdr Require) Render() string {
+// Render returns the string representation of the header.
+func (hdr Require) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr Require) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	sb.WriteByte('[')
-	_ = hdr.renderValue(sb)
-	sb.WriteByte(']')
+// RenderValue returns the header value without the name prefix.
+func (hdr Require) RenderValue() string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
 }
 
+// String returns the string representation of the header value.
+func (hdr Require) String() string { return hdr.RenderValue() }
+
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr Require) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods Require
+			Require     hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), Require(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
 func (hdr Require) Clone() Header { return slices.Clone(hdr) }
 
+// Equal compares this header with another for equality.
 func (hdr Require) Equal(val any) bool {
 	var other Require
 	switch v := val.(type) {
@@ -61,20 +111,67 @@ func (hdr Require) Equal(val any) bool {
 	default:
 		return false
 	}
-	return slices.EqualFunc(hdr, other, func(a, b string) bool { return stringutils.LCase(a) == stringutils.LCase(b) })
+
+	return slices.EqualFunc(hdr, other, func(o1, o2 OptionTag) bool { return o1.Equal(o2) })
 }
 
+// IsValid checks whether the header is syntactically valid.
 func (hdr Require) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(s string) bool { return !grammar.IsToken(s) })
+	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(o OptionTag) bool { return !o.IsValid() })
+}
+
+func (hdr Require) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *Require) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = nil
+		return nil
+	}
+
+	h, ok := gh.(Require)
+	if !ok {
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
 }
 
 func buildFromRequireNode(node *abnf.Node) Require {
 	tagNodes := node.GetNodes("token")
 	h := make(Require, 0, len(tagNodes))
 	for i := range tagNodes {
-		if n := tagNodes[i].GetNode("token"); n != nil {
-			h = append(h, n.String())
+		if n, ok := tagNodes[i].GetNode("token"); ok {
+			h = append(h, OptionTag(n.String()))
 		}
 	}
 	return h
+}
+
+type OptionTag string
+
+func (lng OptionTag) IsValid() bool { return grammar.IsToken(lng) }
+
+func (lng OptionTag) Equal(val any) bool {
+	var other OptionTag
+	switch v := val.(type) {
+	case OptionTag:
+		other = v
+	case *OptionTag:
+		if v == nil {
+			return false
+		}
+		other = *v
+	default:
+		return false
+	}
+
+	return util.EqFold(lng, other)
 }

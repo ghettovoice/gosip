@@ -4,55 +4,114 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type Contact []EntityAddr
+// Contact represents the Contact header field.
+// The Contact header field provides a SIP or SIPS URI that can be used to contact that specific instance
+// of the UA for subsequent requests.
+type Contact []ContactAddr
 
+// CanonicName returns the canonical name of the header.
 func (Contact) CanonicName() Name { return "Contact" }
 
-func (hdr Contact) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header.
+func (Contact) CompactName() Name { return "m" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr Contact) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.name(opts...), ": ")
+	cw.Call(hdr.renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr Contact) renderValue(w io.Writer) error {
+func (hdr Contact) name(opts ...RenderOptions) Name {
+	if util.LastSliceElemOr(opts, RenderOptions{}).Compact {
+		return hdr.CompactName()
+	}
+	return hdr.CanonicName()
+}
+
+func (hdr Contact) renderValueTo(w io.Writer) (num int, err error) {
 	if len(hdr) == 0 {
-		_, err := fmt.Fprint(w, "*")
-		return err
+		return errors.Wrap2(fmt.Fprint(w, "*"))
 	}
-	return renderHeaderEntries(w, hdr)
+	return errors.Wrap2(renderHdrEntries(w, hdr))
 }
 
-func (hdr Contact) Render() string {
+// Render returns the string representation of the header.
+func (hdr Contact) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr Contact) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	sb.WriteByte('[')
-	_ = hdr.renderValue(sb)
-	sb.WriteByte(']')
+// String returns the string representation of the header value.
+func (hdr Contact) String() string { return hdr.RenderValue() }
+
+// RenderValue returns the header value without the name prefix.
+func (hdr Contact) RenderValue() string {
+	if hdr == nil {
+		return ""
+	}
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
 }
 
-func (hdr Contact) Clone() Header { return cloneHeaderEntries(hdr) }
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr Contact) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods Contact
+			Contact     hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), Contact(hdr))
+		return
+	}
+}
 
+// Clone returns a copy of the header.
+func (hdr Contact) Clone() Header { return cloneHdrEntries(hdr) }
+
+// Equal compares this header with another for equality.
 func (hdr Contact) Equal(val any) bool {
 	var other Contact
 	switch v := val.(type) {
@@ -66,18 +125,50 @@ func (hdr Contact) Equal(val any) bool {
 	default:
 		return false
 	}
-	return slices.EqualFunc(hdr, other, func(addr1, addr2 EntityAddr) bool { return addr1.Equal(addr2) })
+
+	return slices.EqualFunc(hdr, other, func(addr1, addr2 ContactAddr) bool { return addr1.Equal(addr2) })
 }
 
+// IsValid checks whether the header is syntactically valid.
 func (hdr Contact) IsValid() bool {
-	return hdr != nil && !slices.ContainsFunc(hdr, func(addr EntityAddr) bool { return !addr.IsValid() })
+	return hdr != nil && !slices.ContainsFunc(hdr, func(addr ContactAddr) bool { return !addr.IsValid() })
+}
+
+func (hdr Contact) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *Contact) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = nil
+		return nil
+	}
+
+	h, ok := gh.(Contact)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
 }
 
 func buildFromContactNode(node *abnf.Node) Contact {
 	cntNodes := node.GetNodes("contact-param")
 	h := make(Contact, len(cntNodes))
 	for i, cntNode := range cntNodes {
-		h[i] = buildFromHeaderAddrNode(cntNode, "contact-params")
+		h[i] = buildFromNameAddrNode(cntNode, "contact-params")
 	}
 	return h
 }
+
+type ContactAddr = NameAddr

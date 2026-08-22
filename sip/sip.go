@@ -1,88 +1,51 @@
-// Package sip implements SIP protocol as described in RFC 3261.
 package sip
 
 import (
-	"errors"
-	"regexp"
-	"time"
+	"context"
+	"net"
 
-	"github.com/gabriel-vasile/mimetype"
-	"github.com/ghettovoice/gosip/sip/internal/shared"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/types"
 )
 
-var (
-	ErrInvalidMessage  = errors.New("invalid message")
-	ErrMessageTooLarge = errors.New("message too large")
-)
+// RenderOptions represents options for rendering SIP messages.
+// See [types.RenderOptions].
+type RenderOptions = types.RenderOptions
 
-type ProtoInfo = shared.ProtoInfo
+// ProtoInfo represents SIP protocol information.
+// See [types.ProtoInfo].
+type ProtoInfo = types.ProtoInfo
 
 var protoVer20 = ProtoInfo{Name: "SIP", Version: "2.0"}
 
+// ProtoVer20 returns the SIP 2.0 protocol information.
 func ProtoVer20() ProtoInfo { return protoVer20 }
 
-// SIP timers.
-var (
-	// T1 is the message RTT estimate.
-	T1 = 500 * time.Millisecond
-	// T2 is the maximum retransmit interval for non-INVITE requests and INVITE responses.
-	T2 = 4 * time.Second
-	// T4 is the maximum duration a message will remain in the network.
-	T4 = 5 * time.Second
+// Addr represents a network address.
+// See [types.Addr].
+type Addr = types.Addr
 
-	// TimeD is the wait duration for response retransmits via unreliable transport.
-	TimeD = 32 * time.Second
-)
+// AddrFromHost returns an [Addr] containing the provided host and no port.
+func AddrFromHost(host string) Addr { return types.AddrFromHost(host) }
 
-// Time100 is the timeout for automatic 100 Trying response on INVITE.
-const Time100 = 200 * time.Millisecond
+// AddrFromHostPort returns an [Addr] containing the provided host and port.
+func AddrFromHostPort(host string, port uint16) Addr { return types.AddrFromHostPort(host, port) }
 
-// TimeA returns initial INVITE request retransmit interval for unreliable transport.
-// It is equal to [T1].
-func TimeA() time.Duration { return T1 }
+func AddrFromIP(ip net.IP) Addr { return types.AddrFromIP(ip) }
 
-// TimeB returns INVITE transaction timeout.
-// It is equal to 64*[T1].
-func TimeB() time.Duration { return 64 * T1 }
+func AddrFromIPPort(ip net.IP, port uint16) Addr { return types.AddrFromIPPort(ip, port) }
 
-// TimeC returns the INVITE transaction timeout on proxy.
-// It is equal to 600*[T1].
-func TimeC() time.Duration { return 600 * T1 }
+// ParseAddr parses a "host[:port]" string into an [Addr].
+func ParseAddr(s string) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }
 
-// TimeE returns initial non-INVITE request retransmit interval for unreliable transport.
-// It is equal to [T1].
-func TimeE() time.Duration { return T1 }
+// Values represents a map of string keys to string values.
+// See [types.Values].
+type Values = types.Values
 
-// TimeF returns non-INVITE transaction timeout.
-// It is equal to 64*[T1].
-func TimeF() time.Duration { return 64 * T1 }
-
-// TimeG returns initial INVITE response retransmit interval for any transport.
-// It is equal to [T1].
-func TimeG() time.Duration { return T1 }
-
-// TimeH returns timeout for ACK request receipt.
-// It is equal to 64*[T1].
-func TimeH() time.Duration { return 64 * T1 }
-
-// TimeI returns wait duration for ACK request retransmits via unreliable transport.
-// It is equal to [T4].
-func TimeI() time.Duration { return T4 }
-
-// TimeJ returns wait duration for non-INVITE request retransmits via unreliable transport.
-// It is equal to 64*[T4].
-func TimeJ() time.Duration { return 64 * T4 }
-
-// TimeK returns wait duration for response retransmits via unreliable transport.
-// It is equal to [T4].
-func TimeK() time.Duration { return T4 }
-
-func TimeL() time.Duration { return 64 * T4 }
-
-func TimeM() time.Duration { return 64 * T4 }
-
-func init() {
-	sdpRegex := regexp.MustCompile(`v=0\r?\no=.*\r?\ns=.*\r?\n`)
-	mimetype.Extend(func(raw []byte, limit uint32) bool { return sdpRegex.Match(raw) }, "application/sdp", ".sdp")
-	// TODO add other common mime-type detectors (DTMF, etc)
+type ErrorHandler interface {
+	HandleError(ctx context.Context, err error)
 }
+
+type ErrorHandlerFunc func(ctx context.Context, err error)
+
+func (f ErrorHandlerFunc) HandleError(ctx context.Context, err error) { f(ctx, errors.Wrap(err)) }

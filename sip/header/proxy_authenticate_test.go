@@ -1,78 +1,37 @@
 package header_test
 
 import (
-	"reflect"
+	"encoding/json"
+	"net/url"
+	"strings"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/ghettovoice/gosip/sip/header"
-	"github.com/ghettovoice/gosip/sip/uri"
+	"github.com/ghettovoice/gosip/uri"
 )
 
-var _ = Describe("Header", Label("sip", "header"), func() {
-	Describe("Proxy-Authentication", func() {
-		assertHeaderParsing(
-			// region
-			Entry(nil, "Proxy-Authenticate: ", &header.Any{Name: "Proxy-Authenticate"}, nil),
-			Entry(nil, "Proxy-Authenticate: Digest", &header.Any{Name: "Proxy-Authenticate", Value: "Digest"}, nil),
-			Entry(nil,
-				"Proxy-Authenticate: Digest realm=\"atlanta.com\",\r\n"+
-					"\tdomain=\"sip:ss1.carrier.com http://example.com /a/b/c\", qop=\"auth,auth-int\",\r\n"+
-					"\tnonce=\"f84f1cec41e6cbe5aea9c8e88d359\",\r\n"+
-					"\topaque=\"\", stale=true, algorithm=MD5,\r\n"+
-					"\tp1=abc, p2=\"a b c\"",
-				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
-					Realm: "atlanta.com",
-					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
-						&uri.Any{Scheme: "http", Host: "example.com"},
-						&uri.Any{Path: "/a/b/c"},
-					},
-					QOP:       []string{"auth", "auth-int"},
-					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
-					Stale:     true,
-					Algorithm: "MD5",
-					Opaque:    "",
-					Params:    make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				nil,
-			),
-			Entry(nil,
-				"Proxy-Authenticate: Bearer realm=\"atlanta.com\",\r\n"+
-					"\tscope=\"abc\", authz_server=\"http://example.com\", error=\"qwerty\",\r\n"+
-					"\tp1=abc, p2=\"a b c\"",
-				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
-					Realm:       "atlanta.com",
-					Scope:       "abc",
-					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
-					Error:       "qwerty",
-					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				nil,
-			),
-			Entry(nil,
-				"Proxy-Authenticate: Custom p1=abc, p2=\"a b c\"",
-				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
-					Scheme: "Custom",
-					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				nil,
-			),
-			// endregion
-		)
+func TestProxyAuthenticate_Render(t *testing.T) {
+	t.Parallel()
 
-		assertHeaderRendering(
-			// region
-			Entry(nil, (*header.ProxyAuthenticate)(nil), ""),
-			Entry(nil, &header.ProxyAuthenticate{}, "Proxy-Authenticate: "),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthenticate
+		want string
+	}{
+		{"nil", nil, ""},
+		{"zero", &header.ProxyAuthenticate{}, "Proxy-Authenticate: "},
+		{
+			"digest",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
-						&uri.Any{Scheme: "http", Host: "example.com"},
-						&uri.Any{Path: "/a/b/c"},
+						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -80,55 +39,157 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					Algorithm: "MD5",
 					Opaque:    "qwerty",
 					Params:    make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				"Proxy-Authenticate: Digest algorithm=MD5, nonce=\"f84f1cec41e6cbe5aea9c8e88d359\", "+
-					"opaque=\"qwerty\", qop=\"auth,auth-int\", realm=\"atlanta.com\", stale=true, "+
-					"domain=\"sip:ss1.carrier.com http://example.com /a/b/c\", p1=abc, p2=\"a b c\"",
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
+				},
+			},
+			"Proxy-Authenticate: Digest algorithm=MD5, nonce=\"f84f1cec41e6cbe5aea9c8e88d359\", " +
+				"opaque=\"qwerty\", qop=\"auth,auth-int\", realm=\"atlanta.com\", stale=true, " +
+				"domain=\"sip:ss1.carrier.com http://example.com /a/b/c\", p1=abc, p2=\"a b c\"",
+		},
+		{
+			"bearer",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.BearerChallenge{
 					Realm:       "atlanta.com",
 					Scope:       "abc",
-					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
+					AuthzServer: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
 					Error:       "qwerty",
 					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				"Proxy-Authenticate: Bearer error=\"qwerty\", realm=\"atlanta.com\", scope=\"abc\", "+
-					"authz_server=\"http://example.com\", p1=abc, p2=\"a b c\"",
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
+				},
+			},
+			"Proxy-Authenticate: Bearer error=\"qwerty\", realm=\"atlanta.com\", scope=\"abc\", " +
+				"authz_server=\"http://example.com\", p1=abc, p2=\"a b c\"",
+		},
+		{
+			"custom",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
 					Scheme: "Custom",
 					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				"Proxy-Authenticate: Custom p1=abc, p2=\"a b c\"",
-			),
-			// endregion
-		)
+				},
+			},
+			"Proxy-Authenticate: Custom p1=abc, p2=\"a b c\"",
+		},
+	}
 
-		assertHeaderComparing(
-			// region
-			Entry(nil, (*header.ProxyAuthenticate)(nil), nil, false),
-			Entry(nil, (*header.ProxyAuthenticate)(nil), (*header.ProxyAuthenticate)(nil), true),
-			Entry(nil, &header.ProxyAuthenticate{}, (*header.ProxyAuthenticate)(nil), false),
-			Entry(nil, &header.ProxyAuthenticate{}, &header.ProxyAuthenticate{}, true),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: (*header.DigestChallenge)(nil)},
-				&header.ProxyAuthenticate{AuthChallenge: (*header.DigestChallenge)(nil)},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: (*header.DigestChallenge)(nil)},
-				&header.ProxyAuthenticate{AuthChallenge: (*header.BearerChallenge)(nil)},
-				false,
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.Render(); got != c.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProxyAuthenticate_RenderTo(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		hdr     *header.ProxyAuthenticate
+		wantRes string
+		wantErr error
+	}{
+		{"nil", nil, "", nil},
+		{"zero", &header.ProxyAuthenticate{}, "Proxy-Authenticate: ", nil},
+		{
+			"custom",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			"Proxy-Authenticate: Custom p1=abc, p2=\"a b c\"",
+			nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sb strings.Builder
+
+			_, err := c.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			}
+
+			if got := sb.String(); got != c.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			}
+		})
+	}
+}
+
+func TestProxyAuthenticate_String(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthenticate
+		want string
+	}{
+		{"nil", (*header.ProxyAuthenticate)(nil), ""},
+		{"zero", &header.ProxyAuthenticate{}, ""},
+		{
+			"custom",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			"Custom p1=abc, p2=\"a b c\"",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.String(); got != c.want {
+				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProxyAuthenticate_Equal(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthenticate
+		val  any
+		want bool
+	}{
+		{"nil ptr to nil", (*header.ProxyAuthenticate)(nil), nil, false},
+		{"nil ptr to nil ptr", (*header.ProxyAuthenticate)(nil), (*header.ProxyAuthenticate)(nil), true},
+		{"zero ptr to nil ptr", &header.ProxyAuthenticate{}, (*header.ProxyAuthenticate)(nil), false},
+		{"zero to zero", &header.ProxyAuthenticate{}, header.ProxyAuthenticate{}, true},
+		{
+			"not match 1",
+			&header.ProxyAuthenticate{},
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
+					Scheme: "Qwerty",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			false,
+		},
+		{
+			"not match 2",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
-						&uri.Any{Scheme: "http", Host: "example.com"},
-						&uri.Any{Path: "/a/b/c"},
+						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -136,13 +197,108 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					Algorithm: "MD5",
 					Opaque:    "qwerty",
 					Params:    make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
+				},
+			},
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.BearerChallenge{
+					Realm:       "atlanta.com",
+					Scope:       "abc",
+					AuthzServer: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+					Error:       "qwerty",
+					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			false,
+		},
+		{
+			"match",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
+					Scheme: "custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "ABC").Set("p2", `"a b c"`),
+				},
+			},
+			true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.Equal(c.val); got != c.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProxyAuthenticate_IsValid(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthenticate
+		want bool
+	}{
+		{"nil", (*header.ProxyAuthenticate)(nil), false},
+		{"zero", &header.ProxyAuthenticate{}, false},
+		{
+			"invalid 1",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{Realm: "ATLANTA.com"},
+			},
+			false,
+		},
+		{"invalid 2", &header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{}}, false},
+		{"invalid 3", &header.ProxyAuthenticate{AuthChallenge: (*header.AnyChallenge)(nil)}, false},
+		{
+			"valid",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc"),
+				},
+			},
+			true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.IsValid(); got != c.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProxyAuthenticate_Clone(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthenticate
+	}{
+		{"nil", nil},
+		{"zero", &header.ProxyAuthenticate{}},
+		{
+			"digest",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{
 					Realm: "ATLANTA.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.Host("SS1.CARRIER.COM")},
-						&uri.Any{Scheme: "http", Host: "example.com"},
-						&uri.Any{Path: "/a/b/c"},
+						&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -150,153 +306,70 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					Algorithm: "md5",
 					Opaque:    "qwerty",
 					Params:    make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
-					Realm:       "atlanta.com",
-					Scope:       "abc",
-					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
-					Error:       "qwerty",
-					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
-					Realm:       "ATLANTA.COM",
-					Scope:       "abc",
-					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
-					Error:       "qwerty",
-					Params:      make(header.Values).Set("p1", "abc"),
-				}},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
-					Scheme: "Custom",
-					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
-					Scheme: "CUSTOM",
-					Params: make(header.Values).Set("p1", "ABC").Set("p2", `"a b c"`),
-				}},
-				true,
-			),
-			// endregion
-		)
-
-		assertHeaderValidating(
-			// region
-			Entry(nil, (*header.ProxyAuthenticate)(nil), false),
-			Entry(nil, &header.ProxyAuthenticate{}, false),
-			Entry(nil, &header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{}}, false),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
-					Realm: "atlanta.com",
-					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
-						&uri.Any{Scheme: "http", Host: "example.com"},
-						&uri.Any{Path: "/a/b/c"},
-					},
-					QOP:       []string{"auth", "auth-int"},
-					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
-					Stale:     true,
-					Algorithm: "MD5",
-					Opaque:    "qwerty",
-					Params:    make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
-					Realm:       "atlanta.com",
-					Scope:       "abc",
-					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
-					Error:       "qwerty",
-					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				true,
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
-					Scheme: "Custom",
-					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-				true,
-			),
-			// endregion
-		)
-
-		assertHeaderCloning(
-			// region
-			func(hdr1, hdr2 *header.ProxyAuthenticate) {
-				Expect(reflect.ValueOf(hdr2).Pointer()).ToNot(Equal(reflect.ValueOf(hdr1).Pointer()))
-				switch cln1 := hdr1.AuthChallenge.(type) {
-				case *header.DigestChallenge:
-					cln2, _ := hdr2.AuthChallenge.(*header.DigestChallenge)
-					if cln1 == nil || reflect.ValueOf(cln1).IsNil() {
-						Expect(cln2).To(BeNil())
-					} else {
-						Expect(reflect.ValueOf(cln2).Pointer()).ToNot(Equal(reflect.ValueOf(cln1).Pointer()))
-						if len(cln1.QOP) == 0 {
-							Expect(cln2.QOP).To(BeEmpty())
-						} else {
-							Expect(reflect.ValueOf(cln2.QOP).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.QOP).Pointer()))
-						}
-						if len(cln1.Domain) == 0 {
-							Expect(cln2.Domain).To(BeEmpty())
-						} else {
-							Expect(reflect.ValueOf(cln2.Domain).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.Domain).Pointer()))
-							for i := range cln1.Domain {
-								Expect(reflect.ValueOf(cln2.Domain[i]).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.Domain[i]).Pointer()))
-							}
-						}
-						if cln1.Params == nil {
-							Expect(cln2.Params).To(BeNil())
-						} else {
-							Expect(reflect.ValueOf(cln2.Params).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.Params).Pointer()))
-						}
-					}
-				case *header.BearerChallenge:
-					cln2, _ := hdr2.AuthChallenge.(*header.BearerChallenge)
-					if cln1 == nil || reflect.ValueOf(cln1).IsNil() {
-						Expect(cln2).To(BeNil())
-					} else {
-						Expect(reflect.ValueOf(cln2).Pointer()).ToNot(Equal(reflect.ValueOf(cln1).Pointer()))
-						if cln1.AuthzServer == nil || reflect.ValueOf(cln1.AuthzServer).IsNil() {
-							Expect(cln2.AuthzServer).ToNot(BeNil())
-						} else {
-							Expect(reflect.ValueOf(cln2.AuthzServer).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.AuthzServer).Pointer()))
-						}
-						if cln1.Params == nil {
-							Expect(cln2.Params).To(BeNil())
-						} else {
-							Expect(reflect.ValueOf(cln2.Params).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.Params).Pointer()))
-						}
-					}
-				case *header.AnyChallenge:
-					cln2, _ := hdr2.AuthChallenge.(*header.AnyChallenge)
-					if cln1 == nil || reflect.ValueOf(cln1).IsNil() {
-						Expect(cln2).To(BeNil())
-					} else {
-						Expect(reflect.ValueOf(cln2).Pointer()).ToNot(Equal(reflect.ValueOf(cln1).Pointer()))
-						if cln1.Params == nil {
-							Expect(cln2.Params).To(BeNil())
-						} else {
-							Expect(reflect.ValueOf(cln2.Params).Pointer()).ToNot(Equal(reflect.ValueOf(cln1.Params).Pointer()))
-						}
-					}
-				}
+				},
 			},
-			Entry(nil, (*header.ProxyAuthenticate)(nil)),
-			Entry(nil, &header.ProxyAuthenticate{}),
-			// Entry(nil, &header.ProxyAuthenticate{(*header.DigestAuthChallenge)(nil)}),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
+		},
+		{
+			"bearer",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.BearerChallenge{
+					Realm:       "atlanta.com",
+					Scope:       "abc",
+					AuthzServer: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+					Error:       "qwerty",
+					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+		},
+		{
+			"custom",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := c.hdr.Clone()
+			if c.hdr == nil {
+				if got != nil {
+					t.Errorf("hdr.Clone() = %+v, want nil", got)
+				}
+				return
+			}
+
+			if diff := cmp.Diff(got, c.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			}
+		})
+	}
+}
+
+func TestProxyAuthenticate_MarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthenticate
+		want string
+	}{
+		{"nil", nil, "null"},
+		{"zero", &header.ProxyAuthenticate{}, `{"name":"Proxy-Authenticate","value":""}`},
+		{
+			"digest",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.Host("ss1.carrier.com")},
-						&uri.Any{Scheme: "http", Host: "example.com"},
-						&uri.Any{Path: "/a/b/c"},
+						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -304,24 +377,205 @@ var _ = Describe("Header", Label("sip", "header"), func() {
 					Algorithm: "MD5",
 					Opaque:    "qwerty",
 					Params:    make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.BearerChallenge{
+				},
+			},
+			`{"name":"Proxy-Authenticate","value":"Digest algorithm=MD5, nonce=\"f84f1cec41e6cbe5aea9c8e88d359\", opaque=\"qwerty\", qop=\"auth,auth-int\", realm=\"atlanta.com\", stale=true, domain=\"sip:ss1.carrier.com http://example.com /a/b/c\", p1=abc, p2=\"a b c\""}`,
+		},
+		{
+			"bearer",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.BearerChallenge{
 					Realm:       "atlanta.com",
 					Scope:       "abc",
-					AuthzServer: &uri.Any{Scheme: "http", Host: "example.com"},
+					AuthzServer: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
 					Error:       "qwerty",
 					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-			),
-			Entry(nil,
-				&header.ProxyAuthenticate{AuthChallenge: &header.AnyChallenge{
+				},
+			},
+			`{"name":"Proxy-Authenticate","value":"Bearer error=\"qwerty\", realm=\"atlanta.com\", scope=\"abc\", authz_server=\"http://example.com\", p1=abc, p2=\"a b c\""}`,
+		},
+		{
+			"custom",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
 					Scheme: "Custom",
 					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
-				}},
-			),
-			// endregion
-		)
-	})
-})
+				},
+			},
+			`{"name":"Proxy-Authenticate","value":"Custom p1=abc, p2=\"a b c\""}`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := json.Marshal(c.hdr)
+			if err != nil {
+				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
+			}
+
+			if got := string(got); got != c.want {
+				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProxyAuthenticate_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		data    string
+		want    *header.ProxyAuthenticate
+		wantErr bool
+	}{
+		{"null", "null", nil, false},
+		{"empty object", `{}`, nil, true},
+		{"empty name", `{"value":"Custom p1=abc"}`, nil, true},
+		{"empty value", `{"name":"Proxy-Authenticate","value":""}`, &header.ProxyAuthenticate{}, false},
+		{"wrong header", `{"name":"WWW-Authenticate","value":"Digest realm=\"atlanta.com\""}`, nil, true},
+		{"invalid json", `{"name":"Proxy-Authenticate","value":`, nil, true},
+		{
+			"digest",
+			`{"name":"Proxy-Authenticate","value":"Digest algorithm=MD5, nonce=\"f84f1cec41e6cbe5aea9c8e88d359\", opaque=\"qwerty\", qop=\"auth,auth-int\", realm=\"atlanta.com\", stale=true, domain=\"sip:ss1.carrier.com http://example.com /a/b/c\", p1=abc, p2=\"a b c\""}`,
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{
+					Realm: "atlanta.com",
+					Domain: []uri.URI{
+						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					},
+					QOP:       []string{"auth", "auth-int"},
+					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
+					Stale:     true,
+					Algorithm: "MD5",
+					Opaque:    "qwerty",
+					Params:    make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			false,
+		},
+		{
+			"bearer",
+			`{"name":"Proxy-Authenticate","value":"Bearer error=\"qwerty\", realm=\"atlanta.com\", scope=\"abc\", authz_server=\"http://example.com\", p1=abc, p2=\"a b c\""}`,
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.BearerChallenge{
+					Realm:       "atlanta.com",
+					Scope:       "abc",
+					AuthzServer: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+					Error:       "qwerty",
+					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			false,
+		},
+		{
+			"custom",
+			`{"name":"Proxy-Authenticate","value":"Custom p1=abc, p2=\"a b c\""}`,
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+			false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got *header.ProxyAuthenticate
+			if err := json.Unmarshal([]byte(c.data), &got); err != nil {
+				if !c.wantErr {
+					t.Fatalf("json.Unmarshal() error = %v, want nil", err)
+				}
+				return
+			}
+
+			if c.wantErr {
+				t.Fatal("json.Unmarshal() error = nil, want error")
+			}
+
+			if diff := cmp.Diff(got, c.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			}
+		})
+	}
+}
+
+func TestProxyAuthenticate_RoundTripJSON(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  *header.ProxyAuthenticate
+	}{
+		{"nil", nil},
+		{"zero", &header.ProxyAuthenticate{}},
+		{
+			"digest",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{
+					Realm: "atlanta.com",
+					Domain: []uri.URI{
+						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					},
+					QOP:       []string{"auth", "auth-int"},
+					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
+					Stale:     true,
+					Algorithm: "MD5",
+					Opaque:    "qwerty",
+					Params:    make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+		},
+		{
+			"bearer",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.BearerChallenge{
+					Realm:       "atlanta.com",
+					Scope:       "abc",
+					AuthzServer: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
+					Error:       "qwerty",
+					Params:      make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+		},
+		{
+			"custom",
+			&header.ProxyAuthenticate{
+				AuthChallenge: &header.AnyChallenge{
+					Scheme: "Custom",
+					Params: make(header.Values).Set("p1", "abc").Set("p2", `"a b c"`),
+				},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := json.Marshal(c.hdr)
+			if err != nil {
+				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
+			}
+
+			var got *header.ProxyAuthenticate
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
+			}
+
+			if diff := cmp.Diff(got, c.hdr); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			}
+		})
+	}
+}

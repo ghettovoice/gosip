@@ -4,50 +4,88 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/abnfutils"
-	"github.com/ghettovoice/gosip/internal/stringutils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 type AcceptLanguage []LanguageRange
 
 func (AcceptLanguage) CanonicName() Name { return "Accept-Language" }
 
-func (hdr AcceptLanguage) RenderTo(w io.Writer) error {
+func (AcceptLanguage) CompactName() Name { return "Accept-Language" }
+
+func (hdr AcceptLanguage) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(hdr.renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr AcceptLanguage) renderValue(w io.Writer) error { return renderHeaderEntries(w, hdr) }
+func (hdr AcceptLanguage) renderValueTo(w io.Writer) (num int, err error) {
+	return errors.Wrap2(renderHdrEntries(w, hdr))
+}
 
-func (hdr AcceptLanguage) Render() string {
+func (hdr AcceptLanguage) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr AcceptLanguage) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	sb.WriteByte('[')
-	_ = hdr.renderValue(sb)
-	sb.WriteByte(']')
+func (hdr AcceptLanguage) RenderValue() string {
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
 }
 
-func (hdr AcceptLanguage) Clone() Header { return cloneHeaderEntries(hdr) }
+func (hdr AcceptLanguage) String() string { return hdr.RenderValue() }
+
+func (hdr AcceptLanguage) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods    AcceptLanguage
+			AcceptLanguage hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), AcceptLanguage(hdr))
+		return
+	}
+}
+
+func (hdr AcceptLanguage) Clone() Header { return cloneHdrEntries(hdr) }
 
 func (hdr AcceptLanguage) Equal(val any) bool {
 	var other AcceptLanguage
@@ -62,6 +100,7 @@ func (hdr AcceptLanguage) Equal(val any) bool {
 	default:
 		return false
 	}
+
 	return slices.EqualFunc(hdr, other, func(rng1, rng2 LanguageRange) bool { return rng1.Equal(rng2) })
 }
 
@@ -69,12 +108,36 @@ func (hdr AcceptLanguage) IsValid() bool {
 	return hdr != nil && !slices.ContainsFunc(hdr, func(rng LanguageRange) bool { return !rng.IsValid() })
 }
 
+func (hdr AcceptLanguage) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *AcceptLanguage) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = nil
+		return nil
+	}
+
+	h, ok := gh.(AcceptLanguage)
+	if !ok {
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = h
+	return nil
+}
+
 func buildFromAcceptLanguageNode(node *abnf.Node) AcceptLanguage {
 	rngNodes := node.GetNodes("language")
 	hdr := make(AcceptLanguage, len(rngNodes))
 	for i, rngNode := range rngNodes {
 		hdr[i] = LanguageRange{
-			Lang:   abnfutils.MustGetNode(rngNode, "language-range").String(),
+			Lang:   Language(grammar.MustGetNode(rngNode, "language-range").String()),
 			Params: buildFromHeaderParamNodes(rngNode.GetNodes("accept-param"), nil),
 		}
 	}
@@ -82,16 +145,40 @@ func buildFromAcceptLanguageNode(node *abnf.Node) AcceptLanguage {
 }
 
 type LanguageRange struct {
-	Lang   string
+	Lang   Language
 	Params Values
 }
 
 func (rng LanguageRange) String() string {
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	sb.WriteString(rng.Lang)
-	_ = renderHeaderParams(sb, rng.Params, false)
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	sb.WriteString(string(rng.Lang))
+	_, _ = renderHdrParams(sb, rng.Params, false)
 	return sb.String()
+}
+
+func (rng LanguageRange) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		fmt.Fprint(f, rng.String())
+		return
+	case 'q':
+		fmt.Fprint(f, strconv.Quote(rng.String()))
+		return
+	default:
+		if !f.Flag('+') && !f.Flag('#') {
+			fmt.Fprint(f, rng.String())
+			return
+		}
+
+		type (
+			hideMethods   LanguageRange
+			LanguageRange hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), LanguageRange(rng))
+		return
+	}
 }
 
 func (rng LanguageRange) Equal(val any) bool {
@@ -107,11 +194,12 @@ func (rng LanguageRange) Equal(val any) bool {
 	default:
 		return false
 	}
-	return stringutils.LCase(rng.Lang) == stringutils.LCase(other.Lang) && compareHeaderParams(rng.Params, other.Params, map[string]bool{"q": true})
+
+	return rng.Lang.Equal(other.Lang) && compareHdrParams(rng.Params, other.Params, map[string]bool{"q": true})
 }
 
 func (rng LanguageRange) IsValid() bool {
-	return grammar.IsToken(rng.Lang) && validateHeaderParams(rng.Params)
+	return rng.Lang.IsValid() && validateHdrParams(rng.Params)
 }
 
 func (rng LanguageRange) IsZero() bool { return rng.Lang == "" && len(rng.Params) == 0 }
@@ -119,4 +207,38 @@ func (rng LanguageRange) IsZero() bool { return rng.Lang == "" && len(rng.Params
 func (rng LanguageRange) Clone() LanguageRange {
 	rng.Params = rng.Params.Clone()
 	return rng
+}
+
+func (rng LanguageRange) MarshalText() ([]byte, error) {
+	return []byte(rng.String()), nil
+}
+
+func (rng LanguageRange) AppendText(data []byte) ([]byte, error) {
+	return append(data, rng.String()...), nil
+}
+
+func (rng *LanguageRange) UnmarshalText(data []byte) (finErr error) {
+	if len(data) == 0 {
+		*rng = LanguageRange{}
+		return nil
+	}
+
+	defer func() {
+		if rv := recover(); rv != nil {
+			if e, ok := rv.(error); ok {
+				finErr = errors.Wrap(e)
+			} else {
+				finErr = errors.ErrorfWrap("%v", rv)
+			}
+		}
+	}()
+
+	node, err := grammar.ParseLanguage(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	rng.Lang = Language(grammar.MustGetNode(node, "language-range").String())
+	rng.Params = buildFromHeaderParamNodes(node.GetNodes("accept-param"), nil)
+	return nil
 }

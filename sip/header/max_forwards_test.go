@@ -1,51 +1,138 @@
 package header_test
 
 import (
-	. "github.com/onsi/ginkgo/v2"
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
-var _ = Describe("Header", Label("sip", "header"), func() {
-	Describe("Max-Forwards", func() {
-		assertHeaderParsing(
-			// region
-			Entry(nil, "Max-Forwards: ", &header.Any{Name: "Max-Forwards"}, nil),
-			Entry(nil, "Max-Forwards: 0", header.MaxForwards(0), nil),
-			Entry(nil, "Max-Forwards: 10", header.MaxForwards(10), nil),
-			// endregion
-		)
+func TestMaxForwards_Render(t *testing.T) {
+	t.Parallel()
 
-		assertHeaderRendering(
-			// region
-			Entry(nil, header.MaxForwards(0), "Max-Forwards: 0"),
-			Entry(nil, header.MaxForwards(10), "Max-Forwards: 10"),
-			// endregion
-		)
+	cases := []struct {
+		name string
+		hdr  header.MaxForwards
+		want string
+	}{
+		{"zero", header.MaxForwards(0), "Max-Forwards: 0"},
+		{"full", header.MaxForwards(123), "Max-Forwards: 123"},
+	}
 
-		assertHeaderComparing(
-			// region
-			Entry(nil, header.MaxForwards(0), nil, false),
-			Entry(nil, header.MaxForwards(0), header.MaxForwards(0), true),
-			Entry(nil, header.MaxForwards(10), header.MaxForwards(10), true),
-			Entry(nil, header.MaxForwards(0), header.MaxForwards(10), false),
-			Entry(nil, header.MaxForwards(10), header.MaxForwards(0), false),
-			// endregion
-		)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 
-		assertHeaderValidating(
-			// region
-			Entry(nil, header.MaxForwards(0), true),
-			Entry(nil, header.MaxForwards(10), true),
-			// endregion
-		)
+			if got := c.hdr.Render(); got != c.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
 
-		assertHeaderCloning(
-			// region
-			func(hdr1, hdr2 header.MaxForwards) {},
-			Entry(nil, header.MaxForwards(0)),
-			Entry(nil, header.MaxForwards(10)),
-			// endregion
-		)
-	})
-})
+func TestMaxForwards_RenderTo(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		hdr     header.MaxForwards
+		wantRes string
+		wantErr error
+	}{
+		{"zero", header.MaxForwards(0), "Max-Forwards: 0", nil},
+		{"full", header.MaxForwards(123), "Max-Forwards: 123", nil},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sb strings.Builder
+
+			_, err := c.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			}
+
+			if got := sb.String(); got != c.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			}
+		})
+	}
+}
+
+func TestMaxForwards_Equal(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.MaxForwards
+		val  any
+		want bool
+	}{
+		{"zero to nil", header.MaxForwards(0), nil, false},
+		{"zero to nil ptr", header.MaxForwards(0), (*header.MaxForwards)(nil), false},
+		{"zero to zero", header.MaxForwards(0), header.MaxForwards(0), true},
+		{"not match 1", header.MaxForwards(123), header.MaxForwards(0), false},
+		{"not match 2", header.MaxForwards(123), header.MaxForwards(456), false},
+		{"match", header.MaxForwards(123), header.MaxForwards(123), true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.Equal(c.val); got != c.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestMaxForwards_IsValid(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.MaxForwards
+		want bool
+	}{
+		{"zero", header.MaxForwards(0), true},
+		{"full", header.MaxForwards(123), true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.IsValid(); got != c.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestMaxForwards_Clone(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.MaxForwards
+	}{
+		{"zero", header.MaxForwards(0)},
+		{"full", header.MaxForwards(123)},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.Clone(); got != c.hdr {
+				t.Errorf("hdr.Clone() = %+v, want %+v", got, c.hdr)
+			}
+		})
+	}
+}

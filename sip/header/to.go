@@ -3,49 +3,103 @@ package header
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type To EntityAddr
+// To represents the To header field.
+// The To header field specifies the logical recipient of the request.
+type To NameAddr
 
+// CanonicName returns the canonical name of the header.
 func (*To) CanonicName() Name { return "To" }
 
-func (hdr *To) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header.
+func (*To) CompactName() Name { return "t" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr *To) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	_, err := fmt.Fprint(w, hdr.CanonicName(), ": ", EntityAddr(*hdr))
-	return err
+	return errors.Wrap2(fmt.Fprint(w, hdr.name(opts...), ": ", hdr.RenderValue()))
 }
 
-func (hdr *To) Render() string {
+func (hdr *To) name(opts ...RenderOptions) Name {
+	if util.LastSliceElemOr(opts, RenderOptions{}).Compact {
+		return hdr.CompactName()
+	}
+	return hdr.CanonicName()
+}
+
+// Render returns the string representation of the header.
+func (hdr *To) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr *To) String() string {
+// RenderValue returns the header value without the name prefix.
+func (hdr *To) RenderValue() string {
 	if hdr == nil {
-		return nilTag
+		return ""
 	}
-	return EntityAddr(*hdr).String()
+	return NameAddr(*hdr).String()
 }
 
+// String returns the string representation of the header value.
+func (hdr *To) String() string {
+	return hdr.RenderValue()
+}
+
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr *To) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods To
+			To          hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*To)(hdr))
+		return
+	}
+}
+
+// Clone returns a copy of the header.
 func (hdr *To) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
-	hdr2 := To(EntityAddr(*hdr).Clone())
+
+	hdr2 := To(NameAddr(*hdr).Clone())
 	return &hdr2
 }
 
+// Equal compares this header with another for equality.
 func (hdr *To) Equal(val any) bool {
 	var other *To
 	switch v := val.(type) {
@@ -63,12 +117,48 @@ func (hdr *To) Equal(val any) bool {
 		return false
 	}
 
-	return EntityAddr(*hdr).Equal(EntityAddr(*other))
+	return NameAddr(*hdr).Equal(NameAddr(*other))
 }
 
-func (hdr *To) IsValid() bool { return hdr != nil && EntityAddr(*hdr).IsValid() }
+// IsValid checks whether the header is syntactically valid.
+func (hdr *To) IsValid() bool { return hdr != nil && NameAddr(*hdr).IsValid() }
+
+func (hdr *To) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *To) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = To{}
+		return nil
+	}
+
+	h, ok := gh.(*To)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && (len(ah.Value) == 0 || ah.Value == "<>") {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = *h
+	return nil
+}
+
+func (hdr *To) Tag() (string, bool) {
+	if hdr == nil {
+		return "", false
+	}
+	return NameAddr(*hdr).Tag()
+}
 
 func buildFromToNode(node *abnf.Node) *To {
-	hdr := To(buildFromHeaderAddrNode(node, "to-param"))
+	hdr := To(buildFromNameAddrNode(node, "to-param"))
 	return &hdr
 }

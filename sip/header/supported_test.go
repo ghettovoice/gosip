@@ -1,63 +1,172 @@
 package header_test
 
 import (
-	"reflect"
+	"strings"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
-var _ = Describe("Header", Label("sip", "header"), func() {
-	Describe("Supported", func() {
-		assertHeaderParsing(
-			// region
-			Entry(nil, "Supported: ", header.Supported{}, nil),
-			Entry(nil, "Supported: 100rel, Foo, Bar", header.Supported{"100rel", "Foo", "Bar"}, nil),
-			Entry(nil, "k: 100rel, Foo, Bar", header.Supported{"100rel", "Foo", "Bar"}, nil),
-			// endregion
-		)
+func TestSupported_Render(t *testing.T) {
+	t.Parallel()
 
-		assertHeaderRendering(
-			// region
-			Entry(nil, header.Supported(nil), ""),
-			Entry(nil, header.Supported{}, "Supported: "),
-			Entry(nil, header.Supported{"100rel", "Foo", "Bar"}, "Supported: 100rel, Foo, Bar"),
-			// endregion
-		)
+	cases := []struct {
+		name string
+		hdr  header.Supported
+		want string
+	}{
+		{"nil", nil, ""},
+		{"empty", header.Supported{}, "Supported: "},
+		{"empty elem", header.Supported{""}, "Supported: "},
+		{"full", header.Supported{"100rel", "Foo", "Bar"}, "Supported: 100rel, Foo, Bar"},
+	}
 
-		assertHeaderComparing(
-			// region
-			Entry(nil, header.Supported(nil), nil, false),
-			Entry(nil, header.Supported(nil), header.Supported(nil), true),
-			Entry(nil, header.Supported{}, header.Supported(nil), true),
-			Entry(nil, header.Supported{}, header.Supported{}, true),
-			Entry(nil, header.Supported{"100rel", "Foo", "Bar"}, header.Supported{}, false),
-			Entry(nil, header.Supported{"100rel", "Foo", "Bar"}, header.Supported{"100rel", "foo", "bar"}, true),
-			Entry(nil, header.Supported{"100rel", "foo", "bar"}, header.Supported{"bar", "foo", "100rel"}, false),
-			// endregion
-		)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 
-		assertHeaderValidating(
-			// region
-			Entry(nil, header.Supported(nil), false),
-			Entry(nil, header.Supported{}, true),
-			Entry(nil, header.Supported{"100rel", "Foo", "Bar"}, true),
-			// endregion
-		)
+			if got := c.hdr.Render(); got != c.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
 
-		assertHeaderCloning(
-			// region
-			func(hdr1, hdr2 header.Supported) {
-				if len(hdr1) > 0 {
-					Expect(reflect.ValueOf(hdr2).Pointer()).ToNot(Equal(reflect.ValueOf(hdr1).Pointer()))
-				}
-			},
-			Entry(nil, header.Supported(nil)),
-			Entry(nil, header.Supported{}),
-			Entry(nil, header.Supported{"100rel", "Foo", "Bar"}),
-			// endregion
-		)
-	})
-})
+func TestSupported_RenderTo(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		hdr     header.Supported
+		wantRes string
+		wantErr error
+	}{
+		{"nil", nil, "", nil},
+		{"empty", header.Supported{}, "Supported: ", nil},
+		{"full", header.Supported{"100rel", "Foo", "Bar"}, "Supported: 100rel, Foo, Bar", nil},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sb strings.Builder
+
+			_, err := c.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			}
+
+			if got := sb.String(); got != c.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			}
+		})
+	}
+}
+
+func TestSupported_String(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.Supported
+		want string
+	}{
+		{"nil", nil, ""},
+		{"empty", header.Supported{}, ""},
+		{"full", header.Supported{"100rel", "Foo", "Bar"}, "100rel, Foo, Bar"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.String(); got != c.want {
+				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestSupported_Equal(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.Supported
+		val  any
+		want bool
+	}{
+		{"nil ptr to nil", nil, nil, false},
+		{"nil ptr to nil ptr", nil, header.Supported(nil), true},
+		{"zero ptr to nil ptr", header.Supported{}, header.Supported(nil), true},
+		{"zero to zero", header.Supported{}, header.Supported{}, true},
+		{"zero to zero ptr", header.Supported{}, &header.Supported{}, true},
+		{"zero to nil ptr", header.Supported{}, (*header.Supported)(nil), false},
+		{"not match 1", header.Supported{"100rel"}, header.Supported{}, false},
+		{"not match 2", header.Supported{"100rel", "foo"}, header.Supported{"foo", "100rel"}, false},
+		{"match", header.Supported{"100rel", "FOO"}, header.Supported{"100rel", "foo"}, true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.Equal(c.val); got != c.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestSupported_IsValid(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.Supported
+		want bool
+	}{
+		{"nil", nil, false},
+		{"empty", header.Supported{}, true},
+		{"valid", header.Supported{"100rel", "abc"}, true},
+		{"invalid", header.Supported{"a b c"}, false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := c.hdr.IsValid(); got != c.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestSupported_Clone(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		hdr  header.Supported
+	}{
+		{"nil", nil},
+		{"empty", header.Supported{}},
+		{"full", header.Supported{"100rel", "foo", "bar"}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := c.hdr.Clone()
+			if diff := cmp.Diff(got, c.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			}
+		})
+	}
+}

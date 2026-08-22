@@ -8,8 +8,10 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/stringutils"
-	"github.com/ghettovoice/gosip/sip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 type AuthenticationInfo struct {
@@ -22,18 +24,23 @@ type AuthenticationInfo struct {
 
 func (*AuthenticationInfo) CanonicName() Name { return "Authentication-Info" }
 
-func (hdr *AuthenticationInfo) RenderTo(w io.Writer) error {
+func (*AuthenticationInfo) CompactName() Name { return "Authentication-Info" }
+
+func (hdr *AuthenticationInfo) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return hdr.renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call(hdr.renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr *AuthenticationInfo) renderValue(w io.Writer) error {
-	var kvs [][]string //nolint:prealloc
+func (hdr *AuthenticationInfo) renderValueTo(w io.Writer) (num int, err error) {
+	var kvs [][]string
 	for k, v := range map[string]string{
 		"nextnonce": hdr.NextNonce,
 		"qop":       hdr.QOP,
@@ -43,55 +50,92 @@ func (hdr *AuthenticationInfo) renderValue(w io.Writer) error {
 		if v == "" {
 			continue
 		}
+
 		switch k {
 		case "nextnonce", "rspauth", "cnonce":
 			v = grammar.Quote(v)
 		}
 		kvs = append(kvs, []string{k, v})
 	}
+
 	if hdr.NonceCount > 0 {
 		kvs = append(kvs, []string{"nc", fmt.Sprintf("%08x", hdr.NonceCount)})
 	}
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, stringutils.CmpKVs)
+		slices.SortFunc(kvs, util.CmpKVs)
+
 		for i, kv := range kvs {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, ", "); err != nil {
-					return err
-				}
+				cw.Fprint(", ")
 			}
-			if _, err := fmt.Fprint(w, kv[0], "=", kv[1]); err != nil {
-				return err
-			}
+			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
-	return nil
+
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr *AuthenticationInfo) Render() string {
+func (hdr *AuthenticationInfo) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr *AuthenticationInfo) String() string {
+func (hdr *AuthenticationInfo) RenderValue() string {
 	if hdr == nil {
-		return nilTag
+		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.renderValue(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.renderValueTo(sb)
 	return sb.String()
+}
+
+func (hdr *AuthenticationInfo) String() string { return hdr.RenderValue() }
+
+func (hdr *AuthenticationInfo) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods        AuthenticationInfo
+			AuthenticationInfo hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*AuthenticationInfo)(hdr))
+		return
+	}
 }
 
 func (hdr *AuthenticationInfo) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
+
 	hdr2 := *hdr
 	return &hdr2
 }
@@ -114,7 +158,7 @@ func (hdr *AuthenticationInfo) Equal(val any) bool {
 	}
 
 	return hdr.NextNonce == other.NextNonce &&
-		stringutils.LCase(hdr.QOP) == stringutils.LCase(other.QOP) &&
+		util.EqFold(hdr.QOP, other.QOP) &&
 		hdr.RspAuth == other.RspAuth &&
 		hdr.CNonce == other.CNonce &&
 		hdr.NonceCount == other.NonceCount
@@ -124,8 +168,37 @@ func (hdr *AuthenticationInfo) IsValid() bool {
 	return hdr != nil && hdr.NextNonce != "" && (hdr.QOP == "" || grammar.IsToken(hdr.QOP))
 }
 
+func (hdr *AuthenticationInfo) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *AuthenticationInfo) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = AuthenticationInfo{}
+		return nil
+	}
+
+	h, ok := gh.(*AuthenticationInfo)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = *h
+	return nil
+}
+
 func buildFromAuthenticationInfoNode(node *abnf.Node) *AuthenticationInfo {
 	var hdr AuthenticationInfo
+
 	paramNodes := node.GetNodes("ainfo")
 	for _, paramNode := range paramNodes {
 		paramNode = paramNode.Children[0]
@@ -144,5 +217,6 @@ func buildFromAuthenticationInfoNode(node *abnf.Node) *AuthenticationInfo {
 			}
 		}
 	}
+
 	return &hdr
 }

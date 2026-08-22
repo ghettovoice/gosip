@@ -8,51 +8,93 @@ import (
 
 	"github.com/ghettovoice/abnf"
 
-	"github.com/ghettovoice/gosip/internal/abnfutils"
-	"github.com/ghettovoice/gosip/internal/stringutils"
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
+// MinExpires represents the Min-Expires header field.
+// The Min-Expires header field conveys the minimum refresh interval supported for soft-state elements.
 type MinExpires Expires
 
+// CanonicName returns the canonical name of the header.
 func (*MinExpires) CanonicName() Name { return "Min-Expires" }
 
-func (hdr *MinExpires) RenderTo(w io.Writer) error {
+// CompactName returns the compact name of the header (Min-Expires has no compact form).
+func (*MinExpires) CompactName() Name { return "Min-Expires" }
+
+// RenderTo writes the header to the provided writer.
+func (hdr *MinExpires) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
-		return nil
+		return 0, nil
 	}
-	if _, err := fmt.Fprint(w, hdr.CanonicName(), ": "); err != nil {
-		return err
-	}
-	return (*Expires)(hdr).renderValue(w)
+
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hdr.CanonicName(), ": ")
+	cw.Call((*Expires)(hdr).renderValueTo)
+	return errors.Wrap2(cw.Result())
 }
 
-func (hdr *MinExpires) Render() string {
+// Render returns the string representation of the header.
+func (hdr *MinExpires) Render(opts ...RenderOptions) string {
 	if hdr == nil {
 		return ""
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = hdr.RenderTo(sb)
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+
+	_, _ = hdr.RenderTo(sb, opts...)
 	return sb.String()
 }
 
-func (hdr *MinExpires) String() string {
-	if hdr == nil {
-		return nilTag
+// RenderValue returns the header value without the name prefix.
+func (hdr *MinExpires) RenderValue() string {
+	return (*Expires)(hdr).RenderValue()
+}
+
+func (hdr *MinExpires) String() string { return hdr.RenderValue() }
+
+// Format implements fmt.Formatter for custom formatting of the header.
+func (hdr *MinExpires) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		if f.Flag('+') {
+			_, _ = hdr.RenderTo(f)
+			return
+		}
+		fmt.Fprint(f, hdr.String())
+		return
+	case 'q':
+		if f.Flag('+') {
+			fmt.Fprint(f, strconv.Quote(hdr.Render()))
+			return
+		}
+		fmt.Fprint(f, strconv.Quote(hdr.String()))
+		return
+	default:
+		type (
+			hideMethods MinExpires
+			MinExpires  hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), (*MinExpires)(hdr))
+		return
 	}
-	sb := stringutils.NewStrBldr()
-	defer stringutils.FreeStrBldr(sb)
-	_ = (*Expires)(hdr).renderValue(sb)
-	return sb.String()
 }
 
+// Clone returns a copy of the header.
 func (hdr *MinExpires) Clone() Header {
-	if hdr == nil {
+	hdr2, ok := (*Expires)(hdr).Clone().(*Expires)
+	if !ok {
 		return nil
 	}
-	return (*MinExpires)((*Expires)(hdr).Clone().(*Expires)) //nolint:forcetypeassert
+	return (*MinExpires)(hdr2)
 }
 
+// Equal compares this header with another for equality.
 func (hdr *MinExpires) Equal(val any) bool {
 	var other *MinExpires
 	switch v := val.(type) {
@@ -63,12 +105,47 @@ func (hdr *MinExpires) Equal(val any) bool {
 	default:
 		return false
 	}
+
 	return (*Expires)(hdr).Equal((*Expires)(other))
 }
 
-func (hdr *MinExpires) IsValid() bool { return (*Expires)(hdr).IsValid() }
+// IsValid checks whether the header is syntactically valid.
+func (hdr *MinExpires) IsValid() bool {
+	return (*Expires)(hdr).IsValid()
+}
+
+func (hdr *MinExpires) MarshalJSON() ([]byte, error) {
+	return errors.Wrap2(ToJSON(hdr))
+}
+
+func (hdr *MinExpires) UnmarshalJSON(data []byte) error {
+	gh, err := FromJSON(data)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+
+	if gh == nil {
+		*hdr = MinExpires{}
+		return nil
+	}
+
+	h, ok := gh.(*MinExpires)
+	if !ok {
+		ah, ok := gh.(*Any)
+		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
+			return nil
+		}
+		return errors.Wrap(newUnexpectHdrTypeErr(gh))
+	}
+
+	*hdr = *h
+	return nil
+}
 
 func buildFromMinExpiresNode(node *abnf.Node) *MinExpires {
-	sec, _ := strconv.ParseUint(abnfutils.MustGetNode(node, "delta-seconds").String(), 10, 64)
+	sec, err := strconv.ParseUint(grammar.MustGetNode(node, "delta-seconds").String(), 10, 64)
+	if err != nil {
+		panic(errors.ErrorfWrap("invalid expiry value: %w", err))
+	}
 	return &MinExpires{time.Duration(sec) * time.Second}
 }
