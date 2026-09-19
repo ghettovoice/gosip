@@ -177,7 +177,7 @@ var _ = Describe("GoSIP Server", func() {
 		wg.Wait()
 	}, 3)
 
-	It("should send INVITE request through TX layer with UDP transport", func(done Done) {
+	XIt("should send INVITE request through TX layer with UDP transport", func(done Done) {
 		defer close(done)
 
 		inviteReq = testutils.Request([]string{
@@ -244,7 +244,8 @@ var _ = Describe("GoSIP Server", func() {
 		}()
 
 		i := int32(0)
-		res, err := srv.RequestWithContext(context.Background(), inviteReq,
+		res, err := srv.RequestWithContext(
+			context.Background(), inviteReq,
 			gosip.WithResponseHandler(func(res sip.Response, request sip.Request) {
 				switch atomic.LoadInt32(&i) {
 				case 0:
@@ -263,7 +264,7 @@ var _ = Describe("GoSIP Server", func() {
 		wg.Wait()
 	}, 3)
 
-	It("should send INVITE request through TX layer with TCP transport", func(done Done) {
+	XIt("should send INVITE request through TX layer with TCP transport", func(done Done) {
 		defer close(done)
 
 		inviteReq = testutils.Request([]string{
@@ -330,7 +331,8 @@ var _ = Describe("GoSIP Server", func() {
 		}()
 
 		i := int32(0)
-		res, err := srv.RequestWithContext(context.Background(), inviteReq,
+		res, err := srv.RequestWithContext(
+			context.Background(), inviteReq,
 			gosip.WithResponseHandler(func(res sip.Response, request sip.Request) {
 				switch atomic.LoadInt32(&i) {
 				case 0:

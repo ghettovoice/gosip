@@ -139,7 +139,7 @@ func GetProjectRootPath(projectRootDir string) string {
 	}
 	sep := string(filepath.Separator)
 	for {
-		if strings.HasSuffix(cwd, sep+projectRootDir) {
+		if strings.HasSuffix(cwd, sep+projectRootDir) || strings.Contains(filepath.Base(cwd), projectRootDir) {
 			return cwd
 		}
 		lastSlashIndex := strings.LastIndex(cwd, sep)

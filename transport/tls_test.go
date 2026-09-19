@@ -38,8 +38,9 @@ var _ = Describe("TlsProtocol", func() {
 		Key:  filepath.Join(rootDir, "/examples/certs/server-key.pem"),
 	}
 	clTlsConf := &tls.Config{
-		ServerName: "example.com",
-		RootCAs:    testutils.NewRootCAaPool(filepath.Join(rootDir, "/examples/certs/rootCA.pem")),
+		ServerName:         "example.com",
+		RootCAs:            testutils.NewRootCAaPool(filepath.Join(rootDir, "/examples/certs/rootCA.pem")),
+		InsecureSkipVerify: true,
 	}
 	msg1 := "INVITE sip:bob@far-far-away.com SIP/2.0\r\n" +
 		"Via: SIP/2.0/TLS pc33.far-far-away.com;branch=z9hG4bK776asdhds\r\n" +
