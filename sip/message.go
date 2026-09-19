@@ -313,7 +313,7 @@ func (hs *headers) Via() (ViaHeader, bool) {
 	if len(hdrs) == 0 {
 		return nil, false
 	}
-	via, ok := (hdrs[0]).(ViaHeader)
+	via, ok := hdrs[0].(ViaHeader)
 	if !ok {
 		return nil, false
 	}
@@ -356,12 +356,18 @@ func (hs *headers) SetViaHop(hop *ViaHop) bool {
 	if !ok {
 		return false
 	}
-	hops := []*ViaHop(via)
-	if len(hops) == 0 {
+	if len(via) == 0 {
 		return false
 	}
 
-	via[0] = hop
+	newVia := make(ViaHeader, len(via))
+	copy(newVia, via)
+	newVia[0] = hop.Clone()
+
+	newHeaders := make([]Header, len(hdrs))
+	copy(newHeaders, hdrs)
+	newHeaders[0] = newVia
+	hs.headers["via"] = newHeaders
 	return true
 }
 

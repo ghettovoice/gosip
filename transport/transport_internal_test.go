@@ -64,47 +64,48 @@ func TestLayerSend_DataRace(t *testing.T) {
 		ProtocolVersion: "2.0",
 		Transport:       "UDP",
 		Host:            "example.com",
+		Params:          sip.NewParams(),
 	}
-
+	callID := sip.CallID("test-call-id")
 	req := sip.NewRequest(
 		"",
-		sip.INFO,
+		sip.INVITE,
 		uri,
 		"SIP/2.0",
 		[]sip.Header{
 			sip.ViaHeader{via},
+			&sip.FromHeader{Address: uri, Params: sip.NewParams()},
+			&sip.ToHeader{Address: uri, Params: sip.NewParams()},
+			&callID,
+			&sip.CSeq{SeqNo: 1, MethodName: sip.INVITE},
 		},
 		"",
 		nil,
 	)
-
 	req.SetTransport("UDP")
 	req.SetDestination("127.0.0.1:5060")
+	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
 
 	var wg sync.WaitGroup
 
-	// writers mutate ViaHop inside Send()
+	// writers replace ViaHop inside Send()
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
-
 		go func() {
 			defer wg.Done()
-
 			for j := 0; j < 100; j++ {
 				_ = tpl.Send(req)
 			}
 		}()
 	}
 
-	// readers stringify the same request concurrently
+	// readers build ACK requests from the same request concurrently
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
-
 		go func() {
 			defer wg.Done()
-
 			for j := 0; j < 100; j++ {
-				_ = req.String()
+				_ = sip.NewAckRequest("", req, response, "", nil)
 			}
 		}()
 	}
