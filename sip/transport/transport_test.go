@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ghettovoice/gosip/dns"
 	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/pkg/dns"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 )
@@ -171,9 +171,9 @@ func (p *multiTransportProvider) AllTransportMetadata() iter.Seq[sip.TransportMe
 func newMinReq(tb testing.TB) *sip.Request {
 	tb.Helper()
 
-	ruri := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
-	furi := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")}
-	turi := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
+	ruri := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
+	furi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
+	turi := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
 
 	headers := make(sip.Headers).
 		Set(header.Via{{Proto: sip.ProtoVer20(), Params: make(sip.Values).Set("branch", sip.GenerateBranch(16))}}).
@@ -194,8 +194,8 @@ func newMinReq(tb testing.TB) *sip.Request {
 func newMinResp(tb testing.TB, viaTp sip.TransportProto, viaAddr sip.Addr) *sip.Response {
 	tb.Helper()
 
-	furi := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")}
-	turi := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
+	furi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
+	turi := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
 
 	headers := make(sip.Headers).
 		Set(header.Via{{

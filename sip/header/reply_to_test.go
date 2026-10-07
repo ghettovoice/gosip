@@ -26,8 +26,8 @@ func TestReplyTo_Render(t *testing.T) {
 			&header.ReplyTo{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -63,8 +63,8 @@ func TestReplyTo_RenderTo(t *testing.T) {
 			&header.ReplyTo{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -107,8 +107,8 @@ func TestReplyTo_String(t *testing.T) {
 			&header.ReplyTo{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -146,8 +146,8 @@ func TestReplyTo_Equal(t *testing.T) {
 			&header.ReplyTo{},
 			header.ReplyTo{
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 			},
@@ -158,8 +158,8 @@ func TestReplyTo_Equal(t *testing.T) {
 			&header.ReplyTo{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -167,8 +167,8 @@ func TestReplyTo_Equal(t *testing.T) {
 			&header.ReplyTo{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User: uri.User("AGB"),
-					Addr: uri.AddrFromHost("bell-telephone.com"),
+					User: uri.MakeUserInfo("AGB"),
+					Addr: uri.MakeHostAddr("bell-telephone.com"),
 				},
 				Params: make(header.Values).Set("tag", "qwerty"),
 			},
@@ -179,16 +179,16 @@ func TestReplyTo_Equal(t *testing.T) {
 			&header.ReplyTo{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "def"),
 			},
 			&header.ReplyTo{
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "abc"),
@@ -200,16 +200,16 @@ func TestReplyTo_Equal(t *testing.T) {
 			&header.ReplyTo{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			header.ReplyTo{
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "abc"),
@@ -243,7 +243,7 @@ func TestReplyTo_IsValid(t *testing.T) {
 		{
 			"valid",
 			&header.ReplyTo{
-				URI: &uri.SIP{Addr: uri.AddrFromHost("bell-telephone.com")},
+				URI: &uri.SIP{Addr: uri.MakeHostAddr("bell-telephone.com")},
 			},
 			true,
 		},
@@ -274,8 +274,8 @@ func TestReplyTo_Clone(t *testing.T) {
 			&header.ReplyTo{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "def"),

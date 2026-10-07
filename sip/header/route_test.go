@@ -29,15 +29,15 @@ func TestRoute_Render(t *testing.T) {
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
 				{URI: &uri.Tel{Number: "+123", Params: make(header.Values).Set("ext", "555")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -72,15 +72,15 @@ func TestRoute_RenderTo(t *testing.T) {
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
 				{URI: &uri.Tel{Number: "+123", Params: make(header.Values).Set("ext", "555")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -122,15 +122,15 @@ func TestRoute_String(t *testing.T) {
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
 				{URI: &uri.Tel{Number: "+123", Params: make(header.Values).Set("ext", "555")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -169,30 +169,30 @@ func TestRoute_Equal(t *testing.T) {
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
 			header.Route{
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -203,30 +203,30 @@ func TestRoute_Equal(t *testing.T) {
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("a", "b"),
 				},
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("k", "v"),
 				},
 			},
@@ -330,8 +330,8 @@ func TestRoute_MarshalJSON(t *testing.T) {
 			header.Route{{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 					Params: make(header.Values).
 						Set("lr", ""),
 				},
@@ -344,8 +344,8 @@ func TestRoute_MarshalJSON(t *testing.T) {
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
@@ -393,8 +393,8 @@ func TestRoute_UnmarshalJSON(t *testing.T) {
 			header.Route{{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 				Params: make(header.Values).Set("expires", "3600"),
 			}},
@@ -406,8 +406,8 @@ func TestRoute_UnmarshalJSON(t *testing.T) {
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
@@ -455,8 +455,8 @@ func TestRoute_RoundTripJSON(t *testing.T) {
 			header.Route{{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User:   uri.User("alice"),
-					Addr:   uri.AddrFromHost("example.com"),
+					User:   uri.MakeUserInfo("alice"),
+					Addr:   uri.MakeHostAddr("example.com"),
 					Params: make(header.Values).Set("lr", ""),
 				},
 				Params: make(header.Values).Set("expires", "3600"),
@@ -467,8 +467,8 @@ func TestRoute_RoundTripJSON(t *testing.T) {
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),

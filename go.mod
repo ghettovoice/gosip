@@ -1,12 +1,12 @@
 module github.com/ghettovoice/gosip
 
-go 1.26.0
+go 1.27.0
 
 require (
 	braces.dev/errtrace v0.4.0
 	codeberg.org/miekg/dns v0.6.90
-	github.com/ghettovoice/abnf v0.7.2
-	github.com/gofrs/uuid/v5 v5.5.1
+	github.com/ghettovoice/abnf v0.7.3
+	github.com/ghettovoice/timeutil v0.2.0
 	github.com/golang-cz/devslog v0.0.17
 	github.com/google/go-cmp v0.7.0
 	github.com/phsym/console-slog v0.3.1

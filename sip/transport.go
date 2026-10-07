@@ -4,14 +4,7 @@ import (
 	"context"
 	"iter"
 	"net/netip"
-
-	"github.com/ghettovoice/gosip/internal/errors"
 )
-
-// IsTransportError reports whether err belongs to the transport error class.
-func IsTransportError(err error) bool {
-	return errors.IsNetError(err) || errors.Is(err, ErrClassTransport)
-}
 
 // Transport represents a combination of client and server transport functions.
 type Transport interface {

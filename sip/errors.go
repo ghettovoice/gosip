@@ -6,184 +6,98 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/pkg/errclass"
 )
 
-// Common errors.
+// SIP error classes.
 const (
-	ErrActionNotAllowed Error = "action not allowed"
-	ErrNoAddress        Error = "no address resolved"
+	ErrClassMessage     errclass.Class = "message"
+	ErrClassTransport   errclass.Class = "transport"
+	ErrClassTransaction errclass.Class = "transaction"
+	ErrClassElement     errclass.Class = "element"
+	ErrClassParser      errclass.Class = "parser"
+	ErrClassProxy       errclass.Class = "proxy"
 )
 
-// ClassError identifies a broad classification of an error.
-type ClassError uint32
-
-// Error classes.
+// Common SIP errors.
 const (
-	ErrClassMessage ClassError = 1 << iota
-	ErrClassTransport
-	ErrClassTransaction
-	ErrClassElement
-	ErrClassParser
-	ErrClassProxy
-	ErrClassClosed
-	ErrClassTimeout
-	ErrClassTemporary
-	ErrClassCanceled
-	ErrClassInvalidState
-	ErrClassNotFound
-	ErrClassConflict
+	ErrNoAddress errors.Error = "no address resolved"
 )
 
-// Error returns the name of a single error class.
-func (c ClassError) Error() string { return c.String() }
-
-// String returns the name of a single error class.
-func (c ClassError) String() string {
-	switch c {
-	case ErrClassMessage:
-		return "message"
-	case ErrClassTransport:
-		return "transport"
-	case ErrClassTransaction:
-		return "transaction"
-	case ErrClassElement:
-		return "element"
-	case ErrClassParser:
-		return "parser"
-	case ErrClassProxy:
-		return "proxy"
-	case ErrClassClosed:
-		return "closed"
-	case ErrClassTimeout:
-		return "timeout"
-	case ErrClassTemporary:
-		return "temporary"
-	case ErrClassCanceled:
-		return "canceled"
-	case ErrClassInvalidState:
-		return "invalid state"
-	case ErrClassNotFound:
-		return "not found"
-	case ErrClassConflict:
-		return "conflict"
-	default:
-		return "multiple or unknown"
-	}
+func NewNoAddressError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrNoAddress, args...),
+		errclass.ClassNotFound,
+	)
 }
 
-func matchClassError(classes ClassError, target error) bool {
-	var class ClassError
-	return errors.As(target, &class) && class != 0 && classes&class == class
-}
+// func errClasses(message string) ClassError {
+// 	switch message {
+// 	case string(ErrInvalidMessage),
+// 		string(ErrEntityTooLarge),
+// 		string(ErrMessageTooLarge),
+// 		string(ErrMethodNotAllowed),
+// 		string(ErrMessageNotMatched),
+// 		string(ErrUnhandledMessage):
+// 		return ErrClassMessage
 
-func errClasses(message string) ClassError {
-	switch message {
-	case string(ErrInvalidMessage),
-		string(ErrEntityTooLarge),
-		string(ErrMessageTooLarge),
-		string(ErrMethodNotAllowed),
-		string(ErrMessageNotMatched),
-		string(ErrUnhandledMessage):
-		return ErrClassMessage
+// 	case string(ErrNoTransport):
+// 		return ErrClassTransport | ErrClassNotFound
+// 	case string(ErrTransportManagerClosed):
+// 		return ErrClassTransport | ErrClassClosed
 
-	case string(ErrNoTransport):
-		return ErrClassTransport | ErrClassNotFound
-	case string(ErrTransportManagerClosed):
-		return ErrClassTransport | ErrClassClosed
+// 	case string(ErrActionNotAllowed):
+// 		return ErrClassTransaction | ErrClassInvalidState
+// 	case string(ErrTransactionNotFound):
+// 		return ErrClassTransaction | ErrClassNotFound
+// 	case string(ErrTransactionTimedOut):
+// 		return ErrClassTransaction | ErrClassTimeout
+// 	case string(ErrDuplicateTransaction):
+// 		return ErrClassTransaction | ErrClassConflict
+// 	case string(ErrTransactionManagerClosed):
+// 		return ErrClassTransaction | ErrClassClosed
 
-	case string(ErrActionNotAllowed):
-		return ErrClassTransaction | ErrClassInvalidState
-	case string(ErrTransactionNotFound):
-		return ErrClassTransaction | ErrClassNotFound
-	case string(ErrTransactionTimedOut):
-		return ErrClassTransaction | ErrClassTimeout
-	case string(ErrDuplicateTransaction):
-		return ErrClassTransaction | ErrClassConflict
-	case string(ErrTransactionManagerClosed):
-		return ErrClassTransaction | ErrClassClosed
+// 	case string(ErrElementClosed):
+// 		return ErrClassElement | ErrClassClosed
+// 	case string(ErrNoAddress):
+// 		return ErrClassElement | ErrClassNotFound
 
-	case string(ErrElementClosed):
-		return ErrClassElement | ErrClassClosed
-	case string(ErrNoAddress):
-		return ErrClassElement | ErrClassNotFound
+// 	case string(ErrForwardContextDuplicate):
+// 		return ErrClassProxy | ErrClassConflict
+// 	case string(ErrForwardContextNotFound):
+// 		return ErrClassProxy | ErrClassNotFound
+// 	case string(errUnsupURIScheme),
+// 		string(errToManyHops),
+// 		string(errUnsupOption),
+// 		string(errAuthRequired),
+// 		string(errNoFwdTargets):
+// 		return ErrClassProxy
 
-	case string(ErrForwardContextDuplicate):
-		return ErrClassProxy | ErrClassConflict
-	case string(ErrForwardContextNotFound):
-		return ErrClassProxy | ErrClassNotFound
-	case string(errUnsupURIScheme),
-		string(errToManyHops),
-		string(errUnsupOption),
-		string(errAuthRequired),
-		string(errNoFwdTargets):
-		return ErrClassProxy
-
-	default:
-		return 0
-	}
-}
-
-// IsClosedError reports whether err describes a closed resource.
-func IsClosedError(err error) bool {
-	return errors.Is(err, ErrClassClosed) || errors.IsClosedError(err)
-}
-
-// IsTimeoutError reports whether err describes a timeout.
-func IsTimeoutError(err error) bool {
-	return errors.Is(err, ErrClassTimeout) || errors.IsTimeoutError(err)
-}
-
-// IsTemporaryError reports whether err is temporary.
-func IsTemporaryError(err error) bool {
-	return errors.Is(err, ErrClassTemporary) || errors.IsTemporaryError(err)
-}
-
-// IsCanceledError reports whether err was caused by cancellation.
-func IsCanceledError(err error) bool {
-	return errors.Is(err, ErrClassCanceled) || errors.IsCanceledError(err)
-}
-
-// Error is a string-based SIP sentinel error.
-type Error string
-
-func (e Error) Error() string { return string(e) }
-
-// Classes returns the classifications assigned to the sentinel error.
-func (e Error) Classes() ClassError { return errClasses(string(e)) }
-
-// Is reports whether the sentinel error belongs to target class.
-func (e Error) Is(target error) bool { return matchClassError(e.Classes(), target) }
-
-// Closed reports whether the sentinel error describes a closed resource.
-func (e Error) Closed() bool { return e.Classes()&ErrClassClosed != 0 }
-
-// Timeout reports whether the sentinel error describes a timeout.
-func (e Error) Timeout() bool { return e.Classes()&ErrClassTimeout != 0 }
-
-// Temporary reports whether the sentinel error is temporary.
-func (e Error) Temporary() bool { return e.Classes()&ErrClassTemporary != 0 }
-
-// Canceled reports whether the sentinel error was caused by cancellation.
-func (e Error) Canceled() bool { return e.Classes()&ErrClassCanceled != 0 }
+// 	default:
+// 		return 0
+// 	}
+// }
 
 type RequestRejectedError struct {
-	cause       error
-	resStatus   ResponseStatus
-	respondOpts RespondOptions
-	logLevel    slog.Level
+	cause   error
+	resSts  ResponseStatus
+	resOpts RespondOptions
+	logLvl  slog.Level
 }
 
+// NewRequestRejectedError creates a request rejection error that also carries
+// a suggested response status, respond options, and log level.
 func NewRequestRejectedError(
 	cause error,
-	logLevel slog.Level,
-	resStatus ResponseStatus,
-	respondOpts ...RespondOptions,
+	level slog.Level,
+	status ResponseStatus,
+	opts ...RespondOptions,
 ) *RequestRejectedError {
 	return &RequestRejectedError{
-		cause:       cause,
-		resStatus:   resStatus,
-		respondOpts: util.LastSliceElemOr(respondOpts, RespondOptions{}),
-		logLevel:    logLevel,
+		cause:   cause,
+		logLvl:  level,
+		resSts:  status,
+		resOpts: util.LastSliceElemOr(opts, RespondOptions{}),
 	}
 }
 
@@ -207,32 +121,33 @@ func (e *RequestRejectedError) ResponseStatus() ResponseStatus {
 	if e == nil {
 		return 0
 	}
-	return e.resStatus
+	return e.resSts
 }
 
 func (e *RequestRejectedError) RespondOptions() RespondOptions {
 	if e == nil {
 		return RespondOptions{}
 	}
-	return e.respondOpts
+	return e.resOpts
 }
 
 func (e *RequestRejectedError) LogLevel() slog.Level {
 	if e == nil {
 		return 0
 	}
-	return e.logLevel
+	return e.logLvl
 }
 
 type ResponseRejectedError struct {
-	cause    error
-	logLevel slog.Level
+	cause  error
+	logLvl slog.Level
 }
 
-func NewResponseRejectedError(cause error, logLevel slog.Level) *ResponseRejectedError {
+// NewResponseRejectedError creates a response rejection error with the given cause and log level.
+func NewResponseRejectedError(cause error, level slog.Level) *ResponseRejectedError {
 	return &ResponseRejectedError{
-		cause:    cause,
-		logLevel: logLevel,
+		cause:  cause,
+		logLvl: level,
 	}
 }
 
@@ -256,5 +171,189 @@ func (e *ResponseRejectedError) LogLevel() slog.Level {
 	if e == nil {
 		return 0
 	}
-	return e.logLevel
+	return e.logLvl
+}
+
+// Message errors.
+const (
+	ErrInvalidMessage          errors.Error = "invalid message"
+	ErrMessageTooLarge         errors.Error = "message too large"
+	ErrMessageBodyTooLarge     errors.Error = "message body too large"
+	ErrRequestMethodNotAllowed errors.Error = "request method not allowed"
+	ErrMessageNotMatched       errors.Error = "message not matched"
+	ErrUnhandledMessage        errors.Error = "unhandled message"
+)
+
+// IsMessageError reports whether err belongs to the message error class.
+func IsMessageError(err error) bool {
+	return errors.Is(err, ErrClassMessage)
+}
+
+func NewInvalidMessageError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrInvalidMessage, args...),
+		ErrClassMessage,
+	)
+}
+
+func NewMessageTooLargeError(size uint) error {
+	return errclass.Classify(
+		errors.Prefix(ErrMessageTooLarge, "message exceeds max size %d", size),
+		ErrClassMessage,
+	)
+}
+
+func NewMessageBodyTooLargeError(size uint) error {
+	return errclass.Classify(
+		errors.Prefix(ErrMessageBodyTooLarge, "message body exceeds max size %d", size),
+		ErrClassMessage,
+	)
+}
+
+func NewRequestMethodNotAllowedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrRequestMethodNotAllowed, args...),
+		ErrClassMessage,
+	)
+}
+
+func NewMessageNotMatched(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrMessageNotMatched, args...),
+		ErrClassMessage,
+	)
+}
+
+func NewUnhandledMessage(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrUnhandledMessage, args...),
+		ErrClassMessage,
+	)
+}
+
+// Transport errors.
+const (
+	ErrNoTransport            errors.Error = "no transport resolved"
+	ErrTransportManagerClosed errors.Error = "transport manager closed"
+)
+
+// IsTransportError reports whether err belongs to the transport error class.
+func IsTransportError(err error) bool {
+	return errclass.IsNetwork(err) || errors.Is(err, ErrClassTransport)
+}
+
+func NewNoTransportError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrNoTransport, args...),
+		ErrClassTransport,
+		errclass.ClassNotFound,
+	)
+}
+
+func NewTransportManagerClosedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrTransportManagerClosed, args...),
+		ErrClassTransport,
+		errclass.ClassClosed,
+	)
+}
+
+// Transaction errors.
+const (
+	ErrTransactionActionNotAllowed errors.Error = "transaction action not allowed"
+	ErrTransactionNotFound         errors.Error = "transaction not found"
+	ErrTransactionTimedOut         errors.Error = "transaction timed out"
+	ErrTransactionDuplicate        errors.Error = "transaction duplicate"
+	ErrInvalidTransactionSnapshot  errors.Error = "invalid transaction snapshot"
+	ErrTransactionManagerClosed    errors.Error = "transaction manager closed"
+)
+
+// IsTransactionError reports whether err belongs to the transaction error class.
+func IsTransactionError(err error) bool {
+	return errors.Is(err, ErrClassTransaction)
+}
+
+func NewTransactionActionNotAllowedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrTransactionActionNotAllowed, args...),
+		ErrClassTransaction,
+	)
+}
+
+func NewTransactionNotFoundError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrTransactionNotFound, args...),
+		ErrClassTransaction,
+		errclass.ClassNotFound,
+	)
+}
+
+func NewTransactionTimedOutError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrTransactionTimedOut, args...),
+		ErrClassTransaction,
+		errclass.ClassTimeout,
+	)
+}
+
+func NewTransactionDuplicateError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrTransactionDuplicate, args...),
+		ErrClassTransaction,
+		errclass.ClassConflict,
+	)
+}
+
+func NewInvalidTransactionSnapshotError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrInvalidTransactionSnapshot, args...),
+		ErrClassTransaction,
+	)
+}
+
+func NewTransactionManagerClosedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrTransactionManagerClosed, args...),
+		ErrClassTransaction,
+		errclass.ClassClosed,
+	)
+}
+
+// Element errors.
+const (
+	ErrElementClosed errors.Error = "element closed"
+)
+
+func IsElementError(err error) bool {
+	return errors.Is(err, ErrClassElement)
+}
+
+func NewElementClosedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrElementClosed, args...),
+		ErrClassElement,
+		errclass.ClassClosed,
+	)
+}
+
+// Proxy errors.
+const (
+	ErrForwardContextDuplicate errors.Error = "forward context duplicate"
+	ErrForwardContextNotFound  errors.Error = "forward context not found"
+)
+
+func NewForwardContextDuplicateError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrForwardContextDuplicate, args...),
+		ErrClassProxy,
+		errclass.ClassConflict,
+	)
+}
+
+func NewForwardContextNotFoundError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrForwardContextNotFound, args...),
+		ErrClassProxy,
+		errclass.ClassNotFound,
+	)
 }

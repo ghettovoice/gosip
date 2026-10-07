@@ -13,20 +13,8 @@ import (
 	"github.com/ghettovoice/gosip/internal/syncutil"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
-	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/pkg/log"
 	"github.com/ghettovoice/gosip/sip/header"
-)
-
-// Proxy sentinel errors.
-const (
-	ErrForwardContextDuplicate Error = "duplicate forward context"
-	ErrForwardContextNotFound  Error = "forward context not found"
-
-	errUnsupURIScheme Error = "unsupported URI scheme"
-	errToManyHops     Error = "too many hops"
-	errUnsupOption    Error = "unsupported option"
-	errAuthRequired   Error = "authentication required"
-	errNoFwdTargets   Error = "no forward targets"
 )
 
 type Proxy struct {
@@ -54,12 +42,13 @@ func (o ProxyOptions) locAddrs() []Addr {
 	addrs := make([]Addr, 0, 2)
 
 	for ip := range netutil.AllHostIPs() {
-		addrs = append(addrs, AddrFromIP(ip))
+		addrs = append(addrs, MakeIPAddr(ip))
 	}
 
-	addrs = append(addrs,
-		AddrFromHost("localhost"),
-		AddrFromHost("127.0.0.1"),
+	addrs = append(
+		addrs,
+		MakeHostAddr("localhost"),
+		MakeHostAddr("127.0.0.1"),
 	)
 
 	return addrs
@@ -148,6 +137,9 @@ func (prx *Proxy) InterceptInboundRequest(
 		prx.stepForwardReq,
 	} {
 		if err := fn(ctx, route, req); err != nil {
+			if errors.Is(err, errProxyRequestConsumed) {
+				return nil
+			}
 			return errors.Wrap(err)
 		}
 	}
@@ -165,16 +157,25 @@ func (prx *Proxy) shouldForwardReq(ctx context.Context, req *RequestEnvelope) *P
 	return nil
 }
 
+const (
+	errUnsupURIScheme       errors.Error = "unsupported URI scheme"
+	errToManyHops           errors.Error = "too many hops"
+	errUnsupOption          errors.Error = "unsupported option"
+	errAuthRequired         errors.Error = "authentication required"
+	errNoFwdTargets         errors.Error = "no forward targets"
+	errProxyRequestConsumed errors.Error = "proxy request consumed"
+)
+
 // stepValidateReq validates the inbound request.
 // RFC 3261 Section 16.3.
 func (prx *Proxy) stepValidateReq(ctx context.Context, route *ProxyRoute, req *RequestEnvelope) error {
 	// 1. Reasonable syntax check
 	if err := req.Validate(); err != nil {
-		return errors.Wrap(NewRequestRejectedError(
-			err,
-			slog.LevelDebug,
-			ResponseStatusBadRequest,
-		))
+		return errors.Wrap(&RequestRejectedError{
+			cause:  err,
+			resSts: ResponseStatusBadRequest,
+			logLvl: slog.LevelDebug,
+		})
 	}
 
 	// 2. URI scheme check
@@ -188,11 +189,11 @@ func (prx *Proxy) stepValidateReq(ctx context.Context, route *ProxyRoute, req *R
 			}
 		}
 
-		return errors.Wrap(NewRequestRejectedError(
-			errUnsupURIScheme,
-			slog.LevelDebug,
-			ResponseStatusUnsupportedURIScheme,
-		))
+		return errors.Wrap(&RequestRejectedError{
+			cause:  errUnsupURIScheme,
+			resSts: ResponseStatusUnsupportedURIScheme,
+			logLvl: slog.LevelDebug,
+		})
 	}
 
 	if err := prx.validateReqHdrs(ctx, route, req); err != nil {
@@ -215,12 +216,11 @@ func (prx *Proxy) validateReqHdrs(ctx context.Context, route *ProxyRoute, req *R
 	req.WithMessage(func(r *Request) {
 		// 3. Max-Forwards check
 		if maxFwd, ok := r.Headers.MaxForwards(); ok && maxFwd == 0 {
-			err = errors.Wrap(NewRequestRejectedError(
-				errToManyHops,
-				slog.LevelDebug,
-				ResponseStatusTooManyHops,
-			))
-
+			err = errors.Wrap(&RequestRejectedError{
+				cause:  errToManyHops,
+				resSts: ResponseStatusTooManyHops,
+				logLvl: slog.LevelDebug,
+			})
 			return
 		}
 
@@ -245,17 +245,16 @@ func (prx *Proxy) validateReqHdrs(ctx context.Context, route *ProxyRoute, req *R
 		}
 
 		if len(unsupOpts) > 0 {
-			err = errors.Wrap(NewRequestRejectedError(
-				errUnsupOption,
-				slog.LevelDebug,
-				ResponseStatusBadExtension,
-				RespondOptions{
+			err = errors.Wrap(&RequestRejectedError{
+				cause:  errUnsupOption,
+				resSts: ResponseStatusBadExtension,
+				resOpts: RespondOptions{
 					ResponseOptions: ResponseOptions{
 						Headers: make(Headers).Set(unsupOpts),
 					},
 				},
-			))
-
+				logLvl: slog.LevelDebug,
+			})
 			return
 		}
 	})
@@ -282,7 +281,8 @@ func (prx *Proxy) validateReqHdrs(ctx context.Context, route *ProxyRoute, req *R
 			return nil
 		}
 
-		route.Logger.LogAttrs(ctx, slog.LevelWarn, "failed to auto respond '200 OK' on OPTIONS request",
+		route.Logger.LogAttrs(
+			ctx, slog.LevelWarn, "failed to auto respond '200 OK' on OPTIONS request",
 			slog.Any("error", sendErr),
 		)
 	}
@@ -306,20 +306,39 @@ func (prx *Proxy) stepInitReqSrvTx(ctx context.Context, route *ProxyRoute, req *
 	}
 
 	if tp == nil {
-		return errors.Wrap(NewRequestRejectedError(
-			ErrNoTransport,
-			slog.LevelError,
-			ResponseStatusServerInternalError,
-		))
+		return errors.Wrap(&RequestRejectedError{
+			cause:  NewNoTransportError(),
+			resSts: ResponseStatusServerInternalError,
+			logLvl: slog.LevelError,
+		})
 	}
 
-	_, err := prx.elm.NewServerTransaction(ctx, req, tp, route.ServerTransactionOptions(ctx, route, req))
+	srvTx, err := prx.elm.NewServerTransaction(ctx, req, tp, route.ServerTransactionOptions(ctx, route, req))
+	if errors.Is(err, ErrTransactionDuplicate) {
+		if key, keyErr := MakeServerTransactionKey(req); keyErr == nil {
+			if existTx, ok := prx.elm.LoadServerTransaction(key); ok {
+				if err := existTx.RecvRequest(ctx, req); err != nil {
+					return errors.Wrap(err)
+				}
+				return errors.Wrap(errProxyRequestConsumed)
+			}
+		}
+		return errors.Wrap(err)
+	}
 	if err != nil {
-		return errors.Wrap(NewRequestRejectedError(
-			err,
-			slog.LevelError,
-			ResponseStatusServerInternalError,
-		))
+		return errors.Wrap(&RequestRejectedError{
+			cause:  err,
+			resSts: ResponseStatusServerInternalError,
+			logLvl: slog.LevelError,
+		})
+	}
+
+	if err := srvTx.Start(ctx); err != nil {
+		return errors.Wrap(&RequestRejectedError{
+			cause:  err,
+			resSts: ResponseStatusServerInternalError,
+			logLvl: slog.LevelError,
+		})
 	}
 
 	// TODO: hold srv TX ref?
@@ -332,16 +351,16 @@ func (prx *Proxy) stepInitReqSrvTx(ctx context.Context, route *ProxyRoute, req *
 func (*Proxy) stepAuthorizeReq(ctx context.Context, route *ProxyRoute, req *RequestEnvelope) error {
 	if route.AuthenticateRequest != nil {
 		if passed, challenge := route.AuthenticateRequest(ctx, route, req); !passed {
-			return errors.Wrap(NewRequestRejectedError(
-				errAuthRequired,
-				slog.LevelDebug,
-				ResponseStatusProxyAuthenticationRequired,
-				RespondOptions{
+			return errors.Wrap(&RequestRejectedError{
+				cause:  errAuthRequired,
+				resSts: ResponseStatusProxyAuthenticationRequired,
+				resOpts: RespondOptions{
 					ResponseOptions: ResponseOptions{
 						Headers: make(Headers).Set(&header.ProxyAuthenticate{AuthChallenge: challenge}),
 					},
 				},
-			))
+				logLvl: slog.LevelDebug,
+			})
 		}
 	}
 
@@ -435,7 +454,7 @@ func (prx *Proxy) processReqURIMAddr(env *RequestEnvelope, req *Request) {
 		return
 	}
 
-	ru.Addr = AddrFromHost(ru.Addr.Host())
+	ru.Addr = MakeHostAddr(ru.Addr.Host())
 	ru.Params.Delete("maddr").Delete("transport")
 }
 
@@ -524,11 +543,11 @@ func (prx *Proxy) stepResolveReqTargets(ctx context.Context, route *ProxyRoute, 
 	if route.ResolveRequestTargets == nil {
 		// If the target set remains empty after applying all of the above, the
 		// proxy MUST return an error response, which SHOULD be the 480 (Temporarily Unavailable) response.
-		return errors.Wrap(NewRequestRejectedError(
-			errNoFwdTargets,
-			slog.LevelDebug,
-			ResponseStatusTemporarilyUnavailable,
-		))
+		return errors.Wrap(&RequestRejectedError{
+			cause:  errNoFwdTargets,
+			resSts: ResponseStatusTemporarilyUnavailable,
+			logLvl: slog.LevelDebug,
+		})
 	}
 
 	resolvedTargets, err := route.ResolveRequestTargets(ctx, route, req)
@@ -554,11 +573,11 @@ func (prx *Proxy) stepForwardReq(ctx context.Context, route *ProxyRoute, inReq *
 		}
 
 		if err := prx.fwdCtxStore.Store(ctx, route.fwdCtx); err != nil {
-			return errors.Wrap(NewRequestRejectedError(
-				err,
-				slog.LevelWarn,
-				ResponseStatusServerInternalError,
-			))
+			return errors.Wrap(&RequestRejectedError{
+				cause:  err,
+				resSts: ResponseStatusServerInternalError,
+				logLvl: slog.LevelWarn,
+			})
 		}
 	}
 
@@ -669,7 +688,7 @@ func (prx *Proxy) stepForwardReq(ctx context.Context, route *ProxyRoute, inReq *
 				r.Headers.PrependVia(header.ViaHop{
 					Proto:     protoVer20,
 					Transport: udpMeta.Proto,
-					Addr:      AddrFromHost(util.RandString(8) + ".invalid"),
+					Addr:      MakeHostAddr(util.RandString(8) + ".invalid"),
 					Params:    make(types.Values).Set("branch", prx.genForwardBranch(ctx, route, inReq)),
 				})
 			})
@@ -692,7 +711,8 @@ func (prx *Proxy) stepForwardReq(ctx context.Context, route *ProxyRoute, inReq *
 				route.fwdCtx.ClientTransactionKeys = append(route.fwdCtx.ClientTransactionKeys, tx.Key())
 
 				if err := prx.fwdCtxStore.Store(ctx, route.fwdCtx); err != nil {
-					route.Logger.LogAttrs(ctx, slog.LevelError, "failed to update forward context",
+					route.Logger.LogAttrs(
+						ctx, slog.LevelError, "failed to update forward context",
 						slog.Any("error", err),
 						slog.Any("forward_context", route.fwdCtx),
 					)
@@ -709,11 +729,11 @@ func (prx *Proxy) stepForwardReq(ctx context.Context, route *ProxyRoute, inReq *
 	if trgtsNum == 0 || trgtsNum == len(trgtErrs) {
 		// If the target set remains empty after applying all of the above, the
 		// proxy MUST return an error response, which SHOULD be the 480 (Temporarily Unavailable) response.
-		return errors.Wrap(NewRequestRejectedError(
-			errNoFwdTargets,
-			slog.LevelDebug,
-			ResponseStatusTemporarilyUnavailable,
-		))
+		return errors.Wrap(&RequestRejectedError{
+			cause:  errNoFwdTargets,
+			resSts: ResponseStatusTemporarilyUnavailable,
+			logLvl: slog.LevelDebug,
+		})
 	}
 
 	return nil
@@ -883,12 +903,12 @@ func (s *MemoryForwardContextStore) LoadByTransactionKey(ctx context.Context, tx
 		if fc, ok := s.bySrvTxKey.Load(k); ok {
 			return fc, nil
 		}
-		return nil, errors.Wrap(ErrForwardContextNotFound)
+		return nil, errors.Wrap(NewForwardContextNotFoundError())
 	case ClientTransactionKey:
 		if fc, ok := s.byClnTxKey.Load(k); ok {
 			return fc, nil
 		}
-		return nil, errors.Wrap(ErrForwardContextNotFound)
+		return nil, errors.Wrap(NewForwardContextNotFoundError())
 	default:
 		return nil, errors.ErrorWrap("invalid transaction key type")
 	}
@@ -906,7 +926,7 @@ func (s *MemoryForwardContextStore) LoadAll(ctx context.Context) (iter.Seq[*Forw
 
 func (s *MemoryForwardContextStore) Store(ctx context.Context, fc *ForwardContext) error {
 	if actual, loaded := s.bySrvTxKey.LoadOrStore(fc.ServerTransactionKey, fc); loaded && actual != fc {
-		return errors.Wrap(ErrDuplicateTransaction)
+		return errors.Wrap(NewTransactionDuplicateError())
 	}
 	for _, key := range fc.ClientTransactionKeys {
 		s.byClnTxKey.Store(key, fc)

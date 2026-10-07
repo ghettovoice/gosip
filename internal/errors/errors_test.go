@@ -8,27 +8,6 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 )
 
-type temporaryError struct {
-	temporary bool
-}
-
-func (temporaryError) Error() string     { return "temporary" }
-func (e temporaryError) Temporary() bool { return e.temporary }
-
-type timeoutError struct {
-	timeout bool
-}
-
-func (timeoutError) Error() string   { return "timeout" }
-func (e timeoutError) Timeout() bool { return e.timeout }
-
-type grammarError struct {
-	grammar bool
-}
-
-func (grammarError) Error() string   { return "grammar" }
-func (e grammarError) Grammar() bool { return e.grammar }
-
 type unwrapAll interface {
 	Unwrap() []error
 }

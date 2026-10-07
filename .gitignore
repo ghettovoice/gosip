@@ -227,18 +227,5 @@ $RECYCLE.BIN/
 # End of https://www.toptal.com/developers/gitignore/api/go,vim,linux,macos,windows,jetbrains+iml,visualstudiocode
 
 ### App ###
-*.prof
-*.pprof
-*.profile
-*.prof.*
-*.pprof.*
-*.profile.*
-
-coverage/
-*.report
-
-__debug*
-
-tmp/
-
 **/.devin/config.local.json
+.task

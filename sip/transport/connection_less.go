@@ -50,17 +50,15 @@ func NewConnectionLessListener(
 	lsOpts := util.LastSliceElemOr(opts, ConnectionLessListenerOptions{})
 
 	ls := &ConnectionLessListener{
-		connBase: connBase{
-			meta:            tp.meta,
-			laddr:           netutil.UnmapAddrPort(netip.MustParseAddrPort(base.LocalAddr().String())),
-			prsr:            lsOpts.prsr(),
-			maxMsgReadSize:  lsOpts.maxMsgReadSize(),
-			maxMsgWriteSize: lsOpts.maxMsgWriteSize(),
-			readTimeout:     lsOpts.readTimeout(),
-			writeTimeout:    lsOpts.writeTimeout(),
-			closed:          make(chan struct{}),
-		},
-		tp: tp,
+		meta:            tp.meta,
+		laddr:           netutil.UnmapAddrPort(netip.MustParseAddrPort(base.LocalAddr().String())),
+		prsr:            lsOpts.prsr(),
+		maxMsgReadSize:  lsOpts.maxMsgReadSize(),
+		maxMsgWriteSize: lsOpts.maxMsgWriteSize(),
+		readTimeout:     lsOpts.readTimeout(),
+		writeTimeout:    lsOpts.writeTimeout(),
+		closed:          make(chan struct{}),
+		tp:              tp,
 	}
 	ls.log = lsOpts.log().With(slog.Any("listener", ls))
 	//nolint:forcetypeassert
@@ -106,7 +104,7 @@ func (ls *ConnectionLessListener) Close(_ context.Context) error {
 	ls.closeOnce.Do(func() {
 		ls.closeErr = ls.baseConn.Close()
 		if ls.closeErr != nil && errors.Is(ls.closeErr, net.ErrClosed) {
-			ls.closeErr = errors.Errorf("%w: %w", ls.closeErr, ErrNetworkClosed)
+			ls.closeErr = NewNetworkClosedError(ls.closeErr)
 		}
 		close(ls.closed)
 	})
@@ -115,10 +113,10 @@ func (ls *ConnectionLessListener) Close(_ context.Context) error {
 
 func (ls *ConnectionLessListener) Serve(ctx context.Context) error {
 	if ls.isClosed() {
-		return errors.Wrap(ErrNetworkClosed)
+		return errors.Wrap(NewNetworkClosedError())
 	}
 	if !ls.serving.CompareAndSwap(false, true) {
-		return errors.Wrap(ErrListenerServing)
+		return errors.Wrap(NewListenerServingError())
 	}
 	defer ls.serving.Store(false)
 
@@ -138,7 +136,8 @@ func (ls *ConnectionLessListener) Serve(ctx context.Context) error {
 			defer cancel()
 
 			if err := ls.Close(ctx); err != nil {
-				ls.log.LogAttrs(ctx, slog.LevelWarn, "failed to close listener",
+				ls.log.LogAttrs(
+					ctx, slog.LevelWarn, "failed to close listener",
 					slog.Any("listener", ls),
 					slog.Any("error", err),
 				)
@@ -163,9 +162,9 @@ func (ls *ConnectionLessListener) Serve(ctx context.Context) error {
 	select {
 	case <-ls.closed:
 		if err == nil {
-			err = ErrNetworkClosed
+			err = NewNetworkClosedError()
 		} else if !errors.Is(err, ErrNetworkClosed) {
-			err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+			err = NewNetworkClosedError(err)
 		}
 		return errors.Wrap(err)
 	default:
@@ -176,7 +175,7 @@ func (ls *ConnectionLessListener) Serve(ctx context.Context) error {
 
 func (ls *ConnectionLessListener) WriteTo(ctx context.Context, b []byte, addr netip.AddrPort) (int, error) {
 	if ls.isClosed() {
-		return 0, errors.Wrap(ErrNetworkClosed)
+		return 0, errors.Wrap(NewNetworkClosedError())
 	}
 
 	if _, ok := ctx.Deadline(); !ok {
@@ -188,7 +187,7 @@ func (ls *ConnectionLessListener) WriteTo(ctx context.Context, b []byte, addr ne
 	n, err := ls.baseConn.WriteToContext(ctx, b, netutil.AddrPortToNetAddr(ls.meta.Network, addr))
 	if err != nil {
 		if errors.Is(err, net.ErrClosed) {
-			err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+			err = NewNetworkClosedError(err)
 		}
 		return 0, errors.Wrap(err)
 	}
@@ -197,7 +196,7 @@ func (ls *ConnectionLessListener) WriteTo(ctx context.Context, b []byte, addr ne
 
 func (ls *ConnectionLessListener) ReadFrom(ctx context.Context, b []byte) (int, netip.AddrPort, error) {
 	if ls.isClosed() {
-		return 0, netip.AddrPort{}, errors.Wrap(ErrNetworkClosed)
+		return 0, netip.AddrPort{}, errors.Wrap(NewNetworkClosedError())
 	}
 
 	if _, ok := ctx.Deadline(); !ok {
@@ -209,7 +208,7 @@ func (ls *ConnectionLessListener) ReadFrom(ctx context.Context, b []byte) (int, 
 	n, addr, err := ls.baseConn.ReadFromContext(ctx, b)
 	if err != nil {
 		if errors.Is(err, net.ErrClosed) {
-			err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+			err = NewNetworkClosedError(err)
 		}
 		return 0, netip.AddrPort{}, errors.Wrap(err)
 	}
@@ -248,7 +247,7 @@ func (ls *ConnectionLessListener) WriteMessage(
 	opts ...sip.RenderOptions,
 ) error {
 	if ls.isClosed() {
-		return errors.Wrap(ErrNetworkClosed)
+		return errors.Wrap(NewNetworkClosedError())
 	}
 	if err := msg.Validate(); err != nil {
 		return errors.Wrap(err)
@@ -261,7 +260,7 @@ func (ls *ConnectionLessListener) WriteMessage(
 		return errors.Wrap(err)
 	}
 	if uint(bb.Len()) > ls.maxMsgWriteSize {
-		return errors.Wrap(sip.ErrMessageTooLarge)
+		return errors.Wrap(sip.NewMessageTooLargeError(ls.maxMsgWriteSize))
 	}
 
 	if _, err := ls.WriteTo(ctx, bb.Bytes(), addr); err != nil {
@@ -296,7 +295,7 @@ func (c *netPacketConnAdapter) WriteTo(p []byte, addr net.Addr) (n int, err erro
 func (c *netPacketConnAdapter) SetDeadline(t time.Time) error {
 	err := c.baseConn.SetDeadline(t)
 	if err != nil && errors.Is(err, net.ErrClosed) {
-		err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+		err = NewNetworkClosedError(err)
 	}
 	return errors.Wrap(err)
 }
@@ -304,7 +303,7 @@ func (c *netPacketConnAdapter) SetDeadline(t time.Time) error {
 func (c *netPacketConnAdapter) SetReadDeadline(t time.Time) error {
 	err := c.baseConn.SetReadDeadline(t)
 	if err != nil && errors.Is(err, net.ErrClosed) {
-		err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+		err = NewNetworkClosedError(err)
 	}
 	return errors.Wrap(err)
 }
@@ -312,7 +311,7 @@ func (c *netPacketConnAdapter) SetReadDeadline(t time.Time) error {
 func (c *netPacketConnAdapter) SetWriteDeadline(t time.Time) error {
 	err := c.baseConn.SetWriteDeadline(t)
 	if err != nil && errors.Is(err, net.ErrClosed) {
-		err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+		err = NewNetworkClosedError(err)
 	}
 	return errors.Wrap(err)
 }
@@ -382,7 +381,7 @@ func (tp *ConnectionLessTransport) AcquireConnection(
 	opts ...AcquireConnectionOptions,
 ) (sip.TransportConnection, error) {
 	if tp.isClosing() {
-		return nil, errors.Wrap(ErrTransportClosed)
+		return nil, errors.Wrap(NewTransportClosedError())
 	}
 
 	acqOpts := util.LastSliceElemOr(opts, AcquireConnectionOptions{})
@@ -412,7 +411,7 @@ func (tp *ConnectionLessTransport) AcquireConnection(
 	}
 
 	if !acqOpts.Dial {
-		return nil, errors.Wrap(ErrConnectionNotFound)
+		return nil, errors.Wrap(NewConnectionNotFoundError())
 	}
 
 	conn, err := tp.dialConn(ctx, raddr)

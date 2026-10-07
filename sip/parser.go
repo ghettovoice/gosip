@@ -9,6 +9,7 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/pkg/errclass"
 )
 
 // Parser is an interface for parsing SIP messages.
@@ -127,13 +128,10 @@ func (err *ParseError) Is(target error) bool {
 	return err != nil && target == ErrClassParser
 }
 
-func (err *ParseError) Grammar() bool { return err != nil && errors.IsGrammarError(err.Err) }
-
-func (err *ParseError) Timeout() bool { return err != nil && errors.IsTimeoutError(err.Err) }
-
-func (err *ParseError) Temporary() bool { return err != nil && errors.IsTemporaryError(err.Err) }
-
-func (err *ParseError) Canceled() bool { return err != nil && errors.IsCanceledError(err.Err) }
+func (err *ParseError) Grammar() bool   { return err != nil && errclass.IsGrammar(err.Err) }
+func (err *ParseError) Timeout() bool   { return err != nil && errclass.IsTimeout(err.Err) }
+func (err *ParseError) Temporary() bool { return err != nil && errclass.IsTemporary(err.Err) }
+func (err *ParseError) Canceled() bool  { return err != nil && errclass.IsCanceled(err.Err) }
 
 // ParseState represents the current parsing state.
 type ParseState int
@@ -164,8 +162,9 @@ func (s ParseState) String() string {
 //nolint:gocognit
 func parseMsg(rdr *bufio.Reader, pktMode bool, maxMsgSize uint) (Message, error) {
 	var (
-		state ParseState
-		msg   Message
+		state   ParseState
+		msg     Message
+		msgSize uint64
 	)
 
 	txtRdr := getTxtProtoRdr(rdr)
@@ -189,6 +188,7 @@ func parseMsg(rdr *bufio.Reader, pktMode bool, maxMsgSize uint) (Message, error)
 				})
 			}
 
+			msgSize = uint64(len(line)) + 2
 			state = ParseStateHeaders
 		case ParseStateHeaders:
 			hdrs := make(Headers)
@@ -198,13 +198,15 @@ func parseMsg(rdr *bufio.Reader, pktMode bool, maxMsgSize uint) (Message, error)
 				line, err := txtRdr.ReadContinuedLineBytes()
 				if err != nil {
 					return nil, errors.Wrap(&ParseError{
-						Err:   newInvalidMsgErr("incomplete headers"),
+						Err:   NewInvalidMessageError("incomplete headers"),
 						State: state,
 						Data:  line,
 						Msg:   msg,
 					})
 				}
 
+				// FIXME: ReadContinuedLineBytes unfolds continued headers, so their original size may be underestimated.
+				msgSize += uint64(len(line)) + 2
 				if len(line) == 0 {
 					break
 				}
@@ -232,7 +234,25 @@ func parseMsg(rdr *bufio.Reader, pktMode bool, maxMsgSize uint) (Message, error)
 				bodyLen = rdr.Buffered()
 			default:
 				return nil, errors.Wrap(&ParseError{
-					Err:   newInvalidMsgErr(newMissHdrErr("Content-Length")),
+					Err:   NewInvalidMessageError(newMissHdrErr("Content-Length")),
+					State: state,
+					Msg:   msg,
+				})
+			}
+
+			maxSize := uint64(maxMsgSize)
+			if msgSize > maxSize {
+				return nil, errors.Wrap(&ParseError{
+					Err:   NewMessageTooLargeError(maxMsgSize),
+					State: state,
+					Msg:   msg,
+				})
+			}
+
+			remainingSize := maxSize - msgSize
+			if uint64(bodyLen) > remainingSize {
+				return nil, errors.Wrap(&ParseError{
+					Err:   NewMessageBodyTooLargeError(uint(remainingSize)),
 					State: state,
 					Msg:   msg,
 				})
@@ -242,15 +262,6 @@ func parseMsg(rdr *bufio.Reader, pktMode bool, maxMsgSize uint) (Message, error)
 				return msg, nil
 			}
 
-			// TODO: calc current message size (start line + headers) and check based on remaining buffer size
-			if uint64(bodyLen) > uint64(maxMsgSize) {
-				return nil, errors.Wrap(&ParseError{
-					Err:   errors.Prefix(ErrEntityTooLarge, "message exceeds max size %d", maxMsgSize),
-					State: state,
-					Msg:   msg,
-				})
-			}
-
 			_ = SetMessageBody(msg, make([]byte, bodyLen))
 
 			state = ParseStateBody
@@ -258,7 +269,7 @@ func parseMsg(rdr *bufio.Reader, pktMode bool, maxMsgSize uint) (Message, error)
 			buf, _ := GetMessageBody(msg)
 			if n, err := io.ReadFull(rdr, buf); err != nil {
 				return nil, errors.Wrap(&ParseError{
-					Err:   newInvalidMsgErr("incomplete body"),
+					Err:   NewInvalidMessageError("incomplete body"),
 					State: state,
 					Data:  buf[:n],
 					Msg:   msg,

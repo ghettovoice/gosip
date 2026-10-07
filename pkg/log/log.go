@@ -13,8 +13,6 @@ import (
 	"github.com/golang-cz/devslog"
 	conslog "github.com/phsym/console-slog"
 	slogfmt "github.com/samber/slog-formatter"
-
-	"github.com/ghettovoice/gosip/internal/types"
 )
 
 var newHandler = slogfmt.NewFormatterHandler(
@@ -89,11 +87,11 @@ func init() {
 	_default.Store(noop)
 }
 
-var loggerKey types.ContextKey = "logger"
+type loggerKey struct{}
 
 // ContextWithLogger returns a new context with the logger set.
 func ContextWithLogger(ctx context.Context, logger *slog.Logger) context.Context {
-	return context.WithValue(ctx, loggerKey, logger)
+	return context.WithValue(ctx, loggerKey{}, logger)
 }
 
 // LoggerFromValues returns the logger from the values.
@@ -109,7 +107,7 @@ func LoggerFromValues(vals ...any) *slog.Logger {
 	for _, val := range vals {
 		switch v := val.(type) {
 		case context.Context:
-			if l, ok := v.Value(loggerKey).(*slog.Logger); ok && l != nil {
+			if l, ok := v.Value(loggerKey{}).(*slog.Logger); ok && l != nil {
 				return l
 			}
 		case *slog.Logger:

@@ -24,8 +24,8 @@ func TestInfoAddr_String(t *testing.T) {
 			header.InfoAddr{
 				URI: &uri.SIP{
 					Secured: true,
-					User:    uri.User("user"),
-					Addr:    uri.AddrFromHost("example.com"),
+					User:    uri.MakeUserInfo("user"),
+					Addr:    uri.MakeHostAddr("example.com"),
 					Params:  make(uri.Values).Set("foo", "bar"),
 				},
 				Params: make(header.Values).Set("foo", "bar").Set("baz", ""),
@@ -73,7 +73,7 @@ func TestInfoAddr_Equal(t *testing.T) {
 		{"zero to zero", header.InfoAddr{}, header.InfoAddr{}, true},
 		{"zero to zero ptr", header.InfoAddr{}, &header.InfoAddr{}, true},
 		{"zero to nil ptr", header.InfoAddr{}, (*header.InfoAddr)(nil), false},
-		{"not match 1", header.InfoAddr{}, header.InfoAddr{URI: &uri.SIP{User: uri.User("user")}}, false},
+		{"not match 1", header.InfoAddr{}, header.InfoAddr{URI: &uri.SIP{User: uri.MakeUserInfo("user")}}, false},
 		{
 			"not match 2",
 			header.InfoAddr{

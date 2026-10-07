@@ -2,16 +2,21 @@ package sip
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"reflect"
+	"strconv"
 	"sync/atomic"
 	"time"
 
+	"github.com/ghettovoice/timeutil"
+
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/timeutil"
 	"github.com/ghettovoice/gosip/internal/types"
-	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/pkg/log"
 )
 
 // ClientTransaction represents a SIP client transaction.
@@ -19,9 +24,6 @@ import (
 type ClientTransaction interface {
 	Transaction
 	ResponseReceiver
-	// Start starts the client transaction.
-	// It must be called exactly once after the transaction is registered.
-	Start(ctx context.Context) error
 	// Key returns the client transaction key.
 	Key() ClientTransactionKey
 	// Request returns the initial request that started this transaction.
@@ -55,7 +57,6 @@ type ClientTransport interface {
 // It must not start transaction processing, send the request, or start transaction timers.
 type ClientTransactionFactory interface {
 	NewClientTransaction(
-		ctx context.Context,
 		req *RequestEnvelope,
 		tp ClientTransport,
 		opts ...ClientTransactionOptions,
@@ -64,34 +65,31 @@ type ClientTransactionFactory interface {
 
 // ClientTransactionFactoryFunc is a function that implements [ClientTransactionFactory].
 type ClientTransactionFactoryFunc func(
-	ctx context.Context,
 	req *RequestEnvelope,
 	tp ClientTransport,
 	opts ...ClientTransactionOptions,
 ) (ClientTransaction, error)
 
 func (f ClientTransactionFactoryFunc) NewClientTransaction(
-	ctx context.Context,
 	req *RequestEnvelope,
 	tp ClientTransport,
 	opts ...ClientTransactionOptions,
 ) (ClientTransaction, error) {
-	return errors.Wrap2(f(ctx, req, tp, opts...))
+	return errors.Wrap2(f(req, tp, opts...))
 }
 
 // NewClientTransaction creates an initialized client transaction based on the request method.
 // If the request method is INVITE, it creates an [InviteClientTransaction].
 // Otherwise, it creates a [NonInviteClientTransaction].
 func NewClientTransaction(
-	ctx context.Context,
 	req *RequestEnvelope,
 	tp ClientTransport,
 	opts ...ClientTransactionOptions,
 ) (ClientTransaction, error) {
 	if req.Method().Equal(RequestMethodInvite) {
-		return errors.Wrap2(NewInviteClientTransaction(ctx, req, tp, opts...))
+		return errors.Wrap2(NewInviteClientTransaction(req, tp, opts...))
 	}
-	return errors.Wrap2(NewNonInviteClientTransaction(ctx, req, tp, opts...))
+	return errors.Wrap2(NewNonInviteClientTransaction(req, tp, opts...))
 }
 
 // ClientTransactionOptions contains options for a client transaction.
@@ -120,11 +118,12 @@ type clientTransact struct {
 	timing   TimingConfig
 	req      *RequestEnvelope
 	sendOpts SendRequestOptions
-	started  atomic.Bool
 
 	onRes       types.CallbackManager[InboundResponseHandler]
 	pendingRess types.Queue[pendingResponse]
 	lastRes     atomic.Pointer[ResponseEnvelope]
+
+	snapshot atomic.Pointer[ClientTransactionSnapshot]
 }
 
 type pendingResponse struct {
@@ -154,7 +153,7 @@ func newClientTransact(
 		return nil, errors.ErrorWrap("nil transport")
 	}
 
-	key, err := ClientTransactionKeyFromMessage(req)
+	key, err := MakeClientTransactionKey(req)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
@@ -207,7 +206,7 @@ func (tx *clientTransact) Transport() ClientTransport { return tx.tp }
 // MatchMessage checks whether the message matches the client transaction.
 // It implements the matching rules defined in RFC 3261 Section 17.1.3.
 func (tx *clientTransact) MatchMessage(msg Message) bool {
-	key, err := ClientTransactionKeyFromMessage(msg)
+	key, err := MakeClientTransactionKey(msg)
 	if err != nil {
 		return false
 	}
@@ -215,10 +214,17 @@ func (tx *clientTransact) MatchMessage(msg Message) bool {
 }
 
 // RecvResponse is called on each inbound response received by the transport layer.
+// A matched response received while the transaction is still prepared waits for
+// activation, termination, or context cancellation.
 func (tx *clientTransact) RecvResponse(ctx context.Context, res *ResponseEnvelope) error {
 	if !tx.MatchMessage(res) {
-		return errors.Wrap(ErrMessageNotMatched)
+		return errors.Wrap(NewMessageNotMatched())
 	}
+
+	if err := tx.waitActive(ctx); err != nil {
+		return errors.Wrap(err)
+	}
+	defer tx.saveSnapshot()
 
 	switch {
 	case res.Status().IsProvisional():
@@ -232,8 +238,10 @@ func (tx *clientTransact) RecvResponse(ctx context.Context, res *ResponseEnvelop
 
 func (tx *clientTransact) sendReq(ctx context.Context, req *RequestEnvelope) error {
 	if err := tx.tp.SendRequest(ctx, req, tx.sendOpts); err != nil {
-		if err := tx.fsm.FireCtx(ctx, txEvtTranspErr, errors.ErrorfWrap("send %q request: %w", req.Method(), err)); err != nil {
-			panic(errors.Wrap(newTxTriggerErr(txEvtTranspErr, tx.State(), err)))
+		err = errors.ErrorfWrap("send %q request: %w", req.Method(), err)
+		if ferr := tx.fsm.FireCtx(ctx, txEvtTranspErr, err); ferr != nil &&
+			!errors.Is(ferr, ErrTransactionActionNotAllowed) {
+			panic(errors.Wrap(newTxTriggerErr(txEvtTranspErr, tx.State(), ferr)))
 		}
 		return errors.Wrap(err)
 	}
@@ -262,7 +270,8 @@ func (tx *clientTransact) initFSM(start TransactionState) error {
 }
 
 func (tx *clientTransact) actSendReq(ctx context.Context, _ ...any) error {
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "send request",
+	tx.log.LogAttrs(
+		ctx, slog.LevelDebug, "send request",
 		slog.Any("transaction", tx.impl),
 		slog.Any("request", tx.req),
 	)
@@ -275,7 +284,8 @@ func (tx *clientTransact) actPassRes(ctx context.Context, args ...any) error {
 	res := args[0].(*ResponseEnvelope) //nolint:forcetypeassert
 	tx.lastRes.Store(res)
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "pass response",
+	tx.log.LogAttrs(
+		ctx, slog.LevelDebug, "pass response",
 		slog.Any("transaction", tx.impl),
 		slog.Any("response", res),
 	)
@@ -323,10 +333,28 @@ func (tx *clientTransact) BindResponseHandler(fn InboundResponseHandler) (unbind
 	return tx.onRes.Add(fn)
 }
 
+func (tx *clientTransact) saveSnapshotLocked() {
+	tx.snapshot.Store(tx.clnTxImpl().takeSnapshot())
+}
+
 // Snapshot returns a snapshot of the transaction state that can be serialized.
 // The snapshot contains all the data needed to restore the transaction after a restart.
-func (tx *clientTransact) Snapshot() *ClientTransactionSnapshot {
-	return tx.clnTxImpl().takeSnapshot()
+// A transaction cannot be snapshotted before Start completes, except when restored as terminated.
+func (tx *clientTransact) Snapshot() (*ClientTransactionSnapshot, error) {
+	tx.lcMu.Lock()
+	defer tx.lcMu.Unlock()
+
+	state := tx.State()
+	terminalRestore := tx.restored && state == TransactionStateTerminated
+	if tx.starting || (!tx.started && !terminalRestore) ||
+		(!tx.isActive() && state != TransactionStateTerminated) {
+		return nil, errors.Wrap(NewTransactionActionNotAllowedError())
+	}
+	snap := tx.snapshot.Load()
+	if snap == nil {
+		return nil, errors.Wrap(NewTransactionActionNotAllowedError())
+	}
+	return snap.Clone(), nil
 }
 
 // MarshalJSON implements [json.Marshaler].
@@ -334,7 +362,11 @@ func (tx *clientTransact) MarshalJSON() ([]byte, error) {
 	if tx == nil {
 		return jsonNull, nil
 	}
-	return errors.Wrap2(json.Marshal(tx.Snapshot()))
+	snap, err := tx.Snapshot()
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+	return errors.Wrap2(json.Marshal(snap))
 }
 
 // ClientTransactionSnapshot represents a snapshot of a client transaction state.
@@ -374,6 +406,25 @@ type ClientTransactionSnapshot struct {
 	TimerK *timeutil.TimerSnapshot `json:"timer_k,omitempty"`
 }
 
+// Clone returns an independent copy of the snapshot.
+func (snap *ClientTransactionSnapshot) Clone() *ClientTransactionSnapshot {
+	if snap == nil {
+		return nil
+	}
+
+	clone := *snap
+	clone.Request = cloneReqEnvelope(snap.Request)
+	clone.LastResponse = cloneResEnvelope(snap.LastResponse)
+	clone.TimerA = cloneTmrSnapshot(snap.TimerA)
+	clone.TimerB = cloneTmrSnapshot(snap.TimerB)
+	clone.TimerD = cloneTmrSnapshot(snap.TimerD)
+	clone.TimerM = cloneTmrSnapshot(snap.TimerM)
+	clone.TimerE = cloneTmrSnapshot(snap.TimerE)
+	clone.TimerF = cloneTmrSnapshot(snap.TimerF)
+	clone.TimerK = cloneTmrSnapshot(snap.TimerK)
+	return &clone
+}
+
 func (snap *ClientTransactionSnapshot) IsValid() bool {
 	return snap != nil &&
 		snap.Type.IsValid() &&
@@ -381,4 +432,330 @@ func (snap *ClientTransactionSnapshot) IsValid() bool {
 		snap.Key.IsValid() &&
 		snap.Request.IsValid() &&
 		(snap.LastResponse == nil || snap.LastResponse.IsValid())
+}
+
+func (snap *ClientTransactionSnapshot) validate(wantType TransactionType) error {
+	if !snap.IsValid() || snap.Type != wantType {
+		return errors.Wrap(NewInvalidTransactionSnapshotError())
+	}
+
+	mtd := snap.Request.Method()
+	switch wantType {
+	case TransactionTypeClientInvite:
+		if !mtd.Equal(RequestMethodInvite) {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("request method is not INVITE"))
+		}
+
+		if !isTxStateIn(
+			snap.State,
+			TransactionStateCalling,
+			TransactionStateProceeding,
+			TransactionStateAccepted,
+			TransactionStateCompleted,
+			TransactionStateTerminated,
+		) {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected state"))
+		}
+	case TransactionTypeClientNonInvite:
+		if mtd.Equal(RequestMethodInvite) || mtd.Equal(RequestMethodAck) {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected request method"))
+		}
+
+		if !isTxStateIn(
+			snap.State,
+			TransactionStateTrying,
+			TransactionStateProceeding,
+			TransactionStateCompleted,
+			TransactionStateTerminated,
+		) {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected state"))
+		}
+	default:
+		return errors.Wrap(NewInvalidTransactionSnapshotError())
+	}
+
+	key, err := MakeClientTransactionKey(snap.Request)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+	if !snap.Key.Equal(key) {
+		return errors.Wrap(NewInvalidTransactionSnapshotError("key mismatch"))
+	}
+
+	if res := snap.LastResponse; res != nil {
+		if err := matchTxResHdrs(snap.Request, res, false); err != nil {
+			return errors.Wrap(err)
+		}
+		if resKey, err := MakeClientTransactionKey(res); err != nil || !snap.Key.Equal(resKey) {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("response key mismatch"))
+		}
+	}
+	if err := snap.validateLastRes(); err != nil {
+		return errors.Wrap(err)
+	}
+
+	return errors.Wrap(snap.validateTimers())
+}
+
+func (snap *ClientTransactionSnapshot) validateLastRes() error {
+	res := snap.LastResponse
+
+	switch snap.State {
+	case TransactionStateCalling, TransactionStateTrying:
+		if res != nil {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected last response"))
+		}
+	case TransactionStateProceeding:
+		if res == nil || !res.Status().IsProvisional() {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("provisional response required"))
+		}
+	case TransactionStateAccepted:
+		if res == nil || !res.Status().IsSuccessful() {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("success response required"))
+		}
+	case TransactionStateCompleted:
+		if res == nil || res.Status().IsProvisional() {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("final response required"))
+		}
+		if snap.Type == TransactionTypeClientInvite && res.Status().IsSuccessful() {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("non-2xx final response required"))
+		}
+	case TransactionStateConfirmed, TransactionStateTerminated:
+	}
+
+	return nil
+}
+
+func (snap *ClientTransactionSnapshot) validateTimers() error {
+	type tmrSpec struct {
+		snap    *timeutil.TimerSnapshot
+		allowed []TransactionState
+	}
+
+	var specs []tmrSpec
+
+	switch snap.Type {
+	case TransactionTypeClientInvite:
+		specs = []tmrSpec{
+			{snap.TimerA, []TransactionState{TransactionStateCalling}},
+			{snap.TimerB, []TransactionState{TransactionStateCalling}},
+			{snap.TimerD, []TransactionState{TransactionStateCompleted}},
+			{snap.TimerM, []TransactionState{TransactionStateAccepted}},
+		}
+	case TransactionTypeClientNonInvite:
+		specs = []tmrSpec{
+			{snap.TimerE, []TransactionState{TransactionStateTrying, TransactionStateProceeding}},
+			{snap.TimerF, []TransactionState{TransactionStateTrying, TransactionStateProceeding}},
+			{snap.TimerK, []TransactionState{TransactionStateCompleted}},
+		}
+	default:
+		return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected type"))
+	}
+
+	var foreign []*timeutil.TimerSnapshot
+	if snap.Type == TransactionTypeClientInvite {
+		foreign = []*timeutil.TimerSnapshot{snap.TimerE, snap.TimerF, snap.TimerK}
+	} else {
+		foreign = []*timeutil.TimerSnapshot{snap.TimerA, snap.TimerB, snap.TimerD, snap.TimerM}
+	}
+
+	for _, spec := range specs {
+		if err := validateTxTmrSnap(spec.snap, snap.State, spec.allowed...); err != nil {
+			return errors.Wrap(err)
+		}
+	}
+
+	for _, tmr := range foreign {
+		if tmr == nil {
+			continue
+		}
+		if err := tmr.Validate(); err != nil {
+			return errors.Wrap(err)
+		}
+		if tmr.State == timeutil.TimerStateRunning {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected active timer"))
+		}
+	}
+
+	return nil
+}
+
+func RestoreClientTransaction(
+	snap *ClientTransactionSnapshot,
+	tp ClientTransport,
+	opts ...ClientTransactionOptions,
+) (ClientTransaction, error) {
+	if snap == nil {
+		return nil, errors.Wrap(NewInvalidTransactionSnapshotError())
+	}
+
+	switch snap.Type {
+	case TransactionTypeClientInvite:
+		return errors.Wrap2(RestoreInviteClientTransaction(snap, tp, opts...))
+	case TransactionTypeClientNonInvite:
+		return errors.Wrap2(RestoreNonInviteClientTransaction(snap, tp, opts...))
+	default:
+		return nil, errors.Wrap(NewInvalidTransactionSnapshotError())
+	}
+}
+
+// ClientTransactionKey is the key of a client transaction.
+// It is used for matching responses to the request that created the transaction.
+type ClientTransactionKey struct {
+	// Branch parameter of the topmost Via header field.
+	Branch string `json:"branch"`
+	// Method of the request that created the transaction.
+	Method string `json:"method"`
+}
+
+// MakeClientTransactionKey creates a client transaction key from the given message.
+func MakeClientTransactionKey(msg Message) (ClientTransactionKey, error) {
+	if err := msg.Validate(); err != nil {
+		return ClientTransactionKey{}, errors.Wrap(err)
+	}
+
+	hdrs, ok := GetMessageHeaders(msg)
+	if !ok {
+		return ClientTransactionKey{}, errors.Wrap(newUnexpectMsgTypeErr(msg))
+	}
+
+	var k ClientTransactionKey
+	via, _ := hdrs.FirstVia()
+	k.Branch, _ = via.Branch()
+	if !IsRFC3261Branch(k.Branch) {
+		return ClientTransactionKey{}, errors.Wrap(NewInvalidMessageError("invalid Via branch"))
+	}
+
+	cseq, _ := hdrs.CSeq()
+	k.Method = string(cseq.Method.ToUpper())
+	return k, nil
+}
+
+// Equal checks whether the key is equal to another key.
+func (k ClientTransactionKey) Equal(val any) bool {
+	var other ClientTransactionKey
+	switch v := val.(type) {
+	case ClientTransactionKey:
+		other = v
+	case *ClientTransactionKey:
+		if v == nil {
+			return false
+		}
+		other = *v
+	default:
+		return false
+	}
+
+	return k.Branch == other.Branch && util.EqFold(k.Method, other.Method)
+}
+
+// IsValid checks whether the key is valid.
+func (k ClientTransactionKey) IsValid() bool {
+	return IsRFC3261Branch(k.Branch) && k.Method != ""
+}
+
+// IsZero checks whether the key is zero.
+func (k ClientTransactionKey) IsZero() bool {
+	return k.Branch == "" && k.Method == ""
+}
+
+// LogValue returns a [slog.Value] for the key.
+func (k ClientTransactionKey) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Any("branch", k.Branch),
+		slog.Any("method", k.Method),
+	)
+}
+
+func (k ClientTransactionKey) Canonic() ClientTransactionKey {
+	k.Method = util.UCase(k.Method)
+	return k
+}
+
+func (k ClientTransactionKey) MarshalBinary() ([]byte, error) {
+	if !k.IsValid() {
+		return nil, errors.ErrorWrap("invalid transaction key")
+	}
+
+	k = k.Canonic() //nolint:revive
+
+	size := util.SizePrefixedString(k.Branch) +
+		util.SizePrefixedString(k.Method)
+
+	buf := make([]byte, 0, size)
+	buf = util.AppendPrefixedString(buf, k.Branch)
+	buf = util.AppendPrefixedString(buf, k.Method)
+	return buf, nil
+}
+
+func (k ClientTransactionKey) AppendBinary(b []byte) ([]byte, error) {
+	data, err := k.MarshalBinary()
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+	return append(b, data...), nil
+}
+
+func (k *ClientTransactionKey) UnmarshalBinary(data []byte) error {
+	if len(data) == 0 {
+		*k = ClientTransactionKey{}
+		return nil
+	}
+
+	key, ok := parseClnTxKey(data)
+	if !ok {
+		return errors.ErrorWrap("invalid transaction key payload")
+	}
+
+	*k = key
+	return nil
+}
+
+func parseClnTxKey(data []byte) (ClientTransactionKey, bool) {
+	var (
+		rest = data
+		err  error
+		key  ClientTransactionKey
+	)
+	if key.Branch, rest, err = util.ConsumePrefixedString(rest); err != nil {
+		return ClientTransactionKey{}, false
+	}
+	if key.Method, rest, err = util.ConsumePrefixedString(rest); err != nil {
+		return ClientTransactionKey{}, false
+	}
+	if len(rest) != 0 {
+		return ClientTransactionKey{}, false
+	}
+	return key, true
+}
+
+func (k ClientTransactionKey) String() string {
+	data, err := k.MarshalBinary()
+	if err != nil {
+		return "invalid transaction key"
+	}
+	return hex.EncodeToString(data)
+}
+
+func (k ClientTransactionKey) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		f.Write([]byte(k.String()))
+		return
+	case 'q':
+		f.Write([]byte(strconv.Quote(k.String())))
+		return
+	default:
+		if !f.Flag('+') && !f.Flag('#') {
+			f.Write([]byte(k.String()))
+			return
+		}
+
+		type (
+			hideMethods          ClientTransactionKey
+			ClientTransactionKey hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), ClientTransactionKey(k))
+		return
+	}
 }

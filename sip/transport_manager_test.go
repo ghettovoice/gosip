@@ -334,9 +334,9 @@ func (m testMessageInterceptor) InterceptOutboundResponse(
 func newTestRequest(tb testing.TB, tp sip.TransportProto) *sip.Request {
 	tb.Helper()
 
-	ruri := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
-	furi := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")}
-	turi := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
+	ruri := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
+	furi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
+	turi := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
 
 	req, err := sip.NewRequest(sip.RequestMethodInvite, ruri, furi, turi, sip.RequestOptions{Transport: tp})
 	if err != nil {
@@ -396,8 +396,14 @@ func TestTransportManager_TrackGetUntrack(t *testing.T) {
 		t.Fatalf("mgr.GetTransport(\"udp\") not found")
 	}
 
-	if got != udp {
-		t.Fatalf("mgr.GetTransport(\"udp\") = %v, want udp", got)
+	// the manager wraps tracked transports for error classification,
+	// so verify identity by delegation instead of equality
+	if err := got.SendRequest(t.Context(), newTestRequestEnvelope(t, "UDP")); err != nil {
+		t.Fatalf("got.SendRequest() error = %v, want nil", err)
+	}
+
+	if got, want := udp.counts().sendReqCalls, 1; got != want {
+		t.Fatalf("udp.SendRequest calls = %v, want %v", got, want)
 	}
 
 	if _, ok := mgr.TransportByProto("tls"); ok {

@@ -20,15 +20,15 @@ import (
 // Addr represents a network address consisting of a host and optional port.
 type Addr = types.Addr
 
-// AddrFromHost creates an Addr from a hostname without a port.
-func AddrFromHost(host string) Addr { return types.AddrFromHost(host) }
+// MakeHostAddr creates an Addr from a hostname without a port.
+func MakeHostAddr(host string) Addr { return types.MakeHostAddr(host) }
 
-// AddrFromHostPort creates an Addr from a hostname and port.
-func AddrFromHostPort(host string, port uint16) Addr { return types.AddrFromHostPort(host, port) }
+// MakeHostPortAddr creates an Addr from a hostname and port.
+func MakeHostPortAddr(host string, port uint16) Addr { return types.MakeHostPortAddr(host, port) }
 
-func AddrFromIP(ip net.IP) Addr { return types.AddrFromIP(ip) }
+func MakeIPAddr(ip net.IP) Addr { return types.MakeIPAddr(ip) }
 
-func AddrFromIPPort(ip net.IP, port uint16) Addr { return types.AddrFromIPPort(ip, port) }
+func MakeIPPortAddr(ip net.IP, port uint16) Addr { return types.MakeIPPortAddr(ip, port) }
 
 // ParseAddr parses a network address from the given input s (string or []byte).
 func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }

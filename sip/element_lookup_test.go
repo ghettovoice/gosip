@@ -10,8 +10,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	"github.com/ghettovoice/gosip/dns"
 	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/pkg/dns"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 )
@@ -94,7 +94,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr: sip.AddrFromHostPort("192.168.1.1", 5060),
+			Addr: sip.MakeHostPortAddr("192.168.1.1", 5060),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr.Addr)
@@ -127,7 +127,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr: sip.AddrFromHostPort("example.com", 5070),
+			Addr: sip.MakeHostPortAddr("example.com", 5070),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr.Addr)
@@ -167,7 +167,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr:   sip.AddrFromHost("example.com"),
+			Addr:   sip.MakeHostAddr("example.com"),
 			Params: make(sip.Values).Set("transport", "UDP"),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
@@ -204,7 +204,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []sip.ResolvedAddr
 		reqURI := &sip.URI{
-			Addr:   sip.AddrFromHost("example.com"),
+			Addr:   sip.MakeHostAddr("example.com"),
 			Params: make(sip.Values).Set("transport", "UDP"),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
@@ -270,7 +270,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr: sip.AddrFromHost("example.com"),
+			Addr: sip.MakeHostAddr("example.com"),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr.Addr)
@@ -306,7 +306,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr: sip.AddrFromHost("example.com"),
+			Addr: sip.MakeHostAddr("example.com"),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr.Addr)
@@ -347,7 +347,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		}
 
 		var got []sip.ResolvedAddr
-		reqURI := &sip.URI{Addr: sip.AddrFromHost("example.com")}
+		reqURI := &sip.URI{Addr: sip.MakeHostAddr("example.com")}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr)
 		}
@@ -407,7 +407,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("sentby.example.com", 5060),
+			Addr:      sip.MakeHostPortAddr("sentby.example.com", 5060),
 			Params:    make(sip.Values).Set("maddr", "maddr.example.com"),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
@@ -433,7 +433,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("sentby.example.com", 5060),
+			Addr:      sip.MakeHostPortAddr("sentby.example.com", 5060),
 			Params:    make(sip.Values).Set("received", "203.0.113.1"),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
@@ -459,7 +459,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("sentby.example.com", 5060),
+			Addr:      sip.MakeHostPortAddr("sentby.example.com", 5060),
 			Params:    make(sip.Values).Set("received", "203.0.113.1").Set("rport", "12345"),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
@@ -485,7 +485,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("192.168.1.1", 5070),
+			Addr:      sip.MakeHostPortAddr("192.168.1.1", 5070),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
 			got = append(got, addr.Addr)
@@ -517,7 +517,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("example.com", 5070),
+			Addr:      sip.MakeHostPortAddr("example.com", 5070),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
 			got = append(got, addr.Addr)
@@ -557,7 +557,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHost("example.com"),
+			Addr:      sip.MakeHostAddr("example.com"),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
 			got = append(got, addr.Addr)

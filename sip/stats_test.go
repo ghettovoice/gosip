@@ -138,7 +138,7 @@ func TestStatsRecorder_ReportTransactionStats(t *testing.T) {
 		t.Errorf("stats.Report() transaction stats mismatch (-want +got):\n%s", diff)
 	}
 
-	for _, tx := range []statsTransactionLifecycle{clientInvite, clientNonInvite, serverInvite, serverNonInvite} {
+	for _, tx := range []statsTransactionState{clientInvite, clientNonInvite, serverInvite, serverNonInvite} {
 		tx.fireState(ctx, sip.TransactionStateTerminated)
 	}
 
@@ -167,7 +167,7 @@ func findTransportStats(
 	return sip.TransportStats{}, false
 }
 
-type statsTransactionLifecycle interface {
+type statsTransactionState interface {
 	fireState(ctx context.Context, to sip.TransactionState)
 }
 
@@ -198,6 +198,12 @@ func (tx *statsTransactionStub) BindStateHandler(handler sip.TransactionStateHan
 }
 
 func (*statsTransactionStub) BindErrorHandler(sip.ErrorHandler) (unbind func()) {
+	return func() {}
+}
+
+func (*statsTransactionStub) Started() bool { return false }
+
+func (*statsTransactionStub) BindStartHandler(sip.TransactionStartHandler) (unbind func()) {
 	return func() {}
 }
 

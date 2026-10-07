@@ -18,9 +18,11 @@ func ParseURI[T ~string | ~[]byte](s T) (*URI, error) { return errors.Wrap2(uri.
 // See [sip.UserInfo].
 type UserInfo = uri.UserInfo
 
-func UserWithName(usrname string) UserInfo { return uri.User(usrname) }
+func MakeUserInfo(usrname string) UserInfo { return uri.MakeUserInfo(usrname) }
 
-func UserWithNamePassword(usrname, passwd string) UserInfo { return uri.UserPassword(usrname, passwd) }
+func MakeUserPasswordInfo(usrname, passwd string) UserInfo {
+	return uri.MakeUserPasswordInfo(usrname, passwd)
+}
 
 // AnyURI represents generic AnyURI (SIP, SIPS, Tel, ...etc).
 // See [uri.AnyURI].

@@ -28,7 +28,7 @@ func TestVia_Render(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -36,7 +36,7 @@ func TestVia_Render(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -76,7 +76,7 @@ func TestVia_RenderTo(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -84,7 +84,7 @@ func TestVia_RenderTo(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -131,7 +131,7 @@ func TestVia_String(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -139,7 +139,7 @@ func TestVia_String(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -183,7 +183,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -191,7 +191,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -202,7 +202,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -211,7 +211,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -225,7 +225,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "sip", Version: "2.0"},
 					Transport: "udp",
-					Addr:      header.AddrFromHostPort("ERLANG.BELL-TELEPHONE.COM", 5060),
+					Addr:      header.MakeHostPortAddr("ERLANG.BELL-TELEPHONE.COM", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -233,7 +233,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -246,7 +246,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -254,7 +254,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -303,7 +303,7 @@ func TestVia_IsValid(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "sip", Version: "2.0"},
 					Transport: "udp",
-					Addr:      header.AddrFromHostPort("ERLANG.BELL-TELEPHONE.COM", 5060),
+					Addr:      header.MakeHostPortAddr("ERLANG.BELL-TELEPHONE.COM", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -311,7 +311,7 @@ func TestVia_IsValid(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -350,7 +350,7 @@ func TestVia_Clone(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "sip", Version: "2.0"},
 					Transport: "udp",
-					Addr:      header.AddrFromHostPort("ERLANG.BELL-TELEPHONE.COM", 5060),
+					Addr:      header.MakeHostPortAddr("ERLANG.BELL-TELEPHONE.COM", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -358,7 +358,7 @@ func TestVia_Clone(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -398,7 +398,7 @@ func TestVia_MarshalJSON(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -406,7 +406,7 @@ func TestVia_MarshalJSON(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -455,7 +455,7 @@ func TestVia_UnmarshalJSON(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -463,7 +463,7 @@ func TestVia_UnmarshalJSON(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -511,7 +511,7 @@ func TestViaHop_String(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "UDP",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params: make(header.Values).
 					Set("received", "192.0.2.207").
 					Set("branch", "z9hG4bK87asdks7"),
@@ -549,12 +549,12 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "3.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			false,
 		},
@@ -563,12 +563,12 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "UDP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			false,
 		},
@@ -577,12 +577,12 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("example.com", 5060),
+				Addr:      header.MakeHostPortAddr("example.com", 5060),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			false,
 		},
@@ -591,13 +591,13 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("example.com", 5060),
+				Addr:      header.MakeHostPortAddr("example.com", 5060),
 				Params:    make(header.Values).Set("branch", "z9hG4bKa7c6a8dlze.1"),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("example.com", 5060),
+				Addr:      header.MakeHostPortAddr("example.com", 5060),
 				Params:    make(header.Values).Set("branch", "qwerty"),
 			},
 			false,
@@ -607,7 +607,7 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 				Params: make(header.Values).
 					Set("ttl", "16").
 					Set("maddr", "224.2.0.1").
@@ -618,7 +618,7 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 				Params: make(header.Values).
 					Set("ttl", "16").
 					Set("maddr", "224.2.0.1").
@@ -654,7 +654,7 @@ func TestViaHop_IsValid(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TLS",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params:    make(header.Values).Set("branch", "z9hG4bK87asdks7"),
 			},
 			true,
@@ -712,13 +712,13 @@ func TestViaHop_Clone(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TLS",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params:    make(header.Values).Set("branch", "z9hG4bK87asdks7"),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TLS",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params:    make(header.Values).Set("branch", "z9hG4bK87asdks7"),
 			},
 		},
@@ -750,7 +750,7 @@ func TestViaHop_MarshalText(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "UDP",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params: make(header.Values).
 					Set("received", "192.0.2.207").
 					Set("branch", "z9hG4bK87asdks7"),
@@ -793,7 +793,7 @@ func TestViaHop_UnmarshalText(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "UDP",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params: make(header.Values).
 					Set("received", "192.0.2.207").
 					Set("branch", "z9hG4bK87asdks7"),

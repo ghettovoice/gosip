@@ -2,6 +2,7 @@ package dns_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"sync"
@@ -9,11 +10,9 @@ import (
 	"time"
 
 	mdns "codeberg.org/miekg/dns"
-	"codeberg.org/miekg/dns/rdata"
 	"github.com/google/go-cmp/cmp"
 
-	gdns "github.com/ghettovoice/gosip/dns"
-	"github.com/ghettovoice/gosip/internal/errors"
+	gdns "github.com/ghettovoice/gosip/pkg/dns"
 )
 
 func newTestResolver(t *testing.T, nameserver string) *gdns.Resolver {
@@ -76,14 +75,12 @@ func newTestDNSHandler() mdns.Handler {
 	mux := mdns.NewServeMux()
 	mux.HandleFunc(".", func(_ context.Context, w mdns.ResponseWriter, req *mdns.Msg) {
 		resp := &mdns.Msg{
-			MsgHeader: mdns.MsgHeader{
-				ID:                 req.ID,
-				Response:           true,
-				Authoritative:      true,
-				RecursionDesired:   req.RecursionDesired,
-				RecursionAvailable: true,
-			},
-			Question: req.Question,
+			ID:                 req.ID,
+			Response:           true,
+			Authoritative:      true,
+			RecursionDesired:   req.RecursionDesired,
+			RecursionAvailable: true,
+			Question:           req.Question,
 		}
 		resp.Authoritative = true
 
@@ -93,45 +90,40 @@ func newTestDNSHandler() mdns.Handler {
 			switch {
 			case isQuestionType[*mdns.A](q) && qName == "host.example.test.":
 				resp.Answer = append(resp.Answer, &mdns.A{
-					Hdr: mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
-					A:   rdata.A{Addr: netip.MustParseAddr("127.0.0.1")},
+					Hdr:  mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("127.0.0.1"),
 				})
 			case isQuestionType[*mdns.AAAA](q) && qName == "host.example.test.":
 				resp.Answer = append(resp.Answer, &mdns.AAAA{
 					Hdr:  mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
-					AAAA: rdata.AAAA{Addr: netip.MustParseAddr("2001:db8::1")},
+					Addr: netip.MustParseAddr("2001:db8::1"),
 				})
 			case isQuestionType[*mdns.SRV](q) && qName == "_sip._udp.example.test.":
 				resp.Answer = append(resp.Answer, &mdns.SRV{
-					Hdr: mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
-					SRV: rdata.SRV{
-						Priority: 10,
-						Weight:   20,
-						Port:     5060,
-						Target:   "sip.example.test.",
-					},
+					Hdr:      mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
+					Priority: 10,
+					Weight:   20,
+					Port:     5060,
+					Target:   "sip.example.test.",
 				})
 			case isQuestionType[*mdns.NAPTR](q) && qName == "example.test.":
-				resp.Answer = append(resp.Answer,
+				resp.Answer = append(
+					resp.Answer,
 					&mdns.NAPTR{
-						Hdr: mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
-						NAPTR: rdata.NAPTR{
-							Order:       10,
-							Preference:  50,
-							Flags:       "S",
-							Service:     "SIP+D2U",
-							Replacement: "_sip._udp.example.test.",
-						},
+						Hdr:         mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
+						Order:       10,
+						Preference:  50,
+						Flags:       "S",
+						Service:     "SIP+D2U",
+						Replacement: "_sip._udp.example.test.",
 					},
 					&mdns.NAPTR{
-						Hdr: mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
-						NAPTR: rdata.NAPTR{
-							Order:       10,
-							Preference:  30,
-							Flags:       "S",
-							Service:     "SIP+D2T",
-							Replacement: "_sip._tcp.example.test.",
-						},
+						Hdr:         mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
+						Order:       10,
+						Preference:  30,
+						Flags:       "S",
+						Service:     "SIP+D2T",
+						Replacement: "_sip._tcp.example.test.",
 					},
 				)
 			default:

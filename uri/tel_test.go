@@ -310,8 +310,8 @@ func TestTel_ToSIP(t *testing.T) {
 	}{
 		{"nil", (*uri.Tel)(nil), nil},
 		{"zero", &uri.Tel{}, &uri.SIP{
-			User:   uri.User(""),
-			Addr:   uri.AddrFromHost(""),
+			User:   uri.MakeUserInfo(""),
+			Addr:   uri.MakeHostAddr(""),
 			Params: make(uri.Values).Set("user", "phone"),
 		}},
 		{
@@ -325,8 +325,8 @@ func TestTel_ToSIP(t *testing.T) {
 					Append("phone-context", "+11"),
 			},
 			&uri.SIP{
-				User:   uri.User("123;ext=555;phone-context=+11;baz;foo=bar"),
-				Addr:   uri.AddrFromHost(""),
+				User:   uri.MakeUserInfo("123;ext=555;phone-context=+11;baz;foo=bar"),
+				Addr:   uri.MakeHostAddr(""),
 				Params: make(uri.Values).Set("user", "phone"),
 			},
 		},
@@ -341,8 +341,8 @@ func TestTel_ToSIP(t *testing.T) {
 					Append("phone-context", "example.com"),
 			},
 			&uri.SIP{
-				User:   uri.User("123;ext=555;phone-context=example.com;baz;foo=bar"),
-				Addr:   uri.AddrFromHost("example.com"),
+				User:   uri.MakeUserInfo("123;ext=555;phone-context=example.com;baz;foo=bar"),
+				Addr:   uri.MakeHostAddr("example.com"),
 				Params: make(uri.Values).Set("user", "phone"),
 			},
 		},

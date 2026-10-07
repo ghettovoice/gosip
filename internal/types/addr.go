@@ -24,8 +24,8 @@ type Addr struct {
 	hasPort bool
 }
 
-// AddrFromHost returns an [Addr] containing the provided host and no port.
-func AddrFromHost(host string) Addr {
+// MakeHostAddr returns an [Addr] containing the provided host and no port.
+func MakeHostAddr(host string) Addr {
 	host = strings.Trim(host, "[]")
 
 	ip := net.ParseIP(host)
@@ -36,23 +36,23 @@ func AddrFromHost(host string) Addr {
 	return Addr{host: host, ip: ip}
 }
 
-// AddrFromHostPort returns an [Addr] containing the provided host and port.
-func AddrFromHostPort(host string, port uint16) Addr {
-	addr := AddrFromHost(host)
+// MakeHostPortAddr returns an [Addr] containing the provided host and port.
+func MakeHostPortAddr(host string, port uint16) Addr {
+	addr := MakeHostAddr(host)
 	addr.port = port
 	addr.hasPort = true
 	return addr
 }
 
-func AddrFromIP(ip net.IP) Addr {
+func MakeIPAddr(ip net.IP) Addr {
 	if v := ip.To4(); v != nil {
 		ip = v
 	}
 	return Addr{host: ip.String(), ip: ip}
 }
 
-func AddrFromIPPort(ip net.IP, port uint16) Addr {
-	addr := AddrFromIP(ip)
+func MakeIPPortAddr(ip net.IP, port uint16) Addr {
+	addr := MakeIPAddr(ip)
 	addr.port = port
 	addr.hasPort = true
 	return addr
@@ -69,7 +69,7 @@ func ParseAddr[T ~string | ~[]byte](s T) (addr Addr, err error) {
 
 const ErrInvalidPort errors.Error = "invalid port"
 
-func NewInvalidPortError(args ...any) error { return errors.Prefix(ErrInvalidPort, args...) }
+func newInvalidPortErr(args ...any) error { return errors.Prefix(ErrInvalidPort, args...) }
 
 func AddrFromABNF(node *abnf.Node) (addr Addr, err error) {
 	defer func() {
@@ -89,16 +89,16 @@ func AddrFromABNF(node *abnf.Node) (addr Addr, err error) {
 	if portNode, ok := node.GetNode("port"); ok {
 		port, err := strconv.Atoi(portNode.String())
 		if err != nil {
-			return Addr{}, errors.Wrap(NewInvalidPortError(err))
+			return Addr{}, errors.Wrap(newInvalidPortErr(err))
 		}
 		if port < 0 || port > math.MaxUint16 {
-			return Addr{}, errors.Wrap(NewInvalidPortError("value %d out of range [0, %d]", port, math.MaxUint16))
+			return Addr{}, errors.Wrap(newInvalidPortErr("value %d out of range [0, %d]", port, math.MaxUint16))
 		}
 
-		return AddrFromHostPort(host, uint16(port)), nil
+		return MakeHostPortAddr(host, uint16(port)), nil
 	}
 
-	return AddrFromHost(host), nil
+	return MakeHostAddr(host), nil
 }
 
 // Host returns the hostname portion of the address as provided during construction or parsing.

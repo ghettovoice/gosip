@@ -141,3 +141,63 @@ func assertResponseStatus(tb testing.TB, resCh <-chan *sip.ResponseEnvelope, wan
 		tb.Fatalf("response wait timeout, want %v", want)
 	}
 }
+
+func TestClientTransactionKey_RoundTripBinary(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		key  sip.ClientTransactionKey
+	}{
+		{
+			name: "standard",
+			key: sip.ClientTransactionKey{
+				Branch: "z9hG4bK-123",
+				Method: "INVITE",
+			},
+		},
+		{
+			name: "lowercase method",
+			key: sip.ClientTransactionKey{
+				Branch: "z9hG4bK-abc",
+				Method: "invite",
+			},
+		},
+	}
+
+	for _, c := range testCases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := c.key
+
+			data, err := original.MarshalBinary()
+			if err != nil {
+				t.Fatalf("key.MarshalBinary() error = %v", err)
+			}
+
+			if len(data) == 0 {
+				t.Fatalf("key.MarshalBinary() = %v, want non-empty", data)
+			}
+
+			var restored sip.ClientTransactionKey
+			if err := restored.UnmarshalBinary(data); err != nil {
+				t.Fatalf("new.UnmarshalBinary(data) error = %v, want nil", err)
+			}
+
+			// Compare with canonical form (method uppercased)
+			if !original.Canonic().Equal(&restored) {
+				t.Fatalf("round-trip mismatch: got %+v, want %+v", restored, original.Canonic())
+			}
+		})
+	}
+}
+
+func TestClientTransactionKey_UnmarshalBinary_Invalid(t *testing.T) {
+	t.Parallel()
+
+	var key sip.ClientTransactionKey
+	if err := key.UnmarshalBinary([]byte{0x03}); err == nil {
+		t.Fatalf("key.UnmarshalBinary([]byte{0x03}) = nil, want error")
+	}
+}

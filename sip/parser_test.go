@@ -57,8 +57,8 @@ func TestParsePacket(t *testing.T) {
 				Msg: &sip.Request{
 					Method: sip.RequestMethodInvite,
 					URI: &sip.URI{
-						User: sip.UserWithName("bob"),
-						Addr: sip.AddrFromHost("b.example.com"),
+						User: sip.MakeUserInfo("bob"),
+						Addr: sip.MakeHostAddr("b.example.com"),
 					},
 					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
@@ -66,7 +66,7 @@ func TestParsePacket(t *testing.T) {
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      sip.AddrFromHost("a.example.com"),
+								Addr:      sip.MakeHostAddr("a.example.com"),
 								Params:    make(sip.Values).Append("branch", "qwerty"),
 							},
 						}),
@@ -87,8 +87,8 @@ func TestParsePacket(t *testing.T) {
 				Msg: &sip.Request{
 					Method: sip.RequestMethodInvite,
 					URI: &sip.URI{
-						User: sip.UserWithName("bob"),
-						Addr: sip.AddrFromHost("b.example.com"),
+						User: sip.MakeUserInfo("bob"),
+						Addr: sip.MakeHostAddr("b.example.com"),
 					},
 					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
@@ -96,7 +96,7 @@ func TestParsePacket(t *testing.T) {
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      sip.AddrFromHost("a.example.com"),
+								Addr:      sip.MakeHostAddr("a.example.com"),
 								Params:    make(sip.Values).Append("branch", "qwerty"),
 							},
 						}),
@@ -112,8 +112,8 @@ func TestParsePacket(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -121,7 +121,7 @@ func TestParsePacket(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("a.example.com"),
+							Addr:      sip.MakeHostAddr("a.example.com"),
 							Params:    make(sip.Values).Append("branch", "qwerty"),
 						},
 					}),
@@ -139,8 +139,8 @@ func TestParsePacket(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -148,7 +148,7 @@ func TestParsePacket(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("a.example.com"),
+							Addr:      sip.MakeHostAddr("a.example.com"),
 							Params:    make(sip.Values).Append("branch", "qwerty"),
 						},
 					}).
@@ -168,8 +168,8 @@ func TestParsePacket(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -177,7 +177,7 @@ func TestParsePacket(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("a.example.com"),
+							Addr:      sip.MakeHostAddr("a.example.com"),
 							Params:    make(sip.Values).Append("branch", "qwerty"),
 						},
 					}).
@@ -196,8 +196,8 @@ func TestParsePacket(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -205,7 +205,7 @@ func TestParsePacket(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("a.example.com"),
+							Addr:      sip.MakeHostAddr("a.example.com"),
 							Params:    make(sip.Values).Append("branch", "qwerty"),
 						},
 					}),
@@ -230,8 +230,8 @@ func TestParsePacket(t *testing.T) {
 				Msg: &sip.Request{
 					Method: sip.RequestMethodInvite,
 					URI: &sip.URI{
-						User: sip.UserWithName("bob"),
-						Addr: sip.AddrFromHost("b.example.com"),
+						User: sip.MakeUserInfo("bob"),
+						Addr: sip.MakeHostAddr("b.example.com"),
 					},
 					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).
@@ -239,7 +239,7 @@ func TestParsePacket(t *testing.T) {
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      sip.AddrFromHost("a.example.com"),
+								Addr:      sip.MakeHostAddr("a.example.com"),
 								Params:    make(sip.Values).Append("branch", "qwerty"),
 							},
 						}).
@@ -272,13 +272,13 @@ func TestParsePacket(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("a.example.com"),
+							Addr:      sip.MakeHostAddr("a.example.com"),
 							Params:    make(sip.Values).Append("branch", "qwerty"),
 						},
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("b.example.com"),
+							Addr:      sip.MakeHostAddr("b.example.com"),
 							Params:    make(sip.Values).Append("branch", "asdf"),
 						},
 					}).
@@ -286,21 +286,21 @@ func TestParsePacket(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "def"),
 					}).
@@ -326,7 +326,8 @@ func TestParsePacket(t *testing.T) {
 			input := util.Ellipsis(string(c.input), 35)
 			if c.wantErr == nil {
 				if diff := cmp.Diff(msg, c.wantMsg); diff != "" {
-					t.Errorf("sip.ParsePacket(%q) = %+v, want %+v\ndiff (-got +want):\n%v",
+					t.Errorf(
+						"sip.ParsePacket(%q) = %+v, want %+v\ndiff (-got +want):\n%v",
 						input, msg, c.wantMsg, diff,
 					)
 				}
@@ -336,7 +337,8 @@ func TestParsePacket(t *testing.T) {
 				}
 			} else {
 				if got, want := err, c.wantErr; !cmpParseError(got, want) {
-					t.Errorf("sip.ParsePacket(%q) error = %v, want %v\ndiff (-got +want):\n%v",
+					t.Errorf(
+						"sip.ParsePacket(%q) error = %v, want %v\ndiff (-got +want):\n%v",
 						input, got, want,
 						cmp.Diff(got, want, cmpopts.EquateErrors()),
 					)
@@ -361,13 +363,13 @@ func TestParsePacket_ContentLengthTooLarge(t *testing.T) {
 	}
 
 	want := &sip.ParseError{
-		Err:   sip.ErrEntityTooLarge,
+		Err:   sip.ErrMessageBodyTooLarge,
 		State: sip.ParseStateHeaders,
 		Msg: &sip.Request{
 			Method: sip.RequestMethodInvite,
 			URI: &sip.URI{
-				User: sip.UserWithName("bob"),
-				Addr: sip.AddrFromHost("b.example.com"),
+				User: sip.MakeUserInfo("bob"),
+				Addr: sip.MakeHostAddr("b.example.com"),
 			},
 			Proto: sip.ProtoVer20(),
 			Headers: make(sip.Headers).
@@ -375,7 +377,7 @@ func TestParsePacket_ContentLengthTooLarge(t *testing.T) {
 					{
 						Proto:     sip.ProtoVer20(),
 						Transport: "UDP",
-						Addr:      sip.AddrFromHost("a.example.com"),
+						Addr:      sip.MakeHostAddr("a.example.com"),
 						Params:    make(sip.Values).Append("branch", "qwerty"),
 					},
 				}).
@@ -383,10 +385,47 @@ func TestParsePacket_ContentLengthTooLarge(t *testing.T) {
 		},
 	}
 	if !cmpParseError(err, want) {
-		t.Fatalf("sip.ParsePacket(input) error = %v, want %v\ndiff (-got +want):\n%v",
+		t.Fatalf(
+			"sip.ParsePacket(input) error = %v, want %v\ndiff (-got +want):\n%v",
 			err, want,
 			cmp.Diff(err, want, cmpopts.EquateErrors()),
 		)
+	}
+}
+
+func TestStdParser_ParsePacket_MessageSizeTooLarge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   []byte
+		wantErr error
+	}{
+		{
+			name:    "headers exceed limit",
+			input:   []byte("OPTIONS sip:bob@example.com SIP/2.0\r\nContent-Length: 0\r\n\r\n"),
+			wantErr: sip.ErrMessageTooLarge,
+		},
+		{
+			name:    "body exceeds remaining limit",
+			input:   []byte("OPTIONS sip:bob@example.com SIP/2.0\r\nContent-Length: 4\r\n\r\ntest"),
+			wantErr: sip.ErrMessageBodyTooLarge,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			parser := &sip.StdParser{MaxMessageSize: uint(len(tt.input) - 1)}
+			msg, err := parser.ParsePacket(tt.input)
+			if msg != nil {
+				t.Errorf("parser.ParsePacket(input) msg = %+v, want nil", msg)
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("parser.ParsePacket(input) error = %v, want wraps %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -431,8 +470,8 @@ func TestParseStream(t *testing.T) {
 			msg: &sip.Request{
 				Method: "OPTIONS",
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto:   sip.ProtoVer20(),
 				Headers: make(sip.Headers).Set(header.ContentLength(37)),
@@ -461,15 +500,15 @@ func TestParseStream(t *testing.T) {
 				Msg: &sip.Request{
 					Method: "INVITE",
 					URI: &sip.URI{
-						User: sip.UserWithName("alice"),
-						Addr: sip.AddrFromHost("example.com"),
+						User: sip.MakeUserInfo("alice"),
+						Addr: sip.MakeHostAddr("example.com"),
 					},
 					Proto: sip.ProtoVer20(),
 					Headers: make(sip.Headers).Set(header.Via{
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHostPort("localhost", 5060),
+							Addr:      sip.MakeHostPortAddr("localhost", 5060),
 						},
 					}),
 				},
@@ -479,8 +518,8 @@ func TestParseStream(t *testing.T) {
 			msg: &sip.Request{
 				Method: "INVITE",
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -488,7 +527,7 @@ func TestParseStream(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHostPort("localhost", 5060),
+							Addr:      sip.MakeHostPortAddr("localhost", 5060),
 						},
 					}).
 					Set(header.ContentLength(5)),
@@ -570,13 +609,13 @@ func TestParseStream_ContentLengthTooLarge(t *testing.T) {
 	}
 
 	want := &sip.ParseError{
-		Err:   sip.ErrEntityTooLarge,
+		Err:   sip.ErrMessageBodyTooLarge,
 		State: sip.ParseStateHeaders,
 		Msg: &sip.Request{
 			Method: sip.RequestMethodInvite,
 			URI: &sip.URI{
-				User: sip.UserWithName("bob"),
-				Addr: sip.AddrFromHost("b.example.com"),
+				User: sip.MakeUserInfo("bob"),
+				Addr: sip.MakeHostAddr("b.example.com"),
 			},
 			Proto: sip.ProtoVer20(),
 			Headers: make(sip.Headers).
@@ -584,7 +623,7 @@ func TestParseStream_ContentLengthTooLarge(t *testing.T) {
 					{
 						Proto:     sip.ProtoVer20(),
 						Transport: "UDP",
-						Addr:      sip.AddrFromHost("a.example.com"),
+						Addr:      sip.MakeHostAddr("a.example.com"),
 						Params:    make(sip.Values).Append("branch", "qwerty"),
 					},
 				}).
@@ -592,7 +631,8 @@ func TestParseStream_ContentLengthTooLarge(t *testing.T) {
 		},
 	}
 	if !cmpParseError(err, want) {
-		t.Fatalf("sip.ParseStream(input) first error = %v, want %v\ndiff (-got +want):\n%v",
+		t.Fatalf(
+			"sip.ParseStream(input) first error = %v, want %v\ndiff (-got +want):\n%v",
 			err, want,
 			cmp.Diff(err, want, cmpopts.EquateErrors()),
 		)

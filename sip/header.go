@@ -443,6 +443,13 @@ func validateHdrs(hdrs Headers) error {
 	return errors.JoinPrefixWrap("invalid headers:", errs...)
 }
 
+func newMissHdrErr(name HeaderName) error {
+	if name == "" {
+		return errors.Error("missing mandatory headers")
+	}
+	return errors.Errorf("missing mandatory header %q", name)
+}
+
 func compareHdrs(hdrs, other Headers) bool {
 	if len(hdrs) != len(other) {
 		return false

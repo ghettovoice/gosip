@@ -16,7 +16,8 @@ import (
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/netutil"
 	"github.com/ghettovoice/gosip/internal/util"
-	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/pkg/errclass"
+	"github.com/ghettovoice/gosip/pkg/log"
 	"github.com/ghettovoice/gosip/sip"
 )
 
@@ -372,7 +373,7 @@ func (cb *connBase) streamMsgs(
 					kas.reset()
 
 					if isTooLong {
-						err = sip.ErrMessageTooLarge
+						err = sip.NewMessageTooLargeError(cb.maxMsgReadSize)
 					}
 
 					if err = cb.continueOnTempReadErr(
@@ -411,7 +412,7 @@ func (cb *connBase) streamMsgs(
 				kas.reset()
 
 				if isTooLong {
-					err = errors.Errorf("%w: %w", err, sip.ErrMessageTooLarge)
+					err = errors.Errorf("%w: %w", err, sip.NewMessageTooLargeError(cb.maxMsgReadSize))
 				}
 
 				perr.Msg = cb.wrapInMsg(perr.Msg, conn.LocalAddr(), conn.RemoteAddr())
@@ -446,7 +447,7 @@ func (cb *connBase) continueOnTempReadErr(
 	rdrDelay *time.Duration,
 	rdrDelayTmr **time.Timer,
 ) error {
-	if !errors.IsTemporaryError(err) {
+	if !errclass.IsTemporary(err) {
 		*rdrDelay = 0
 		if *rdrDelayTmr != nil {
 			(*rdrDelayTmr).Stop()
@@ -455,7 +456,7 @@ func (cb *connBase) continueOnTempReadErr(
 	}
 
 	// retry after delay on temp conn errors
-	if errors.IsDeadlineError(err) {
+	if errclass.IsDeadline(err) {
 		// our read deadline, no need for exponetial rise
 		*rdrDelay = time.Millisecond
 	} else {
@@ -469,7 +470,8 @@ func (cb *connBase) continueOnTempReadErr(
 			*rdrDelay = v
 		}
 
-		attrs := append(make([]slog.Attr, 0, 4),
+		attrs := append(
+			make([]slog.Attr, 0, 4),
 			slog.Any("error", err),
 			slog.Duration("delay", *rdrDelay),
 			slog.Any("local_addr", laddr),
@@ -478,7 +480,8 @@ func (cb *connBase) continueOnTempReadErr(
 			attrs = append(attrs, slog.Any("remote_addr", raddr))
 		}
 
-		cb.log.LogAttrs(ctx, slog.LevelDebug,
+		cb.log.LogAttrs(
+			ctx, slog.LevelDebug,
 			"failed to read connection due to the temporary error, continue reading after delay...",
 			attrs...,
 		)
@@ -496,7 +499,7 @@ func (cb *connBase) continueOnTempReadErr(
 		if *rdrDelayTmr != nil {
 			(*rdrDelayTmr).Stop()
 		}
-		return errors.Wrap(ErrNetworkClosed)
+		return errors.Wrap(NewNetworkClosedError())
 	case <-ctx.Done():
 		*rdrDelay = 0
 		if *rdrDelayTmr != nil {

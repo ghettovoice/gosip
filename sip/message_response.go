@@ -207,7 +207,8 @@ func (res *Response) LogValue() slog.Value {
 		return slog.Value{}
 	}
 
-	attrs := append(make([]slog.Attr, 0, 7),
+	attrs := append(
+		make([]slog.Attr, 0, 7),
 		slog.Any("status", res.Status),
 		slog.Any("reason", res.Reason),
 	)
@@ -304,7 +305,10 @@ func (res *Response) Validate() error {
 		}
 	}
 	if cseq, ok := res.Headers.CSeq(); ok && cseq.Method.Equal(RequestMethodAck) {
-		errs = append(errs, errors.Errorf("invalid header %q: %w", cseq.CanonicName(), ErrMethodNotAllowed))
+		errs = append(
+			errs,
+			errors.Errorf("invalid header %q: %w", cseq.CanonicName(), NewRequestMethodNotAllowedError()),
+		)
 	}
 	if ct, ok := res.Headers.ContentLength(); ok {
 		if ct, bl := int(ct), len(res.Body); ct != bl {
@@ -314,7 +318,7 @@ func (res *Response) Validate() error {
 	if len(errs) == 0 {
 		return nil
 	}
-	return errors.Wrap(newInvalidMsgErr(errors.Join(errs...)))
+	return errors.Wrap(NewInvalidMessageError(errors.Join(errs...)))
 }
 
 func (res *Response) UnmarshalJSON(data []byte) error {
@@ -358,7 +362,7 @@ var (
 
 func (req *Request) NewResponse(sts ResponseStatus, opts ...ResponseOptions) (*Response, error) {
 	if req.Method.Equal(RequestMethodAck) {
-		return nil, errors.Wrap(ErrMethodNotAllowed)
+		return nil, errors.Wrap(NewRequestMethodNotAllowedError())
 	}
 
 	o := util.LastSliceElemOr(opts, ResponseOptions{})
@@ -485,6 +489,13 @@ func (r *ResponseEnvelope) Clone() Message {
 	return &ResponseEnvelope{
 		cloned.(*MessageEnvelope[*Response]), //nolint:forcetypeassert
 	}
+}
+
+func cloneResEnvelope(res *ResponseEnvelope) *ResponseEnvelope {
+	if res == nil {
+		return nil
+	}
+	return res.Clone().(*ResponseEnvelope) //nolint:forcetypeassert
 }
 
 func (r *ResponseEnvelope) Equal(val any) bool {

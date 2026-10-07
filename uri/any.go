@@ -24,13 +24,8 @@ func (u *Any) Clone() URI {
 		return nil
 	}
 
-	u2 := *u
-	if u.User != nil {
-		if pwd, ok := u.User.Password(); ok {
-			u2.User = url.UserPassword(u.User.Username(), pwd)
-		} else {
-			u2.User = url.User(u.User.Username())
-		}
+	u2 := Any{
+		URL: *u.URL.Clone(),
 	}
 	return &u2
 }

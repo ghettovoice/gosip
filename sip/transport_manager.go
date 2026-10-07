@@ -5,20 +5,15 @@ import (
 	"context"
 	"iter"
 	"log/slog"
+	"runtime"
 	"slices"
 	"sync"
-	"sync/atomic"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/syncutil"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
-	"github.com/ghettovoice/gosip/log"
-)
-
-const (
-	ErrNoTransport            Error = "no transport resolved"
-	ErrTransportManagerClosed Error = "transport manager closed"
+	"github.com/ghettovoice/gosip/pkg/log"
 )
 
 const (
@@ -31,7 +26,7 @@ type TransportManager struct {
 	Logger *slog.Logger
 
 	lcMu  sync.Mutex
-	state atomic.Uint32
+	state uint32
 
 	transps   syncutil.RWMap[TransportProto, Transport]
 	closeOnce sync.Once
@@ -62,19 +57,19 @@ func (tpm *TransportManager) log() *slog.Logger {
 }
 
 func (tpm *TransportManager) isClosing() bool {
-	return tpm.state.Load() >= tpmStateClosing
+	return tpm.state >= tpmStateClosing
 }
 
 func (tpm *TransportManager) Close(ctx context.Context) error {
 	tpm.closeOnce.Do(func() {
 		tpm.lcMu.Lock()
-		tpm.state.Store(tpmStateClosing)
+		tpm.state = tpmStateClosing
 		tpm.lcMu.Unlock()
 
 		tpm.closeErr = tpm.close(ctx)
 
 		tpm.lcMu.Lock()
-		tpm.state.Store(tpmStateClosed)
+		tpm.state = tpmStateClosed
 		tpm.lcMu.Unlock()
 
 		tpm.log().LogAttrs(ctx, slog.LevelDebug, "transport manager closed")
@@ -83,13 +78,42 @@ func (tpm *TransportManager) Close(ctx context.Context) error {
 }
 
 func (tpm *TransportManager) close(ctx context.Context) error {
-	errs := make([]error, 0, tpm.transps.Len())
-	for _, tp := range tpm.transps.All() {
-		if err := tp.Close(ctx); err != nil {
-			errs = append(errs, errors.Errorf("close transport %q: %w", tp.Metadata().Proto, err))
+	var (
+		wg     sync.WaitGroup
+		errsMu sync.Mutex
+		errs   []error
+	)
+
+	collectErr := func(err error) {
+		if err == nil {
+			return
 		}
-		tpm.untrackTransp(tp)
+
+		errsMu.Lock()
+		errs = append(errs, err)
+		errsMu.Unlock()
 	}
+
+	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
+	run := func(fn func()) {
+		sem <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			fn()
+		})
+	}
+
+	for _, tp := range tpm.transps.All() {
+		run(func() {
+			if err := tp.Close(ctx); err != nil {
+				collectErr(errors.Errorf("close transport %q: %w", tp.Metadata().Proto, err))
+			}
+			tpm.untrackTransp(tp)
+		})
+	}
+
+	wg.Wait()
+
 	return errors.JoinPrefixWrap("transport manager close errors:", errs...)
 }
 
@@ -102,7 +126,7 @@ func (tpm *TransportManager) TrackTransport(tp Transport) error {
 	defer tpm.lcMu.Unlock()
 
 	if tpm.isClosing() {
-		return errors.Wrap(ErrTransportManagerClosed)
+		return errors.Wrap(NewTransportManagerClosedError())
 	}
 
 	tpm.trackTransp(tp)
@@ -128,7 +152,7 @@ func (tpm *TransportManager) UntrackTransport(tp Transport) error {
 	defer tpm.lcMu.Unlock()
 
 	if tpm.isClosing() {
-		return errors.Wrap(ErrTransportManagerClosed)
+		return errors.Wrap(NewTransportManagerClosedError())
 	}
 
 	tpm.untrackTransp(tp)
@@ -137,10 +161,13 @@ func (tpm *TransportManager) UntrackTransport(tp Transport) error {
 
 func (tpm *TransportManager) untrackTransp(tp Transport) {
 	key := tp.Metadata().Proto.Canonic()
-	if _, ok := tpm.transps.LoadAndDelete(key); !ok {
+	stored, ok := tpm.transps.LoadAndDelete(key)
+	if !ok {
 		return
 	}
-	tpm.unbindTranspInterceptors(tp)
+	// unbind interceptors from the tracked (wrapped) transport instance,
+	// because it was used as the binding key during tracking
+	tpm.unbindTranspInterceptors(stored)
 
 	tpm.log().Debug("transport untracked", slog.Any("transport", tp))
 }
@@ -204,7 +231,7 @@ func (tpm *TransportManager) AllTransportMetadata() iter.Seq[TransportMetadata] 
 
 func (tpm *TransportManager) UseInboundRequestInterceptor(interceptor InboundRequestInterceptor) (unbind func()) {
 	if interceptor == nil {
-		return func() {}
+		return noop
 	}
 
 	tpm.lcMu.Lock()
@@ -213,11 +240,9 @@ func (tpm *TransportManager) UseInboundRequestInterceptor(interceptor InboundReq
 	return tpm.useInReqInterceptor(interceptor)
 }
 
-func (tpm *TransportManager) useInReqInterceptor(
-	interceptor InboundRequestInterceptor,
-) (unbind func()) {
+func (tpm *TransportManager) useInReqInterceptor(interceptor InboundRequestInterceptor) (unbind func()) {
 	if interceptor == nil || tpm.isClosing() {
-		return func() {}
+		return noop
 	}
 
 	entry := &transpInterceptBinding[InboundRequestInterceptor]{
@@ -225,7 +250,7 @@ func (tpm *TransportManager) useInReqInterceptor(
 		unbinds:     make(map[Transport]func()),
 	}
 	remove := tpm.inReqInts.Add(entry)
-	for tp := range tpm.AllTransports() {
+	for _, tp := range tpm.transps.All() {
 		tpm.bindInReqInterceptor(tp, entry)
 	}
 
@@ -237,7 +262,7 @@ func (tpm *TransportManager) useInReqInterceptor(
 
 func (tpm *TransportManager) UseInboundResponseInterceptor(interceptor InboundResponseInterceptor) (unbind func()) {
 	if interceptor == nil {
-		return func() {}
+		return noop
 	}
 
 	tpm.lcMu.Lock()
@@ -246,11 +271,9 @@ func (tpm *TransportManager) UseInboundResponseInterceptor(interceptor InboundRe
 	return tpm.useInResInterceptor(interceptor)
 }
 
-func (tpm *TransportManager) useInResInterceptor(
-	interceptor InboundResponseInterceptor,
-) (unbind func()) {
+func (tpm *TransportManager) useInResInterceptor(interceptor InboundResponseInterceptor) (unbind func()) {
 	if interceptor == nil || tpm.isClosing() {
-		return func() {}
+		return noop
 	}
 
 	entry := &transpInterceptBinding[InboundResponseInterceptor]{
@@ -258,7 +281,7 @@ func (tpm *TransportManager) useInResInterceptor(
 		unbinds:     make(map[Transport]func()),
 	}
 	remove := tpm.inResInts.Add(entry)
-	for tp := range tpm.AllTransports() {
+	for _, tp := range tpm.transps.All() {
 		tpm.bindInResInterceptor(tp, entry)
 	}
 
@@ -270,7 +293,7 @@ func (tpm *TransportManager) useInResInterceptor(
 
 func (tpm *TransportManager) UseOutboundRequestInterceptor(interceptor OutboundRequestInterceptor) (unbind func()) {
 	if interceptor == nil {
-		return func() {}
+		return noop
 	}
 
 	tpm.lcMu.Lock()
@@ -279,11 +302,9 @@ func (tpm *TransportManager) UseOutboundRequestInterceptor(interceptor OutboundR
 	return tpm.useOutReqInterceptor(interceptor)
 }
 
-func (tpm *TransportManager) useOutReqInterceptor(
-	interceptor OutboundRequestInterceptor,
-) (unbind func()) {
+func (tpm *TransportManager) useOutReqInterceptor(interceptor OutboundRequestInterceptor) (unbind func()) {
 	if interceptor == nil || tpm.isClosing() {
-		return func() {}
+		return noop
 	}
 
 	entry := &transpInterceptBinding[OutboundRequestInterceptor]{
@@ -291,7 +312,7 @@ func (tpm *TransportManager) useOutReqInterceptor(
 		unbinds:     make(map[Transport]func()),
 	}
 	remove := tpm.outReqInts.Add(entry)
-	for tp := range tpm.AllTransports() {
+	for _, tp := range tpm.transps.All() {
 		tpm.bindOutReqInterceptor(tp, entry)
 	}
 
@@ -303,7 +324,7 @@ func (tpm *TransportManager) useOutReqInterceptor(
 
 func (tpm *TransportManager) UseOutboundResponseInterceptor(interceptor OutboundResponseInterceptor) (unbind func()) {
 	if interceptor == nil {
-		return func() {}
+		return noop
 	}
 
 	tpm.lcMu.Lock()
@@ -312,11 +333,9 @@ func (tpm *TransportManager) UseOutboundResponseInterceptor(interceptor Outbound
 	return tpm.useOutResInterceptor(interceptor)
 }
 
-func (tpm *TransportManager) useOutResInterceptor(
-	interceptor OutboundResponseInterceptor,
-) (unbind func()) {
+func (tpm *TransportManager) useOutResInterceptor(interceptor OutboundResponseInterceptor) (unbind func()) {
 	if interceptor == nil || tpm.isClosing() {
-		return func() {}
+		return noop
 	}
 
 	entry := &transpInterceptBinding[OutboundResponseInterceptor]{
@@ -324,7 +343,7 @@ func (tpm *TransportManager) useOutResInterceptor(
 		unbinds:     make(map[Transport]func()),
 	}
 	remove := tpm.outResInts.Add(entry)
-	for tp := range tpm.AllTransports() {
+	for _, tp := range tpm.transps.All() {
 		tpm.bindOutResInterceptor(tp, entry)
 	}
 
@@ -336,14 +355,14 @@ func (tpm *TransportManager) useOutResInterceptor(
 
 func (tpm *TransportManager) UseMessageInterceptor(interceptor MessageInterceptor) (unbind func()) {
 	if interceptor == nil {
-		return func() {}
+		return noop
 	}
 
 	tpm.lcMu.Lock()
 	defer tpm.lcMu.Unlock()
 
 	if tpm.isClosing() {
-		return func() {}
+		return noop
 	}
 
 	unbinds := []func(){
@@ -561,12 +580,12 @@ func (tpm *TransportManager) admitReqTransp(req *RequestEnvelope) (Transport, er
 	defer tpm.lcMu.Unlock()
 
 	if tpm.isClosing() {
-		return nil, errors.Wrap(ErrTransportManagerClosed)
+		return nil, errors.Wrap(NewTransportManagerClosedError())
 	}
 
 	tp, ok := tpm.TransportFromRequest(req)
 	if !ok {
-		return nil, errors.Wrap(ErrNoTransport)
+		return nil, errors.Wrap(NewNoTransportError())
 	}
 	return tp, nil
 }
@@ -576,12 +595,12 @@ func (tpm *TransportManager) admitResTransp(res *ResponseEnvelope) (Transport, e
 	defer tpm.lcMu.Unlock()
 
 	if tpm.isClosing() {
-		return nil, errors.Wrap(ErrTransportManagerClosed)
+		return nil, errors.Wrap(NewTransportManagerClosedError())
 	}
 
 	tp, ok := tpm.TransportFromResponse(res)
 	if !ok {
-		return nil, errors.Wrap(ErrNoTransport)
+		return nil, errors.Wrap(NewNoTransportError())
 	}
 	return tp, nil
 }
@@ -657,24 +676,36 @@ func (tpm *TransportManager) Respond(
 	return errors.Wrap(tp.Respond(ctx, req, sts, opts...))
 }
 
+func (tpm *TransportManager) admitLisTransp(proto TransportProto) (Transport, error) {
+	tpm.lcMu.Lock()
+	defer tpm.lcMu.Unlock()
+
+	if tpm.isClosing() {
+		return nil, errors.Wrap(NewTransportManagerClosedError())
+	}
+
+	tp, ok := tpm.TransportByProto(proto)
+	if !ok {
+		return nil, errors.Wrap(NewNoTransportError())
+	}
+	return tp, nil
+}
+
 func (tpm *TransportManager) Listen(
 	ctx context.Context,
 	proto TransportProto,
 	addr string,
 ) (TransportListener, error) {
-	tpm.lcMu.Lock()
-	defer tpm.lcMu.Unlock()
-
-	if tpm.isClosing() {
-		return nil, errors.Wrap(ErrTransportManagerClosed)
+	tp, err := tpm.admitLisTransp(proto)
+	if err != nil {
+		return nil, errors.Wrap(err)
 	}
 
-	tp, ok := tpm.TransportByProto(proto)
-	if !ok {
-		return nil, errors.Wrap(ErrNoTransport)
+	ls, err := tp.Listen(ctx, addr)
+	if err != nil {
+		return nil, errors.Wrap(err)
 	}
-
-	return errors.Wrap2(tp.Listen(ctx, addr))
+	return ls, nil
 }
 
 func (tpm *TransportManager) MatchSentBy(addr Addr) bool {

@@ -3,15 +3,16 @@ package dns
 import (
 	"cmp"
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"slices"
 	"sync"
 	"time"
 
+	"braces.dev/errtrace"
 	"codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/dnsconf"
-
-	"github.com/ghettovoice/gosip/internal/errors"
 )
 
 var defResolver = &Resolver{}
@@ -20,17 +21,17 @@ func DefaultResolver() *Resolver { return defResolver }
 
 // LookupIP looks up IP addresses for the given network and host.
 func LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
-	return errors.Wrap2(defResolver.LookupIP(ctx, network, host))
+	return errtrace.Wrap2(defResolver.LookupIP(ctx, network, host))
 }
 
 // LookupSRV looks up SRV records for the given service, protocol, and host.
 func LookupSRV(ctx context.Context, service, proto, host string) ([]*SRV, error) {
-	return errors.Wrap2(defResolver.LookupSRV(ctx, service, proto, host))
+	return errtrace.Wrap2(defResolver.LookupSRV(ctx, service, proto, host))
 }
 
 // LookupNAPTR looks up NAPTR records for the given host.
 func LookupNAPTR(ctx context.Context, host string) ([]*NAPTR, error) {
-	return errors.Wrap2(defResolver.LookupNAPTR(ctx, host))
+	return errtrace.Wrap2(defResolver.LookupNAPTR(ctx, host))
 }
 
 // Resolver wraps net.Resolver with additional DNS lookup capabilities.
@@ -60,11 +61,11 @@ func (r *Resolver) init() error {
 	if r.nameSrv == "" {
 		cfg, err := dnsconf.FromFile("/etc/resolv.conf")
 		if err != nil {
-			return errors.ErrorfWrap("load system DNS config: %w", err)
+			return errtrace.Wrap(fmt.Errorf("load system DNS config: %w", err))
 		}
 
 		if len(cfg.Servers) == 0 {
-			return errors.ErrorWrap("no system DNS servers configured")
+			return errtrace.Wrap(errors.New("no system DNS servers configured"))
 		}
 
 		r.nameSrv = net.JoinHostPort(cfg.Servers[0], cfg.Port)
@@ -83,7 +84,7 @@ func (r *Resolver) init() error {
 	r.netRslvr = &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return errors.Wrap2(dlr.DialContext(ctx, network, r.nameSrv))
+			return errtrace.Wrap2(dlr.DialContext(ctx, network, r.nameSrv))
 		},
 	}
 
@@ -110,15 +111,15 @@ func (r *Resolver) init() error {
 
 func (r *Resolver) initIfNeeded() error {
 	r.initOnce.Do(func() { r.initErr = r.init() })
-	return errors.Wrap(r.initErr)
+	return errtrace.Wrap(r.initErr)
 }
 
 // LookupIP looks up IP addresses for the given network and host.
 func (r *Resolver) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
 	if err := r.initIfNeeded(); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errtrace.Wrap(err)
 	}
-	return errors.Wrap2(r.netRslvr.LookupIP(ctx, network, host))
+	return errtrace.Wrap2(r.netRslvr.LookupIP(ctx, network, host))
 }
 
 type SRV = net.SRV
@@ -126,12 +127,12 @@ type SRV = net.SRV
 // LookupSRV looks up SRV records for the given service, protocol, and host.
 func (r *Resolver) LookupSRV(ctx context.Context, service, proto, host string) ([]*SRV, error) {
 	if err := r.initIfNeeded(); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errtrace.Wrap(err)
 	}
 
 	_, recs, err := r.netRslvr.LookupSRV(ctx, service, proto, host)
 	if err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errtrace.Wrap(err)
 	}
 	return recs, nil
 }
@@ -164,16 +165,16 @@ type NAPTR struct {
 // Returns records sorted by Order (ascending), then by Preference (ascending).
 func (r *Resolver) LookupNAPTR(ctx context.Context, host string) ([]*NAPTR, error) {
 	if err := r.initIfNeeded(); err != nil {
-		return nil, errors.Wrap(err)
+		return nil, errtrace.Wrap(err)
 	}
 
 	resp, _, err := r.dnsCln.Exchange(ctx, dns.NewMsg(host, dns.TypeNAPTR), "udp", r.nameSrv)
 	if err != nil {
-		return nil, errors.ErrorfWrap("request NAPTR: %w", err)
+		return nil, errtrace.Wrap(fmt.Errorf("request NAPTR: %w", err))
 	}
 
 	if resp.Rcode != dns.RcodeSuccess {
-		return nil, errors.Wrap(&net.DNSError{
+		return nil, errtrace.Wrap(&net.DNSError{
 			Err:        dns.RcodeToString[resp.Rcode],
 			Name:       host,
 			IsNotFound: resp.Rcode == dns.RcodeNameError,

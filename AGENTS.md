@@ -1,6 +1,8 @@
 # AGENTS.md
 
-This document provides quick access to the main development guidelines and style guides for the gosip project. All contributors and AI agents should follow these guidelines when working on the codebase.
+This document provides quick access to the main development guidelines and style
+guides for the gosip project. All contributors and AI agents should follow these
+guidelines when working on the codebase.
 
 ## Core Guidelines
 
@@ -8,7 +10,8 @@ This document provides quick access to the main development guidelines and style
 
 **File:** `.devin/rules/go_base_guide.md`
 
-Comprehensive Go coding style guidelines based on Google's Go Style Guide with project-specific additions. Covers:
+Comprehensive Go coding style guidelines based on Google's Go Style Guide with
+project-specific additions. Covers:
 
 - Naming conventions (packages, functions, variables, constants)
 - Code organization and file structure
@@ -61,26 +64,4 @@ Mandatory linting requirements for all code changes. Specifies:
 
 1. **Before making changes:** Read the relevant guidelines from the files above
 2. **During development:** Follow the coding standards and conventions outlined
-3. **After changes:** Run `golangci-lint run ./...` to ensure compliance
-4. **Before committing:** Verify all guidelines have been followed
-
-## Quick Reference Commands
-
-```bash
-# Run linter to check compliance
-golangci-lint run ./...
-# or
-task lint
-
-# Run all tests
-go test -race -vet=all -timeout=30s ./...
-# or
-task test
-
-# Apply automatic fixes
-go fix ./...
-```
-
-## Project Context
-
-This is a Go SIP (Session Initiation Protocol) library implementation. The guidelines above ensure code quality, consistency, and maintainability across the entire codebase. All contributors, including AI agents, should adhere to these standards when working on any part of the project.
+3. **Before committing:** Verify all guidelines have been followed

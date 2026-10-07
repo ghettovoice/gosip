@@ -99,19 +99,19 @@ func TestAllHeaderElems(t *testing.T) {
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "UDP",
-					Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+					Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 				},
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "TLS",
-					Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+					Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 				},
 			},
 			header.Via{
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "TCP",
-					Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+					Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 				},
 			},
 			header.Supported{"opt1"},
@@ -157,17 +157,17 @@ func TestAllHeaderElems(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+							Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 						},
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "TLS",
-							Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+							Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 						},
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "TCP",
-							Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+							Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 						},
 					},
 				)
@@ -206,19 +206,19 @@ func TestFirstHeader(t *testing.T) {
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "UDP",
-				Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+				Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 			},
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TLS",
-				Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+				Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 			},
 		}).
 		Append(header.Via{
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TCP",
-				Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+				Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 			},
 		}).
 		Append(header.Supported{"opt1"}).
@@ -254,12 +254,12 @@ func TestFirstHeader(t *testing.T) {
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "UDP",
-					Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+					Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 				},
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "TLS",
-					Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+					Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 				},
 			},
 			true,
@@ -316,19 +316,19 @@ func TestLastHeader(t *testing.T) {
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "UDP",
-				Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+				Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 			},
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TLS",
-				Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+				Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 			},
 		}).
 		Append(header.Via{
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TCP",
-				Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+				Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 			},
 		}).
 		Append(header.Supported{"opt1"}).
@@ -363,7 +363,7 @@ func TestLastHeader(t *testing.T) {
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "TCP",
-					Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+					Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 				},
 			},
 			true,
@@ -410,19 +410,19 @@ func TestFirstHeaderElem(t *testing.T) {
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "UDP",
-				Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+				Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 			},
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TLS",
-				Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+				Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 			},
 		}).
 		Append(header.Via{
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TCP",
-				Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+				Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 			},
 		}).
 		Append(header.Supported{"opt1"}).
@@ -497,19 +497,19 @@ func TestLastHeaderElem(t *testing.T) {
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "UDP",
-				Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+				Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 			},
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TLS",
-				Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+				Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 			},
 		}).
 		Append(header.Via{
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TCP",
-				Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+				Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 			},
 		}).
 		Append(header.Supported{"opt1"}).
@@ -585,19 +585,19 @@ func TestPopFirstHeaderElem(t *testing.T) {
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "UDP",
-				Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+				Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 			},
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TLS",
-				Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+				Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 			},
 		}).
 		Append(header.Via{
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TCP",
-				Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+				Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 			},
 		}).
 		Append(header.Supported{"opt1"}).
@@ -614,7 +614,8 @@ func TestPopFirstHeaderElem(t *testing.T) {
 
 		got, ok := sip.PopFirstHeaderElem[header.Via](hdrs, "Via")
 		if diff := cmp.Diff(got, &want); !ok || diff != "" {
-			t.Fatalf("sip.PopFirstHeaderElem[header.Via](hdrs, \"Via\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
+			t.Fatalf(
+				"sip.PopFirstHeaderElem[header.Via](hdrs, \"Via\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
 				got, ok, &want, diff,
 			)
 		}
@@ -624,14 +625,14 @@ func TestPopFirstHeaderElem(t *testing.T) {
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "TLS",
-					Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+					Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 				},
 			},
 			header.Via{
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "TCP",
-					Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+					Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 				},
 			},
 		}
@@ -647,7 +648,8 @@ func TestPopFirstHeaderElem(t *testing.T) {
 
 		got, ok := sip.PopFirstHeaderElem[header.Supported](hdrs, "Supported")
 		if diff := cmp.Diff(got, &want); !ok || diff != "" {
-			t.Fatalf("sip.PopFirstHeaderElem[header.Supported](hdrs, \"Supported\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
+			t.Fatalf(
+				"sip.PopFirstHeaderElem[header.Supported](hdrs, \"Supported\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
 				got, ok, &want, diff,
 			)
 		}
@@ -672,19 +674,19 @@ func TestPopLastHeaderElem(t *testing.T) {
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "UDP",
-				Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+				Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 			},
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TLS",
-				Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+				Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 			},
 		}).
 		Append(header.Via{
 			{
 				Proto:     sip.ProtoVer20(),
 				Transport: "TCP",
-				Addr:      sip.AddrFromHostPort("127.0.0.3", 5062),
+				Addr:      sip.MakeHostPortAddr("127.0.0.3", 5062),
 			},
 		}).
 		Append(header.Supported{"opt1"}).
@@ -701,7 +703,8 @@ func TestPopLastHeaderElem(t *testing.T) {
 
 		got, ok := sip.PopLastHeaderElem[header.Via](hdrs, "Via")
 		if diff := cmp.Diff(got, &want); !ok || diff != "" {
-			t.Fatalf("sip.PopLastHeaderElem[header.Via](hdrs, \"Via\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
+			t.Fatalf(
+				"sip.PopLastHeaderElem[header.Via](hdrs, \"Via\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
 				got, ok, &want, diff,
 			)
 		}
@@ -711,12 +714,12 @@ func TestPopLastHeaderElem(t *testing.T) {
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "UDP",
-					Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+					Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 				},
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: "TLS",
-					Addr:      sip.AddrFromHostPort("127.0.0.2", 5061),
+					Addr:      sip.MakeHostPortAddr("127.0.0.2", 5061),
 				},
 			},
 		}
@@ -732,7 +735,8 @@ func TestPopLastHeaderElem(t *testing.T) {
 
 		got, ok := sip.PopLastHeaderElem[header.Supported](hdrs, "Supported")
 		if diff := cmp.Diff(got, &want); !ok || diff != "" {
-			t.Fatalf("sip.PopLastHeaderElem[header.Supported](hdrs, \"Supported\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
+			t.Fatalf(
+				"sip.PopLastHeaderElem[header.Supported](hdrs, \"Supported\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
 				got, ok, &want, diff,
 			)
 		}

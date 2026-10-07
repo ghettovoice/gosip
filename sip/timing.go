@@ -40,12 +40,6 @@ type TimingConfig struct {
 	Time100 time.Duration `json:"time_100,omitempty"`
 }
 
-// NewTimings creates a new SIP timing config with specified base values.
-// See [TimingConfig] for more details about how base timing values are used.
-func NewTimings(t1, t2, t4, timeD, time100 time.Duration) TimingConfig {
-	return TimingConfig{t1, t2, t4, timeD, time100}
-}
-
 func (c TimingConfig) t1() time.Duration {
 	if c.T1 == 0 {
 		return T1

@@ -7,8 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ghettovoice/timeutil"
+
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/timeutil"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/sip/header"
 )
@@ -35,7 +36,6 @@ var _ ClientTransaction = (*InviteClientTransaction)(nil)
 // Transport expected to be a non-nil client transport.
 // Options are optional and can be nil, in which case default options will be used.
 func NewInviteClientTransaction(
-	_ context.Context,
 	req *RequestEnvelope,
 	tp ClientTransport,
 	opts ...ClientTransactionOptions,
@@ -44,7 +44,7 @@ func NewInviteClientTransaction(
 		return nil, errors.Wrap(err)
 	}
 	if !req.Method().Equal(RequestMethodInvite) {
-		return nil, errors.Wrap(ErrMethodNotAllowed)
+		return nil, errors.Wrap(NewRequestMethodNotAllowedError())
 	}
 
 	o := util.LastSliceElemOr(opts, ClientTransactionOptions{})
@@ -62,12 +62,72 @@ func NewInviteClientTransaction(
 	return tx, nil
 }
 
-// Start starts the invite client transaction.
+// Start activates the invite client transaction.
+// For a new transaction it sends the initial request and starts timers.
+// For a restored transaction it only activates the preserved timers without
+// replaying the initial send or entry actions.
+// It must be called exactly once after the transaction is created or restored.
 func (tx *InviteClientTransaction) Start(ctx context.Context) error {
-	if !tx.started.CompareAndSwap(false, true) || tx.State() != TransactionStateCalling {
-		return errors.Wrap(ErrActionNotAllowed)
+	if !tx.admitStart(ctx) {
+		return errors.Wrap(NewTransactionActionNotAllowedError())
 	}
-	return errors.Wrap(tx.actCalling(ctx))
+	defer tx.finishStart()
+	if tx.isTerminated() {
+		return errors.Wrap(NewTransactionActionNotAllowedError())
+	}
+
+	var err error
+	if tx.restored {
+		tx.activateRestored(ctx)
+	} else {
+		tx.activate(ctx)
+		if tx.isActive() {
+			err = tx.actCalling(ctx)
+		} else {
+			err = errors.Wrap(NewTransactionActionNotAllowedError())
+		}
+	}
+
+	return errors.Wrap(err)
+}
+
+func (tx *InviteClientTransaction) activateRestored(ctx context.Context) {
+	tx.lcMu.Lock()
+
+	if tmr := tx.tmrB.Load(); tmr != nil && tmr.Expired() &&
+		tx.State() == TransactionStateCalling && !tx.isTerminated() {
+		tx.lcMu.Unlock()
+		tx.onTimerB(ctx, tmr)
+		tx.activate(ctx)
+		return
+	}
+	if tmr := tx.tmrD.Load(); tmr != nil && tmr.Expired() &&
+		tx.State() == TransactionStateCompleted && !tx.isTerminated() {
+		tx.lcMu.Unlock()
+		tx.onTimerD(ctx, tmr)
+		tx.activate(ctx)
+		return
+	}
+	if tmr := tx.tmrM.Load(); tmr != nil && tmr.Expired() &&
+		tx.State() == TransactionStateAccepted && !tx.isTerminated() {
+		tx.lcMu.Unlock()
+		tx.onTimerM(ctx, tmr)
+		tx.activate(ctx)
+		return
+	}
+
+	if !tx.isTerminated() {
+		tx.armTmrLocked(&tx.tmrA, tx.tmrA.Load(), []TransactionState{TransactionStateCalling},
+			func(tmr *timeutil.Timer) { tx.onTimerA(ctx, tmr) })
+		tx.armTmrLocked(&tx.tmrB, tx.tmrB.Load(), []TransactionState{TransactionStateCalling},
+			func(tmr *timeutil.Timer) { tx.onTimerB(ctx, tmr) })
+		tx.armTmrLocked(&tx.tmrD, tx.tmrD.Load(), []TransactionState{TransactionStateCompleted},
+			func(tmr *timeutil.Timer) { tx.onTimerD(ctx, tmr) })
+		tx.armTmrLocked(&tx.tmrM, tx.tmrM.Load(), []TransactionState{TransactionStateAccepted},
+			func(tmr *timeutil.Timer) { tx.onTimerM(ctx, tmr) })
+	}
+	tx.activateLocked()
+	tx.lcMu.Unlock()
 }
 
 func (tx *InviteClientTransaction) LogValue() slog.Value {
@@ -145,7 +205,8 @@ func (tx *InviteClientTransaction) actPassResSendAck(ctx context.Context, args .
 func (tx *InviteClientTransaction) actSendAck(ctx context.Context, _ ...any) error {
 	ack := tx.getAck()
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "send request",
+	tx.log.LogAttrs(
+		ctx, slog.LevelDebug, "send request",
 		slog.Any("transaction", tx.impl),
 		slog.Any("request", ack),
 	)
@@ -212,74 +273,61 @@ func (tx *InviteClientTransaction) actCalling(ctx context.Context, _ ...any) err
 	}
 
 	if !tx.tp.Metadata().Reliable() {
-		tmr := timeutil.AfterFunc(tx.timing.TimeA(), tx.timerAHdlr(ctx))
-		tx.tmrA.Store(tmr)
-
-		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer A started",
-			slog.Any("transaction", tx),
-			slog.Time("expires_at", time.Now().Add(tmr.Left())),
-		)
-	}
-
-	tmr := timeutil.AfterFunc(tx.timing.TimeB(), tx.timerBHdlr(ctx))
-	tx.tmrB.Store(tmr)
-
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B started",
-		slog.Any("transaction", tx),
-		slog.Time("expires_at", time.Now().Add(tmr.Left())),
-	)
-
-	return nil
-}
-
-func (tx *InviteClientTransaction) timerAHdlr(ctx context.Context) func() {
-	return func() {
-		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer A expired", slog.Any("transaction", tx))
-
-		if tx.State() != TransactionStateCalling {
-			tx.tmrA.Store(nil)
-			return
-		}
-
-		if err := tx.fsm.FireCtx(ctx, txEvtTimerA); err != nil {
-			panic(errors.Wrap(newTxTriggerErr(txEvtTimerA, tx.State(), err)))
-		}
-
-		if tmr := tx.tmrA.Load(); tmr != nil {
-			tmr.Reset(2 * tmr.Duration())
-
-			tx.log.LogAttrs(ctx, slog.LevelDebug, "timer A reset",
+		tmr := timeutil.NewTimer(tx.timing.TimeA())
+		if tx.armTmr(&tx.tmrA, tmr, []TransactionState{TransactionStateCalling},
+			func(tmr *timeutil.Timer) { tx.onTimerA(ctx, tmr) }) {
+			tx.log.LogAttrs(
+				ctx, slog.LevelDebug, "timer A started",
 				slog.Any("transaction", tx),
 				slog.Time("expires_at", time.Now().Add(tmr.Left())),
 			)
 		}
 	}
+
+	tmr := timeutil.NewTimer(tx.timing.TimeB())
+	if tx.armTmr(&tx.tmrB, tmr, []TransactionState{TransactionStateCalling},
+		func(tmr *timeutil.Timer) { tx.onTimerB(ctx, tmr) }) {
+		tx.log.LogAttrs(
+			ctx, slog.LevelDebug, "timer B started",
+			slog.Any("transaction", tx),
+			slog.Time("expires_at", time.Now().Add(tmr.Left())),
+		)
+	}
+
+	return nil
 }
 
-func (tx *InviteClientTransaction) timerBHdlr(ctx context.Context) func() {
-	return func() {
-		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B expired", slog.Any("transaction", tx))
+func (tx *InviteClientTransaction) onTimerA(ctx context.Context, tmr *timeutil.Timer) {
+	defer tx.saveSnapshot()
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer A expired", slog.Any("transaction", tx))
 
-		tx.tmrB.Store(nil)
+	tx.fireTmrTrigger(ctx, txEvtTimerA)
 
-		if tx.State() != TransactionStateCalling {
-			return
-		}
-
-		if err := tx.fsm.FireCtx(ctx, txEvtTimerB); err != nil {
-			panic(errors.Wrap(newTxTriggerErr(txEvtTimerB, tx.State(), err)))
-		}
+	if tx.resetTmr(&tx.tmrA, tmr, 2*tmr.Duration(), TransactionStateCalling) {
+		tx.log.LogAttrs(
+			ctx, slog.LevelDebug, "timer A reset",
+			slog.Any("transaction", tx),
+			slog.Time("expires_at", time.Now().Add(tmr.Left())),
+		)
 	}
+}
+
+func (tx *InviteClientTransaction) onTimerB(ctx context.Context, tmr *timeutil.Timer) {
+	defer tx.saveSnapshot()
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B expired", slog.Any("transaction", tx))
+
+	tx.clearTmr(&tx.tmrB, tmr)
+	tx.fireTmrTrigger(ctx, txEvtTimerB)
 }
 
 func (tx *InviteClientTransaction) actProceeding(ctx context.Context, args ...any) error {
 	_ = tx.clientTransact.actProceeding(ctx, args...)
 
-	if tmr := tx.tmrA.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrA) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer A stopped", slog.Any("transaction", tx))
 	}
 
-	if tmr := tx.tmrB.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrB) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B stopped", slog.Any("transaction", tx))
 	}
 
@@ -289,11 +337,11 @@ func (tx *InviteClientTransaction) actProceeding(ctx context.Context, args ...an
 func (tx *InviteClientTransaction) actCompleted(ctx context.Context, args ...any) error {
 	_ = tx.clientTransact.actCompleted(ctx, args...)
 
-	if tmr := tx.tmrA.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrA) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer A stopped", slog.Any("transaction", tx))
 	}
 
-	if tmr := tx.tmrB.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrB) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B stopped", slog.Any("transaction", tx))
 	}
 
@@ -301,87 +349,75 @@ func (tx *InviteClientTransaction) actCompleted(ctx context.Context, args ...any
 	if !tx.tp.Metadata().Reliable() {
 		timeD = tx.timing.timeD()
 	}
-	tmr := timeutil.AfterFunc(timeD, tx.timerDHdlr(ctx))
-	tx.tmrD.Store(tmr)
-
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer D started",
-		slog.Any("transaction", tx),
-		slog.Time("expires_at", time.Now().Add(tmr.Left())),
-	)
+	tmr := timeutil.NewTimer(timeD)
+	if tx.armTmr(&tx.tmrD, tmr, []TransactionState{TransactionStateCompleted},
+		func(tmr *timeutil.Timer) { tx.onTimerD(ctx, tmr) }) {
+		tx.log.LogAttrs(
+			ctx, slog.LevelDebug, "timer D started",
+			slog.Any("transaction", tx),
+			slog.Time("expires_at", time.Now().Add(tmr.Left())),
+		)
+	}
 
 	return nil
 }
 
-func (tx *InviteClientTransaction) timerDHdlr(ctx context.Context) func() {
-	return func() {
-		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer D expired", slog.Any("transaction", tx))
+func (tx *InviteClientTransaction) onTimerD(ctx context.Context, tmr *timeutil.Timer) {
+	defer tx.saveSnapshot()
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer D expired", slog.Any("transaction", tx))
 
-		tx.tmrD.Store(nil)
-
-		if tx.State() != TransactionStateCompleted {
-			return
-		}
-
-		if err := tx.fsm.FireCtx(ctx, txEvtTimerD); err != nil {
-			panic(errors.Wrap(newTxTriggerErr(txEvtTimerD, tx.State(), err)))
-		}
-	}
+	tx.clearTmr(&tx.tmrD, tmr)
+	tx.fireTmrTrigger(ctx, txEvtTimerD)
 }
 
 func (tx *InviteClientTransaction) actAccepted(ctx context.Context, _ ...any) error {
 	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction accepted", slog.Any("transaction", tx))
 
-	if tmr := tx.tmrA.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrA) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer A stopped", slog.Any("transaction", tx))
 	}
 
-	if tmr := tx.tmrB.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrB) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B stopped", slog.Any("transaction", tx))
 	}
 
-	tmr := timeutil.AfterFunc(tx.timing.TimeM(), tx.timerMHdlr(ctx))
-	tx.tmrM.Store(tmr)
-
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer M started",
-		slog.Any("transaction", tx),
-		slog.Time("expires_at", time.Now().Add(tmr.Left())),
-	)
+	tmr := timeutil.NewTimer(tx.timing.TimeM())
+	if tx.armTmr(&tx.tmrM, tmr, []TransactionState{TransactionStateAccepted},
+		func(tmr *timeutil.Timer) { tx.onTimerM(ctx, tmr) }) {
+		tx.log.LogAttrs(
+			ctx, slog.LevelDebug, "timer M started",
+			slog.Any("transaction", tx),
+			slog.Time("expires_at", time.Now().Add(tmr.Left())),
+		)
+	}
 
 	return nil
 }
 
-func (tx *InviteClientTransaction) timerMHdlr(ctx context.Context) func() {
-	return func() {
-		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer M expired", slog.Any("transaction", tx))
+func (tx *InviteClientTransaction) onTimerM(ctx context.Context, tmr *timeutil.Timer) {
+	defer tx.saveSnapshot()
+	tx.log.LogAttrs(ctx, slog.LevelDebug, "timer M expired", slog.Any("transaction", tx))
 
-		tx.tmrM.Store(nil)
-
-		if tx.State() != TransactionStateAccepted {
-			return
-		}
-
-		if err := tx.fsm.FireCtx(ctx, txEvtTimerM); err != nil {
-			panic(errors.Wrap(newTxTriggerErr(txEvtTimerM, tx.State(), err)))
-		}
-	}
+	tx.clearTmr(&tx.tmrM, tmr)
+	tx.fireTmrTrigger(ctx, txEvtTimerM)
 }
 
 func (tx *InviteClientTransaction) actTerminated(ctx context.Context, args ...any) error {
 	_ = tx.clientTransact.actTerminated(ctx, args...)
 
-	if tmr := tx.tmrA.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrA) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer A stopped", slog.Any("transaction", tx))
 	}
 
-	if tmr := tx.tmrB.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrB) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer B stopped", slog.Any("transaction", tx))
 	}
 
-	if tmr := tx.tmrD.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrD) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer D stopped", slog.Any("transaction", tx))
 	}
 
-	if tmr := tx.tmrM.Swap(nil); tmr != nil && tmr.Stop() {
+	if tx.stopTmr(&tx.tmrM) {
 		tx.log.LogAttrs(ctx, slog.LevelDebug, "timer M stopped", slog.Any("transaction", tx))
 	}
 
@@ -406,80 +442,59 @@ func (tx *InviteClientTransaction) takeSnapshot() *ClientTransactionSnapshot {
 }
 
 func RestoreInviteClientTransaction(
-	ctx context.Context,
 	snap *ClientTransactionSnapshot,
 	tp ClientTransport,
 	opts ...ClientTransactionOptions,
 ) (*InviteClientTransaction, error) {
-	if !snap.IsValid() || snap.Type != TransactionTypeClientInvite {
-		return nil, errors.ErrorWrap("invalid snapshot")
+	// Timers are restored without callbacks and activated by Start.
+	if err := snap.validate(TransactionTypeClientInvite); err != nil {
+		return nil, errors.Wrap(err)
 	}
 
 	o := util.LastSliceElemOr(opts, ClientTransactionOptions{})
 	o.SendOptions = snap.SendOptions
 	o.Timing = snap.Timing
 
+	req := snap.Request.Clone().(*RequestEnvelope) //nolint:forcetypeassert
+
 	tx := new(InviteClientTransaction)
-	clnTx, err := newClientTransact(TransactionTypeClientInvite, tx, snap.Request, tp, o)
+	clnTx, err := newClientTransact(TransactionTypeClientInvite, tx, req, tp, o)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 	tx.clientTransact = clnTx
 	if snap.LastResponse != nil {
-		tx.lastRes.Store(snap.LastResponse)
+		tx.lastRes.Store(snap.LastResponse.Clone().(*ResponseEnvelope)) //nolint:forcetypeassert
 	}
 	if err := tx.initFSM(snap.State); err != nil {
 		return nil, errors.Wrap(err)
 	}
-	tx.started.Store(true)
+	tx.restored = true
 
-	if err := tx.restoreTimers(ctx, snap); err != nil {
-		_ = tx.Terminate(ctx, errors.Wrap(err))
+	if err := tx.restoreTimers(snap); err != nil {
 		return nil, errors.Wrap(err)
 	}
+	tx.saveSnapshot()
 
 	return tx, nil
 }
 
-func (tx *InviteClientTransaction) restoreTimers(ctx context.Context, snap *ClientTransactionSnapshot) error {
-	if tmr := snap.TimerA; tmr != nil {
-		restored, err := timeutil.RestoreTimer(tmr)
+func (tx *InviteClientTransaction) restoreTimers(snap *ClientTransactionSnapshot) error {
+	for dst, tmrSnap := range map[*atomic.Pointer[timeutil.Timer]]*timeutil.TimerSnapshot{
+		&tx.tmrA: snap.TimerA,
+		&tx.tmrB: snap.TimerB,
+		&tx.tmrD: snap.TimerD,
+		&tx.tmrM: snap.TimerM,
+	} {
+		if tmrSnap == nil {
+			continue
+		}
+
+		restored, err := timeutil.RestoreTimer(tmrSnap)
 		if err != nil {
 			return errors.Wrap(err)
 		}
-
-		restored.SetCallback(tx.timerAHdlr(ctx))
-		tx.tmrA.Store(restored)
-	}
-
-	if tmr := snap.TimerB; tmr != nil {
-		restored, err := timeutil.RestoreTimer(tmr)
-		if err != nil {
-			return errors.Wrap(err)
-		}
-
-		restored.SetCallback(tx.timerBHdlr(ctx))
-		tx.tmrB.Store(restored)
-	}
-
-	if tmr := snap.TimerD; tmr != nil {
-		restored, err := timeutil.RestoreTimer(tmr)
-		if err != nil {
-			return errors.Wrap(err)
-		}
-
-		restored.SetCallback(tx.timerDHdlr(ctx))
-		tx.tmrD.Store(restored)
-	}
-
-	if tmr := snap.TimerM; tmr != nil {
-		restored, err := timeutil.RestoreTimer(tmr)
-		if err != nil {
-			return errors.Wrap(err)
-		}
-
-		restored.SetCallback(tx.timerMHdlr(ctx))
-		tx.tmrM.Store(restored)
+		dst.Store(restored)
 	}
 
 	return nil

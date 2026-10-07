@@ -31,8 +31,8 @@ func TestContact_Render(t *testing.T) {
 				{
 					DisplayName: "Mr. Watson",
 					URI: &uri.SIP{
-						User: uri.User("watson"),
-						Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+						User: uri.MakeUserInfo("watson"),
+						Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 					},
 					Params: make(header.Values).Set("expires", "3600"),
 				},
@@ -82,8 +82,8 @@ func TestContact_RenderTo(t *testing.T) {
 				{
 					DisplayName: "Mr. Watson",
 					URI: &uri.SIP{
-						User: uri.User("watson"),
-						Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+						User: uri.MakeUserInfo("watson"),
+						Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 					},
 					Params: make(header.Values).Set("expires", "3600"),
 				},
@@ -174,8 +174,8 @@ func TestContact_Equal(t *testing.T) {
 			header.Contact{{
 				DisplayName: "Mr. Watson",
 				URI: &uri.SIP{
-					User: uri.User("watson"),
-					Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+					User: uri.MakeUserInfo("watson"),
+					Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 				},
 				Params: make(header.Values).Set("q", "0.7").Set("expires", "3600"),
 			}},
@@ -192,8 +192,8 @@ func TestContact_Equal(t *testing.T) {
 				{
 					DisplayName: "Mr. Watson",
 					URI: &uri.SIP{
-						User: uri.User("watson"),
-						Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+						User: uri.MakeUserInfo("watson"),
+						Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 					},
 					Params: make(header.Values).Set("q", "0.7").Set("expires", "3600"),
 				},
@@ -212,8 +212,8 @@ func TestContact_Equal(t *testing.T) {
 				{
 					DisplayName: "Mr. Watson",
 					URI: &uri.SIP{
-						User: uri.User("watson"),
-						Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+						User: uri.MakeUserInfo("watson"),
+						Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 					},
 					Params: make(header.Values).Set("q", "0.7").Set("expires", "3600"),
 				},
@@ -226,8 +226,8 @@ func TestContact_Equal(t *testing.T) {
 				{
 					DisplayName: "Mr. Watson",
 					URI: &uri.SIP{
-						User: uri.User("watson"),
-						Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+						User: uri.MakeUserInfo("watson"),
+						Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 					},
 					Params: make(header.Values).Set("q", "1"),
 				},
@@ -236,8 +236,8 @@ func TestContact_Equal(t *testing.T) {
 				{
 					DisplayName: "Mr. Watson",
 					URI: &uri.SIP{
-						User: uri.User("watson"),
-						Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+						User: uri.MakeUserInfo("watson"),
+						Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 					},
 					Params: make(header.Values).Set("q", "0.7").Set("expires", "3600"),
 				},
@@ -250,8 +250,8 @@ func TestContact_Equal(t *testing.T) {
 				{
 					DisplayName: "Mr. Watson",
 					URI: &uri.SIP{
-						User: uri.User("watson"),
-						Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+						User: uri.MakeUserInfo("watson"),
+						Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 					},
 					Params: make(header.Values).Set("q", "0.7").Set("expires", "3600"),
 				},
@@ -265,8 +265,8 @@ func TestContact_Equal(t *testing.T) {
 				{
 					DisplayName: "Mr. Watson",
 					URI: &uri.SIP{
-						User: uri.User("watson"),
-						Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+						User: uri.MakeUserInfo("watson"),
+						Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 					},
 					Params: make(header.Values).Set("q", "0.7").Set("expires", "3600"),
 				},
@@ -377,8 +377,8 @@ func TestContact_MarshalJSON(t *testing.T) {
 				{
 					DisplayName: "Alice",
 					URI: &uri.SIP{
-						User: uri.User("alice"),
-						Addr: uri.AddrFromHost("example.com"),
+						User: uri.MakeUserInfo("alice"),
+						Addr: uri.MakeHostAddr("example.com"),
 					},
 					Params: make(header.Values).Set("expires", "3600"),
 				},
@@ -389,7 +389,7 @@ func TestContact_MarshalJSON(t *testing.T) {
 			"multiple uris",
 			header.Contact{
 				{
-					URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("example.com")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("example.com")},
 					Params: make(header.Values).Set("q", "0.7"),
 				},
 				{
@@ -449,8 +449,8 @@ func TestContact_UnmarshalJSON(t *testing.T) {
 				{
 					DisplayName: "Alice",
 					URI: &uri.SIP{
-						User: uri.User("alice"),
-						Addr: uri.AddrFromHost("example.com"),
+						User: uri.MakeUserInfo("alice"),
+						Addr: uri.MakeHostAddr("example.com"),
 					},
 					Params: make(header.Values).Set("expires", "3600"),
 				},
@@ -462,7 +462,7 @@ func TestContact_UnmarshalJSON(t *testing.T) {
 			`{"name":"Contact","value":"<sip:alice@example.com>;q=0.7, <tel:+123;ext=555>;q=0.3"}`,
 			header.Contact{
 				{
-					URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("example.com")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("example.com")},
 					Params: make(header.Values).Set("q", "0.7"),
 				},
 				{
@@ -522,8 +522,8 @@ func TestContact_RoundTripJSON(t *testing.T) {
 				{
 					DisplayName: "Alice",
 					URI: &uri.SIP{
-						User: uri.User("alice"),
-						Addr: uri.AddrFromHost("example.com"),
+						User: uri.MakeUserInfo("alice"),
+						Addr: uri.MakeHostAddr("example.com"),
 					},
 					Params: make(header.Values).Set("expires", "3600"),
 				},
@@ -533,7 +533,7 @@ func TestContact_RoundTripJSON(t *testing.T) {
 			"multiple uris",
 			header.Contact{
 				{
-					URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("example.com")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("example.com")},
 					Params: make(header.Values).Set("q", "0.7"),
 				},
 				{

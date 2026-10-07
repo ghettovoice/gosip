@@ -1,28 +1,11 @@
 version: "2"
-run:
-  concurrency: 4
-  modules-download-mode: readonly
-  issues-exit-code: 1
-  tests: true
-  allow-parallel-runners: false
-  allow-serial-runners: false
-output:
-  formats:
-    text:
-      path: stdout
-      print-linter-name: true
-      print-issued-lines: true
-  sort-order:
-    - linter
-    - severity
-    - file
+
 linters:
   default: standard
   enable:
     - asasalint
     - asciicheck
     - bidichk
-    - bodyclose
     - contextcheck
     - copyloopvar
     - durationcheck
@@ -32,12 +15,13 @@ linters:
     - exhaustive
     - exptostd
     - fatcontext
-    - forcetypeassert
     - gocheckcompilerdirectives
     - gocognit
     - gocritic
     - godoclint
     - godot
+    - gomoddirectives
+    - gomodguard_v2
     - goprintffuncname
     - gosec
     - gosmopolitan
@@ -66,7 +50,6 @@ linters:
     - tagalign
     - tagliatelle
     - testableexamples
-    - testifylint
     - testpackage
     - thelper
     - tparallel
@@ -278,18 +261,13 @@ linters:
           - godoclint
           - nilnil
         path: (.+)_(test|deep)\.go
-    paths:
-      - internal/testutil/netmock/net.go
+    paths: &exclude_paths
       - internal/grammar/rfc3261/rules.go
       - internal/grammar/rfc3966/rules.go
       - third_party$
       - builtin$
       - examples$
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
-  uniq-by-line: true
-  new: false
+
 formatters:
   enable:
     - gci
@@ -304,12 +282,8 @@ formatters:
     gofumpt:
       extra:
         group-params: true
+        clothe-returns: true
+        balance-calls: true
   exclusions:
     generated: lax
-    paths:
-      - internal/testutil/netmock/net.go
-      - internal/grammar/rfc3261/rules.go
-      - internal/grammar/rfc3966/rules.go
-      - third_party$
-      - builtin$
-      - examples$
+    paths: *exclude_paths

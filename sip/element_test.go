@@ -6,6 +6,7 @@ import (
 	"iter"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,9 +23,9 @@ func newElementTestRequest(tb testing.TB, laddr netip.AddrPort) *sip.Request {
 
 	req, err := sip.NewRequest(
 		sip.RequestMethodInvite,
-		&sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")},
-		&sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")},
-		&sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")},
+		&sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")},
+		&sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")},
+		&sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")},
 		sip.RequestOptions{Transport: "UDP", Branch: sip.GenerateBranch(0), LocalTag: "from-tag", CallID: "call-id"},
 	)
 	if err != nil {
@@ -34,7 +35,7 @@ func newElementTestRequest(tb testing.TB, laddr netip.AddrPort) *sip.Request {
 	req.Headers.Set(header.Via{{
 		Proto:     sip.ProtoVer20(),
 		Transport: "UDP",
-		Addr:      sip.AddrFromHostPort(laddr.Addr().String(), laddr.Port()),
+		Addr:      sip.MakeHostPortAddr(laddr.Addr().String(), laddr.Port()),
 		Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
 	}})
 	req.Headers.Set(header.ContentLength(0))
@@ -68,7 +69,7 @@ func TestElement_ReceiveRequestResponse(t *testing.T) {
 	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
 	// Create transport and add it to transport manager
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
@@ -203,7 +204,7 @@ func TestElement_SendRequest(t *testing.T) {
 
 	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
@@ -237,9 +238,9 @@ func TestElement_SendRequest(t *testing.T) {
 			name: "resolve target URI",
 			prepareReq: func(t *testing.T, peerAddr netip.AddrPort) *sip.RequestEnvelope {
 				t.Helper()
-				ruri := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHostPort("127.0.0.1", peerAddr.Port())}
-				furi := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
-				turi := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")}
+				ruri := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostPortAddr("127.0.0.1", peerAddr.Port())}
+				furi := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
+				turi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
 				req, err := sip.NewRequest(
 					sip.RequestMethodInvite,
 					ruri,
@@ -253,7 +254,7 @@ func TestElement_SendRequest(t *testing.T) {
 				req.Headers.Set(header.Via{{
 					Proto:     sip.ProtoVer20(),
 					Transport: "UDP",
-					Addr:      sip.AddrFromHostPort("127.0.0.1", lisAddr.Port()),
+					Addr:      sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port()),
 					Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
 				}})
 				req.Headers.Set(header.ContentLength(0))
@@ -264,9 +265,9 @@ func TestElement_SendRequest(t *testing.T) {
 			name: "no auto user-agent header",
 			prepareReq: func(t *testing.T, peerAddr netip.AddrPort) *sip.RequestEnvelope {
 				t.Helper()
-				ruri := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHostPort("127.0.0.1", peerAddr.Port())}
-				furi := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
-				turi := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")}
+				ruri := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostPortAddr("127.0.0.1", peerAddr.Port())}
+				furi := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
+				turi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
 				req, err := sip.NewRequest(
 					sip.RequestMethodInvite,
 					ruri,
@@ -280,7 +281,7 @@ func TestElement_SendRequest(t *testing.T) {
 				req.Headers.Set(header.Via{{
 					Proto:     sip.ProtoVer20(),
 					Transport: "UDP",
-					Addr:      sip.AddrFromHostPort("127.0.0.1", lisAddr.Port()),
+					Addr:      sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port()),
 					Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
 				}})
 				req.Headers.Set(header.ContentLength(0))
@@ -365,11 +366,11 @@ func TestElement_SendRequest_NoDestAddressResolved(t *testing.T) {
 
 	// Create outbound request with URI that cannot be resolved to a transport.
 	ruri := &sip.URI{
-		User: sip.UserWithName("bob"),
-		Addr: sip.AddrFromHostPort("127.0.0.1", 1),
+		User: sip.MakeUserInfo("bob"),
+		Addr: sip.MakeHostPortAddr("127.0.0.1", 1),
 	}
-	furi := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
-	turi := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")}
+	furi := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
+	turi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
 
 	req, err := sip.NewRequest(
 		sip.RequestMethodInvite,
@@ -385,7 +386,7 @@ func TestElement_SendRequest_NoDestAddressResolved(t *testing.T) {
 	req.Headers.Set(header.Via{{
 		Proto:     sip.ProtoVer20(),
 		Transport: "UDP",
-		Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+		Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 		Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
 	}})
 	req.Headers.Set(header.ContentLength(0))
@@ -412,7 +413,7 @@ func TestElement_SendRequestStateful(t *testing.T) {
 
 	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
@@ -452,9 +453,9 @@ func TestElement_SendRequestStateful(t *testing.T) {
 			name: "resolve target URI",
 			prepareReq: func(t *testing.T, lisAddr, peerAddr netip.AddrPort) *sip.RequestEnvelope {
 				t.Helper()
-				ruri := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHostPort("127.0.0.1", peerAddr.Port())}
-				furi := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
-				turi := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")}
+				ruri := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostPortAddr("127.0.0.1", peerAddr.Port())}
+				furi := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
+				turi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
 				req, err := sip.NewRequest(
 					sip.RequestMethodInvite,
 					ruri,
@@ -468,7 +469,7 @@ func TestElement_SendRequestStateful(t *testing.T) {
 				req.Headers.Set(header.Via{{
 					Proto:     sip.ProtoVer20(),
 					Transport: "UDP",
-					Addr:      sip.AddrFromHostPort("127.0.0.1", lisAddr.Port()),
+					Addr:      sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port()),
 					Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
 				}})
 				req.Headers.Set(header.ContentLength(0))
@@ -662,7 +663,7 @@ func TestElement_ProduceRequestAttempts_Fallback(t *testing.T) {
 	t.Cleanup(func() { elm.Close(t.Context()) })
 
 	// The element needs a UDP transport so that the primary attempt can resolve the transport.
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("127.0.0.1", 5060)})
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", 5060)})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
@@ -674,9 +675,9 @@ func TestElement_ProduceRequestAttempts_Fallback(t *testing.T) {
 	// Build a large request body to trigger ErrMessageTooLarge on UDP.
 	req, err := sip.NewRequest(
 		sip.RequestMethodInvite,
-		&sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")},
-		&sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")},
-		&sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")},
+		&sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")},
+		&sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")},
+		&sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")},
 		sip.RequestOptions{
 			Transport: "UDP",
 			Branch:    sip.GenerateBranch(0),
@@ -691,7 +692,7 @@ func TestElement_ProduceRequestAttempts_Fallback(t *testing.T) {
 	req.Headers.Set(header.Via{{
 		Proto:     sip.ProtoVer20(),
 		Transport: "UDP",
-		Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+		Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 		Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
 	}})
 	req.Headers.Set(header.ContentLength(len(req.Body)))
@@ -790,7 +791,7 @@ func TestRequestAttempt_DoStateless(t *testing.T) {
 	peerAddr := netip.MustParseAddrPort(peer.LocalAddr().String())
 
 	// Create transport bound to the listener.
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
@@ -898,7 +899,7 @@ func TestRequestAttempt_DoStateful(t *testing.T) {
 	peerAddr := netip.MustParseAddrPort(peer.LocalAddr().String())
 
 	// Create transport bound to the listener.
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
@@ -984,5 +985,119 @@ func TestRequestAttempt_DoStateful(t *testing.T) {
 		}
 	case <-time.After(asyncEventTimeout):
 		t.Fatal("request not received by listener")
+	}
+}
+
+func TestElement_SendResponseStateful_DormantExisting(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
+	raddr := netip.MustParseAddrPort("10.0.0.5:5060")
+
+	tp := newProxyStubTransport()
+	elm, err := sip.NewElement()
+	if err != nil {
+		t.Fatalf("sip.NewElement() error = %v, want nil", err)
+	}
+	t.Cleanup(func() { elm.Close(ctx) })
+
+	if err := elm.TrackTransport(tp); err != nil {
+		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
+	}
+
+	req := newInInviteReq(t, "UDP", sip.MagicCookie+".dormant-send-res", laddr, raddr)
+
+	tx, err := sip.NewInviteServerTransaction(req, tp)
+	if err != nil {
+		t.Fatalf("sip.NewInviteServerTransaction() error = %v, want nil", err)
+	}
+	if err := elm.TransactionManager().RegisterServerTransaction(ctx, tx); err != nil {
+		t.Fatalf("elm.TransactionManager().RegisterServerTransaction(ctx) error = %v, want nil", err)
+	}
+
+	res := newInRes(t, req, sip.ResponseStatusRinging)
+	if _, err := elm.SendResponseStateful(ctx, req, res); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
+		t.Fatalf("elm.SendResponseStateful() error = %v, want %v", err, sip.ErrTransactionActionNotAllowed)
+	}
+
+	if tx.State() == sip.TransactionStateTerminated {
+		t.Fatal("dormant transaction terminated by elm.SendResponseStateful, want unchanged")
+	}
+	stored, ok := elm.LoadServerTransaction(tx.Key())
+	if !ok || stored != tx {
+		t.Fatalf("elm.LoadServerTransaction() = %p, %v, want %p, true", stored, ok, tx)
+	}
+}
+
+type countingClientTransport struct {
+	sip.ClientTransport
+	sends atomic.Int32
+}
+
+func (tp *countingClientTransport) SendRequest(
+	ctx context.Context,
+	req *sip.RequestEnvelope,
+	opts ...sip.SendRequestOptions,
+) error {
+	tp.sends.Add(1)
+	return tp.ClientTransport.SendRequest(ctx, req, opts...)
+}
+
+func TestElement_SendRequestStateful_TerminateOnActive(t *testing.T) {
+	t.Parallel()
+
+	lisAddr := netip.MustParseAddrPort("127.0.0.1:0")
+	peerAddr := netip.MustParseAddrPort("127.0.0.1:9")
+
+	var counting *atomic.Int32
+	elm, err := sip.NewElement(sip.ElementOptions{
+		ClientTransactionFactory: sip.ClientTransactionFactoryFunc(
+			func(req *sip.RequestEnvelope, tp sip.ClientTransport, opts ...sip.ClientTransactionOptions) (sip.ClientTransaction, error) {
+				ctp := &countingClientTransport{ClientTransport: tp}
+				tx, err := sip.NewClientTransaction(req, ctp, opts...)
+				if err != nil {
+					return nil, err
+				}
+				tx.BindStartHandler(sip.TransactionStartHandlerFunc(
+					func(hdlrCtx context.Context) {
+						_ = tx.Terminate(hdlrCtx, errors.ErrorWrap("terminated on start"))
+					},
+				))
+				counting = &ctp.sends
+				return tx, nil
+			},
+		),
+	})
+	if err != nil {
+		t.Fatalf("sip.NewElement() error = %v, want nil", err)
+	}
+	t.Cleanup(func() { elm.Close(t.Context()) })
+
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
+	if err != nil {
+		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+	}
+	if err := elm.TrackTransport(tp); err != nil {
+		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
+	}
+
+	req := newElementTestRequest(t, lisAddr)
+	env := sip.NewRequestEnvelope(req).
+		SetTransport(sip.UDPMetadata()).
+		SetRemoteAddr(peerAddr)
+
+	tx, err := elm.SendRequestStateful(t.Context(), env)
+	if err == nil {
+		t.Fatalf("elm.SendRequestStateful() error = nil, tx = %v, want error", tx)
+	}
+	if !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
+		t.Fatalf("elm.SendRequestStateful() error = %v, want wrap of %v", err, sip.ErrTransactionActionNotAllowed)
+	}
+	if counting == nil {
+		t.Fatal("client transaction factory was not called")
+	}
+	if got := counting.Load(); got != 0 {
+		t.Fatalf("SendRequest called %d times after terminate-on-active, want 0", got)
 	}
 }

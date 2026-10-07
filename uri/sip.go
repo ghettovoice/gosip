@@ -339,7 +339,7 @@ func (u *SIP) MAddr() (Addr, bool) {
 		return Addr{}, false
 	}
 
-	return AddrFromHost(ma), true
+	return MakeHostAddr(ma), true
 }
 
 func (u *SIP) TTL() (uint8, bool) {
@@ -421,9 +421,9 @@ func buildFromUserinfoNode(node *abnf.Node) UserInfo {
 
 	usrname := grammar.Unescape(grammar.MustGetNode(node, "user").String())
 	if passwdNode, ok := node.GetNode("password"); ok {
-		return UserPassword(usrname, grammar.Unescape(passwdNode.String()))
+		return MakeUserPasswordInfo(usrname, grammar.Unescape(passwdNode.String()))
 	}
-	return User(usrname)
+	return MakeUserInfo(usrname)
 }
 
 func buildFromURIParamsNode(node *abnf.Node) Values {
@@ -483,13 +483,13 @@ type UserInfo struct {
 	hasPasswd       bool
 }
 
-// User returns a [UserInfo] containing the provided username and no password.
-func User(usrname string) UserInfo {
+// MakeUserInfo returns a [UserInfo] containing the provided username and no password.
+func MakeUserInfo(usrname string) UserInfo {
 	return UserInfo{usrname: usrname}
 }
 
-// UserPassword returns a [UserInfo] containing the provided username and password.
-func UserPassword(usrname, passwd string) UserInfo {
+// MakeUserPasswordInfo returns a [UserInfo] containing the provided username and password.
+func MakeUserPasswordInfo(usrname, passwd string) UserInfo {
 	return UserInfo{usrname: usrname, passwd: passwd, hasPasswd: true}
 }
 

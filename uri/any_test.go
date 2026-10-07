@@ -22,7 +22,7 @@ func TestAny_Render(t *testing.T) {
 		{"nil", (*uri.Any)(nil), ""},
 		{"empty", &uri.Any{}, ""},
 		{"scheme", &uri.Any{URL: url.URL{Scheme: "qwe"}}, "qwe:"},
-		{"path", &uri.Any{URL: url.URL{Path: "qwe/abc.wav"}}, "qwe/abc.wav"},
+		{"path", &uri.Any{Path: "qwe/abc.wav"}, "qwe/abc.wav"},
 		{"scheme and host", &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}}, "http://example.com"},
 		{"scheme and opaque", &uri.Any{URL: url.URL{Scheme: "ftp", Opaque: "example.com/a/b/c"}}, "ftp:example.com/a/b/c"},
 	}

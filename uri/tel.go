@@ -242,8 +242,8 @@ func (u *Tel) ToSIP() *SIP {
 	// All parameter names and values SHOULD use lower-case characters, as
 	// tel URIs may be used within contexts where comparisons are case-sensitive.
 	return &SIP{
-		User:   User(util.LCase(u2.Render()[4:])),
-		Addr:   AddrFromHost(host),
+		User:   MakeUserInfo(util.LCase(u2.Render()[4:])),
+		Addr:   MakeHostAddr(host),
 		Params: make(Values).Set("user", "phone"),
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/ghettovoice/timeutil"
+
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
@@ -23,7 +25,7 @@ func TestNonInviteServerTransaction_LifecycleUnrelTransp(t *testing.T) {
 		tp := newStubServerTransport(false)
 		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".unreliable", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, tp, sip.ServerTransactionOptions{Timing: timing})
+		tx, err := sip.NewNonInviteServerTransaction(req, tp, sip.ServerTransactionOptions{Timing: timing})
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -86,8 +88,8 @@ func TestNonInviteServerTransaction_LifecycleUnrelTransp(t *testing.T) {
 
 		if err := tx.Respond(ctx, sip.ResponseStatusTrying); err == nil {
 			t.Fatal("tx.Respond(ctx, 100, nil) error = nil, want error")
-		} else if !errors.Is(err, sip.ErrActionNotAllowed) {
-			t.Fatalf("unexpected error: got %v, want %v", err, sip.ErrActionNotAllowed)
+		} else if !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
+			t.Fatalf("unexpected error: got %v, want %v", err, sip.ErrTransactionActionNotAllowed)
 		}
 
 		if err := tx.Respond(ctx, sip.ResponseStatusOK); err != nil {
@@ -111,7 +113,7 @@ func TestNonInviteServerTransaction_SendResponseMismatchCallID(t *testing.T) {
 		tp := newStubServerTransport(false)
 		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".mismatch-callid", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, tp)
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -144,7 +146,7 @@ func TestNonInviteServerTransaction_SendResponseMismatchVia(t *testing.T) {
 		tp := newStubServerTransport(false)
 		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".mismatch-via", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, tp)
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -179,7 +181,7 @@ func TestNonInviteServerTransaction_SendResponseMismatchCSeqMethod(t *testing.T)
 		tp := newStubServerTransport(false)
 		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".mismatch-cseq", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, tp)
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -220,7 +222,7 @@ func TestNonInviteServerTransaction_ProceedingTranspErr(t *testing.T) {
 
 		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".transp-err", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, tp)
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -279,7 +281,7 @@ func TestNonInviteServerTransaction_RoundTripSnapshot(t *testing.T) {
 		origTP := newStubServerTransport(false)
 		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".snapshot", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, origTP, sip.ServerTransactionOptions{Timing: timing})
+		tx, err := sip.NewNonInviteServerTransaction(req, origTP, sip.ServerTransactionOptions{Timing: timing})
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -299,17 +301,19 @@ func TestNonInviteServerTransaction_RoundTripSnapshot(t *testing.T) {
 			t.Fatalf("tx.State() = %q, want %q", got, want)
 		}
 
-		snap := tx.Snapshot()
+		snap := mustServerSnapshot(t, tx)
 		if snap == nil || snap.TimerJ == nil {
-			t.Fatalf("tx.Snapshot().TimerJ = %v, want non-nil", snap.TimerJ)
+			t.Fatalf("mustServerSnapshot(t, tx).TimerJ = %v, want non-nil", snap.TimerJ)
 		}
 
 		restoredTP := newStubServerTransport(origTP.reliable)
 
-		restored, err := sip.RestoreNonInviteServerTransaction(t.Context(), snap, restoredTP, sip.ServerTransactionOptions{Timing: timing})
+		restored, err := sip.RestoreNonInviteServerTransaction(snap, restoredTP, sip.ServerTransactionOptions{Timing: timing})
 		if err != nil {
 			t.Fatalf("sip.RestoreNonInviteServerTransaction() error = %v, want nil", err)
 		}
+
+		startServerTransaction(t, restored)
 
 		if got, want := restored.State(), sip.TransactionStateCompleted; got != want {
 			t.Fatalf("restored.State() = %q, want %q", got, want)
@@ -336,7 +340,7 @@ func TestNonInviteServerTransaction_Terminate_FromTrying(t *testing.T) {
 		tp := newStubServerTransport(false)
 		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".terminate-trying", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, tp)
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -381,7 +385,7 @@ func TestNonInviteServerTransaction_Terminate_FromProceeding(t *testing.T) {
 		tp := newStubServerTransport(false)
 		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".terminate-proceeding", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, tp)
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -419,7 +423,7 @@ func TestNonInviteServerTransaction_Terminate_FromCompleted(t *testing.T) {
 		tp := newStubServerTransport(false)
 		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".terminate-completed", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, tp)
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -457,7 +461,7 @@ func TestNonInviteServerTransaction_Terminate_Idempotent(t *testing.T) {
 		tp := newStubServerTransport(true)
 		req := newInNonInviteReq(t, "TCP", sip.MagicCookie+".terminate-idempotent", local, remote)
 
-		tx, err := sip.NewNonInviteServerTransaction(t.Context(), req, tp)
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
 		if err != nil {
 			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
 		}
@@ -475,6 +479,130 @@ func TestNonInviteServerTransaction_Terminate_Idempotent(t *testing.T) {
 
 		if got := tx.State(); got != sip.TransactionStateTerminated {
 			t.Fatalf("tx.State() = %q, want %q", got, sip.TransactionStateTerminated)
+		}
+	})
+}
+
+func TestNonInviteServerTransaction_SendResponseBeforeStart(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		remote := netip.MustParseAddrPort("55.55.55.55:5060")
+		local := netip.MustParseAddrPort("11.11.11.11:5070")
+
+		tp := newStubServerTransport(false)
+		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".respond-before-start", local, remote)
+
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
+		if err != nil {
+			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
+		}
+
+		if err := tx.SendResponse(ctx, newInRes(t, req, sip.ResponseStatusOK)); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
+			t.Fatalf("tx.SendResponse() error = %v, want %v", err, sip.ErrTransactionActionNotAllowed)
+		}
+		if err := tx.Respond(ctx, sip.ResponseStatusOK); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
+			t.Fatalf("tx.Respond() error = %v, want %v", err, sip.ErrTransactionActionNotAllowed)
+		}
+		tp.ensureNoSendRes(t)
+
+		startServerTransaction(t, tx)
+		if err := tx.SendResponse(ctx, newInRes(t, req, sip.ResponseStatusOK)); err != nil {
+			t.Fatalf("tx.SendResponse() error = %v, want nil", err)
+		}
+		if call := tp.waitSendRes(t); call.res.Status() != sip.ResponseStatusOK {
+			t.Fatalf("sent response status = %v, want %v", call.res.Status(), sip.ResponseStatusOK)
+		}
+	})
+}
+
+func TestNonInviteServerTransaction_RepeatStart(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		remote := netip.MustParseAddrPort("55.55.55.55:5060")
+		local := netip.MustParseAddrPort("11.11.11.11:5070")
+
+		tp := newStubServerTransport(false)
+		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".repeat-start", local, remote)
+
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
+		if err != nil {
+			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
+		}
+
+		startServerTransaction(t, tx)
+
+		if err := tx.Start(ctx); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
+			t.Fatalf("second tx.Start() error = %v, want %v", err, sip.ErrTransactionActionNotAllowed)
+		}
+
+		if err := tx.Terminate(ctx, errors.New("test cleanup")); err != nil {
+			t.Fatalf("tx.Terminate() error = %v, want nil", err)
+		}
+	})
+}
+
+func TestRestoreNonInviteServerTransaction_InvalidSnapshot(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		remote := netip.MustParseAddrPort("55.55.55.55:5060")
+		local := netip.MustParseAddrPort("11.11.11.11:5070")
+
+		tp := newStubServerTransport(false)
+		req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".restore-invalid-ni", local, remote)
+
+		tx, err := sip.NewNonInviteServerTransaction(req, tp)
+		if err != nil {
+			t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
+		}
+		startServerTransaction(t, tx)
+		if err := tx.SendResponse(t.Context(), newInRes(t, req, sip.ResponseStatusOK)); err != nil {
+			t.Fatalf("tx.SendResponse() error = %v, want nil", err)
+		}
+		waitForTransactState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
+
+		base := mustServerSnapshot(t, tx)
+		if base == nil {
+			t.Fatal("mustServerSnapshot(t, tx) = nil, want snapshot")
+		}
+
+		testCases := []struct {
+			name   string
+			mutate func(snap *sip.ServerTransactionSnapshot)
+		}{
+			{name: "type mismatch", mutate: func(snap *sip.ServerTransactionSnapshot) {
+				snap.Type = sip.TransactionTypeServerInvite
+			}},
+			{name: "invalid state", mutate: func(snap *sip.ServerTransactionSnapshot) {
+				snap.State = 0
+			}},
+			{name: "wrong state for type", mutate: func(snap *sip.ServerTransactionSnapshot) {
+				snap.State = sip.TransactionStateConfirmed
+			}},
+			{name: "key mismatch", mutate: func(snap *sip.ServerTransactionSnapshot) {
+				snap.Key.Branch = "z9hG4bK.other"
+			}},
+			{name: "foreign active timer", mutate: func(snap *sip.ServerTransactionSnapshot) {
+				snap.TimerG = snap.TimerJ
+			}},
+			{name: "malformed stopped foreign timer", mutate: func(snap *sip.ServerTransactionSnapshot) {
+				snap.TimerG = &timeutil.TimerSnapshot{State: timeutil.TimerStateStopped}
+			}},
+			{name: "active timer in wrong state", mutate: func(snap *sip.ServerTransactionSnapshot) {
+				snap.State = sip.TransactionStateProceeding
+			}},
+		}
+
+		for _, c := range testCases {
+			snap := *base
+			c.mutate(&snap)
+
+			restoredTP := newStubServerTransport(false)
+			if _, err := sip.RestoreNonInviteServerTransaction(&snap, restoredTP); err == nil {
+				t.Fatalf("sip.RestoreNonInviteServerTransaction(%s) error = nil, want error", c.name)
+			}
+			restoredTP.ensureNoSendRes(t)
 		}
 	})
 }

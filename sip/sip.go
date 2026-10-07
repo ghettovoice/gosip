@@ -25,15 +25,15 @@ func ProtoVer20() ProtoInfo { return protoVer20 }
 // See [types.Addr].
 type Addr = types.Addr
 
-// AddrFromHost returns an [Addr] containing the provided host and no port.
-func AddrFromHost(host string) Addr { return types.AddrFromHost(host) }
+// MakeHostAddr returns an [Addr] containing the provided host and no port.
+func MakeHostAddr(host string) Addr { return types.MakeHostAddr(host) }
 
-// AddrFromHostPort returns an [Addr] containing the provided host and port.
-func AddrFromHostPort(host string, port uint16) Addr { return types.AddrFromHostPort(host, port) }
+// MakeHostPortAddr returns an [Addr] containing the provided host and port.
+func MakeHostPortAddr(host string, port uint16) Addr { return types.MakeHostPortAddr(host, port) }
 
-func AddrFromIP(ip net.IP) Addr { return types.AddrFromIP(ip) }
+func MakeIPAddr(ip net.IP) Addr { return types.MakeIPAddr(ip) }
 
-func AddrFromIPPort(ip net.IP, port uint16) Addr { return types.AddrFromIPPort(ip, port) }
+func MakeIPPortAddr(ip net.IP, port uint16) Addr { return types.MakeIPPortAddr(ip, port) }
 
 // ParseAddr parses a "host[:port]" string into an [Addr].
 func ParseAddr(s string) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }

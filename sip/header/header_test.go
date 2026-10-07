@@ -98,7 +98,7 @@ func TestParse(t *testing.T) {
 			"Accept: */*",
 			nil,
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "*", Subtype: "*"}},
+				{Type: "*", Subtype: "*"},
 			},
 			nil,
 		},
@@ -116,8 +116,8 @@ func TestParse(t *testing.T) {
 					Params: make(header.Values).Append("q", "0.8").Append("foo", ""),
 				},
 				{
-					MIMEType: header.MIMEType{Type: "application", Subtype: "json"},
-					Params:   make(header.Values).Append("q", "0.5"),
+					Type: "application", Subtype: "json",
+					Params: make(header.Values).Append("q", "0.5"),
 				},
 			},
 			nil,
@@ -128,8 +128,8 @@ func TestParse(t *testing.T) {
 			nil,
 			header.Accept{
 				{
-					MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-					Params:   make(header.Values).Append("foo", ""),
+					Type: "text", Subtype: "plain",
+					Params: make(header.Values).Append("foo", ""),
 				},
 			},
 			nil,
@@ -215,7 +215,7 @@ func TestParse(t *testing.T) {
 					Username:   "root",
 					Realm:      "example.com",
 					Nonce:      "qwerty",
-					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 					Response:   "587245234b3434cc3412213e5f113a54",
 					Algorithm:  "MD5",
 					CNonce:     "1q2w3e",
@@ -282,7 +282,7 @@ func TestParse(t *testing.T) {
 			"Contact: sips:alice@127.0.0.1;tag=a48s",
 			nil,
 			header.Contact{{
-				URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("127.0.0.1"), Secured: true},
+				URI:    &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("127.0.0.1"), Secured: true},
 				Params: make(header.Values).Set("tag", "a48s"),
 			}},
 			nil,
@@ -304,8 +304,8 @@ func TestParse(t *testing.T) {
 			header.Contact{{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("param", "val"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -322,8 +322,8 @@ func TestParse(t *testing.T) {
 				{
 					DisplayName: "Mr. Watson",
 					URI: &uri.SIP{
-						User: uri.User("watson"),
-						Addr: uri.AddrFromHost("worcester.bell-telephone.com"),
+						User: uri.MakeUserInfo("watson"),
+						Addr: uri.MakeHostAddr("worcester.bell-telephone.com"),
 					},
 					Params: make(header.Values).Set("q", "0.7").Set("expires", "3600"),
 				},
@@ -342,8 +342,8 @@ func TestParse(t *testing.T) {
 			header.Contact{{
 				URI: &uri.SIP{
 					Secured: true,
-					User:    uri.User("bob"),
-					Addr:    uri.AddrFromHost("192.0.2.4"),
+					User:    uri.MakeUserInfo("bob"),
+					Addr:    uri.MakeHostAddr("192.0.2.4"),
 					Params:  make(header.Values).Set("transport", "UDP"),
 				},
 				Params: make(header.Values).Set("expires", "60"),
@@ -447,8 +447,8 @@ func TestParse(t *testing.T) {
 			header.ErrorInfo{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("not-in-service-recording"),
-						Addr:   uri.AddrFromHost("atlanta.com"),
+						User:   uri.MakeUserInfo("not-in-service-recording"),
+						Addr:   uri.MakeHostAddr("atlanta.com"),
 						Params: make(header.Values).Set("p1", "abc"),
 					},
 					Params: make(header.Values).Set("p2", "zzz"),
@@ -471,7 +471,7 @@ func TestParse(t *testing.T) {
 			"From: sip:alice@127.0.0.1;tag=a48s",
 			nil,
 			&header.From{
-				URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("127.0.0.1")},
+				URI:    &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("127.0.0.1")},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -481,7 +481,7 @@ func TestParse(t *testing.T) {
 			"From: sips:alice@127.0.0.1;tag=a48s",
 			nil,
 			&header.From{
-				URI:    &uri.SIP{Secured: true, User: uri.User("alice"), Addr: uri.AddrFromHost("127.0.0.1")},
+				URI:    &uri.SIP{Secured: true, User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("127.0.0.1")},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -503,8 +503,8 @@ func TestParse(t *testing.T) {
 			&header.From{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -564,9 +564,9 @@ func TestParse(t *testing.T) {
 			&header.ProxyAuthenticate{AuthChallenge: &header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -615,7 +615,7 @@ func TestParse(t *testing.T) {
 					Username:   "root",
 					Realm:      "example.com",
 					Nonce:      "qwerty",
-					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 					Response:   "587245234b3434cc3412213e5f113a54",
 					Algorithm:  "MD5",
 					CNonce:     "1q2w3e",
@@ -663,15 +663,15 @@ func TestParse(t *testing.T) {
 			header.RecordRoute{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -684,7 +684,7 @@ func TestParse(t *testing.T) {
 			"Reply-To: sip:alice@127.0.0.1;tag=a48s",
 			nil,
 			&header.ReplyTo{
-				URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("127.0.0.1")},
+				URI:    &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("127.0.0.1")},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -694,7 +694,7 @@ func TestParse(t *testing.T) {
 			"Reply-To: sips:alice@127.0.0.1;tag=a48s",
 			nil,
 			&header.ReplyTo{
-				URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("127.0.0.1"), Secured: true},
+				URI:    &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("127.0.0.1"), Secured: true},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -715,7 +715,7 @@ func TestParse(t *testing.T) {
 			nil,
 			&header.ReplyTo{
 				DisplayName: "A. G. Bell",
-				URI:         &uri.SIP{User: uri.User("agb"), Addr: uri.AddrFromHost("bell-telephone.com")},
+				URI:         &uri.SIP{User: uri.MakeUserInfo("agb"), Addr: uri.MakeHostAddr("bell-telephone.com")},
 				Params:      make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -748,15 +748,15 @@ func TestParse(t *testing.T) {
 			header.Route{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -796,7 +796,7 @@ func TestParse(t *testing.T) {
 			"To: sip:alice@127.0.0.1;tag=a48s",
 			nil,
 			&header.To{
-				URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("127.0.0.1")},
+				URI:    &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("127.0.0.1")},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -806,7 +806,7 @@ func TestParse(t *testing.T) {
 			"To: sips:alice@127.0.0.1;tag=a48s",
 			nil,
 			&header.To{
-				URI:    &uri.SIP{User: uri.User("alice"), Addr: uri.AddrFromHost("127.0.0.1"), Secured: true},
+				URI:    &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("127.0.0.1"), Secured: true},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			nil,
@@ -828,8 +828,8 @@ func TestParse(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("param", "val"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -868,7 +868,7 @@ func TestParse(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -876,7 +876,7 @@ func TestParse(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -893,7 +893,7 @@ func TestParse(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("branch", "z9hG4bK87asdks7").
 						Set("rport", ""),
@@ -909,7 +909,7 @@ func TestParse(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("branch", "z9hG4bK87asdks7").
 						Set("rport", "123"),
@@ -967,9 +967,9 @@ func TestParse(t *testing.T) {
 			&header.WWWAuthenticate{AuthChallenge: &header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -1033,7 +1033,8 @@ func TestParse(t *testing.T) {
 
 			if c.wantErr == nil {
 				if diff := cmp.Diff(gotHdr, c.wantHdr, cmpopts.EquateEmpty()); diff != "" {
-					t.Errorf("header.Parse(%q) = %+v, want %+v\ndiff (-got +want):\n%v",
+					t.Errorf(
+						"header.Parse(%q) = %+v, want %+v\ndiff (-got +want):\n%v",
 						fmt.Sprintf("%v", c.src), gotHdr, c.wantHdr, diff,
 					)
 				}
@@ -1043,7 +1044,8 @@ func TestParse(t *testing.T) {
 				}
 			} else {
 				if diff := cmp.Diff(gotErr, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-					t.Errorf("header.Parse(%q) error = %v, want %q\ndiff (-got +want):\n%v",
+					t.Errorf(
+						"header.Parse(%q) error = %v, want %q\ndiff (-got +want):\n%v",
 						fmt.Sprintf("%v", c.src), gotErr, c.wantErr, diff,
 					)
 				}

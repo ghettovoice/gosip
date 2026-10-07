@@ -27,8 +27,8 @@ func TestTo_Render(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -64,8 +64,8 @@ func TestTo_RenderTo(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -108,8 +108,8 @@ func TestTo_String(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -147,8 +147,8 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{},
 			header.To{
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 			},
@@ -159,8 +159,8 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -168,8 +168,8 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User: uri.User("AGB"),
-					Addr: uri.AddrFromHost("bell-telephone.com"),
+					User: uri.MakeUserInfo("AGB"),
+					Addr: uri.MakeHostAddr("bell-telephone.com"),
 				},
 				Params: make(header.Values).Set("tag", "qwerty"),
 			},
@@ -180,16 +180,16 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "def"),
 			},
 			&header.To{
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "abc"),
@@ -201,16 +201,16 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			header.To{
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "abc"),
@@ -244,7 +244,7 @@ func TestTo_IsValid(t *testing.T) {
 		{
 			"valid",
 			&header.To{
-				URI: &uri.SIP{Addr: uri.AddrFromHost("bell-telephone.com")},
+				URI: &uri.SIP{Addr: uri.MakeHostAddr("bell-telephone.com")},
 			},
 			true,
 		},
@@ -275,8 +275,8 @@ func TestTo_Clone(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "def"),
@@ -317,8 +317,8 @@ func TestTo_MarshalJSON(t *testing.T) {
 			"simple",
 			&header.To{
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 			},
 			`{"name":"To","value":"\u003csip:alice@example.com\u003e"}`,
@@ -328,8 +328,8 @@ func TestTo_MarshalJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -341,8 +341,8 @@ func TestTo_MarshalJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 				Params: make(header.Values).Set("tag", "xyz123").Set("expires", "3600"),
 			},
@@ -387,8 +387,8 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 			`{"name":"To","value":"<sip:alice@example.com>"}`,
 			&header.To{
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 			},
 			false,
@@ -399,8 +399,8 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -413,8 +413,8 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 				Params: make(header.Values).Set("tag", "xyz123").Set("expires", "3600"),
 			},
@@ -425,8 +425,8 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 			`{"name":"t","value":"<sip:bob@biloxi.com>;tag=1234"}`,
 			&header.To{
 				URI: &uri.SIP{
-					User: uri.User("bob"),
-					Addr: uri.AddrFromHost("biloxi.com"),
+					User: uri.MakeUserInfo("bob"),
+					Addr: uri.MakeHostAddr("biloxi.com"),
 				},
 				Params: make(header.Values).Set("tag", "1234"),
 			},
@@ -470,8 +470,8 @@ func TestTo_RoundTripJSON(t *testing.T) {
 			"simple",
 			&header.To{
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 			},
 		},
@@ -480,8 +480,8 @@ func TestTo_RoundTripJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "Alice Smith",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 				Params: make(header.Values).Set("tag", "abc123"),
 			},
@@ -491,8 +491,8 @@ func TestTo_RoundTripJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp").Set("user", "phone"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("expires", "3600"),

@@ -28,15 +28,15 @@ func TestRecordRoute_Render(t *testing.T) {
 			header.RecordRoute{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
 				{URI: &uri.Tel{Number: "+123", Params: make(header.Values).Set("ext", "555")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -71,15 +71,15 @@ func TestRecordRoute_RenderTo(t *testing.T) {
 			header.RecordRoute{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
 				{URI: &uri.Tel{Number: "+123", Params: make(header.Values).Set("ext", "555")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -121,15 +121,15 @@ func TestRecordRoute_String(t *testing.T) {
 			header.RecordRoute{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
 				{URI: &uri.Tel{Number: "+123", Params: make(header.Values).Set("ext", "555")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -168,30 +168,30 @@ func TestRecordRoute_Equal(t *testing.T) {
 			header.RecordRoute{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
 			header.RecordRoute{
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
@@ -202,30 +202,30 @@ func TestRecordRoute_Equal(t *testing.T) {
 			header.RecordRoute{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("k", "v"),
 				},
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("a", "b"),
 				},
 			},
 			header.RecordRoute{
 				{
 					URI: &uri.SIP{
-						User:   uri.User("foo"),
-						Addr:   uri.AddrFromHost("bar"),
+						User:   uri.MakeUserInfo("foo"),
+						Addr:   uri.MakeHostAddr("bar"),
 						Params: make(header.Values).Set("lr", ""),
 					},
 					Params: make(header.Values).Set("a", "b"),
 				},
-				{URI: &uri.SIP{User: uri.User("baz"), Addr: uri.AddrFromHost("qux")}},
+				{URI: &uri.SIP{User: uri.MakeUserInfo("baz"), Addr: uri.MakeHostAddr("qux")}},
 				{
-					URI:    &uri.SIP{User: uri.User("quux"), Addr: uri.AddrFromHost("quuz")},
+					URI:    &uri.SIP{User: uri.MakeUserInfo("quux"), Addr: uri.MakeHostAddr("quuz")},
 					Params: make(header.Values).Set("k", "v"),
 				},
 			},

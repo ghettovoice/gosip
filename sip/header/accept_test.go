@@ -22,17 +22,17 @@ func TestAccept_Render(t *testing.T) {
 		{"nil", header.Accept(nil), ""},
 		{"empty", header.Accept{}, "Accept: "},
 		{"empty elem", header.Accept{{}}, "Accept: /"},
-		{"any", header.Accept{{MIMEType: header.MIMEType{Type: "*", Subtype: "*"}}}, "Accept: */*"},
+		{"any", header.Accept{{Type: "*", Subtype: "*"}}, "Accept: */*"},
 		{
 			"single elem",
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}}},
+			header.Accept{{Type: "text", Subtype: "plain"}},
 			"Accept: text/plain",
 		},
 		{
 			"multiple elems 1",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}},
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "csv"}},
+				{Type: "text", Subtype: "plain"},
+				{Type: "text", Subtype: "csv"},
 			},
 			"Accept: text/plain, text/csv",
 		},
@@ -40,10 +40,10 @@ func TestAccept_Render(t *testing.T) {
 			"multiple elems 2",
 			header.Accept{
 				{
-					MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-					Params:   make(header.Values).Set("a", "123").Set("q", "0.9"),
+					Type: "text", Subtype: "plain",
+					Params: make(header.Values).Set("a", "123").Set("q", "0.9"),
 				},
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "csv"}},
+				{Type: "text", Subtype: "csv"},
 			},
 			"Accept: text/plain;q=0.9;a=123, text/csv",
 		},
@@ -74,8 +74,8 @@ func TestAccept_RenderTo(t *testing.T) {
 		{
 			"full",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}},
-				{MIMEType: header.MIMEType{Type: "application", Subtype: "*"}},
+				{Type: "text", Subtype: "*"},
+				{Type: "application", Subtype: "*"},
 			},
 			"Accept: text/*, application/*",
 			nil,
@@ -113,8 +113,8 @@ func TestAccept_String(t *testing.T) {
 		{
 			"full",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}},
-				{MIMEType: header.MIMEType{Type: "application", Subtype: "*"}},
+				{Type: "text", Subtype: "*"},
+				{Type: "application", Subtype: "*"},
 			},
 			"text/*, application/*",
 		},
@@ -146,32 +146,30 @@ func TestAccept_Equal(t *testing.T) {
 		{"zero to zero", header.Accept{}, header.Accept{}, true},
 		{"zero to zero ptr", header.Accept{}, &header.Accept{}, true},
 		{"zero to nil ptr", header.Accept{}, (*header.Accept)(nil), false},
-		{"not match 1", header.Accept{}, header.Accept{{MIMEType: header.MIMEType{Type: "*", Subtype: "*"}}}, false},
+		{"not match 1", header.Accept{}, header.Accept{{Type: "*", Subtype: "*"}}, false},
 		{
 			"not match 2",
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}}},
-			header.Accept{{MIMEType: header.MIMEType{Type: "text"}}},
+			header.Accept{{Type: "text", Subtype: "*"}},
+			header.Accept{{Type: "text"}},
 			false,
 		},
 		{
 			"not match 3",
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}}},
-			header.Accept{{MIMEType: header.MIMEType{Type: "html", Subtype: "*"}}},
+			header.Accept{{Type: "text", Subtype: "*"}},
+			header.Accept{{Type: "html", Subtype: "*"}},
 			false,
 		},
 		{
 			"not match 4",
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}}},
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}}},
+			header.Accept{{Type: "text", Subtype: "plain"}},
+			header.Accept{{Type: "text", Subtype: "*"}},
 			false,
 		},
 		{
 			"not match 5",
 			header.Accept{{
-				MIMEType: header.MIMEType{
-					Type:    "text",
-					Subtype: "*",
-				},
+				Type:    "text",
+				Subtype: "*",
 			}},
 			header.Accept{{
 				MIMEType: header.MIMEType{
@@ -307,16 +305,16 @@ func TestAccept_IsValid(t *testing.T) {
 		{
 			"invalid 2",
 			header.Accept{{
-				MIMEType: header.MIMEType{Type: "*", Subtype: "*"},
-				Params:   make(header.Values).Set(" f o o ", "bar"),
+				Type: "*", Subtype: "*",
+				Params: make(header.Values).Set(" f o o ", "bar"),
 			}},
 			false,
 		},
 		{
 			"invalid 3",
 			header.Accept{{
-				MIMEType: header.MIMEType{Type: "*", Subtype: "*"},
-				Params:   make(header.Values).Set("foo", " b a r "),
+				Type: "*", Subtype: "*",
+				Params: make(header.Values).Set("foo", " b a r "),
 			}},
 			false,
 		},
@@ -360,14 +358,14 @@ func TestAccept_Clone(t *testing.T) {
 		{
 			"full",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}, Params: header.Values{"q": {"0.7"}}},
+				{Type: "text", Subtype: "plain", Params: header.Values{"q": {"0.7"}}},
 				{
 					MIMEType: header.MIMEType{Type: "text", Subtype: "csv", Params: header.Values{"charset": {"utf-8"}}},
 					Params:   header.Values{"q": {"0.5"}},
 				},
 			},
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}, Params: header.Values{"q": {"0.7"}}},
+				{Type: "text", Subtype: "plain", Params: header.Values{"q": {"0.7"}}},
 				{
 					MIMEType: header.MIMEType{Type: "text", Subtype: "csv", Params: header.Values{"charset": {"utf-8"}}},
 					Params:   header.Values{"q": {"0.5"}},
@@ -402,8 +400,8 @@ func TestAccept_MarshalJSON(t *testing.T) {
 			"single",
 			header.Accept{
 				{
-					MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-					Params:   make(header.Values).Set("q", "0.8"),
+					Type: "text", Subtype: "plain",
+					Params: make(header.Values).Set("q", "0.8"),
 				},
 			},
 			`{"name":"Accept","value":"text/plain;q=0.8"}`,
@@ -411,10 +409,10 @@ func TestAccept_MarshalJSON(t *testing.T) {
 		{
 			"multiple",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}},
+				{Type: "text", Subtype: "plain"},
 				{
-					MIMEType: header.MIMEType{Type: "application", Subtype: "json"},
-					Params:   make(header.Values).Set("q", "0.5"),
+					Type: "application", Subtype: "json",
+					Params: make(header.Values).Set("q", "0.5"),
 				},
 			},
 			`{"name":"Accept","value":"text/plain, application/json;q=0.5"}`,
@@ -470,8 +468,8 @@ func TestAccept_UnmarshalJSON(t *testing.T) {
 			`{"name":"Accept","value":"text/plain;q=0.8"}`,
 			header.Accept{
 				{
-					MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-					Params:   make(header.Values).Set("q", "0.8"),
+					Type: "text", Subtype: "plain",
+					Params: make(header.Values).Set("q", "0.8"),
 				},
 			},
 			false,
@@ -480,10 +478,10 @@ func TestAccept_UnmarshalJSON(t *testing.T) {
 			"multiple",
 			`{"name":"Accept","value":"text/plain, application/json;q=0.5"}`,
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}},
+				{Type: "text", Subtype: "plain"},
 				{
-					MIMEType: header.MIMEType{Type: "application", Subtype: "json"},
-					Params:   make(header.Values).Set("q", "0.5"),
+					Type: "application", Subtype: "json",
+					Params: make(header.Values).Set("q", "0.5"),
 				},
 			},
 			false,
@@ -539,18 +537,18 @@ func TestAccept_RoundTripJSON(t *testing.T) {
 			"single",
 			header.Accept{
 				{
-					MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-					Params:   make(header.Values).Set("q", "0.8"),
+					Type: "text", Subtype: "plain",
+					Params: make(header.Values).Set("q", "0.8"),
 				},
 			},
 		},
 		{
 			"multiple",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}},
+				{Type: "text", Subtype: "plain"},
 				{
-					MIMEType: header.MIMEType{Type: "application", Subtype: "json"},
-					Params:   make(header.Values).Set("q", "0.5"),
+					Type: "application", Subtype: "json",
+					Params: make(header.Values).Set("q", "0.5"),
 				},
 			},
 		},
@@ -633,17 +631,17 @@ func TestMIMERange_Equal(t *testing.T) {
 		{"zero to zero", header.MIMERange{}, header.MIMERange{}, true},
 		{"zero to zero ptr", header.MIMERange{}, &header.MIMERange{}, true},
 		{"zero to nil ptr", header.MIMERange{}, (*header.MIMERange)(nil), false},
-		{"not match 1", header.MIMERange{}, header.MIMERange{MIMEType: header.MIMEType{Type: "*", Subtype: "*"}}, false},
+		{"not match 1", header.MIMERange{}, header.MIMERange{Type: "*", Subtype: "*"}, false},
 		{
 			"not match 2",
-			header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}},
-			header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "csv"}},
+			header.MIMERange{Type: "text", Subtype: "*"},
+			header.MIMERange{Type: "text", Subtype: "csv"},
 			false,
 		},
 		{
 			"not match 3",
-			header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}, Params: header.Values{"q": {"0.7"}}},
-			header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}, Params: header.Values{"q": {"0.5"}}},
+			header.MIMERange{Type: "text", Subtype: "*", Params: header.Values{"q": {"0.7"}}},
+			header.MIMERange{Type: "text", Subtype: "*", Params: header.Values{"q": {"0.5"}}},
 			false,
 		},
 		{
@@ -683,24 +681,24 @@ func TestMIMERange_IsValid(t *testing.T) {
 		{
 			"valid",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "*", Subtype: "*"},
-				Params:   header.Values{"q": {"0.7"}},
+				Type: "*", Subtype: "*",
+				Params: header.Values{"q": {"0.7"}},
 			},
 			true,
 		},
 		{
 			"invalid 1",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "text", Subtype: "*"},
-				Params:   header.Values{"f i e l d": {"123"}},
+				Type: "text", Subtype: "*",
+				Params: header.Values{"f i e l d": {"123"}},
 			},
 			false,
 		},
 		{
 			"invalid 2",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "gzip", Subtype: "*"},
-				Params:   header.Values{"field": {" a b c "}},
+				Type: "gzip", Subtype: "*",
+				Params: header.Values{"field": {" a b c "}},
 			},
 			false,
 		},
@@ -726,7 +724,7 @@ func TestMIMERange_IsZero(t *testing.T) {
 		want bool
 	}{
 		{"zero", header.MIMERange{}, true},
-		{"not zero", header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}}, false},
+		{"not zero", header.MIMERange{Type: "text", Subtype: "*"}, false},
 	}
 
 	for _, c := range cases {
@@ -794,7 +792,7 @@ func TestMIMERange_MarshalText(t *testing.T) {
 		{
 			"simple",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
+				Type: "text", Subtype: "plain",
 			},
 			"text/plain",
 		},
@@ -846,8 +844,8 @@ func TestMIMERange_UnmarshalText(t *testing.T) {
 			"simple",
 			"text/plain;q=0.7",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-				Params:   make(header.Values).Set("q", "0.7"),
+				Type: "text", Subtype: "plain",
+				Params: make(header.Values).Set("q", "0.7"),
 			},
 			false,
 		},
@@ -899,7 +897,7 @@ func TestMIMERange_RoundTripText(t *testing.T) {
 		rng  header.MIMERange
 	}{
 		{"empty", header.MIMERange{}},
-		{"simple", header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}}},
+		{"simple", header.MIMERange{Type: "text", Subtype: "plain"}},
 		{
 			"with mime and range params",
 			header.MIMERange{

@@ -334,13 +334,11 @@ func (rcdr *StatsRecorder) handleResSent(res *ResponseEnvelope) {
 	stats.outRess.Add(1)
 }
 
-// HandleClientTransaction handles new client transactions for statistics.
-func (rcdr *StatsRecorder) HandleClientTransaction(ctx context.Context, tx ClientTransaction) {
+func (rcdr *StatsRecorder) handleTx(tx Transaction) {
 	if tx == nil {
 		return
 	}
 
-	//nolint:exhaustive
 	switch tx.Type() {
 	case TransactionTypeClientInvite:
 		rcdr.invClnTxs.Add(1)
@@ -348,31 +346,6 @@ func (rcdr *StatsRecorder) HandleClientTransaction(ctx context.Context, tx Clien
 	case TransactionTypeClientNonInvite:
 		rcdr.ninvClnTxs.Add(1)
 		rcdr.ninvClnTxsTotal.Add(1)
-	}
-
-	tx.BindStateHandler(TransactionStateHandlerFunc(func(_ context.Context, _, to TransactionState) {
-		if to != TransactionStateTerminated {
-			return
-		}
-
-		//nolint:exhaustive
-		switch tx.Type() {
-		case TransactionTypeClientInvite:
-			rcdr.invClnTxs.Add(-1)
-		case TransactionTypeClientNonInvite:
-			rcdr.ninvClnTxs.Add(-1)
-		}
-	}))
-}
-
-// HandleServerTransaction handles new server transactions for statistics.
-func (rcdr *StatsRecorder) HandleServerTransaction(ctx context.Context, tx ServerTransaction) {
-	if tx == nil {
-		return
-	}
-
-	//nolint:exhaustive
-	switch tx.Type() {
 	case TransactionTypeServerInvite:
 		rcdr.invSrvTxs.Add(1)
 		rcdr.invSrvTxsTotal.Add(1)
@@ -381,17 +354,40 @@ func (rcdr *StatsRecorder) HandleServerTransaction(ctx context.Context, tx Serve
 		rcdr.ninvSrvTxsTotal.Add(1)
 	}
 
-	tx.BindStateHandler(TransactionStateHandlerFunc(func(_ context.Context, _, to TransactionState) {
-		if to != TransactionStateTerminated {
-			return
-		}
+	var once sync.Once
+	dec := func() {
+		once.Do(func() {
+			switch tx.Type() {
+			case TransactionTypeClientInvite:
+				rcdr.invClnTxs.Add(-1)
+			case TransactionTypeClientNonInvite:
+				rcdr.ninvClnTxs.Add(-1)
+			case TransactionTypeServerInvite:
+				rcdr.invSrvTxs.Add(-1)
+			case TransactionTypeServerNonInvite:
+				rcdr.ninvSrvTxs.Add(-1)
+			}
+		})
+	}
 
-		//nolint:exhaustive
-		switch tx.Type() {
-		case TransactionTypeServerInvite:
-			rcdr.invSrvTxs.Add(-1)
-		case TransactionTypeServerNonInvite:
-			rcdr.ninvSrvTxs.Add(-1)
+	unbind := tx.BindStateHandler(TransactionStateHandlerFunc(func(_ context.Context, _, to TransactionState) {
+		if to == TransactionStateTerminated {
+			dec()
 		}
 	}))
+
+	if tx.State() == TransactionStateTerminated {
+		unbind()
+		dec()
+	}
+}
+
+// HandleClientTransaction handles new client transactions for statistics.
+func (rcdr *StatsRecorder) HandleClientTransaction(_ context.Context, tx ClientTransaction) {
+	rcdr.handleTx(tx)
+}
+
+// HandleServerTransaction handles new server transactions for statistics.
+func (rcdr *StatsRecorder) HandleServerTransaction(_ context.Context, tx ServerTransaction) {
+	rcdr.handleTx(tx)
 }

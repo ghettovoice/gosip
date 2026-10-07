@@ -9,28 +9,20 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"uuid"
 
-	"github.com/gofrs/uuid/v5"
-
-	"github.com/ghettovoice/gosip/dns"
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/syncutil"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
-	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/pkg/dns"
+	"github.com/ghettovoice/gosip/pkg/log"
 	"github.com/ghettovoice/gosip/sip/header"
-)
-
-// Element errors.
-const (
-	ErrElementClosed Error = "element closed"
-
-	errServiceUnavail Error = "service unavailable"
 )
 
 type ElementID = uuid.UUID
 
-func NextElementID() ElementID { return uuid.Must(uuid.NewV4()) }
+func NextElementID() ElementID { return uuid.New() }
 
 // Element is the composition root for SIP transport, routing, and transaction processing.
 //
@@ -84,15 +76,9 @@ type ElementOptions struct {
 	// ServerTransactionFactory is the server transaction factory.
 	// If nil, a [NewServerTransaction] is used.
 	ServerTransactionFactory ServerTransactionFactory
-	// ServerTransactionStore is the server transaction store.
-	// If nil, a [NewMemoryServerTransactionStore] is used.
-	ServerTransactionStore ServerTransactionStore
 	// ClientTransactionFactory is the client transaction factory.
 	// If nil, a [NewClientTransaction] is used.
 	ClientTransactionFactory ClientTransactionFactory
-	// ClientTransactionStore is the client transaction store.
-	// If nil, a [NewMemoryClientTransactionStore] is used.
-	ClientTransactionStore ClientTransactionStore
 	// StaleTransactionTimeout is the timeout for stale transactions.
 	// Client INVITE transaction in proceeding, server INVITE transaction in proceeding
 	// and non-INVITE transaction in trying/proceeding states after this timeout
@@ -102,7 +88,7 @@ type ElementOptions struct {
 }
 
 func (o ElementOptions) instID() ElementID {
-	if o.InstanceID.IsZero() {
+	if o.InstanceID == uuid.Nil() {
 		return NextElementID()
 	}
 	return o.InstanceID
@@ -150,9 +136,7 @@ func NewElement(opts ...ElementOptions) (*Element, error) {
 	elm.tpm = &TransportManager{Logger: elm.log}
 	elm.txm = &TransactionManager{
 		ServerTransactionFactory: elmOpts.ServerTransactionFactory,
-		ServerTransactionStore:   elmOpts.ServerTransactionStore,
 		ClientTransactionFactory: elmOpts.ClientTransactionFactory,
-		ClientTransactionStore:   elmOpts.ClientTransactionStore,
 		StaleTransactionTimeout:  elmOpts.StaleTransactionTimeout,
 		Logger:                   elm.log,
 	}
@@ -204,7 +188,7 @@ func (*Element) InterceptOutboundRequest(
 		}
 
 		if isLarge && !req.Metadata().Has(forceUnrelMetaKey) {
-			return errors.Wrap(ErrMessageTooLarge)
+			return errors.Wrap(NewMessageTooLargeError(tp.MTU - 200))
 		}
 	}
 
@@ -246,6 +230,7 @@ func (elm *Element) Close(ctx context.Context) error {
 }
 
 func (elm *Element) close(ctx context.Context) error {
+	// TODO: run in goroutines
 	for mw := range elm.mws.All() {
 		var closeErr error
 		switch v := mw.(type) {
@@ -255,23 +240,23 @@ func (elm *Element) close(ctx context.Context) error {
 			closeErr = v.Close()
 		}
 		if closeErr != nil {
-			elm.log.LogAttrs(ctx, slog.LevelWarn, "failed to close middleware",
+			elm.log.LogAttrs(
+				ctx, slog.LevelWarn, "failed to close middleware",
 				slog.Any("error", closeErr),
 				slog.Any("middleware", mw),
 			)
 		}
 	}
 
-	if txs, err := elm.txm.AllClientTransactions(ctx); err == nil {
-		for tx := range txs {
-			if tx.Type() == TransactionTypeClientInvite && tx.State() == TransactionStateProceeding {
-				if cnc, err := NewCancelRequestEnvelope(tx.Request()); err == nil {
-					if err = elm.SendRequest(ctx, cnc); err != nil {
-						elm.log.LogAttrs(ctx, slog.LevelWarn, "failed to cancel transaction",
-							slog.Any("error", err),
-							slog.Any("transaction", tx),
-						)
-					}
+	for tx := range elm.AllClientTransactions() {
+		if tx.Type() == TransactionTypeClientInvite && tx.State() == TransactionStateProceeding {
+			if cnc, err := NewCancelRequestEnvelope(tx.Request()); err == nil {
+				if err = elm.SendRequest(ctx, cnc); err != nil {
+					elm.log.LogAttrs(
+						ctx, slog.LevelWarn, "failed to cancel transaction",
+						slog.Any("error", err),
+						slog.Any("transaction", tx),
+					)
 				}
 			}
 		}
@@ -284,14 +269,14 @@ func (elm *Element) TransportManager() *TransportManager { return elm.tpm }
 
 func (elm *Element) TrackTransport(tp Transport) error {
 	if elm.state.Load() >= elmStateClosing {
-		return errors.Wrap(ErrElementClosed)
+		return errors.Wrap(NewElementClosedError())
 	}
 	return errors.Wrap(elm.tpm.TrackTransport(tp))
 }
 
 func (elm *Element) UntrackTransport(tp Transport) error {
 	if elm.state.Load() >= elmStateClosing {
-		return errors.Wrap(ErrElementClosed)
+		return errors.Wrap(NewElementClosedError())
 	}
 	return errors.Wrap(elm.tpm.UntrackTransport(tp))
 }
@@ -326,7 +311,7 @@ func (elm *Element) TransportFromResponse(res *ResponseEnvelope) (Transport, boo
 
 func (elm *Element) Listen(ctx context.Context, proto TransportProto, addr string) (TransportListener, error) {
 	if elm.state.Load() >= elmStateClosing {
-		return nil, errors.Wrap(ErrElementClosed)
+		return nil, errors.Wrap(NewElementClosedError())
 	}
 	return errors.Wrap2(elm.tpm.Listen(ctx, proto, addr))
 }
@@ -344,7 +329,7 @@ func (elm *Element) NewClientTransaction(
 	opts ...ClientTransactionOptions,
 ) (ClientTransaction, error) {
 	if elm.state.Load() >= elmStateClosing {
-		return nil, errors.Wrap(ErrElementClosed)
+		return nil, errors.Wrap(NewElementClosedError())
 	}
 
 	txOpts := util.LastSliceElemOr(opts, ClientTransactionOptions{})
@@ -357,12 +342,12 @@ func (elm *Element) NewClientTransaction(
 	return errors.Wrap2(elm.txm.NewClientTransaction(ctx, req, tp, txOpts))
 }
 
-func (elm *Element) LoadClientTransaction(ctx context.Context, key ClientTransactionKey) (ClientTransaction, error) {
-	return errors.Wrap2(elm.txm.LoadClientTransaction(ctx, key))
+func (elm *Element) LoadClientTransaction(key ClientTransactionKey) (ClientTransaction, bool) {
+	return elm.txm.LoadClientTransaction(key)
 }
 
-func (elm *Element) AllClientTransactions(ctx context.Context) (iter.Seq[ClientTransaction], error) {
-	return errors.Wrap2(elm.txm.AllClientTransactions(ctx))
+func (elm *Element) AllClientTransactions() iter.Seq[ClientTransaction] {
+	return elm.txm.AllClientTransactions()
 }
 
 func (elm *Element) NewServerTransaction(
@@ -372,7 +357,7 @@ func (elm *Element) NewServerTransaction(
 	opts ...ServerTransactionOptions,
 ) (ServerTransaction, error) {
 	if elm.state.Load() >= elmStateClosing {
-		return nil, errors.Wrap(ErrElementClosed)
+		return nil, errors.Wrap(NewElementClosedError())
 	}
 
 	txOpts := util.LastSliceElemOr(opts, ServerTransactionOptions{})
@@ -385,12 +370,12 @@ func (elm *Element) NewServerTransaction(
 	return errors.Wrap2(elm.txm.NewServerTransaction(ctx, req, tp, txOpts))
 }
 
-func (elm *Element) LoadServerTransaction(ctx context.Context, key ServerTransactionKey) (ServerTransaction, error) {
-	return errors.Wrap2(elm.txm.LoadServerTransaction(ctx, key))
+func (elm *Element) LoadServerTransaction(key ServerTransactionKey) (ServerTransaction, bool) {
+	return elm.txm.LoadServerTransaction(key)
 }
 
-func (elm *Element) AllServerTransactions(ctx context.Context) (iter.Seq[ServerTransaction], error) {
-	return errors.Wrap2(elm.txm.AllServerTransactions(ctx))
+func (elm *Element) AllServerTransactions() iter.Seq[ServerTransaction] {
+	return elm.txm.AllServerTransactions()
 }
 
 // RequestAttempt binds one cloned request to one resolved next-hop candidate.
@@ -455,14 +440,14 @@ func (ra *RequestAttempt) prepareReq(tpMeta TransportMetadata, reuseBranch bool)
 func (ra *RequestAttempt) DoStateless(ctx context.Context, opts ...SendRequestOptions) error {
 	tp, ok := ra.elm.TransportByProto(ra.Addr.Transport)
 	if !ok {
-		return errors.Wrap(ErrNoTransport)
+		return errors.Wrap(NewNoTransportError())
 	}
 
 	sendOpts := util.LastSliceElemOr(opts, SendRequestOptions{})
 
 	err := ra.prepareReq(tp.Metadata(), false).sendStateless(ctx, tp, sendOpts)
 	if err != nil && !ra.forceUnrel && !tp.Metadata().Reliable() &&
-		(errors.Is(err, ErrEntityTooLarge) || errors.Is(err, ErrMessageTooLarge)) {
+		(errors.Is(err, ErrMessageBodyTooLarge) || errors.Is(err, ErrMessageTooLarge)) {
 		if ra.Addr.FromDNS {
 			// defer to fallback, re-try will be on next reliable attempt
 			ra.sharedState.unrelFallback = append(ra.sharedState.unrelFallback, ra.Addr)
@@ -500,14 +485,14 @@ func (ra *RequestAttempt) sendStateless(ctx context.Context, tp ClientTransport,
 func (ra *RequestAttempt) DoStateful(ctx context.Context, opts ...ClientTransactionOptions) (ClientTransaction, error) {
 	tp, ok := ra.elm.TransportByProto(ra.Addr.Transport)
 	if !ok {
-		return nil, errors.Wrap(ErrNoTransport)
+		return nil, errors.Wrap(NewNoTransportError())
 	}
 
 	txOpts := util.LastSliceElemOr(opts, ClientTransactionOptions{})
 
 	tx, err := ra.prepareReq(tp.Metadata(), false).sendStateful(ctx, tp, txOpts)
 	if err != nil && !ra.forceUnrel && !tp.Metadata().Reliable() &&
-		(errors.Is(err, ErrEntityTooLarge) || errors.Is(err, ErrMessageTooLarge)) {
+		(errors.Is(err, ErrMessageBodyTooLarge) || errors.Is(err, ErrMessageTooLarge)) {
 		if ra.Addr.FromDNS {
 			// defer to fallback, re-try will be on next reliable attempt
 			ra.sharedState.unrelFallback = append(ra.sharedState.unrelFallback, ra.Addr)
@@ -536,6 +521,10 @@ func (ra *RequestAttempt) DoStateful(ctx context.Context, opts ...ClientTransact
 func (ra *RequestAttempt) sendStateful(ctx context.Context, tp Transport, opts ClientTransactionOptions) (ClientTransaction, error) {
 	tx, err := ra.elm.NewClientTransaction(ctx, ra.Request.Clone().(*RequestEnvelope), tp, opts) //nolint:forcetypeassert
 	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	if err := tx.Start(ctx); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
@@ -605,7 +594,7 @@ func (elm *Element) ResolveRequestTarget(ctx context.Context, req *RequestEnvelo
 
 	if addr := req.RemoteAddr(); addr.IsValid() {
 		trgt := &URI{
-			Addr: AddrFromIPPort(addr.Addr().AsSlice(), addr.Port()),
+			Addr: MakeIPPortAddr(addr.Addr().AsSlice(), addr.Port()),
 		}
 		if tp := req.Transport(); tp.IsValid() {
 			trgt.Params = make(Values).Set("transport", string(tp.Proto))
@@ -776,7 +765,7 @@ func (elm *Element) runReqAttempts(
 			errors.Is(err, ErrTransportManagerClosed) ||
 			errors.Is(err, ErrTransactionManagerClosed) ||
 			(IsMessageError(err) &&
-				!errors.Is(err, ErrEntityTooLarge) &&
+				!errors.Is(err, ErrMessageBodyTooLarge) &&
 				!errors.Is(err, ErrMessageTooLarge)) {
 			break
 		}
@@ -791,7 +780,7 @@ func (elm *Element) runReqAttempts(
 	}
 
 	if len(errs) == 0 {
-		return errors.Wrap(ErrNoAddress)
+		return errors.Wrap(NewNoAddressError())
 	}
 	return errors.JoinPrefixWrap("send request errors:", errs...)
 }
@@ -803,7 +792,7 @@ func (elm *Element) runReqAttempts(
 // The request is updated with the successfully prepared attempt before returning.
 func (elm *Element) SendRequest(ctx context.Context, req *RequestEnvelope, opts ...SendRequestOptions) error {
 	if elm.state.Load() >= elmStateClosed {
-		return errors.Wrap(ErrElementClosed)
+		return errors.Wrap(NewElementClosedError())
 	}
 
 	sendOpts := util.LastSliceElemOr(opts, SendRequestOptions{})
@@ -816,7 +805,7 @@ func (elm *Element) SendRequest(ctx context.Context, req *RequestEnvelope, opts 
 
 	attempt, ok := util.SeqFirst(attempts)
 	if !ok {
-		return errors.Wrap(ErrNoAddress)
+		return errors.Wrap(NewNoAddressError())
 	}
 
 	if err := attempt.DoStateless(ctx, sendOpts); err != nil {
@@ -854,14 +843,15 @@ func (elm *Element) SendRequestStateless(
 	opts ...SendRequestStatelessOptions,
 ) error {
 	if elm.state.Load() >= elmStateClosed {
-		return errors.Wrap(ErrElementClosed)
+		return errors.Wrap(NewElementClosedError())
 	}
 
 	sendOpts := util.LastSliceElemOr(opts, SendRequestStatelessOptions{})
 	sendOpts.SendOptions.LookupOptions.StableDNSRecordsOrder = true
 
 	var successAttempt *RequestAttempt
-	err := elm.runReqAttempts(ctx, req,
+	err := elm.runReqAttempts(
+		ctx, req,
 		sendOpts.SendOptions.LookupOptions,
 		sendOpts.BeforeAttempt,
 		func(ctx context.Context, attempt *RequestAttempt) error {
@@ -892,7 +882,7 @@ func (elm *Element) SendRequestStateless(
 // SendResponse sends a SIP response statelessly using the element's transport manager.
 func (elm *Element) SendResponse(ctx context.Context, res *ResponseEnvelope, opts ...SendResponseOptions) error {
 	if elm.state.Load() >= elmStateClosed {
-		return errors.Wrap(ErrElementClosed)
+		return errors.Wrap(NewElementClosedError())
 	}
 
 	sendOpts := util.LastSliceElemOr(opts, SendResponseOptions{})
@@ -904,7 +894,7 @@ func (elm *Element) SendResponse(ctx context.Context, res *ResponseEnvelope, opt
 // Respond sends a SIP response statelessly using the element's transport manager.
 func (elm *Element) Respond(ctx context.Context, req *RequestEnvelope, sts ResponseStatus, opts ...RespondOptions) error {
 	if elm.state.Load() >= elmStateClosed {
-		return errors.Wrap(ErrElementClosed)
+		return errors.Wrap(NewElementClosedError())
 	}
 
 	resOpts := util.LastSliceElemOr(opts, RespondOptions{})
@@ -957,13 +947,14 @@ func (elm *Element) SendRequestStateful(
 	opts ...SendRequestStatefulOptions,
 ) (ClientTransaction, error) {
 	if elm.state.Load() >= elmStateClosing {
-		return nil, errors.Wrap(ErrElementClosed)
+		return nil, errors.Wrap(NewElementClosedError())
 	}
 
 	sendOpts := util.LastSliceElemOr(opts, SendRequestStatefulOptions{})
 
 	var successTx ClientTransaction
-	err := elm.runReqAttempts(ctx, req, sendOpts.SendOptions.LookupOptions,
+	err := elm.runReqAttempts(
+		ctx, req, sendOpts.SendOptions.LookupOptions,
 		sendOpts.BeforeAttempt,
 		func(ctx context.Context, attempt *RequestAttempt) error {
 			tx, err := attempt.DoStateful(ctx, ClientTransactionOptions{
@@ -996,6 +987,8 @@ func (elm *Element) SendRequestStateful(
 
 	return successTx, nil
 }
+
+const errServiceUnavail errors.Error = "service unavailable"
 
 // confirmClientTx decides whether the current candidate is usable before the
 // request runner commits to it.
@@ -1071,11 +1064,20 @@ func (elm *Element) confirmClientTx(
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 			defer cancel()
 
-			cncTx, cncErr := elm.txm.CancelClientTransaction(ctx, tx)
-			if cncErr != nil && !errors.Is(err, ErrActionNotAllowed) && !errors.Is(err, ErrTransactionManagerClosed) {
-				elm.log.LogAttrs(ctx, slog.LevelWarn, "failed to cancel transaction",
+			cncTx, cncErr := elm.txm.NewCancelClientTransaction(ctx, tx)
+			switch {
+			case cncErr == nil:
+				cncErr = cncTx.Start(ctx)
+			case errors.Is(cncErr, ErrTransactionDuplicate):
+				if cncTx = elm.cancelTxOf(tx); cncTx != nil {
+					cncErr = nil
+				}
+			}
+			if cncErr != nil && !errors.Is(cncErr, ErrTransactionActionNotAllowed) && !errors.Is(cncErr, ErrTransactionManagerClosed) {
+				elm.log.LogAttrs(
+					ctx, slog.LevelWarn, "failed to cancel transaction",
 					slog.Any("transaction", tx),
-					slog.Any("error", err),
+					slog.Any("error", cncErr),
 				)
 			}
 
@@ -1103,6 +1105,19 @@ func (elm *Element) confirmClientTx(
 	}
 }
 
+func (elm *Element) cancelTxOf(invTx ClientTransaction) ClientTransaction {
+	cncReq, err := NewCancelRequestEnvelope(invTx.Request())
+	if err != nil {
+		return nil
+	}
+	key, err := MakeClientTransactionKey(cncReq)
+	if err != nil {
+		return nil
+	}
+	tx, _ := elm.txm.LoadClientTransaction(key)
+	return tx
+}
+
 type SendResponseStatefulOptions struct {
 	// SendOptions are options for sending the response.
 	SendOptions SendResponseOptions
@@ -1123,42 +1138,52 @@ func (elm *Element) SendResponseStateful(
 	opts ...SendResponseStatefulOptions,
 ) (ServerTransaction, error) {
 	if elm.state.Load() >= elmStateClosing {
-		return nil, errors.Wrap(ErrElementClosed)
+		return nil, errors.Wrap(NewElementClosedError())
 	}
 
-	txKey, err := ServerTransactionKeyFromMessage(req)
+	txKey, err := MakeServerTransactionKey(req)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
 	sendOpts := util.LastSliceElemOr(opts, SendResponseStatefulOptions{})
 
-	tx, err := elm.LoadServerTransaction(ctx, txKey)
-	if err != nil {
-		if !errors.Is(err, ErrTransactionNotFound) {
-			return nil, errors.Wrap(err)
-		}
-
+	tx, ok := elm.LoadServerTransaction(txKey)
+	if !ok {
 		tp, ok := elm.TransportFromRequest(req)
 		if !ok {
-			return nil, errors.Wrap(ErrNoTransport)
+			return nil, errors.Wrap(NewNoTransportError())
 		}
 
-		tx, err = elm.NewServerTransaction(ctx, req, tp, ServerTransactionOptions{
+		newTx, err := elm.NewServerTransaction(ctx, req, tp, ServerTransactionOptions{
 			Timing: sendOpts.Timing,
 			Logger: sendOpts.Logger,
 		})
-		if err != nil {
+		switch {
+		case err == nil:
+			if err := newTx.Start(ctx); err != nil {
+				return nil, errors.Wrap(err)
+			}
+			tx = newTx
+		case errors.Is(err, ErrTransactionDuplicate):
+			tx, ok = elm.LoadServerTransaction(txKey)
+			if !ok {
+				return nil, errors.Wrap(err)
+			}
+		default:
 			return nil, errors.Wrap(err)
 		}
 	}
 
 	if err := tx.SendResponse(ctx, res, sendOpts.SendOptions); err != nil {
-		if err := tx.Terminate(ctx, errors.Wrap(err)); err != nil {
-			elm.log.LogAttrs(ctx, slog.LevelWarn, "failed to terminate transaction",
-				slog.Any("transaction", tx),
-				slog.Any("error", err),
-			)
+		if !errors.Is(err, ErrTransactionActionNotAllowed) {
+			if err := tx.Terminate(ctx, errors.Wrap(err)); err != nil {
+				elm.log.LogAttrs(
+					ctx, slog.LevelWarn, "failed to terminate transaction",
+					slog.Any("transaction", tx),
+					slog.Any("error", err),
+				)
+			}
 		}
 		return nil, errors.Wrap(err)
 	}
@@ -1180,7 +1205,7 @@ func (elm *Element) RespondStateful(
 	opts ...RespondStatefulOptions,
 ) (ServerTransaction, error) {
 	if elm.state.Load() >= elmStateClosing {
-		return nil, errors.Wrap(ErrElementClosed)
+		return nil, errors.Wrap(NewElementClosedError())
 	}
 
 	resOpts := util.LastSliceElemOr(opts, RespondStatefulOptions{})

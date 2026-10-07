@@ -25,8 +25,8 @@ func TestNameAddr_String(t *testing.T) {
 				DisplayName: "Darth Vader",
 				URI: &uri.SIP{
 					Secured: true,
-					User:    uri.User("user"),
-					Addr:    uri.AddrFromHost("example.com"),
+					User:    uri.MakeUserInfo("user"),
+					Addr:    uri.MakeHostAddr("example.com"),
 					Params:  make(uri.Values).Set("foo", "bar"),
 				},
 				Params: make(header.Values).Set("foo", "bar").Set("baz", ""),
@@ -74,32 +74,32 @@ func TestNameAddr_Equal(t *testing.T) {
 		{"zero to zero", header.NameAddr{}, header.NameAddr{}, true},
 		{"zero to zero ptr", header.NameAddr{}, &header.NameAddr{}, true},
 		{"zero to nil ptr", header.NameAddr{}, (*header.NameAddr)(nil), false},
-		{"not match 1", header.NameAddr{}, header.NameAddr{URI: &uri.SIP{User: uri.User("root")}}, false},
+		{"not match 1", header.NameAddr{}, header.NameAddr{URI: &uri.SIP{User: uri.MakeUserInfo("root")}}, false},
 		{
 			"not match 2",
-			header.NameAddr{URI: &uri.SIP{User: uri.User("ROOT")}},
-			header.NameAddr{URI: &uri.SIP{User: uri.User("root")}},
+			header.NameAddr{URI: &uri.SIP{User: uri.MakeUserInfo("ROOT")}},
+			header.NameAddr{URI: &uri.SIP{User: uri.MakeUserInfo("root")}},
 			false,
 		},
 		{
 			"not match 3",
 			header.NameAddr{
-				URI:    &uri.SIP{User: uri.User("ROOT")},
+				URI:    &uri.SIP{User: uri.MakeUserInfo("ROOT")},
 				Params: make(header.Values).Set("expires", "123"),
 			},
 			header.NameAddr{
-				URI: &uri.SIP{User: uri.User("root")},
+				URI: &uri.SIP{User: uri.MakeUserInfo("root")},
 			},
 			false,
 		},
 		{
 			"not match 3",
 			header.NameAddr{
-				URI:    &uri.SIP{User: uri.User("ROOT")},
+				URI:    &uri.SIP{User: uri.MakeUserInfo("ROOT")},
 				Params: make(header.Values).Set("expires", "123"),
 			},
 			header.NameAddr{
-				URI:    &uri.SIP{User: uri.User("root")},
+				URI:    &uri.SIP{User: uri.MakeUserInfo("root")},
 				Params: make(header.Values).Set("expires", "1"),
 			},
 			false,
@@ -108,12 +108,12 @@ func TestNameAddr_Equal(t *testing.T) {
 			"match",
 			header.NameAddr{
 				DisplayName: "qwe ABC",
-				URI:         &uri.SIP{User: uri.User("root")},
+				URI:         &uri.SIP{User: uri.MakeUserInfo("root")},
 				Params:      make(header.Values).Set("expires", "1"),
 			},
 			header.NameAddr{
 				DisplayName: "zxc",
-				URI:         &uri.SIP{User: uri.User("root")},
+				URI:         &uri.SIP{User: uri.MakeUserInfo("root")},
 				Params:      make(header.Values).Set("expires", "1").Set("foo", "bar"),
 			},
 			true,
@@ -240,8 +240,8 @@ func TestNameAddr_MarshalText(t *testing.T) {
 			header.NameAddr{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 					Params: make(uri.Values).
 						Set("transport", "tcp").
 						Set("lr", ""),
@@ -304,8 +304,8 @@ func TestNameAddr_UnmarshalText(t *testing.T) {
 			header.NameAddr{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 					Params: make(uri.Values).
 						Set("lr", "").
 						Set("transport", "tcp"),
@@ -371,8 +371,8 @@ func TestNameAddr_RoundTripText(t *testing.T) {
 			header.NameAddr{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 					Params: make(uri.Values).
 						Set("lr", "").
 						Set("transport", "tcp"),

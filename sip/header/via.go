@@ -350,7 +350,7 @@ func (hop ViaHop) MAddr() (Addr, bool) {
 	if !ok {
 		return Addr{}, false
 	}
-	return AddrFromHost(ma), true
+	return MakeHostAddr(ma), true
 }
 
 func (hop ViaHop) TTL() (uint8, bool) {

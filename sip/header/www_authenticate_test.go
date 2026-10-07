@@ -28,9 +28,9 @@ func TestWWWAuthenticate_Render(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -186,9 +186,9 @@ func TestWWWAuthenticate_Equal(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -295,9 +295,9 @@ func TestWWWAuthenticate_Clone(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "ATLANTA.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+						&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -365,9 +365,9 @@ func TestDigestChallenge_Render(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -409,9 +409,9 @@ func TestDigestChallenge_RenderTo(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -460,9 +460,9 @@ func TestDigestChallenge_String(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -506,7 +506,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -532,7 +532,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "F84F1CEC41E6CBE5AEA9C8E88D359",
@@ -543,7 +543,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -558,7 +558,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -569,7 +569,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -584,7 +584,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -595,7 +595,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -610,7 +610,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -621,7 +621,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -636,9 +636,9 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -650,9 +650,9 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "ATLANTA.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+					&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -746,9 +746,9 @@ func TestDigestChallenge_Clone(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "ATLANTA.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+					&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -760,9 +760,9 @@ func TestDigestChallenge_Clone(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "ATLANTA.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+					&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",

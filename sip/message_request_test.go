@@ -29,8 +29,8 @@ func TestRequest_Render(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -38,13 +38,13 @@ func TestRequest_Render(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("a.example.com"),
+							Addr:      sip.MakeHostAddr("a.example.com"),
 							Params:    make(sip.Values).Append("branch", "qwerty"),
 						},
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("b.example.com"),
+							Addr:      sip.MakeHostAddr("b.example.com"),
 							Params:    make(sip.Values).Append("branch", "asdf"),
 						},
 					}).
@@ -52,21 +52,21 @@ func TestRequest_Render(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
@@ -75,8 +75,8 @@ func TestRequest_Render(t *testing.T) {
 					Append(header.Contact{
 						{
 							URI: &sip.URI{
-								User: sip.UserWithName("alice"),
-								Addr: sip.AddrFromHostPort("a.example.com", 5060),
+								User: sip.MakeUserInfo("alice"),
+								Addr: sip.MakeHostPortAddr("a.example.com", 5060),
 							},
 						},
 					}).
@@ -136,8 +136,8 @@ func TestRequest_RenderTo(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -186,8 +186,8 @@ func TestRequest_String(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -235,15 +235,15 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 			},
 			&sip.Request{
 				Method: sip.RequestMethodBye,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 			},
 			false,
@@ -253,16 +253,16 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 			},
 			&sip.Request{
 				Method: sip.RequestMethodBye,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoInfo{Name: "Qwe", Version: "1.0"},
 			},
@@ -273,15 +273,15 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
 					Set(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}),
@@ -289,15 +289,15 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodBye,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
 					Set(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("localhost"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("localhost"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}),
@@ -309,8 +309,8 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Body:  []byte("Hello world!\r\n"),
@@ -318,8 +318,8 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodBye,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Body:  []byte("Hello world!"),
@@ -331,8 +331,8 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -340,21 +340,21 @@ func TestRequest_Equal(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
@@ -364,8 +364,8 @@ func TestRequest_Equal(t *testing.T) {
 			sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -373,21 +373,21 @@ func TestRequest_Equal(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
@@ -424,7 +424,7 @@ func TestRequest_IsValid(t *testing.T) {
 			"invalid 2",
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
-				URI:    &sip.URI{Addr: sip.AddrFromHostPort("example.com", 5060)},
+				URI:    &sip.URI{Addr: sip.MakeHostPortAddr("example.com", 5060)},
 			},
 			false,
 		},
@@ -433,8 +433,8 @@ func TestRequest_IsValid(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 			},
@@ -445,8 +445,8 @@ func TestRequest_IsValid(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -454,21 +454,21 @@ func TestRequest_IsValid(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
@@ -504,8 +504,8 @@ func TestRequest_Clone(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -513,21 +513,21 @@ func TestRequest_Clone(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
@@ -577,8 +577,8 @@ func TestRequest_RoundTripJSON(t *testing.T) {
 			req: &sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 					Params: make(sip.Values).
 						Append("transport", "tcp").
 						Append("ttl", "10"),
@@ -590,15 +590,15 @@ func TestRequest_RoundTripJSON(t *testing.T) {
 					Set(
 						&header.From{
 							URI: &sip.URI{
-								User: sip.UserWithName("alice"),
-								Addr: sip.AddrFromHost("example.com"),
+								User: sip.MakeUserInfo("alice"),
+								Addr: sip.MakeHostAddr("example.com"),
 							},
 							Params: make(sip.Values).Set("tag", "abc"),
 						},
 						&header.To{
 							URI: &sip.URI{
-								User: sip.UserWithName("bob"),
-								Addr: sip.AddrFromHost("example.net"),
+								User: sip.MakeUserInfo("bob"),
+								Addr: sip.MakeHostAddr("example.net"),
 							},
 						},
 						&header.CSeq{SeqNum: 42, Method: sip.RequestMethodInvite},
@@ -609,7 +609,7 @@ func TestRequest_RoundTripJSON(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("proxy.example.com"),
+							Addr:      sip.MakeHostAddr("proxy.example.com"),
 							Params:    make(sip.Values).Set("branch", "z9hG4bK-4321"),
 						},
 					}).
@@ -650,12 +650,12 @@ func TestRequest_NewResponse(t *testing.T) {
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: sip.UDPMetadata().Proto,
-					Addr:      sip.AddrFromHost("proxy.example.com"),
+					Addr:      sip.MakeHostAddr("proxy.example.com"),
 					Params:    make(sip.Values).Set("branch", "z9hG4bK-req"),
 				},
 			}).
 			Append(&header.From{
-				URI:    &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")},
+				URI:    &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")},
 				Params: make(sip.Values).Set("tag", "from-tag"),
 			}).
 			Append(to).
@@ -669,7 +669,7 @@ func TestRequest_NewResponse(t *testing.T) {
 		t.Parallel()
 
 		to := &header.To{
-			URI: &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.net")},
+			URI: &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.net")},
 		}
 		req := &sip.Request{
 			Proto:   sip.ProtoVer20(),
@@ -680,7 +680,7 @@ func TestRequest_NewResponse(t *testing.T) {
 			Append(header.Via{{
 				Proto:     sip.ProtoVer20(),
 				Transport: sip.UDPMetadata().Proto,
-				Addr:      sip.AddrFromHost("extra.example.com"),
+				Addr:      sip.MakeHostAddr("extra.example.com"),
 			}}).
 			Append(&header.Any{Name: "X-Trace-Id", Value: "42"}).
 			Append(&header.Any{Name: "X-Extra", Value: "first"}).
@@ -745,7 +745,7 @@ func TestRequest_NewResponse(t *testing.T) {
 		t.Parallel()
 
 		to := &header.To{
-			URI:    &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.net")},
+			URI:    &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.net")},
 			Params: make(sip.Values).Set("tag", "existing"),
 		}
 		req := &sip.Request{
@@ -768,7 +768,7 @@ func TestRequest_NewResponse(t *testing.T) {
 		t.Parallel()
 
 		to := &header.To{
-			URI: &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.net")},
+			URI: &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.net")},
 		}
 		req := &sip.Request{
 			Proto:   sip.ProtoVer20(),
@@ -802,23 +802,23 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 		req := &sip.Request{
 			Method: sip.RequestMethodInvite,
 			URI: &sip.URI{
-				User: sip.UserWithName("alice"),
-				Addr: sip.AddrFromHost("example.com"),
+				User: sip.MakeUserInfo("alice"),
+				Addr: sip.MakeHostAddr("example.com"),
 			},
 			Proto: sip.ProtoVer20(),
 			Headers: make(sip.Headers).
 				Set(
 					&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("example.com"),
 						},
 						Params: make(sip.Values).Set("tag", "abc"),
 					},
 					&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("example.net"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("example.net"),
 						},
 					},
 					&header.CSeq{SeqNum: 7, Method: sip.RequestMethodInvite},
@@ -932,23 +932,23 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 		req := &sip.Request{
 			Method: sip.RequestMethodAck,
 			URI: &sip.URI{
-				User: sip.UserWithName("bob"),
-				Addr: sip.AddrFromHost("example.net"),
+				User: sip.MakeUserInfo("bob"),
+				Addr: sip.MakeHostAddr("example.net"),
 			},
 			Proto: sip.ProtoVer20(),
 			Headers: make(sip.Headers).
 				Set(
 					&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("example.com"),
 						},
 						Params: make(sip.Values).Set("tag", "local"),
 					},
 					&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("example.net"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("example.net"),
 						},
 						Params: make(sip.Values).Set("tag", "remote"),
 					},

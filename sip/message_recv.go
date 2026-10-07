@@ -365,7 +365,7 @@ func (ch *StdMsgInterceptChain) UseOutboundResponseInterceptor(interceptor Outbo
 
 func (ch *StdMsgInterceptChain) UseMessageInterceptor(interceptor MessageInterceptor) (unbind func()) {
 	if interceptor == nil {
-		return func() {}
+		return noop
 	}
 
 	unbinds := []func(){

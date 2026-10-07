@@ -29,9 +29,9 @@ func TestProxyAuthenticate_Render(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -187,9 +187,9 @@ func TestProxyAuthenticate_Equal(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -296,9 +296,9 @@ func TestProxyAuthenticate_Clone(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "ATLANTA.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+						&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -367,9 +367,9 @@ func TestProxyAuthenticate_MarshalJSON(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -444,9 +444,9 @@ func TestProxyAuthenticate_UnmarshalJSON(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -523,9 +523,9 @@ func TestProxyAuthenticate_RoundTripJSON(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",

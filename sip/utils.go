@@ -7,12 +7,16 @@ import (
 	"math"
 	"net/textproto"
 	"sync"
+
+	"github.com/ghettovoice/timeutil"
 )
 
 var (
 	sNilTag  = "<nil>"
 	bNilTag  = []byte(sNilTag)
 	jsonNull = []byte("null")
+
+	noop = func() {}
 )
 
 var txtProtoRdrPool = sync.Pool{
@@ -54,4 +58,12 @@ func clampToUint64(value int64) uint64 {
 
 type closer interface {
 	Close(ctx context.Context) error
+}
+
+func cloneTmrSnapshot(snap *timeutil.TimerSnapshot) *timeutil.TimerSnapshot {
+	if snap == nil {
+		return nil
+	}
+	cloned := *snap
+	return &cloned
 }
