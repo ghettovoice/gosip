@@ -34,21 +34,6 @@ const (
 	DefaultMaxForwards header.MaxForwards = 70
 )
 
-// Message errors.
-const (
-	ErrInvalidMessage    Error = "invalid message"
-	ErrEntityTooLarge    Error = "entity too large"
-	ErrMessageTooLarge   Error = "message too large"
-	ErrMethodNotAllowed  Error = "method not allowed"
-	ErrMessageNotMatched Error = "message not matched"
-	ErrUnhandledMessage  Error = "unhandled message"
-)
-
-// IsMessageError reports whether err belongs to the message error class.
-func IsMessageError(err error) bool {
-	return errors.Is(err, ErrClassMessage)
-}
-
 // Message represents a SIP message.
 type Message interface {
 	types.Renderer
@@ -261,17 +246,6 @@ func SetMessageBody(msg Message, body []byte) error {
 	}
 }
 
-func newMissHdrErr(name HeaderName) error {
-	if name == "" {
-		return errors.Error("missing mandatory headers")
-	}
-	return errors.Errorf("missing mandatory header %q", name)
-}
-
-func newInvalidMsgErr(args ...any) error {
-	return errors.Prefix(ErrInvalidMessage, args...)
-}
-
 func newUnexpectMsgTypeErr(msg Message) error {
 	return errors.Errorf("unexpected message type %T", msg)
 }
@@ -314,7 +288,7 @@ func (d *MessageMetadata) Set(key string, val any) *MessageMetadata {
 }
 
 func (d *MessageMetadata) SetAll(vals iter.Seq2[string, any]) *MessageMetadata {
-	d.data.BulkStore(vals)
+	d.data.StoreMany(vals)
 	return d
 }
 
@@ -748,7 +722,7 @@ func GenerateTag(length uint) string {
 }
 
 func GenerateStableToTag(msg Message, salt []byte) string {
-	if key, err := ServerTransactionKeyFromMessage(msg); err == nil {
+	if key, err := MakeServerTransactionKey(msg); err == nil {
 		if buf, err := key.MarshalBinary(); err == nil {
 			buf = append(buf, salt...)
 			sum := sha256.Sum256(buf)

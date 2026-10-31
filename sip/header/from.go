@@ -3,13 +3,12 @@ package header
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/internal/types"
 )
 
 // From represents the From header field.
@@ -27,27 +26,14 @@ func (hdr *From) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err erro
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(fmt.Fprint(w, hdr.name(opts...), ": ", hdr.RenderValue()))
-}
-
-func (hdr *From) name(opts ...RenderOptions) Name {
-	if util.LastSliceElemOr(opts, RenderOptions{}).Compact {
-		return hdr.CompactName()
-	}
-	return hdr.CanonicName()
+	return errors.Wrap2(renderHdrTo(w, renderHdrName(hdr, opts...), func(w io.Writer) (int, error) {
+		return errors.Wrap2(NameAddr(*hdr).renderTo(w))
+	}))
 }
 
 // Render returns the string representation of the header.
 func (hdr *From) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return types.Render(hdr, opts...)
 }
 
 // String returns the string representation of the header value.
@@ -63,29 +49,14 @@ func (hdr *From) RenderValue() string {
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr *From) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods From
-			From        hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*From)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods From
+		From        hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*From)(hdr))
 }
 
 // Clone returns a copy of the header.
@@ -127,27 +98,7 @@ func (hdr *From) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *From) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = From{}
-		return nil
-	}
-
-	h, ok := gh.(*From)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && (len(ah.Value) == 0 || ah.Value == "<>") {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyNameAddrValue))
 }
 
 func (hdr *From) Tag() (string, bool) {

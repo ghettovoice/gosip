@@ -13,7 +13,7 @@ import (
 func TestInfoAddr_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		addr header.InfoAddr
 		want string
@@ -24,8 +24,8 @@ func TestInfoAddr_String(t *testing.T) {
 			header.InfoAddr{
 				URI: &uri.SIP{
 					Secured: true,
-					User:    uri.User("user"),
-					Addr:    uri.AddrFromHost("example.com"),
+					User:    uri.MakeUserInfo("user"),
+					Addr:    uri.MakeHostAddr("example.com"),
 					Params:  make(uri.Values).Set("foo", "bar"),
 				},
 				Params: make(header.Values).Set("foo", "bar").Set("baz", ""),
@@ -49,12 +49,12 @@ func TestInfoAddr_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.addr.String(); got != c.want {
-				t.Errorf("addr.String() = %q, want %q", got, c.want)
+			if got := tt.addr.String(); got != tt.want {
+				t.Errorf("addr.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -63,7 +63,7 @@ func TestInfoAddr_String(t *testing.T) {
 func TestInfoAddr_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		addr header.InfoAddr
 		val  any
@@ -73,7 +73,7 @@ func TestInfoAddr_Equal(t *testing.T) {
 		{"zero to zero", header.InfoAddr{}, header.InfoAddr{}, true},
 		{"zero to zero ptr", header.InfoAddr{}, &header.InfoAddr{}, true},
 		{"zero to nil ptr", header.InfoAddr{}, (*header.InfoAddr)(nil), false},
-		{"not match 1", header.InfoAddr{}, header.InfoAddr{URI: &uri.SIP{User: uri.User("user")}}, false},
+		{"not match 1", header.InfoAddr{}, header.InfoAddr{URI: &uri.SIP{User: uri.MakeUserInfo("user")}}, false},
 		{
 			"not match 2",
 			header.InfoAddr{
@@ -175,12 +175,12 @@ func TestInfoAddr_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.addr.Equal(c.val); got != c.want {
-				t.Errorf("addr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.addr.Equal(tt.val); got != tt.want {
+				t.Errorf("addr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -189,7 +189,7 @@ func TestInfoAddr_Equal(t *testing.T) {
 func TestInfoAddr_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		addr header.InfoAddr
 		want bool
@@ -215,12 +215,12 @@ func TestInfoAddr_IsValid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.addr.IsValid(); got != c.want {
-				t.Errorf("addr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.addr.IsValid(); got != tt.want {
+				t.Errorf("addr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -229,7 +229,7 @@ func TestInfoAddr_IsValid(t *testing.T) {
 func TestInfoAddr_IsZero(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		addr header.InfoAddr
 		want bool
@@ -239,12 +239,12 @@ func TestInfoAddr_IsZero(t *testing.T) {
 		{"not zero 2", header.InfoAddr{URI: &uri.Any{URL: url.URL{Scheme: "https", Host: "example.com", Path: "/a/b/c"}}}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.addr.IsZero(); got != c.want {
-				t.Errorf("addr.IsZero() = %v, want %v", got, c.want)
+			if got := tt.addr.IsZero(); got != tt.want {
+				t.Errorf("addr.IsZero() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -253,7 +253,7 @@ func TestInfoAddr_IsZero(t *testing.T) {
 func TestInfoAddr_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		addr header.InfoAddr
 	}{
@@ -267,13 +267,13 @@ func TestInfoAddr_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.addr.Clone()
-			if diff := cmp.Diff(got, c.addr); diff != "" {
-				t.Errorf("addr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.addr, diff)
+			got := tt.addr.Clone()
+			if diff := cmp.Diff(got, tt.addr); diff != "" {
+				t.Errorf("addr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.addr, diff)
 			}
 		})
 	}
@@ -282,7 +282,7 @@ func TestInfoAddr_Clone(t *testing.T) {
 func TestInfoAddr_MarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		addr header.InfoAddr
 		want string
@@ -298,17 +298,17 @@ func TestInfoAddr_MarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := c.addr.MarshalText()
+			got, err := tt.addr.MarshalText()
 			if err != nil {
 				t.Fatalf("addr.MarshalText() error = %v, want nil", err)
 			}
 
-			if string(got) != c.want {
-				t.Fatalf("addr.MarshalText() = %q, want %q", got, c.want)
+			if string(got) != tt.want {
+				t.Fatalf("addr.MarshalText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -317,7 +317,7 @@ func TestInfoAddr_MarshalText(t *testing.T) {
 func TestInfoAddr_UnmarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    header.InfoAddr
@@ -337,24 +337,24 @@ func TestInfoAddr_UnmarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var addr header.InfoAddr
-			if err := addr.UnmarshalText([]byte(c.data)); err != nil {
-				if !c.wantErr {
+			if err := addr.UnmarshalText([]byte(tt.data)); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("addr.UnmarshalText() error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("addr.UnmarshalText() error = nil, want error")
 			}
 
-			if diff := cmp.Diff(addr, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", addr, c.want, diff)
+			if diff := cmp.Diff(addr, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", addr, tt.want, diff)
 			}
 		})
 	}
@@ -363,7 +363,7 @@ func TestInfoAddr_UnmarshalText(t *testing.T) {
 func TestInfoAddr_RoundTripText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		addr header.InfoAddr
 	}{
@@ -377,11 +377,11 @@ func TestInfoAddr_RoundTripText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := c.addr.MarshalText()
+			data, err := tt.addr.MarshalText()
 			if err != nil {
 				t.Fatalf("addr.MarshalText() error = %v, want nil", err)
 			}
@@ -391,8 +391,8 @@ func TestInfoAddr_RoundTripText(t *testing.T) {
 				t.Fatalf("addr.UnmarshalText(data) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got, c.addr); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.addr, diff)
+			if diff := cmp.Diff(got, tt.addr); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.addr, diff)
 			}
 		})
 	}

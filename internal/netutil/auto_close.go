@@ -4,13 +4,14 @@ import (
 	"net"
 	"time"
 
+	"github.com/ghettovoice/timeutil"
+
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/timeutil"
 )
 
 type autoClosePacketConn struct {
 	net.PacketConn
-	tmr *timeutil.InactivityTimer
+	tmr *timeutil.Watchdog
 }
 
 // NewAutoClosePacketConn wraps net.PacketConn and automatically closes it after a specified idle timeout.
@@ -21,8 +22,8 @@ func NewAutoClosePacketConn(conn net.PacketConn, ttl time.Duration) net.PacketCo
 	}
 
 	c := &autoClosePacketConn{PacketConn: conn}
-	c.tmr = timeutil.NewInactivityTimer(ttl, func() { _ = c.Close() })
-	c.resetTmr()
+	c.tmr = timeutil.NewWatchdog(ttl, func() { _ = c.Close() })
+	c.tmr.Start()
 	return c
 }
 
@@ -54,7 +55,7 @@ func (c *autoClosePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 
 func (c *autoClosePacketConn) Close() error {
 	if c.tmr != nil {
-		c.tmr.Stop()
+		c.tmr.Close()
 	}
 	return errors.Wrap(c.PacketConn.Close())
 }
@@ -68,7 +69,7 @@ func (c *autoClosePacketConn) Unwrap() net.PacketConn {
 
 type autoCloseConn struct {
 	net.Conn
-	tmr *timeutil.InactivityTimer
+	tmr *timeutil.Watchdog
 }
 
 // NewAutoCloseConn wraps net.Conn and automatically closes it after a specified idle timeout.
@@ -79,8 +80,8 @@ func NewAutoCloseConn(conn net.Conn, ttl time.Duration) net.Conn {
 	}
 
 	c := &autoCloseConn{Conn: conn}
-	c.tmr = timeutil.NewInactivityTimer(ttl, func() { _ = c.Close() })
-	c.resetTmr()
+	c.tmr = timeutil.NewWatchdog(ttl, func() { _ = c.Close() })
+	c.tmr.Start()
 	return c
 }
 
@@ -112,7 +113,7 @@ func (c *autoCloseConn) Read(p []byte) (int, error) {
 
 func (c *autoCloseConn) Close() error {
 	if c.tmr != nil {
-		c.tmr.Stop()
+		c.tmr.Close()
 	}
 	return errors.Wrap(c.Conn.Close())
 }

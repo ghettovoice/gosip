@@ -6,13 +6,16 @@ Before releasing a new version, ensure all checks pass:
 
 ```bash
 # Run all tests with race detection and vet checks
-go test -race -vet=all ./...
+task test
 
 # Run linter
-golangci-lint run ./...
+task lint
 
 # Check for known vulnerabilities
-govulncheck ./...
+task vuln
+
+# All checks
+task check
 ```
 
 ## Manual release
@@ -29,5 +32,5 @@ git push --follow-tags
 ## Automated release
 
 ```bash
-make release VERSION=vM.m.p
+task release VERSION=vM.m.p
 ```

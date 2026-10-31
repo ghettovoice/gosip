@@ -19,11 +19,8 @@ func (mw elemCapabilsMiddleware) Capabilities() sip.ElementCapabilities {
 func TestElement_UseMiddleware_PreservesRegistrationOrder(t *testing.T) {
 	t.Parallel()
 
-	elm, err := sip.NewElement()
-	if err != nil {
-		t.Fatalf("sip.NewElement() error = %v, want nil", err)
-	}
-	t.Cleanup(func() { _ = elm.Close(t.Context()) })
+	elm := &sip.Element{}
+	t.Cleanup(func() { _ = elm.Close() })
 
 	removeFirst := elm.UseMiddleware(elemCapabilsMiddleware{
 		methods: []sip.RequestMethod{sip.RequestMethodInvite},

@@ -10,7 +10,7 @@ import (
 func TestQuote(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		str  string
 		want string
@@ -21,12 +21,12 @@ func TestQuote(t *testing.T) {
 		{"with backslash quote", `ab\"c`, `"ab\\\"c"`},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got, want := grammar.Quote(c.str), c.want; got != want {
-				t.Errorf("grammar.Quote(%q) = %q, want %q", c.str, got, want)
+			if got, want := grammar.Quote(tt.str), tt.want; got != want {
+				t.Errorf("grammar.Quote(%q) = %q, want %q", tt.str, got, want)
 			}
 		})
 	}
@@ -35,7 +35,7 @@ func TestQuote(t *testing.T) {
 func TestUnquote(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		str  string
 		want string
@@ -47,12 +47,12 @@ func TestUnquote(t *testing.T) {
 		{"with backslash quote", `"\"ab\"c\\\""`, `"ab"c\"`},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got, want := grammar.Unquote(c.str), c.want; got != want {
-				t.Errorf("grammar.Unquote(%q) = %q, want %q", c.str, got, want)
+			if got, want := grammar.Unquote(tt.str), tt.want; got != want {
+				t.Errorf("grammar.Unquote(%q) = %q, want %q", tt.str, got, want)
 			}
 		})
 	}
@@ -61,7 +61,7 @@ func TestUnquote(t *testing.T) {
 func TestIsTelNum(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		str  string
 		want bool
@@ -79,12 +79,12 @@ func TestIsTelNum(t *testing.T) {
 		{"", "+55(abc)33-55", false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got, want := grammar.IsTelNum(c.str), c.want; got != want {
-				t.Errorf("grammar.IsTelNum(%q) = %v, want %v", c.str, got, want)
+			if got, want := grammar.IsTelNum(tt.str), tt.want; got != want {
+				t.Errorf("grammar.IsTelNum(%q) = %v, want %v", tt.str, got, want)
 			}
 		})
 	}
@@ -93,7 +93,7 @@ func TestIsTelNum(t *testing.T) {
 func TestIsGlobTelNum(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		str  string
 		want bool
@@ -104,19 +104,19 @@ func TestIsGlobTelNum(t *testing.T) {
 		{"", "+1(123)-44-55", true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got, want := grammar.IsGlobTelNum(c.str), c.want; got != want {
-				t.Errorf("grammar.IsGlobTelNum(%q) = %v, want %v", c.str, got, want)
+			if got, want := grammar.IsGlobTelNum(tt.str), tt.want; got != want {
+				t.Errorf("grammar.IsGlobTelNum(%q) = %v, want %v", tt.str, got, want)
 			}
 		})
 	}
 }
 
 func BenchmarkCleanTelNum(b *testing.B) {
-	cases := []struct {
+	tests := []struct {
 		name string
 		in   any
 		out  any
@@ -127,19 +127,19 @@ func BenchmarkCleanTelNum(b *testing.B) {
 
 	b.ResetTimer()
 
-	for _, c := range cases {
-		b.Run(c.name, func(b *testing.B) {
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
 			b.ResetTimer()
 
 			for b.Loop() {
-				switch in := c.in.(type) {
+				switch in := tt.in.(type) {
 				case string:
-					want, _ := c.out.(string)
+					want, _ := tt.out.(string)
 					if got := grammar.CleanTelNum(in); got != want {
 						b.Errorf("grammar.CleanTelNum(%q) = %q, want %q", in, got, want)
 					}
 				case []byte:
-					want, _ := c.out.([]byte)
+					want, _ := tt.out.([]byte)
 					if got := grammar.CleanTelNum(in); !bytes.Equal(got, want) {
 						b.Errorf("grammar.CleanTelNum(%q) = %q, want %q", in, got, want)
 					}

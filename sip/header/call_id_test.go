@@ -14,7 +14,7 @@ import (
 func TestCallID_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.CallID
 		opts []header.RenderOptions
@@ -24,12 +24,12 @@ func TestCallID_Render(t *testing.T) {
 		{"full", header.CallID("qweRTY"), []header.RenderOptions{{Compact: true}}, "i: qweRTY"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(c.opts...); got != c.want {
-				t.Errorf("hdr.Render(opts...) = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(tt.opts...); got != tt.want {
+				t.Errorf("hdr.Render(opts...) = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -38,7 +38,7 @@ func TestCallID_Render(t *testing.T) {
 func TestCallID_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     header.CallID
 		wantRes string
@@ -48,18 +48,18 @@ func TestCallID_RenderTo(t *testing.T) {
 		{"full", header.CallID("qweRTY"), "Call-ID: qweRTY", nil},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got, want := sb.String(), c.wantRes; got != want {
+			if got, want := sb.String(), tt.wantRes; got != want {
 				t.Errorf("sb.String() = %q, want %q", got, want)
 			}
 		})
@@ -69,7 +69,7 @@ func TestCallID_RenderTo(t *testing.T) {
 func TestCallID_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.CallID
 		val  any
@@ -83,12 +83,12 @@ func TestCallID_Equal(t *testing.T) {
 		{"match", header.CallID("qweRTY"), header.CallID("qweRTY"), true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -97,7 +97,7 @@ func TestCallID_Equal(t *testing.T) {
 func TestCallID_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.CallID
 		want bool
@@ -106,12 +106,12 @@ func TestCallID_IsValid(t *testing.T) {
 		{"valid", header.CallID("qweRTY"), true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -120,7 +120,7 @@ func TestCallID_IsValid(t *testing.T) {
 func TestCallID_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.CallID
 	}{
@@ -128,12 +128,12 @@ func TestCallID_Clone(t *testing.T) {
 		{"full", header.CallID("qwe")},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Clone(); got != c.hdr {
-				t.Errorf("hdr.Clone() = %+v, want %+v", got, c.hdr)
+			if got := tt.hdr.Clone(); got != tt.hdr {
+				t.Errorf("hdr.Clone() = %+v, want %+v", got, tt.hdr)
 			}
 		})
 	}
@@ -142,7 +142,7 @@ func TestCallID_Clone(t *testing.T) {
 func TestCallID_MarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.CallID
 		want string
@@ -165,17 +165,17 @@ func TestCallID_MarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(c.hdr)
+			got, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
 
-			if got := string(got); got != c.want {
-				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, c.want)
+			if got := string(got); got != tt.want {
+				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -184,7 +184,7 @@ func TestCallID_MarshalJSON(t *testing.T) {
 func TestCallID_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    header.CallID
@@ -222,24 +222,24 @@ func TestCallID_UnmarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got header.CallID
-			if err := json.Unmarshal([]byte(c.data), &got); err != nil {
-				if !c.wantErr {
+			if err := json.Unmarshal([]byte(tt.data), &got); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("json.Unmarshal(data, got) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -248,7 +248,7 @@ func TestCallID_UnmarshalJSON(t *testing.T) {
 func TestCallID_RoundTripJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.CallID
 	}{
@@ -259,12 +259,12 @@ func TestCallID_RoundTripJSON(t *testing.T) {
 		{"complex", "a84b4c76e66710@pc33.atlanta.com"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			// Marshal
-			data, err := json.Marshal(c.hdr)
+			data, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
@@ -276,8 +276,8 @@ func TestCallID_RoundTripJSON(t *testing.T) {
 			}
 
 			// Compare
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Fatalf("Round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Fatalf("Round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}

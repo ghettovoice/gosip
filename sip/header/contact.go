@@ -139,27 +139,7 @@ func (hdr Contact) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Contact) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = nil
-		return nil
-	}
-
-	h, ok := gh.(Contact)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
 }
 
 func buildFromContactNode(node *abnf.Node) Contact {

@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/ioutil"
+	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -29,39 +28,19 @@ func (hdr Require) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
-}
-
-func (hdr Require) renderValueTo(w io.Writer) (num int, err error) {
-	return errors.Wrap2(renderHdrEntries(w, hdr))
+	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderHdrEntries(w, hdr))
+	}))
 }
 
 // Render returns the string representation of the header.
 func (hdr Require) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return types.Render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
 func (hdr Require) RenderValue() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrEntriesString(hdr)
 }
 
 // String returns the string representation of the header value.
@@ -69,29 +48,14 @@ func (hdr Require) String() string { return hdr.RenderValue() }
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr Require) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods Require
-			Require     hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), Require(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods Require
+		Require     hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), Require(hdr))
 }
 
 // Clone returns a copy of the header.
@@ -117,7 +81,7 @@ func (hdr Require) Equal(val any) bool {
 
 // IsValid checks whether the header is syntactically valid.
 func (hdr Require) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(o OptionTag) bool { return !o.IsValid() })
+	return len(hdr) > 0 && validOptionTags(hdr)
 }
 
 func (hdr Require) MarshalJSON() ([]byte, error) {
@@ -125,37 +89,34 @@ func (hdr Require) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Require) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = nil
-		return nil
-	}
-
-	h, ok := gh.(Require)
-	if !ok {
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), nil))
 }
 
 func buildFromRequireNode(node *abnf.Node) Require {
+	return Require(buildOptionTagsFromNode(node))
+}
+
+func buildOptionTagsFromNode(node *abnf.Node) []OptionTag {
 	tagNodes := node.GetNodes("token")
-	h := make(Require, 0, len(tagNodes))
+	tags := make([]OptionTag, 0, len(tagNodes))
 	for i := range tagNodes {
 		if n, ok := tagNodes[i].GetNode("token"); ok {
-			h = append(h, OptionTag(n.String()))
+			tags = append(tags, OptionTag(n.String()))
 		}
 	}
-	return h
+	return tags
 }
 
 type OptionTag string
+
+func validOptionTags(tags []OptionTag) bool {
+	for _, tag := range tags {
+		if !tag.IsValid() {
+			return false
+		}
+	}
+	return true
+}
 
 func (lng OptionTag) IsValid() bool { return grammar.IsToken(lng) }
 

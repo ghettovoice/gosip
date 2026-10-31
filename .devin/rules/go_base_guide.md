@@ -98,8 +98,8 @@ uc := len(users)
 
 ### Constants
 
-- Use `UPPER_SNAKE_CASE` for exported constants
-- Use `mixedCaps` for unexported constants
+- Use `PascalCase` for exported constants
+- Use `camelCase` for unexported constants
 - Group related constants together
 
 ```go
@@ -307,9 +307,6 @@ func worker(ctx context.Context, jobs <-chan Job, results chan<- Result) {
 
 ## Testing
 
-**Note:** Testing guidelines are documented in `go_test_guide.md`.
-This section focuses only on style aspects that affect production code.
-
 - Design code to be testable
 - Use dependency injection for testability
 - Avoid tight coupling to external dependencies
@@ -357,11 +354,11 @@ Use `go fix` to apply automatic fixes for deprecated APIs and language changes:
 go fix ./...
 ```
 
-This ensures code uses modern Go idioms and stays compatible with the Go version specified in `go.mod` (currently 1.26.0).
+This ensures code uses modern Go idioms and stays compatible with the Go version specified in `go.mod`.
 
 ### Version Compatibility
 
-- Use features available in the Go version specified in `go.mod` (1.26.0)
+- Use features available in the Go version specified in `go.mod`
 - Test with the minimum supported Go version
 - Avoid experimental or unstable features
 - Use stable APIs from the standard library
@@ -412,48 +409,9 @@ This ensures code uses modern Go idioms and stays compatible with the Go version
 - Keep dependencies up to date
 - Review security advisories
 
-## Project-Specific Guidelines
-
-### SIP Protocol Code
-
-- Follow SIP RFC specifications strictly
-- Use appropriate SIP terminology
-- Handle protocol edge cases
-- Maintain protocol compatibility
-
-### Network Code
-
-- Handle network errors gracefully
-- Use appropriate timeouts
-- Implement proper connection management
-- Consider security implications
-
-### Testing Infrastructure
-
-- Use the testing patterns defined in `go_test_guide.md`
-- Maintain test utilities in separate packages
-- Keep tests fast and reliable
-- Use table-driven tests for multiple scenarios
-
-## Code Review Checklist
-
-- [ ] Code follows naming conventions
-- [ ] Functions are small and focused
-- [ ] Error handling is comprehensive
-- [ ] Comments explain why, not what
-- [ ] Code is properly formatted
-- [ ] Imports are organized correctly
-- [ ] No unused variables or imports
-- [ ] Concurrency is handled correctly
-- [ ] Tests are adequate
-- [ ] Documentation is complete
-- [ ] Code passes `golangci-lint` checks
-- [ ] Code uses appropriate Go version features
-
 ## References
 
 - [Google Go Style Guide](https://google.github.io/styleguide/go/)
 - [Effective Go](https://golang.org/doc/effective_go.html)
 - [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
 - [Go Blog](https://blog.golang.org/)
-- [golangci-lint Configuration](https://golangci-lint.run/usage/configuration/)

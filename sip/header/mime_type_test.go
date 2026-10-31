@@ -11,7 +11,7 @@ import (
 func TestMIMEType_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		mt   header.MIMEType
 		want string
@@ -31,12 +31,12 @@ func TestMIMEType_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.mt.String(); got != c.want {
-				t.Errorf("mt.String() = %q, want %q", got, c.want)
+			if got := tt.mt.String(); got != tt.want {
+				t.Errorf("mt.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -45,7 +45,7 @@ func TestMIMEType_String(t *testing.T) {
 func TestMIMEType_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		mt   header.MIMEType
 		val  any
@@ -111,12 +111,12 @@ func TestMIMEType_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.mt.Equal(c.val); got != c.want {
-				t.Errorf("mt.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.mt.Equal(tt.val); got != tt.want {
+				t.Errorf("mt.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -125,7 +125,7 @@ func TestMIMEType_Equal(t *testing.T) {
 func TestMIMEType_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		mt   header.MIMEType
 		want bool
@@ -163,12 +163,12 @@ func TestMIMEType_IsValid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.mt.IsValid(); got != c.want {
-				t.Errorf("mt.IsValid() = %v, want %v", got, c.want)
+			if got := tt.mt.IsValid(); got != tt.want {
+				t.Errorf("mt.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -177,7 +177,7 @@ func TestMIMEType_IsValid(t *testing.T) {
 func TestMIMEType_IsZero(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		mt   header.MIMEType
 		want bool
@@ -187,12 +187,12 @@ func TestMIMEType_IsZero(t *testing.T) {
 		{"not zero 2", header.MIMEType{Subtype: "*"}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.mt.IsZero(); got != c.want {
-				t.Errorf("mt.IsZero() = %v, want %v", got, c.want)
+			if got := tt.mt.IsZero(); got != tt.want {
+				t.Errorf("mt.IsZero() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -201,7 +201,7 @@ func TestMIMEType_IsZero(t *testing.T) {
 func TestMIMEType_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		mt   header.MIMEType
 	}{
@@ -216,13 +216,13 @@ func TestMIMEType_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.mt.Clone()
-			if diff := cmp.Diff(got, c.mt); diff != "" {
-				t.Errorf("mt.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.mt, diff)
+			got := tt.mt.Clone()
+			if diff := cmp.Diff(got, tt.mt); diff != "" {
+				t.Errorf("mt.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.mt, diff)
 			}
 		})
 	}
@@ -231,7 +231,7 @@ func TestMIMEType_Clone(t *testing.T) {
 func TestMIMEType_MarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		mt   header.MIMEType
 		want string
@@ -261,17 +261,17 @@ func TestMIMEType_MarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := c.mt.MarshalText()
+			got, err := tt.mt.MarshalText()
 			if err != nil {
 				t.Fatalf("mt.MarshalText() error = %v, want nil", err)
 			}
 
-			if string(got) != c.want {
-				t.Fatalf("mt.MarshalText() = %q, want %q", got, c.want)
+			if string(got) != tt.want {
+				t.Fatalf("mt.MarshalText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -280,7 +280,7 @@ func TestMIMEType_MarshalText(t *testing.T) {
 func TestMIMEType_UnmarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    header.MIMEType
@@ -314,24 +314,24 @@ func TestMIMEType_UnmarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got header.MIMEType
-			if err := got.UnmarshalText([]byte(c.data)); err != nil {
-				if !c.wantErr {
+			if err := got.UnmarshalText([]byte(tt.data)); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("mt.UnmarshalText() error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("mt.UnmarshalText() error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -340,7 +340,7 @@ func TestMIMEType_UnmarshalText(t *testing.T) {
 func TestMIMEType_RoundTripText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		mt   header.MIMEType
 	}{
@@ -367,11 +367,11 @@ func TestMIMEType_RoundTripText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := c.mt.MarshalText()
+			data, err := tt.mt.MarshalText()
 			if err != nil {
 				t.Fatalf("mt.MarshalText() error = %v, want nil", err)
 			}
@@ -381,8 +381,8 @@ func TestMIMEType_RoundTripText(t *testing.T) {
 				t.Fatalf("mt.UnmarshalText(data) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got, c.mt); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.mt, diff)
+			if diff := cmp.Diff(got, tt.mt); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.mt, diff)
 			}
 		})
 	}

@@ -36,72 +36,33 @@ func (hdr *Authorization) RenderTo(w io.Writer, opts ...RenderOptions) (num int,
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(func(w io.Writer) (int, error) { return errors.Wrap2(hdr.renderValueTo(w, opts...)) })
-	return errors.Wrap2(cw.Result())
-}
-
-func (hdr *Authorization) renderValueTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
-	if hdr.AuthCredentials == nil {
-		return 0, nil
-	}
-	return errors.Wrap2(hdr.AuthCredentials.RenderTo(w, opts...))
+	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderValueTo(w, hdr.AuthCredentials, opts...))
+	}))
 }
 
 func (hdr *Authorization) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return types.Render(hdr, opts...)
 }
 
 func (hdr *Authorization) RenderValue() string {
-	if hdr == nil || hdr.AuthCredentials == nil {
+	if hdr == nil {
 		return ""
 	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderValue(hdr.AuthCredentials)
 }
 
 func (hdr *Authorization) String() string { return hdr.RenderValue() }
 
 func (hdr *Authorization) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods   Authorization
-			Authorization hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*Authorization)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods   Authorization
+		Authorization hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*Authorization)(hdr))
 }
 
 func (hdr *Authorization) Clone() Header {
@@ -143,37 +104,20 @@ func (hdr *Authorization) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Authorization) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = Authorization{}
-		return nil
-	}
-
-	h, ok := gh.(*Authorization)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
 }
 
 func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
-	var hdr Authorization
+	return &Authorization{AuthCredentials: buildAuthCredentialsFromNode(node)}
+}
 
+func buildAuthCredentialsFromNode(node *abnf.Node) AuthCredentials {
+	var credentials AuthCredentials
 	node = grammar.MustGetNode(node, "credentials")
 	switch scheme := node.Children[0].Children[0].String(); util.LCase(scheme) {
 	case "digest":
 		crd := &DigestCredentials{}
-		hdr.AuthCredentials = crd
+		credentials = crd
 		for _, paramNode := range node.GetNodes("dig-resp") {
 			paramNode = paramNode.Children[0]
 			switch paramNode.Key {
@@ -207,14 +151,14 @@ func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
 			}
 		}
 	case "bearer":
-		hdr.AuthCredentials = &BearerCredentials{
+		credentials = &BearerCredentials{
 			Token: grammar.MustGetNode(node, "bearer-response").String(),
 		}
 	default:
 		crd := &AnyCredentials{
 			Scheme: node.Children[0].Children[0].String(),
 		}
-		hdr.AuthCredentials = crd
+		credentials = crd
 		for _, paramNode := range node.GetNodes("auth-param") {
 			if crd.Params == nil {
 				crd.Params = make(Values)
@@ -223,7 +167,7 @@ func buildFromAuthorizationNode(node *abnf.Node) *Authorization {
 		}
 	}
 
-	return &hdr
+	return credentials
 }
 
 // DigestCredentials represents the digest authentication credentials.

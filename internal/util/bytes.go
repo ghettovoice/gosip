@@ -3,6 +3,7 @@ package util
 import (
 	"bytes"
 	"errors"
+	"io"
 	"math"
 	"sync"
 
@@ -45,7 +46,7 @@ func FreeBytesBuffer(b *bytes.Buffer) {
 const maxVarintBytes = 10
 
 var (
-	ErrUnexpectedEOF    = errors.New("unexpected end of data")
+	ErrUnexpectedEOF    = io.ErrUnexpectedEOF
 	ErrMalformedUvarint = errors.New("malformed uvarint")
 )
 

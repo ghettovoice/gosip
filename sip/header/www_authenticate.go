@@ -36,74 +36,33 @@ func (hdr *WWWAuthenticate) RenderTo(w io.Writer, opts ...RenderOptions) (num in
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(func(w io.Writer) (int, error) {
-		return errors.Wrap2(hdr.renderValueTo(w, opts...))
-	})
-	return errors.Wrap2(cw.Result())
-}
-
-func (hdr *WWWAuthenticate) renderValueTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
-	if hdr.AuthChallenge == nil {
-		return 0, nil
-	}
-	return errors.Wrap2(hdr.AuthChallenge.RenderTo(w, opts...))
+	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderValueTo(w, hdr.AuthChallenge, opts...))
+	}))
 }
 
 func (hdr *WWWAuthenticate) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return types.Render(hdr, opts...)
 }
 
 func (hdr *WWWAuthenticate) RenderValue() string {
-	if hdr == nil || hdr.AuthChallenge == nil {
+	if hdr == nil {
 		return ""
 	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderValue(hdr.AuthChallenge)
 }
 
 func (hdr *WWWAuthenticate) String() string { return hdr.RenderValue() }
 
 func (hdr *WWWAuthenticate) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods     WWWAuthenticate
-			WWWAuthenticate hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*WWWAuthenticate)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods     WWWAuthenticate
+		WWWAuthenticate hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*WWWAuthenticate)(hdr))
 }
 
 func (hdr *WWWAuthenticate) Clone() Header {
@@ -145,38 +104,21 @@ func (hdr *WWWAuthenticate) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *WWWAuthenticate) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+}
 
-	if gh == nil {
-		*hdr = WWWAuthenticate{}
-		return nil
-	}
-
-	h, ok := gh.(*WWWAuthenticate)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+func buildFromWWWAuthenticateNode(node *abnf.Node) *WWWAuthenticate {
+	return &WWWAuthenticate{AuthChallenge: buildAuthChallengeFromNode(node)}
 }
 
 //nolint:gocognit
-func buildFromWWWAuthenticateNode(node *abnf.Node) *WWWAuthenticate {
-	var hdr WWWAuthenticate
-
+func buildAuthChallengeFromNode(node *abnf.Node) AuthChallenge {
+	var challenge AuthChallenge
 	node = grammar.MustGetNode(node, "challenge")
 	switch scheme := node.Children[0].Children[0].String(); util.LCase(scheme) {
 	case "digest":
 		cln := &DigestChallenge{}
-		hdr.AuthChallenge = cln
+		challenge = cln
 		for _, paramNode := range node.GetNodes("digest-cln") {
 			paramNode = paramNode.Children[0]
 			switch paramNode.Key {
@@ -207,7 +149,7 @@ func buildFromWWWAuthenticateNode(node *abnf.Node) *WWWAuthenticate {
 		}
 	case "bearer":
 		cln := &BearerChallenge{}
-		hdr.AuthChallenge = cln
+		challenge = cln
 		for _, paramNode := range node.GetNodes("bearer-cln") {
 			paramNode = paramNode.Children[0]
 			switch paramNode.Key {
@@ -230,7 +172,7 @@ func buildFromWWWAuthenticateNode(node *abnf.Node) *WWWAuthenticate {
 		cln := &AnyChallenge{
 			Scheme: node.Children[0].Children[0].String(),
 		}
-		hdr.AuthChallenge = cln
+		challenge = cln
 		for _, paramNode := range node.GetNodes("auth-param") {
 			if cln.Params == nil {
 				cln.Params = make(Values)
@@ -239,7 +181,7 @@ func buildFromWWWAuthenticateNode(node *abnf.Node) *WWWAuthenticate {
 		}
 	}
 
-	return &hdr
+	return challenge
 }
 
 type DigestChallenge struct {

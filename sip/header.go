@@ -21,10 +21,6 @@ type Header = header.Header
 // See [header.Name].
 type HeaderName = header.Name
 
-// HeaderParser represents a custom SIP header parser.
-// See [header.Parser].
-type HeaderParser = header.Parser
-
 // ParseHeader parses a generic SIP header.
 // See [header.Parse].
 func ParseHeader[T ~string | ~[]byte](s T) (Header, error) { return errors.Wrap2(header.Parse(s)) }
@@ -441,6 +437,13 @@ func validateHdrs(hdrs Headers) error {
 		}
 	}
 	return errors.JoinPrefixWrap("invalid headers:", errs...)
+}
+
+func newMissHdrErr(name HeaderName) error {
+	if name == "" {
+		return errors.Error("missing mandatory headers")
+	}
+	return errors.Errorf("missing mandatory header %q", name)
 }
 
 func compareHdrs(hdrs, other Headers) bool {

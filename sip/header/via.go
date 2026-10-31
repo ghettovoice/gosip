@@ -142,27 +142,7 @@ func (hdr Via) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Via) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = nil
-		return nil
-	}
-
-	h, ok := gh.(Via)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
 }
 
 func buildFromViaNode(node *abnf.Node) Via {
@@ -350,7 +330,7 @@ func (hop ViaHop) MAddr() (Addr, bool) {
 	if !ok {
 		return Addr{}, false
 	}
-	return AddrFromHost(ma), true
+	return MakeHostAddr(ma), true
 }
 
 func (hop ViaHop) TTL() (uint8, bool) {

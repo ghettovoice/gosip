@@ -2,16 +2,22 @@ package sip
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"reflect"
+	"slices"
+	"strconv"
 	"sync/atomic"
 	"time"
 
+	"github.com/ghettovoice/timeutil"
+
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/timeutil"
+	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
-	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/pkg/log"
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
@@ -21,9 +27,6 @@ type ServerTransaction interface {
 	Transaction
 	RequestReceiver
 	ResponseSender
-	// Start starts the server transaction.
-	// It must be called exactly once after the transaction is registered.
-	Start(ctx context.Context) error
 	// Key returns the server transaction key.
 	Key() ServerTransactionKey
 	// Request returns the initial request that started this transaction.
@@ -42,11 +45,73 @@ type ServerTransport interface {
 	ResponseSender
 }
 
+// ServerTransactionSnapshotHandler is a callback invoked when a server
+// transaction publishes a new stable snapshot.
+//
+// Notifications reflect committed consistent state and timers: a snapshot is
+// published only after the triggering operation (start, request or response
+// processing, timer processing or termination) fully applied its mutations,
+// so overlapping or nested operations are coalesced into a single publication
+// made after all of them complete.
+//
+// Notifications are serialized in FIFO order per transaction, and multiple
+// handlers observe the same publications in bind order. Each handler receives
+// an independent [ServerTransactionSnapshot.Clone]: transaction state, timer
+// fields, SIP messages and metadata containers are isolated, so mutating
+// them cannot affect the stored snapshot or another observer. Opaque
+// application metadata values keep the existing message-envelope clone
+// semantics (metadata containers are copied, values are shared), so they
+// must be immutable or application-managed; mutating a shared value is
+// visible to other observers and to a snapshot later used for restore.
+// Handlers are invoked outside the transaction lifecycle locks and may
+// reentrantly call Snapshot, Started, Terminate or bind and unbind handlers.
+// Publications made while a previous notification is still in flight are
+// queued, so a triggering operation does not wait for its own event when
+// another goroutine is already draining the queue. The handler list is
+// captured at publication time, therefore notifications queued before unbind
+// may still be delivered.
+//
+// The hook only observes state; it performs no storage I/O and provides no
+// atomicity between network and persistence. Keeping asynchronous snapshot
+// writes in FIFO order is the application's responsibility.
+type ServerTransactionSnapshotHandler interface {
+	HandleServerTransactionSnapshot(ctx context.Context, snapshot *ServerTransactionSnapshot)
+}
+
+// ServerTransactionSnapshotHandlerFunc is a function adapter that implements
+// [ServerTransactionSnapshotHandler].
+type ServerTransactionSnapshotHandlerFunc func(ctx context.Context, snapshot *ServerTransactionSnapshot)
+
+func (f ServerTransactionSnapshotHandlerFunc) HandleServerTransactionSnapshot(
+	ctx context.Context,
+	snapshot *ServerTransactionSnapshot,
+) {
+	f(ctx, snapshot)
+}
+
+// ServerTransactionSnapshotter is an optional interface implemented by the
+// built-in server transactions for observing stable snapshot publications.
+//
+// Snapshots returned by Snapshot or delivered to handlers are
+// [ServerTransactionSnapshot.Clone] copies; see
+// [ServerTransactionSnapshotHandler] for the isolation limits of opaque
+// metadata values.
+//
+// It is intentionally not a part of [ServerTransaction], so custom
+// transaction implementations are not required to support it; use a type
+// assertion to detect it.
+type ServerTransactionSnapshotter interface {
+	// Snapshot returns the last published stable transaction snapshot.
+	Snapshot() (*ServerTransactionSnapshot, error)
+	// BindSnapshotHandler binds a callback invoked on each new stable
+	// snapshot publication.
+	BindSnapshotHandler(handler ServerTransactionSnapshotHandler) (unbind func())
+}
+
 // ServerTransactionFactory creates initialized server transactions.
 // It must not start transaction processing, send responses, or start transaction timers.
 type ServerTransactionFactory interface {
 	NewServerTransaction(
-		ctx context.Context,
 		req *RequestEnvelope,
 		tp ServerTransport,
 		opts ...ServerTransactionOptions,
@@ -55,34 +120,31 @@ type ServerTransactionFactory interface {
 
 // ServerTransactionFactoryFunc is a function that implements [ServerTransactionFactory].
 type ServerTransactionFactoryFunc func(
-	ctx context.Context,
 	req *RequestEnvelope,
 	tp ServerTransport,
 	opts ...ServerTransactionOptions,
 ) (ServerTransaction, error)
 
 func (f ServerTransactionFactoryFunc) NewServerTransaction(
-	ctx context.Context,
 	req *RequestEnvelope,
 	tp ServerTransport,
 	opts ...ServerTransactionOptions,
 ) (ServerTransaction, error) {
-	return errors.Wrap2(f(ctx, req, tp, opts...))
+	return errors.Wrap2(f(req, tp, opts...))
 }
 
 // NewServerTransaction creates a new server transaction based on the request method.
 // If the request method is INVITE, it creates an [InviteServerTransaction].
 // Otherwise, it creates a [NonInviteServerTransaction].
 func NewServerTransaction(
-	ctx context.Context,
 	req *RequestEnvelope,
 	tp ServerTransport,
 	opts ...ServerTransactionOptions,
 ) (ServerTransaction, error) {
 	if req.Method().Equal(RequestMethodInvite) {
-		return errors.Wrap2(NewInviteServerTransaction(ctx, req, tp, opts...))
+		return errors.Wrap2(NewInviteServerTransaction(req, tp, opts...))
 	}
-	return errors.Wrap2(NewNonInviteServerTransaction(ctx, req, tp, opts...))
+	return errors.Wrap2(NewNonInviteServerTransaction(req, tp, opts...))
 }
 
 // ServerTransactionOptions contains options for a server transaction.
@@ -110,7 +172,9 @@ type serverTransact struct {
 	req      *RequestEnvelope
 	lastRes  atomic.Pointer[ResponseEnvelope]
 	sendOpts atomic.Value // SendResponseOptions
-	started  atomic.Bool
+
+	onSnap   types.CallbackManager[ServerTransactionSnapshotHandler]
+	snapshot atomic.Pointer[ServerTransactionSnapshot]
 }
 
 func newServerTransact(
@@ -133,7 +197,7 @@ func newServerTransact(
 		return nil, errors.ErrorWrap("nil transport")
 	}
 
-	key, err := ServerTransactionKeyFromMessage(req)
+	key, err := MakeServerTransactionKey(req)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
@@ -205,7 +269,7 @@ func (tx *serverTransact) MatchMessage(msg Message) bool {
 	}
 
 	if isReq {
-		reqKey, err := ServerTransactionKeyFromMessage(msg)
+		reqKey, err := MakeServerTransactionKey(msg)
 		if err != nil {
 			return false
 		}
@@ -226,48 +290,58 @@ func (tx *serverTransact) MatchMessage(msg Message) bool {
 }
 
 func (tx *serverTransact) matchRes(res Message) error {
+	return errors.Wrap(matchTxRes(tx.req, res))
+}
+
+func matchTxRes(req *RequestEnvelope, res Message) error {
+	return errors.Wrap(matchTxResHdrs(req, res, true))
+}
+
+func matchTxResHdrs(req *RequestEnvelope, res Message, cmpVia bool) error {
 	if err := res.Validate(); err != nil {
 		return errors.Wrap(err)
 	}
 
-	reqHdrs := tx.req.Headers()
+	reqHdrs := req.Headers()
 	resHdrs, _ := GetMessageHeaders(res)
 
-	reqVia, _ := reqHdrs.FirstVia()
-	resVia, _ := resHdrs.FirstVia()
-	if !reqVia.Equal(resVia) {
-		return errors.PrefixWrap(ErrMessageNotMatched, "response Via doesn't match transaction request")
+	if cmpVia {
+		reqVia, _ := reqHdrs.FirstVia()
+		resVia, _ := resHdrs.FirstVia()
+		if !reqVia.Equal(resVia) {
+			return errors.Wrap(NewMessageNotMatched("response Via doesn't match transaction request"))
+		}
 	}
 
 	reqCallID, _ := reqHdrs.CallID()
 	resCallID, _ := resHdrs.CallID()
 	if !reqCallID.Equal(resCallID) {
-		return errors.PrefixWrap(ErrMessageNotMatched, "response Call-ID doesn't match transaction request")
+		return errors.Wrap(NewMessageNotMatched("response Call-ID doesn't match transaction request"))
 	}
 
 	reqFrom, _ := reqHdrs.From()
 	resFrom, _ := resHdrs.From()
 	if !reqFrom.Equal(resFrom) {
-		return errors.PrefixWrap(ErrMessageNotMatched, "response From doesn't match transaction request")
+		return errors.Wrap(NewMessageNotMatched("response From doesn't match transaction request"))
 	}
 
 	reqTo, _ := reqHdrs.To()
 	resTo, _ := resHdrs.To()
 	if !compareNameAddrWithoutTag(header.NameAddr(*reqTo), header.NameAddr(*resTo)) {
-		return errors.PrefixWrap(ErrMessageNotMatched, "response To doesn't match transaction request")
+		return errors.Wrap(NewMessageNotMatched("response To doesn't match transaction request"))
 	}
 
 	if reqTag, ok := reqTo.Tag(); ok && reqTag != "" {
 		resTag, _ := resTo.Tag()
 		if reqTag != resTag {
-			return errors.PrefixWrap(ErrMessageNotMatched, "response To tag doesn't match transaction request")
+			return errors.Wrap(NewMessageNotMatched("response To tag doesn't match transaction request"))
 		}
 	}
 
 	reqCSeq, _ := reqHdrs.CSeq()
 	resCSeq, _ := resHdrs.CSeq()
 	if !reqCSeq.Equal(resCSeq) {
-		return errors.PrefixWrap(ErrMessageNotMatched, "response CSeq doesn't match transaction request")
+		return errors.Wrap(NewMessageNotMatched("response CSeq doesn't match transaction request"))
 	}
 
 	return nil
@@ -286,10 +360,20 @@ func compareNameAddrWithoutTag(a, b header.NameAddr) bool {
 }
 
 // RecvRequest is called on each inbound request received by the transport layer.
+// A matched request received while the transaction is still prepared waits for
+// activation, termination, or context cancellation.
 func (tx *serverTransact) RecvRequest(ctx context.Context, req *RequestEnvelope) error {
+	ctx = ContextWithTransaction(ctx, tx.impl)
+
 	if !tx.MatchMessage(req) {
-		return errors.Wrap(ErrMessageNotMatched)
+		return errors.Wrap(NewMessageNotMatched())
 	}
+
+	if err := tx.waitActive(ctx); err != nil {
+		return errors.Wrap(err)
+	}
+	tx.beginSnapshotUpdate()
+	defer tx.finishSnapshotUpdate(ctx)
 
 	if v, ok := tx.impl.(interface {
 		recvReq(ctx context.Context, req *RequestEnvelope) error
@@ -304,13 +388,14 @@ func (tx *serverTransact) recvReq(ctx context.Context, req *RequestEnvelope) err
 	case tx.req.Method().Equal(req.Method()):
 		return errors.Wrap(tx.fsm.FireCtx(ctx, txEvtRecvReq, req))
 	default:
-		return errors.Wrap(ErrMethodNotAllowed)
+		return errors.Wrap(NewRequestMethodNotAllowedError())
 	}
 }
 
 // Respond sends a response to the remote address with specified options.
 // Response will be passed to the transport layer by the transaction's FSM.
 func (tx *serverTransact) Respond(ctx context.Context, sts ResponseStatus, opts ...RespondOptions) error {
+	ctx = ContextWithTransaction(ctx, tx.impl)
 	return errors.Wrap(Respond(ctx, tx.req, sts, tx, opts...))
 }
 
@@ -321,9 +406,17 @@ func (tx *serverTransact) SendResponse(
 	res *ResponseEnvelope,
 	opts ...SendResponseOptions,
 ) error {
+	ctx = ContextWithTransaction(ctx, tx.impl)
+
 	if err := tx.matchRes(res); err != nil {
 		return errors.Wrap(err)
 	}
+
+	if !tx.isActive() {
+		return errors.Wrap(NewTransactionActionNotAllowedError())
+	}
+	tx.beginSnapshotUpdate()
+	defer tx.finishSnapshotUpdate(ctx)
 
 	switch sts := res.Status(); {
 	case sts.IsProvisional():
@@ -337,8 +430,10 @@ func (tx *serverTransact) SendResponse(
 
 func (tx *serverTransact) sendRes(ctx context.Context, res *ResponseEnvelope, opts ...SendResponseOptions) error {
 	if err := tx.tp.SendResponse(ctx, res, opts...); err != nil {
-		if err := tx.fsm.FireCtx(ctx, txEvtTranspErr, errors.ErrorfWrap("send %q response: %w", res.Status(), err)); err != nil {
-			panic(errors.Wrap(newTxTriggerErr(txEvtTranspErr, tx.State(), err)))
+		err = errors.ErrorfWrap("send %q response: %w", res.Status(), err)
+		if ferr := tx.fsm.FireCtx(ctx, txEvtTranspErr, err); ferr != nil &&
+			!errors.Is(ferr, ErrTransactionActionNotAllowed) {
+			panic(errors.Wrap(newTxTriggerErr(txEvtTranspErr, tx.State(), ferr)))
 		}
 		return errors.Wrap(err)
 	}
@@ -362,15 +457,18 @@ func (tx *serverTransact) initFSM(start TransactionState) error {
 	}
 
 	tx.fsm.SetTriggerParameters(txEvtRecvReq, reflect.TypeFor[*RequestEnvelope]())
-	tx.fsm.SetTriggerParameters(txEvtSend1xx,
+	tx.fsm.SetTriggerParameters(
+		txEvtSend1xx,
 		reflect.TypeFor[*ResponseEnvelope](),
 		reflect.TypeFor[[]SendResponseOptions](),
 	)
-	tx.fsm.SetTriggerParameters(txEvtSend2xx,
+	tx.fsm.SetTriggerParameters(
+		txEvtSend2xx,
 		reflect.TypeFor[*ResponseEnvelope](),
 		reflect.TypeFor[[]SendResponseOptions](),
 	)
-	tx.fsm.SetTriggerParameters(txEvtSend300699,
+	tx.fsm.SetTriggerParameters(
+		txEvtSend300699,
 		reflect.TypeFor[*ResponseEnvelope](),
 		reflect.TypeFor[[]SendResponseOptions](),
 	)
@@ -387,7 +485,8 @@ func (tx *serverTransact) actSendRes(ctx context.Context, args ...any) error {
 		tx.sendOpts.Store(opts)
 	}()
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "send response",
+	tx.log.DebugContext(
+		ctx, "send response",
 		slog.Any("transaction", tx.impl),
 		slog.Any("response", res),
 	)
@@ -404,7 +503,8 @@ func (tx *serverTransact) actResendRes(ctx context.Context, _ ...any) error {
 
 	opts := tx.sendOpts.Load().(SendResponseOptions) //nolint:forcetypeassert
 
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "re-send response",
+	tx.log.DebugContext(
+		ctx, "re-send response",
 		slog.Any("transaction", tx.impl),
 		slog.Any("response", res),
 	)
@@ -414,22 +514,67 @@ func (tx *serverTransact) actResendRes(ctx context.Context, _ ...any) error {
 }
 
 func (tx *serverTransact) actProceeding(ctx context.Context, _ ...any) error {
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction proceeding", slog.Any("transaction", tx.impl))
+	tx.log.DebugContext(ctx, "transaction proceeding", slog.Any("transaction", tx.impl))
 
 	return nil
 }
 
 //nolint:unparam
 func (tx *serverTransact) actCompleted(ctx context.Context, _ ...any) error {
-	tx.log.LogAttrs(ctx, slog.LevelDebug, "transaction completed", slog.Any("transaction", tx.impl))
+	tx.log.DebugContext(ctx, "transaction completed", slog.Any("transaction", tx.impl))
 
 	return nil
 }
 
+// BindSnapshotHandler binds the callback to be called when the transaction
+// publishes a new stable snapshot, see [ServerTransactionSnapshotHandler] for
+// the publication contract.
+//
+// Binding observes future publications only, the last published snapshot is
+// not replayed. The callback can be unbound by calling the returned function,
+// unbind is idempotent. A nil handler returns a noop unbind.
+func (tx *serverTransact) BindSnapshotHandler(fn ServerTransactionSnapshotHandler) (unbind func()) {
+	if fn == nil {
+		return noop
+	}
+	return tx.onSnap.Add(fn)
+}
+
+func (tx *serverTransact) saveSnapshotLocked() {
+	tx.snapshot.Store(tx.srvTxImpl().takeSnapshot())
+}
+
+func (tx *serverTransact) snapshotNotificationLocked(ctx context.Context) func() {
+	snap := tx.snapshot.Load()
+	handlers := slices.Collect(tx.onSnap.All())
+	if snap == nil || len(handlers) == 0 {
+		return nil
+	}
+	return func() {
+		for _, h := range handlers {
+			h.HandleServerTransactionSnapshot(ctx, snap.Clone())
+		}
+	}
+}
+
 // Snapshot returns a snapshot of the transaction state that can be serialized.
 // The snapshot contains all the data needed to restore the transaction after a restart.
-func (tx *serverTransact) Snapshot() *ServerTransactionSnapshot {
-	return tx.srvTxImpl().takeSnapshot()
+// A transaction cannot be snapshotted before Start completes, except when restored as terminated.
+func (tx *serverTransact) Snapshot() (*ServerTransactionSnapshot, error) {
+	tx.lcMu.Lock()
+	defer tx.lcMu.Unlock()
+
+	state := tx.State()
+	terminalRestore := tx.restored && state == TransactionStateTerminated
+	if tx.starting || (!tx.started && !terminalRestore) ||
+		(!tx.isActive() && state != TransactionStateTerminated) {
+		return nil, errors.Wrap(NewTransactionActionNotAllowedError())
+	}
+	snap := tx.snapshot.Load()
+	if snap == nil {
+		return nil, errors.Wrap(NewTransactionActionNotAllowedError())
+	}
+	return snap.Clone(), nil
 }
 
 // MarshalJSON implements [json.Marshaler].
@@ -437,7 +582,11 @@ func (tx *serverTransact) MarshalJSON() ([]byte, error) {
 	if tx == nil {
 		return jsonNull, nil
 	}
-	return errors.Wrap2(json.Marshal(tx.Snapshot()))
+	snap, err := tx.Snapshot()
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+	return errors.Wrap2(json.Marshal(snap))
 }
 
 // ServerTransactionSnapshot represents a snapshot of a server transaction state.
@@ -475,6 +624,28 @@ type ServerTransactionSnapshot struct {
 	TimerJ *timeutil.TimerSnapshot `json:"timer_j,omitempty"`
 }
 
+// Clone returns an independent copy of the snapshot.
+//
+// SIP state, timer fields and message metadata containers are copied;
+// opaque application metadata values keep the existing message-envelope
+// clone semantics (shared, not deep-copied).
+func (snap *ServerTransactionSnapshot) Clone() *ServerTransactionSnapshot {
+	if snap == nil {
+		return nil
+	}
+
+	clone := *snap
+	clone.Request = cloneReqEnvelope(snap.Request)
+	clone.LastResponse = cloneResEnvelope(snap.LastResponse)
+	clone.Timer1xx = cloneTmrSnapshot(snap.Timer1xx)
+	clone.TimerG = cloneTmrSnapshot(snap.TimerG)
+	clone.TimerH = cloneTmrSnapshot(snap.TimerH)
+	clone.TimerI = cloneTmrSnapshot(snap.TimerI)
+	clone.TimerL = cloneTmrSnapshot(snap.TimerL)
+	clone.TimerJ = cloneTmrSnapshot(snap.TimerJ)
+	return &clone
+}
+
 func (snap *ServerTransactionSnapshot) IsValid() bool {
 	return snap != nil &&
 		snap.Type.IsValid() &&
@@ -482,4 +653,532 @@ func (snap *ServerTransactionSnapshot) IsValid() bool {
 		snap.Key.IsValid() &&
 		snap.Request.IsValid() &&
 		(snap.LastResponse == nil || snap.LastResponse.IsValid())
+}
+
+func (snap *ServerTransactionSnapshot) validate(wantType TransactionType) error {
+	if !snap.IsValid() || snap.Type != wantType {
+		return errors.Wrap(NewInvalidTransactionSnapshotError())
+	}
+
+	mtd := snap.Request.Method()
+	switch wantType {
+	case TransactionTypeServerInvite:
+		if !mtd.Equal(RequestMethodInvite) {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("request method is not INVITE"))
+		}
+
+		if !isTxStateIn(
+			snap.State,
+			TransactionStateProceeding,
+			TransactionStateAccepted,
+			TransactionStateCompleted,
+			TransactionStateConfirmed,
+			TransactionStateTerminated,
+		) {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected state"))
+		}
+	case TransactionTypeServerNonInvite:
+		if mtd.Equal(RequestMethodInvite) || mtd.Equal(RequestMethodAck) {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected request method"))
+		}
+
+		if !isTxStateIn(
+			snap.State,
+			TransactionStateTrying,
+			TransactionStateProceeding,
+			TransactionStateCompleted,
+			TransactionStateTerminated,
+		) {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected state"))
+		}
+	default:
+		return errors.Wrap(NewInvalidTransactionSnapshotError())
+	}
+
+	key, err := MakeServerTransactionKey(snap.Request)
+	if err != nil {
+		return errors.Wrap(err)
+	}
+	if !snap.Key.Equal(key) {
+		return errors.Wrap(NewInvalidTransactionSnapshotError("key mismatch"))
+	}
+
+	if res := snap.LastResponse; res != nil {
+		if err := matchTxRes(snap.Request, res); err != nil {
+			return errors.Wrap(err)
+		}
+	}
+	if err := snap.validateLastRes(); err != nil {
+		return errors.Wrap(err)
+	}
+
+	return errors.Wrap(snap.validateTimers())
+}
+
+func (snap *ServerTransactionSnapshot) validateLastRes() error {
+	res := snap.LastResponse
+
+	switch snap.State {
+	case TransactionStateTrying:
+		if res != nil {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected last response"))
+		}
+	case TransactionStateProceeding:
+		if res != nil && !res.Status().IsProvisional() {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("provisional response required"))
+		}
+	case TransactionStateAccepted:
+		if res == nil || !res.Status().IsSuccessful() {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("success response required"))
+		}
+	case TransactionStateCompleted:
+		if res == nil || res.Status().IsProvisional() {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("final response required"))
+		}
+		if snap.Type == TransactionTypeServerInvite && res.Status().IsSuccessful() {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("non-2xx final response required"))
+		}
+	case TransactionStateConfirmed:
+		if res == nil || res.Status().IsProvisional() || res.Status().IsSuccessful() {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("non-2xx final response required"))
+		}
+	case TransactionStateCalling, TransactionStateTerminated:
+	}
+
+	return nil
+}
+
+func (snap *ServerTransactionSnapshot) validateTimers() error {
+	type tmrSpec struct {
+		snap    *timeutil.TimerSnapshot
+		allowed []TransactionState
+	}
+
+	var specs []tmrSpec
+
+	switch snap.Type {
+	case TransactionTypeServerInvite:
+		specs = []tmrSpec{
+			{snap.Timer1xx, []TransactionState{TransactionStateProceeding}},
+			{snap.TimerG, []TransactionState{TransactionStateCompleted}},
+			{snap.TimerH, []TransactionState{TransactionStateCompleted}},
+			{snap.TimerI, []TransactionState{TransactionStateConfirmed}},
+			{snap.TimerL, []TransactionState{TransactionStateAccepted}},
+		}
+	case TransactionTypeServerNonInvite:
+		specs = []tmrSpec{
+			{snap.TimerJ, []TransactionState{TransactionStateCompleted}},
+		}
+	default:
+		return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected type"))
+	}
+
+	var foreign []*timeutil.TimerSnapshot
+	if snap.Type == TransactionTypeServerInvite {
+		foreign = []*timeutil.TimerSnapshot{snap.TimerJ}
+	} else {
+		foreign = []*timeutil.TimerSnapshot{snap.Timer1xx, snap.TimerG, snap.TimerH, snap.TimerI, snap.TimerL}
+	}
+
+	for _, spec := range specs {
+		if err := validateTxTmrSnap(spec.snap, snap.State, spec.allowed...); err != nil {
+			return errors.Wrap(err)
+		}
+	}
+	for _, tmr := range foreign {
+		if tmr == nil {
+			continue
+		}
+		if err := tmr.Validate(); err != nil {
+			return errors.Wrap(err)
+		}
+		if tmr.State == timeutil.TimerStateRunning {
+			return errors.Wrap(NewInvalidTransactionSnapshotError("unexpected active timer"))
+		}
+	}
+
+	return nil
+}
+
+func RestoreServerTransaction(
+	snap *ServerTransactionSnapshot,
+	tp ServerTransport,
+	opts ...ServerTransactionOptions,
+) (ServerTransaction, error) {
+	if snap == nil {
+		return nil, errors.Wrap(NewInvalidTransactionSnapshotError())
+	}
+
+	switch snap.Type {
+	case TransactionTypeServerInvite:
+		return errors.Wrap2(RestoreInviteServerTransaction(snap, tp, opts...))
+	case TransactionTypeServerNonInvite:
+		return errors.Wrap2(RestoreNonInviteServerTransaction(snap, tp, opts...))
+	default:
+		return nil, errors.Wrap(NewInvalidTransactionSnapshotError())
+	}
+}
+
+// ServerTransactionKey is a key used to identify a server transaction.
+//
+// The key implements the matching rules defined in RFC 3261 section 17.2.3.
+// Branch, SentBy and Method are used for RFC 3261 transactions.
+// Method, URI, FromTag, ToTag, CallID, CSeqNum and Via are used for RFC 2543 transactions.
+type ServerTransactionKey struct {
+	// Branch parameter of the topmost Via header field.
+	// RFC 3261 transactions.
+	Branch string `json:"branch,omitempty"`
+	// Host and port of the topmost Via header field.
+	// RFC 3261 transactions.
+	SentBy string `json:"sent_by,omitempty"`
+	// Method of the request that created the transaction.
+	// RFC 3261/2543 transactions.
+	Method string `json:"method,omitempty"`
+
+	// Request-URI of the request that created the transaction.
+	// RFC 2543 transactions.
+	URI string `json:"uri,omitempty"`
+	// Tag parameter of the From header field of the request that created the transaction.
+	// RFC 2543 transactions.
+	FromTag string `json:"from_tag,omitempty"`
+	// Tag parameter of the To header field of the request that created the transaction.
+	// RFC 2543 transactions.
+	ToTag string `json:"to_tag,omitempty"`
+	// Call-ID of the request that created the transaction.
+	// RFC 2543 transactions.
+	CallID string `json:"call_id,omitempty"`
+	// SeqNum is the CSeq number of the request that created the transaction.
+	// RFC 2543 transactions.
+	SeqNum uint `json:"seq_num,omitempty"`
+	// Topmost Via header field of the request that created the transaction.
+	// RFC 2543 transactions.
+	Via string `json:"via,omitempty"`
+}
+
+// MakeServerTransactionKey builds server transaction key from the given message.
+func MakeServerTransactionKey(msg Message) (ServerTransactionKey, error) {
+	if err := msg.Validate(); err != nil {
+		return ServerTransactionKey{}, errors.Wrap(err)
+	}
+
+	hdrs, ok := GetMessageHeaders(msg)
+	if !ok {
+		return ServerTransactionKey{}, errors.Wrap(newUnexpectMsgTypeErr(msg))
+	}
+
+	via, _ := hdrs.FirstVia()
+	if branch, ok := via.Branch(); ok && IsRFC3261Branch(branch) {
+		return makeSrvTxKey3261(hdrs, via), nil
+	}
+	return errors.Wrap2(makeSrvTxKey2543(msg, hdrs, via))
+}
+
+func makeSrvTxKey3261(hdrs Headers, via *header.ViaHop) ServerTransactionKey {
+	var k ServerTransactionKey
+	k.Branch, _ = via.Branch()
+	k.SentBy = util.LCase(via.Addr.String())
+
+	cseq, _ := hdrs.CSeq()
+	k.Method = string(cseq.Method.ToUpper())
+
+	return k
+}
+
+func makeSrvTxKey2543(msg Message, hdrs Headers, via *header.ViaHop) (ServerTransactionKey, error) {
+	var k ServerTransactionKey
+
+	k.Via = util.LCase(via.String())
+
+	callID, _ := hdrs.CallID()
+	k.CallID = string(callID)
+
+	switch m := msg.(type) {
+	case *Request:
+		k.URI = util.LCase(types.Render(m.URI))
+	case interface{ URI() AnyURI }:
+		k.URI = util.LCase(types.Render(m.URI()))
+	}
+
+	from, _ := hdrs.From()
+	k.FromTag, _ = from.Tag()
+	if k.FromTag == "" {
+		return ServerTransactionKey{}, errors.Wrap(NewInvalidMessageError("missing From tag"))
+	}
+
+	to, _ := hdrs.To()
+	k.ToTag, _ = to.Tag()
+
+	cseq, _ := hdrs.CSeq()
+	k.SeqNum = cseq.SeqNum
+	k.Method = string(cseq.Method.ToUpper())
+
+	return k, nil
+}
+
+// Equal checks whether the key is equal to another key.
+func (k ServerTransactionKey) Equal(val any) bool {
+	var other ServerTransactionKey
+	switch v := val.(type) {
+	case ServerTransactionKey:
+		other = v
+	case *ServerTransactionKey:
+		if v == nil {
+			return false
+		}
+		other = *v
+	default:
+		return false
+	}
+
+	if IsRFC3261Branch(k.Branch) {
+		return k.Branch == other.Branch &&
+			util.EqFold(k.SentBy, other.SentBy) &&
+			util.EqFold(k.Method, other.Method)
+	}
+
+	return util.EqFold(k.Method, other.Method) &&
+		util.EqFold(k.URI, other.URI) &&
+		k.FromTag == other.FromTag &&
+		k.ToTag == other.ToTag &&
+		k.CallID == other.CallID &&
+		k.SeqNum == other.SeqNum &&
+		util.EqFold(k.Via, other.Via)
+}
+
+// IsValid checks whether the key is valid.
+func (k ServerTransactionKey) IsValid() bool {
+	if IsRFC3261Branch(k.Branch) {
+		return k.SentBy != "" && k.Method != ""
+	}
+	return k.Method != "" &&
+		k.URI != "" &&
+		k.FromTag != "" &&
+		k.CallID != "" &&
+		k.SeqNum > 0 &&
+		k.Via != ""
+}
+
+func (k ServerTransactionKey) IsZero() bool {
+	return k.Branch == "" &&
+		k.SentBy == "" &&
+		k.Method == "" &&
+		k.URI == "" &&
+		k.FromTag == "" &&
+		k.ToTag == "" &&
+		k.CallID == "" &&
+		k.SeqNum == 0 &&
+		k.Via == ""
+}
+
+// LogValue returns a slog.Value for the key.
+func (k ServerTransactionKey) LogValue() slog.Value {
+	if IsRFC3261Branch(k.Branch) {
+		return slog.GroupValue(
+			slog.Any("branch", k.Branch),
+			slog.Any("sent_by", k.SentBy),
+			slog.Any("method", k.Method),
+		)
+	}
+
+	return slog.GroupValue(
+		slog.Any("method", k.Method),
+		slog.Any("uri", k.URI),
+		slog.Any("from_tag", k.FromTag),
+		slog.Any("to_tag", k.ToTag),
+		slog.Any("call_id", k.CallID),
+		slog.Any("seq_num", k.SeqNum),
+		slog.Any("via", k.Via),
+	)
+}
+
+func (k ServerTransactionKey) Canonic() ServerTransactionKey {
+	if IsRFC3261Branch(k.Branch) {
+		k.SentBy = util.LCase(k.SentBy)
+		k.Method = util.UCase(k.Method)
+		return k
+	}
+
+	k.Method = util.UCase(k.Method)
+	k.URI = util.LCase(k.URI)
+	k.Via = util.LCase(k.Via)
+	return k
+}
+
+const (
+	srvTxKeyHash3261 byte = 1
+	srvTxKeyHash2543 byte = 2
+)
+
+// MarshalBinary returns a canonical binary representation of the key that can be used as
+// a stable hash.
+//
+// The representation keeps all significant fields for transaction matching and
+// uses case-folded values for case-insensitive fields. The encoding is
+// lossless for the canonical form, so a key can be reconstructed from the
+// resulting bytes if needed.
+func (k ServerTransactionKey) MarshalBinary() ([]byte, error) {
+	if !k.IsValid() {
+		return nil, errors.Wrap(NewInvalidTransactionKeyError())
+	}
+
+	if IsRFC3261Branch(k.Branch) {
+		return k.marshal3261(), nil
+	}
+	return k.marshal2543(), nil
+}
+
+func (k ServerTransactionKey) AppendBinary(b []byte) ([]byte, error) {
+	data, err := k.MarshalBinary()
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+	return append(b, data...), nil
+}
+
+func (k ServerTransactionKey) marshal3261() []byte {
+	k = k.Canonic() //nolint:revive
+
+	size := 1 +
+		util.SizePrefixedString(k.Branch) +
+		util.SizePrefixedString(k.SentBy) +
+		util.SizePrefixedString(k.Method)
+
+	buf := make([]byte, 0, size)
+	buf = append(buf, srvTxKeyHash3261)
+	buf = util.AppendPrefixedString(buf, k.Branch)
+	buf = util.AppendPrefixedString(buf, k.SentBy)
+	buf = util.AppendPrefixedString(buf, k.Method)
+	return buf
+}
+
+func (k ServerTransactionKey) marshal2543() []byte {
+	k = k.Canonic() //nolint:revive
+
+	size := 1 +
+		util.SizePrefixedString(k.URI) +
+		util.SizePrefixedString(k.FromTag) +
+		util.SizePrefixedString(k.ToTag) +
+		util.SizePrefixedString(k.CallID) +
+		util.SizeUVarInt(uint64(k.SeqNum)) +
+		util.SizePrefixedString(k.Method) +
+		util.SizePrefixedString(k.Via)
+
+	buf := make([]byte, 0, size)
+	buf = append(buf, srvTxKeyHash2543)
+	buf = util.AppendPrefixedString(buf, k.URI)
+	buf = util.AppendPrefixedString(buf, k.FromTag)
+	buf = util.AppendPrefixedString(buf, k.ToTag)
+	buf = util.AppendPrefixedString(buf, k.CallID)
+	buf = util.AppendUVarInt(buf, uint64(k.SeqNum))
+	buf = util.AppendPrefixedString(buf, k.Method)
+	buf = util.AppendPrefixedString(buf, k.Via)
+	return buf
+}
+
+// UnmarshalBinary populates the key fields from a binary representation
+// produced by [ServerTransactionKey.MarshalBinary].
+func (k *ServerTransactionKey) UnmarshalBinary(data []byte) error {
+	if len(data) == 0 {
+		*k = ServerTransactionKey{}
+		return nil
+	}
+
+	key, ok := parseSrvTxKey(data)
+	if !ok {
+		return errors.Wrap(NewInvalidTransactionKeyError("unexpected payload"))
+	}
+
+	*k = key
+	return nil
+}
+
+func parseSrvTxKey(data []byte) (ServerTransactionKey, bool) {
+	var (
+		rest = data[1:]
+		err  error
+		key  ServerTransactionKey
+	)
+
+	switch data[0] {
+	case srvTxKeyHash3261:
+		if key.Branch, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+
+		if key.SentBy, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+
+		if key.Method, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+	case srvTxKeyHash2543:
+		if key.URI, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+
+		if key.FromTag, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+
+		if key.ToTag, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+
+		if key.CallID, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+
+		var seqNum uint64
+		if seqNum, rest, err = util.ConsumeUVarInt(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+		key.SeqNum = uint(seqNum)
+
+		if key.Method, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+
+		if key.Via, rest, err = util.ConsumePrefixedString(rest); err != nil {
+			return ServerTransactionKey{}, false
+		}
+	default:
+		return ServerTransactionKey{}, false
+	}
+
+	if len(rest) != 0 {
+		return ServerTransactionKey{}, false
+	}
+	return key, true
+}
+
+func (k ServerTransactionKey) String() string {
+	data, err := k.MarshalBinary()
+	if err != nil {
+		return "invalid transaction key"
+	}
+	return hex.EncodeToString(data)
+}
+
+func (k ServerTransactionKey) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 's':
+		f.Write([]byte(k.String()))
+		return
+	case 'q':
+		f.Write([]byte(strconv.Quote(k.String())))
+		return
+	default:
+		if !f.Flag('+') && !f.Flag('#') {
+			f.Write([]byte(k.String()))
+			return
+		}
+
+		type (
+			hideMethods          ServerTransactionKey
+			ServerTransactionKey hideMethods
+		)
+		fmt.Fprintf(f, fmt.FormatString(f, verb), ServerTransactionKey(k))
+		return
+	}
 }

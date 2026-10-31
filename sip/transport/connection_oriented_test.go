@@ -13,8 +13,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	"github.com/ghettovoice/gosip/dns"
 	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/testutil"
+	"github.com/ghettovoice/gosip/internal/testutil/dnstest"
+	"github.com/ghettovoice/gosip/internal/testutil/siptest"
+	"github.com/ghettovoice/gosip/pkg/dns"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/sip/transport"
@@ -28,12 +31,12 @@ func TestConnectionOrientedTransport_Lifecycle(t *testing.T) {
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	if err := tp.Close(t.Context()); err != nil {
-		t.Fatalf("tp.Close(t.Context()) error = %v, want nil", err)
+	if err := tp.Close(); err != nil {
+		t.Fatalf("tp.Close() error = %v, want nil", err)
 	}
 
-	if err := tp.Close(t.Context()); err != nil {
-		t.Fatalf("tp.Close(t.Context()) second call error = %v, want nil", err)
+	if err := tp.Close(); err != nil {
+		t.Fatalf("tp.Close() second call error = %v, want nil", err)
 	}
 
 	_, err = tp.AcquireConnection(t.Context(), netip.AddrPort{})
@@ -73,7 +76,7 @@ func TestConnectionOrientedListener_Serve_Duplicate(t *testing.T) {
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	base, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -102,8 +105,10 @@ func TestConnectionOrientedListener_Serve_Duplicate(t *testing.T) {
 
 	cancel()
 	base.Close()
-	tp.Close(t.Context())
-	<-done
+	tp.Close()
+	if err := testutil.WaitResult(t, done, "tp.ServeListener()"); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("tp.ServeListener() error = %v, want context canceled or closed", err)
+	}
 }
 
 func TestConnectionOrientedListener_Serve_TemporaryError(t *testing.T) {
@@ -114,7 +119,7 @@ func TestConnectionOrientedListener_Serve_TemporaryError(t *testing.T) {
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	base, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -123,27 +128,31 @@ func TestConnectionOrientedListener_Serve_TemporaryError(t *testing.T) {
 
 	t.Cleanup(func() { base.Close() })
 
-	lis := &tempErrListener{Listener: base}
+	lis := &tempErrListener{
+		Listener:    base,
+		errInjected: make(chan struct{}),
+		accepted:    make(chan struct{}),
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
 	go func() { done <- tp.ServeListener(ctx, lis) }()
 
-	waitFor(t, func() bool {
-		conn, err := net.Dial("tcp", base.Addr().String())
-		if err != nil {
-			return false
-		}
+	testutil.WaitClosed(t, lis.errInjected, "temporary Accept error")
+	client, err := net.Dial("tcp", base.Addr().String())
+	if err != nil {
+		t.Fatalf("net.Dial() error = %v, want nil", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	testutil.WaitClosed(t, lis.accepted, "successful delegated Accept")
 
-		conn.Close()
-
-		return true
-	})
-
+	_ = client.Close()
 	cancel()
 	base.Close()
-	<-done
+	if err := testutil.WaitResult(t, done, "tp.ServeListener()"); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("tp.ServeListener() error = %v, want context canceled or closed", err)
+	}
 }
 
 func TestConnectionOrientedTransport_ServeConn_Duplicate(t *testing.T) {
@@ -154,24 +163,14 @@ func TestConnectionOrientedTransport_ServeConn_Duplicate(t *testing.T) {
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	base, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { base.Close() })
-
-	connCh := make(chan net.Conn, 1)
-	go func() {
-		c, err := base.Accept()
-		if err != nil {
-			return
-		}
-
-		connCh <- c
-	}()
+	waitAccept := startTestAccept(t, base)
 
 	client, err := net.Dial("tcp", base.Addr().String())
 	if err != nil {
@@ -180,8 +179,7 @@ func TestConnectionOrientedTransport_ServeConn_Duplicate(t *testing.T) {
 
 	t.Cleanup(func() { client.Close() })
 
-	srv := <-connCh
-	t.Cleanup(func() { srv.Close() })
+	srv := waitAccept()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
@@ -203,8 +201,10 @@ func TestConnectionOrientedTransport_ServeConn_Duplicate(t *testing.T) {
 
 	cancel()
 	srv.Close()
-	tp.Close(t.Context())
-	<-done
+	tp.Close()
+	if err := testutil.WaitResult(t, done, "tp.ServeConn()"); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("tp.ServeConn() error = %v, want context canceled or closed", err)
+	}
 }
 
 func TestConnectionOrientedTransport_SendAndReceive(t *testing.T) {
@@ -214,25 +214,14 @@ func TestConnectionOrientedTransport_SendAndReceive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("net.Listen() error = %v, want nil", err)
 	}
-
-	t.Cleanup(func() { base.Close() })
+	waitAccept := startTestAccept(t, base)
 
 	tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata())
 	if err != nil {
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
-
-	srvCh := make(chan net.Conn, 1)
-	go func() {
-		c, err := base.Accept()
-		if err != nil {
-			return
-		}
-
-		srvCh <- c
-	}()
+	t.Cleanup(func() { tp.Close() })
 
 	req := newMinReq(t)
 	srvAddr := netip.MustParseAddrPort(base.Addr().String())
@@ -244,10 +233,10 @@ func TestConnectionOrientedTransport_SendAndReceive(t *testing.T) {
 		t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 	}
 
-	srvConn := <-srvCh
-	t.Cleanup(func() { srvConn.Close() })
+	srvConn := waitAccept()
+	reader := siptest.NewStreamReader(t, srvConn)
 
-	msg := readTCPMsg(t, srvConn)
+	msg := reader.Read(t)
 
 	parsedReq, ok := msg.(*sip.Request)
 	if !ok {
@@ -258,7 +247,7 @@ func TestConnectionOrientedTransport_SendAndReceive(t *testing.T) {
 		t.Fatalf("Content-Length header missing")
 	}
 
-	resp := newMinResp(t, "TCP", sip.AddrFromHostPort(srvAddr.Addr().String(), srvAddr.Port()))
+	resp := newMinResp(t, "TCP", sip.MakeHostPortAddr(srvAddr.Addr().String(), srvAddr.Port()))
 
 	outRes := sip.NewResponseEnvelope(resp).
 		SetRemoteAddr(srvAddr)
@@ -267,7 +256,7 @@ func TestConnectionOrientedTransport_SendAndReceive(t *testing.T) {
 		t.Fatalf("tp.SendResponse() error = %v, want nil", err)
 	}
 
-	resMsg := readTCPMsg(t, srvConn)
+	resMsg := reader.Read(t)
 
 	parsedRes, ok := resMsg.(*sip.Response)
 	if !ok {
@@ -291,12 +280,12 @@ func TestConnectionOrientedTransport_SendAndReceive(t *testing.T) {
 func TestConnectionOrientedTransport_InterceptInboundMessages(t *testing.T) {
 	t.Parallel()
 
-	tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHost("127.0.0.1")})
+	tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostAddr("127.0.0.1")})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	base, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -343,7 +332,7 @@ func TestConnectionOrientedTransport_InterceptInboundMessages(t *testing.T) {
 		req.Headers.Set(header.Via{{
 			Proto:     sip.ProtoVer20(),
 			Transport: "TCP",
-			Addr:      sip.AddrFromHostPort("127.0.0.1", 5060),
+			Addr:      sip.MakeHostPortAddr("127.0.0.1", 5060),
 			Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
 		}})
 		req.Headers.Set(header.ContentLength(0))
@@ -359,7 +348,7 @@ func TestConnectionOrientedTransport_InterceptInboundMessages(t *testing.T) {
 	}
 
 	laddr := netip.MustParseAddrPort(base.Addr().String())
-	res := newMinResp(t, "TCP", sip.AddrFromHost(laddr.Addr().String()))
+	res := newMinResp(t, "TCP", sip.MakeHostAddr(laddr.Addr().String()))
 	res.Headers.Set(header.ContentLength(0))
 
 	if _, err := cln.Write([]byte(res.Render())); err != nil {
@@ -375,19 +364,21 @@ func TestConnectionOrientedTransport_InterceptInboundMessages(t *testing.T) {
 	cancel()
 	base.Close()
 	cln.Close()
-	tp.Close(t.Context())
-	<-done
+	tp.Close()
+	if err := testutil.WaitResult(t, done, "tp.ServeListener()"); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("tp.ServeListener() error = %v, want context canceled or closed", err)
+	}
 }
 
 func TestConnectionOrientedTransport_RecvRequest_PanicResponds(t *testing.T) {
 	t.Parallel()
 
-	tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("127.0.0.1", 5060)})
+	tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", 5060)})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -433,13 +424,13 @@ func TestConnectionOrientedTransport_RecvRequest_PanicResponds(t *testing.T) {
 
 	req := newMinReq(t)
 	req.Headers.Set(header.ContentLength(0))
-	req.Headers.Set(header.Via{newViaHop(t, "TCP", sip.AddrFromHostPort(clnAddr.Addr().String(), clnAddr.Port()))})
+	req.Headers.Set(header.Via{newViaHop(t, "TCP", sip.MakeHostPortAddr(clnAddr.Addr().String(), clnAddr.Port()))})
 
 	if _, err := cln.Write([]byte(req.Render())); err != nil {
 		t.Fatalf("client.Write() error = %v, want nil", err)
 	}
 
-	msg := readTCPMsg(t, cln)
+	msg := siptest.NewStreamReader(t, cln).Read(t)
 
 	res, ok := msg.(*sip.Response)
 	if !ok {
@@ -459,7 +450,7 @@ func TestConnectionOrientedTransport_RecvRequest_ParseErrorRespondsBadRequest(t 
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -500,7 +491,7 @@ func TestConnectionOrientedTransport_RecvRequest_ParseErrorRespondsBadRequest(t 
 		t.Fatalf("client.Write(invalid) error = %v, want nil", err)
 	}
 
-	msg := readTCPMsg(t, cln)
+	msg := siptest.NewStreamReader(t, cln).Read(t)
 
 	res, ok := msg.(*sip.Response)
 	if !ok {
@@ -512,7 +503,7 @@ func TestConnectionOrientedTransport_RecvRequest_ParseErrorRespondsBadRequest(t 
 	}
 }
 
-func TestConnectionOrientedTransport_RecvRequest_ParseErrorRespondsMessageTooLarge(t *testing.T) {
+func TestConnectionOrientedTransport_RecvRequest_ParseErrorRespondsRequestEntityTooLarge(t *testing.T) {
 	t.Parallel()
 
 	tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata())
@@ -520,7 +511,7 @@ func TestConnectionOrientedTransport_RecvRequest_ParseErrorRespondsMessageTooLar
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -567,7 +558,7 @@ func TestConnectionOrientedTransport_RecvRequest_ParseErrorRespondsMessageTooLar
 	req := newMinReq(t)
 	req.Body = bytes.Repeat([]byte("a"), int(math.MaxUint16))
 	req.Headers.Set(header.ContentLength(len(req.Body)))
-	req.Headers.Set(header.Via{newViaHop(t, "TCP", sip.AddrFromHostPort(clnAddr.Addr().String(), clnAddr.Port()))})
+	req.Headers.Set(header.Via{newViaHop(t, "TCP", sip.MakeHostPortAddr(clnAddr.Addr().String(), clnAddr.Port()))})
 
 	if _, err := cln.Write([]byte(req.Render())); err != nil {
 		t.Fatalf("client.Write() error = %v, want nil", err)
@@ -579,7 +570,7 @@ func TestConnectionOrientedTransport_RecvRequest_ParseErrorRespondsMessageTooLar
 			t.Fatalf("outbound response = nil, want non-nil")
 		}
 
-		if got, want := res.Message().Status, sip.ResponseStatusMessageTooLarge; got != want {
+		if got, want := res.Message().Status, sip.ResponseStatusRequestEntityTooLarge; got != want {
 			t.Fatalf("response status = %v, want %v", got, want)
 		}
 	case <-time.After(asyncEventTimeout):
@@ -595,7 +586,7 @@ func TestConnectionOrientedTransport_RecvResponse_ParseErrorDiscarded(t *testing
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -663,12 +654,12 @@ func TestConnectionOrientedTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 
 	lisAddr := netip.MustParseAddrPort(lis.Addr().String())
 
-	tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	resCh := make(chan *sip.ResponseEnvelope, 1)
 	tp.UseInboundResponseInterceptor(
@@ -697,7 +688,7 @@ func TestConnectionOrientedTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 		return err == nil
 	})
 
-	matchAddr := sip.AddrFromHostPort(lisAddr.Addr().String(), lisAddr.Port())
+	matchAddr := sip.MakeHostPortAddr(lisAddr.Addr().String(), lisAddr.Port())
 	res := newMinResp(t, "TCP", matchAddr)
 	res.Headers.Set(header.ContentLength(0))
 
@@ -711,7 +702,7 @@ func TestConnectionOrientedTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 		t.Fatalf("inbound response not received")
 	}
 
-	res = newMinResp(t, "TCP", sip.AddrFromHostPort("192.0.2.2", lisAddr.Port()))
+	res = newMinResp(t, "TCP", sip.MakeHostPortAddr("192.0.2.2", lisAddr.Port()))
 	res.Headers.Set(header.ContentLength(0))
 
 	if _, err := cln.Write([]byte(res.Render())); err != nil {
@@ -735,28 +726,17 @@ func TestConnectionOrientedTransport_SendRequest_SentBy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("net.Listen() error = %v, want nil", err)
 		}
-
-		t.Cleanup(func() { lis.Close() })
+		waitAccept := startTestAccept(t, lis)
 
 		lisAddr := netip.MustParseAddrPort(lis.Addr().String())
-		sentBy := sip.AddrFromHostPort("sentby.example.com", 5071)
+		sentBy := sip.MakeHostPortAddr("sentby.example.com", 5071)
 
 		tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata(), transport.TransportOptions{PublicAddr: sentBy})
 		if err != nil {
 			t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { tp.Close(t.Context()) })
-
-		serverCh := make(chan net.Conn, 1)
-		go func() {
-			conn, err := lis.Accept()
-			if err != nil {
-				return
-			}
-
-			serverCh <- conn
-		}()
+		t.Cleanup(func() { tp.Close() })
 
 		outReq := sip.NewRequestEnvelope(newMinReq(t)).
 			SetRemoteAddr(lisAddr)
@@ -765,10 +745,9 @@ func TestConnectionOrientedTransport_SendRequest_SentBy(t *testing.T) {
 			t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 		}
 
-		srvConn := <-serverCh
-		defer srvConn.Close()
+		srvConn := waitAccept()
 
-		msg := readTCPMsg(t, srvConn)
+		msg := siptest.NewStreamReader(t, srvConn).Read(t)
 
 		parsedReq, ok := msg.(*sip.Request)
 		if !ok {
@@ -780,7 +759,7 @@ func TestConnectionOrientedTransport_SendRequest_SentBy(t *testing.T) {
 			t.Fatalf("parsed request Via header missing")
 		}
 
-		wantAddr := sip.AddrFromHostPort(sentBy.Host(), 5071)
+		wantAddr := sip.MakeHostPortAddr(sentBy.Host(), 5071)
 		if !via.Addr.Equal(wantAddr) {
 			t.Fatalf("Via.sent-by = %q, want %q", via.Addr, wantAddr)
 		}
@@ -793,27 +772,16 @@ func TestConnectionOrientedTransport_SendRequest_SentBy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("net.Listen() error = %v, want nil", err)
 		}
-
-		t.Cleanup(func() { lis.Close() })
+		waitAccept := startTestAccept(t, lis)
 
 		lisAddr := netip.MustParseAddrPort(lis.Addr().String())
 
-		tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("", 0)})
+		tp, err := transport.NewConnectionOrientedTransport(sip.TCPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("", 0)})
 		if err != nil {
 			t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { tp.Close(t.Context()) })
-
-		srvCh := make(chan net.Conn, 1)
-		go func() {
-			conn, err := lis.Accept()
-			if err != nil {
-				return
-			}
-
-			srvCh <- conn
-		}()
+		t.Cleanup(func() { tp.Close() })
 
 		outReq := sip.NewRequestEnvelope(newMinReq(t)).
 			SetRemoteAddr(lisAddr)
@@ -822,10 +790,9 @@ func TestConnectionOrientedTransport_SendRequest_SentBy(t *testing.T) {
 			t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 		}
 
-		srvConn := <-srvCh
-		defer srvConn.Close()
+		srvConn := waitAccept()
 
-		msg := readTCPMsg(t, srvConn)
+		msg := siptest.NewStreamReader(t, srvConn).Read(t)
 
 		parsedReq, ok := msg.(*sip.Request)
 		if !ok {
@@ -851,8 +818,7 @@ func TestConnectionOrientedTransport_SendResponse_FallbackDNS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("net.Listen() error = %v, want nil", err)
 	}
-
-	t.Cleanup(func() { lis.Close() })
+	waitAccept := startTestAccept(t, lis)
 
 	lisAddr := netip.MustParseAddrPort(lis.Addr().String())
 	meta := sip.TCPMetadata()
@@ -868,17 +834,17 @@ func TestConnectionOrientedTransport_SendResponse_FallbackDNS(t *testing.T) {
 		return (&net.Dialer{}).DialContext(ctx, network, addr)
 	})
 
-	dnsResolver := stubDNSResolver{
-		lookupIP: func(ctx context.Context, network, host string) ([]net.IP, error) {
+	dnsResolver := dnstest.StubResolver{
+		LookupIPFunc: func(ctx context.Context, network, host string) ([]net.IP, error) {
 			if host != "example.com" {
 				return nil, errors.New("unexpected host")
 			}
 			return []net.IP{net.ParseIP("127.0.0.2"), net.ParseIP("127.0.0.1")}, nil
 		},
-		lookupSRV: func(ctx context.Context, service, proto, host string) ([]*dns.SRV, error) {
+		LookupSRVFunc: func(ctx context.Context, service, proto, host string) ([]*dns.SRV, error) {
 			return nil, errors.New("srv lookup not used")
 		},
-		lookupNAPTR: func(ctx context.Context, host string) ([]*dns.NAPTR, error) {
+		LookupNAPTRFunc: func(ctx context.Context, host string) ([]*dns.NAPTR, error) {
 			return nil, errors.New("naptr lookup not used")
 		},
 	}
@@ -886,7 +852,7 @@ func TestConnectionOrientedTransport_SendResponse_FallbackDNS(t *testing.T) {
 	tp, err := transport.NewConnectionOrientedTransport(meta, transport.TransportOptions{
 		ClientLocator: &sip.RemoteElementLocator{
 			DNSResolver:      dnsResolver,
-			MetadataProvider: &multiTransportProvider{metas: []sip.TransportMetadata{meta}},
+			MetadataProvider: siptest.MetadataProvider{Metas: []sip.TransportMetadata{meta}},
 		},
 		ConnectionDialer: dialer,
 	})
@@ -894,19 +860,9 @@ func TestConnectionOrientedTransport_SendResponse_FallbackDNS(t *testing.T) {
 		t.Fatalf("transport.NewConnectionOrientedTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
-	srvCh := make(chan net.Conn, 1)
-	go func() {
-		conn, err := lis.Accept()
-		if err != nil {
-			return
-		}
-
-		srvCh <- conn
-	}()
-
-	viaAddr := sip.AddrFromHostPort("example.com", lisAddr.Port())
+	viaAddr := sip.MakeHostPortAddr("example.com", lisAddr.Port())
 	resp := newMinResp(t, "TCP", viaAddr)
 	resp.Headers.Set(header.ContentLength(0))
 
@@ -917,10 +873,9 @@ func TestConnectionOrientedTransport_SendResponse_FallbackDNS(t *testing.T) {
 		t.Fatalf("tp.SendResponse() error = %v, want nil", err)
 	}
 
-	srvConn := <-srvCh
-	defer srvConn.Close()
+	srvConn := waitAccept()
 
-	msg := readTCPMsg(t, srvConn)
+	msg := siptest.NewStreamReader(t, srvConn).Read(t)
 	if _, ok := msg.(*sip.Response); !ok {
 		t.Fatalf("parsed message type = %T, want *sip.Response", msg)
 	}

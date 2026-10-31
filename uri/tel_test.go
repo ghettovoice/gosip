@@ -13,7 +13,7 @@ import (
 func TestTel_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Tel
 		want string
@@ -40,12 +40,12 @@ func TestTel_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.uri.Render(); got != c.want {
-				t.Errorf("uri.Render() = %q, want %q", got, c.want)
+			if got := tt.uri.Render(); got != tt.want {
+				t.Errorf("uri.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -54,7 +54,7 @@ func TestTel_Render(t *testing.T) {
 func TestTel_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		uri     *uri.Tel
 		wantRes string
@@ -65,19 +65,19 @@ func TestTel_RenderTo(t *testing.T) {
 		{"number only", &uri.Tel{Number: "+1(222)333-44-55"}, "tel:+1(222)333-44-55", nil},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-			_, err := c.uri.RenderTo(&sb)
+			_, err := tt.uri.RenderTo(&sb)
 
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("uri.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("uri.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -86,7 +86,7 @@ func TestTel_RenderTo(t *testing.T) {
 func TestTel_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Tel
 		want string
@@ -95,12 +95,12 @@ func TestTel_String(t *testing.T) {
 		{"zero", &uri.Tel{}, "tel:"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.uri.String(); got != c.want {
-				t.Errorf("uri.String() = %q, want %q", got, c.want)
+			if got := tt.uri.String(); got != tt.want {
+				t.Errorf("uri.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -109,7 +109,7 @@ func TestTel_String(t *testing.T) {
 func TestTel_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Tel
 		val  any
@@ -198,12 +198,12 @@ func TestTel_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.uri.Equal(c.val); got != c.want {
-				t.Errorf("uri.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.uri.Equal(tt.val); got != tt.want {
+				t.Errorf("uri.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -212,7 +212,7 @@ func TestTel_Equal(t *testing.T) {
 func TestTel_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Tel
 		want bool
@@ -229,12 +229,12 @@ func TestTel_IsValid(t *testing.T) {
 		{"invalid params", &uri.Tel{Number: "+123", Params: make(uri.Values).Set("a b c", "111")}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.uri.IsValid(); got != c.want {
-				t.Errorf("uri.IsValid() = %v, want %v", got, c.want)
+			if got := tt.uri.IsValid(); got != tt.want {
+				t.Errorf("uri.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -243,7 +243,7 @@ func TestTel_IsValid(t *testing.T) {
 func TestTel_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Tel
 	}{
@@ -255,21 +255,21 @@ func TestTel_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.uri.Clone()
+			got := tt.uri.Clone()
 
-			if c.uri == nil {
+			if tt.uri == nil {
 				if got != nil {
 					t.Errorf("uri.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.uri); diff != "" {
-				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.uri, diff)
+			if diff := cmp.Diff(got, tt.uri); diff != "" {
+				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.uri, diff)
 			}
 		})
 	}
@@ -278,7 +278,7 @@ func TestTel_Clone(t *testing.T) {
 func TestTel_IsGlob(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Tel
 		want bool
@@ -289,12 +289,12 @@ func TestTel_IsGlob(t *testing.T) {
 		{"local", &uri.Tel{Number: "123"}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.uri.IsGlob(); got != c.want {
-				t.Errorf("uri.IsGlob() = %v, want %v", got, c.want)
+			if got := tt.uri.IsGlob(); got != tt.want {
+				t.Errorf("uri.IsGlob() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -303,15 +303,15 @@ func TestTel_IsGlob(t *testing.T) {
 func TestTel_ToSIP(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Tel
 		want *uri.SIP
 	}{
 		{"nil", (*uri.Tel)(nil), nil},
 		{"zero", &uri.Tel{}, &uri.SIP{
-			User:   uri.User(""),
-			Addr:   uri.AddrFromHost(""),
+			User:   uri.MakeUserInfo(""),
+			Addr:   uri.MakeHostAddr(""),
 			Params: make(uri.Values).Set("user", "phone"),
 		}},
 		{
@@ -325,8 +325,8 @@ func TestTel_ToSIP(t *testing.T) {
 					Append("phone-context", "+11"),
 			},
 			&uri.SIP{
-				User:   uri.User("123;ext=555;phone-context=+11;baz;foo=bar"),
-				Addr:   uri.AddrFromHost(""),
+				User:   uri.MakeUserInfo("123;ext=555;phone-context=+11;baz;foo=bar"),
+				Addr:   uri.MakeHostAddr(""),
 				Params: make(uri.Values).Set("user", "phone"),
 			},
 		},
@@ -341,21 +341,21 @@ func TestTel_ToSIP(t *testing.T) {
 					Append("phone-context", "example.com"),
 			},
 			&uri.SIP{
-				User:   uri.User("123;ext=555;phone-context=example.com;baz;foo=bar"),
-				Addr:   uri.AddrFromHost("example.com"),
+				User:   uri.MakeUserInfo("123;ext=555;phone-context=example.com;baz;foo=bar"),
+				Addr:   uri.MakeHostAddr("example.com"),
 				Params: make(uri.Values).Set("user", "phone"),
 			},
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.uri.ToSIP()
+			got := tt.uri.ToSIP()
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Errorf("uri.ToSIP() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("uri.ToSIP() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -364,7 +364,7 @@ func TestTel_ToSIP(t *testing.T) {
 func TestTel_RoundTripText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		uri     *uri.Tel
 		want    *uri.Tel
@@ -391,11 +391,11 @@ func TestTel_RoundTripText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			text, err := c.uri.MarshalText()
+			text, err := tt.uri.MarshalText()
 			if err != nil {
 				t.Fatalf("uri.MarshalText() error = %v, want nil", err)
 			}
@@ -403,7 +403,7 @@ func TestTel_RoundTripText(t *testing.T) {
 			var got uri.Tel
 			err = got.UnmarshalText(text)
 
-			if c.wantErr {
+			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("got.UnmarshalText(text) error = nil, want error")
 				}
@@ -414,8 +414,8 @@ func TestTel_RoundTripText(t *testing.T) {
 				t.Fatalf("got.UnmarshalText(text) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(&got, c.want); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, c.want, diff)
+			if diff := cmp.Diff(&got, tt.want); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, tt.want, diff)
 			}
 		})
 	}

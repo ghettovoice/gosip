@@ -15,7 +15,7 @@ import (
 func TestDate_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Date
 		want string
@@ -29,12 +29,12 @@ func TestDate_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(); got != c.want {
-				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(); got != tt.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -43,7 +43,7 @@ func TestDate_Render(t *testing.T) {
 func TestDate_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     *header.Date
 		wantRes string
@@ -59,19 +59,19 @@ func TestDate_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -80,7 +80,7 @@ func TestDate_RenderTo(t *testing.T) {
 func TestDate_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Date
 		want string
@@ -90,12 +90,12 @@ func TestDate_String(t *testing.T) {
 		{"full", &header.Date{Time: time.Date(2010, 11, 13, 23, 29, 0, 0, time.UTC)}, "Sat, 13 Nov 2010 23:29:00 GMT"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.String(); got != c.want {
-				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			if got := tt.hdr.String(); got != tt.want {
+				t.Errorf("hdr.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -104,7 +104,7 @@ func TestDate_String(t *testing.T) {
 func TestDate_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Date
 		val  any
@@ -134,12 +134,12 @@ func TestDate_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -148,7 +148,7 @@ func TestDate_Equal(t *testing.T) {
 func TestDate_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Date
 		want bool
@@ -158,12 +158,12 @@ func TestDate_IsValid(t *testing.T) {
 		{"valid", &header.Date{Time: time.Now()}, true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -173,7 +173,7 @@ func TestDate_Clone(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Date
 	}{
@@ -182,20 +182,20 @@ func TestDate_Clone(t *testing.T) {
 		{"full", &header.Date{Time: now}},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.hdr.Clone()
-			if c.hdr == nil {
+			got := tt.hdr.Clone()
+			if tt.hdr == nil {
 				if got != nil {
 					t.Errorf("hdr.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}
@@ -204,7 +204,7 @@ func TestDate_Clone(t *testing.T) {
 func TestDate_MarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Date
 		want string
@@ -218,17 +218,17 @@ func TestDate_MarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(c.hdr)
+			got, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal() error = %v, want nil", err)
 			}
 
-			if got := string(got); got != c.want {
-				t.Fatalf("json.Marshal() = %q, want %q", got, c.want)
+			if got := string(got); got != tt.want {
+				t.Fatalf("json.Marshal() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -237,7 +237,7 @@ func TestDate_MarshalJSON(t *testing.T) {
 func TestDate_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    *header.Date
@@ -258,24 +258,24 @@ func TestDate_UnmarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got *header.Date
-			if err := json.Unmarshal([]byte(c.data), &got); err != nil {
-				if !c.wantErr {
+			if err := json.Unmarshal([]byte(tt.data), &got); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("json.Unmarshal(data, got) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -284,7 +284,7 @@ func TestDate_UnmarshalJSON(t *testing.T) {
 func TestDate_RoundTripJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Date
 	}{
@@ -293,11 +293,11 @@ func TestDate_RoundTripJSON(t *testing.T) {
 		{"full", &header.Date{Time: time.Date(2010, 11, 13, 23, 29, 0, 0, time.UTC)}},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(c.hdr)
+			data, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
@@ -307,8 +307,8 @@ func TestDate_RoundTripJSON(t *testing.T) {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}

@@ -124,27 +124,9 @@ func (hdr *ContentType) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *ContentType) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = ContentType{}
-		return nil
-	}
-
-	h, ok := gh.(*ContentType)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && (len(ah.Value) == 0 || ah.Value == "/") {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), func(value string) bool {
+		return value == "" || value == "/"
+	}))
 }
 
 func buildFromContentTypeNode(node *abnf.Node) *ContentType {

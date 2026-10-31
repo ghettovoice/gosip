@@ -149,7 +149,8 @@ func (req *Request) LogValue() slog.Value {
 		return slog.Value{}
 	}
 
-	attrs := append(make([]slog.Attr, 0, 7),
+	attrs := append(
+		make([]slog.Attr, 0, 7),
 		slog.Any("method", req.Method),
 		slog.Any("uri", req.URI),
 	)
@@ -252,7 +253,7 @@ func (req *Request) Validate() error {
 	if len(errs) == 0 {
 		return nil
 	}
-	return errors.Wrap(newInvalidMsgErr(errors.Join(errs...)))
+	return errors.Wrap(NewInvalidMessageError(errors.Join(errs...)))
 }
 
 func (req *Request) UnmarshalJSON(data []byte) error {
@@ -373,7 +374,7 @@ func NewRequest(mtd RequestMethod, ruri, furi, turi AnyURI, opts ...RequestOptio
 	via := header.ViaHop{
 		Proto:     protoVer20,
 		Transport: reqOpts.transp(),
-		Addr:      AddrFromHost(util.RandString(8) + ".invalid"), // will be replaced by the transport
+		Addr:      MakeHostAddr(util.RandString(8) + ".invalid"), // will be replaced by the transport
 		Params:    make(Values).Set("branch", reqOpts.branch()),
 	}
 	if reqOpts.RPort {
@@ -427,7 +428,7 @@ func EnsureRequestVia(req *Request, tp TransportProto, addr Addr) {
 	if addr.IsValid() {
 		via.Addr = addr
 	} else if !via.Addr.IsValid() {
-		via.Addr = AddrFromHost(util.RandString(8) + ".invalid")
+		via.Addr = MakeHostAddr(util.RandString(8) + ".invalid")
 	}
 
 	if b, ok := via.Branch(); !ok || !IsRFC3261Branch(b) {
@@ -482,7 +483,7 @@ func NewCancelRequest(inv *Request) (*Request, error) {
 		return nil, errors.Wrap(err)
 	}
 	if !inv.Method.Equal(RequestMethodInvite) {
-		return nil, errors.Wrap(ErrMethodNotAllowed)
+		return nil, errors.Wrap(NewRequestMethodNotAllowedError())
 	}
 
 	cnc := &Request{
@@ -622,6 +623,13 @@ func (r *RequestEnvelope) Clone() Message {
 	return &RequestEnvelope{
 		cloned.(*MessageEnvelope[*Request]), //nolint:forcetypeassert
 	}
+}
+
+func cloneReqEnvelope(req *RequestEnvelope) *RequestEnvelope {
+	if req == nil {
+		return nil
+	}
+	return req.Clone().(*RequestEnvelope) //nolint:forcetypeassert
 }
 
 func (r *RequestEnvelope) Equal(val any) bool {

@@ -11,8 +11,6 @@ import (
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type ContextKey string
-
 // Renderer is an interface that is used to render a type to a string or a writer.
 type Renderer interface {
 	// RenderTo renders the type to a writer with the given options.

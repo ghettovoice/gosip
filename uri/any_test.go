@@ -14,7 +14,7 @@ import (
 func TestAny_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Any
 		want string
@@ -22,17 +22,17 @@ func TestAny_Render(t *testing.T) {
 		{"nil", (*uri.Any)(nil), ""},
 		{"empty", &uri.Any{}, ""},
 		{"scheme", &uri.Any{URL: url.URL{Scheme: "qwe"}}, "qwe:"},
-		{"path", &uri.Any{URL: url.URL{Path: "qwe/abc.wav"}}, "qwe/abc.wav"},
+		{"path", &uri.Any{Path: "qwe/abc.wav"}, "qwe/abc.wav"},
 		{"scheme and host", &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}}, "http://example.com"},
 		{"scheme and opaque", &uri.Any{URL: url.URL{Scheme: "ftp", Opaque: "example.com/a/b/c"}}, "ftp:example.com/a/b/c"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.uri.Render(); got != c.want {
-				t.Errorf("uri.Render() = %q, want %q", got, c.want)
+			if got := tt.uri.Render(); got != tt.want {
+				t.Errorf("uri.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -41,7 +41,7 @@ func TestAny_Render(t *testing.T) {
 func TestAny_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		uri     *uri.Any
 		wantRes string
@@ -51,19 +51,19 @@ func TestAny_RenderTo(t *testing.T) {
 		{"scheme and host", &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}}, "http://example.com", nil},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-			_, err := c.uri.RenderTo(&sb)
+			_, err := tt.uri.RenderTo(&sb)
 
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("uri.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("uri.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -72,7 +72,7 @@ func TestAny_RenderTo(t *testing.T) {
 func TestAny_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Any
 		want string
@@ -82,12 +82,12 @@ func TestAny_String(t *testing.T) {
 		{"scheme and host", &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}}, "http://example.com"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.uri.String(); got != c.want {
-				t.Errorf("uri.String() = %q, want %q", got, c.want)
+			if got := tt.uri.String(); got != tt.want {
+				t.Errorf("uri.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -96,7 +96,7 @@ func TestAny_String(t *testing.T) {
 func TestAny_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Any
 		val  any
@@ -128,12 +128,12 @@ func TestAny_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.uri.Equal(c.val); got != c.want {
-				t.Errorf("uri.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.uri.Equal(tt.val); got != tt.want {
+				t.Errorf("uri.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -142,7 +142,7 @@ func TestAny_Equal(t *testing.T) {
 func TestAny_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Any
 		want bool
@@ -152,12 +152,12 @@ func TestAny_IsValid(t *testing.T) {
 		{"valid", &uri.Any{URL: url.URL{Scheme: "ftp", Host: "example.com"}}, true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.uri.IsValid(); got != c.want {
-				t.Errorf("uri.IsValid() = %v, want %v", got, c.want)
+			if got := tt.uri.IsValid(); got != tt.want {
+				t.Errorf("uri.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -166,7 +166,7 @@ func TestAny_IsValid(t *testing.T) {
 func TestAny_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		uri  *uri.Any
 	}{
@@ -182,21 +182,21 @@ func TestAny_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.uri.Clone()
+			got := tt.uri.Clone()
 
-			if c.uri == nil {
+			if tt.uri == nil {
 				if got != nil {
 					t.Errorf("uri.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.uri, cmp.AllowUnexported(uri.Any{})); diff != "" {
-				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.uri, diff)
+			if diff := cmp.Diff(got, tt.uri, cmp.AllowUnexported(uri.Any{})); diff != "" {
+				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.uri, diff)
 			}
 		})
 	}
@@ -205,7 +205,7 @@ func TestAny_Clone(t *testing.T) {
 func TestAny_RoundTripText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		uri     *uri.Any
 		want    *uri.Any
@@ -227,11 +227,11 @@ func TestAny_RoundTripText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			text, err := c.uri.MarshalText()
+			text, err := tt.uri.MarshalText()
 			if err != nil {
 				t.Fatalf("uri.MarshalText() error = %v, want nil", err)
 			}
@@ -239,7 +239,7 @@ func TestAny_RoundTripText(t *testing.T) {
 			var got uri.Any
 			err = got.UnmarshalText(text)
 
-			if c.wantErr {
+			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("got.UnmarshalText(text) error = nil, want error")
 				}
@@ -250,8 +250,8 @@ func TestAny_RoundTripText(t *testing.T) {
 				t.Fatalf("got.UnmarshalText(text) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(&got, c.want, cmp.AllowUnexported(uri.Any{})); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, c.want, diff)
+			if diff := cmp.Diff(&got, tt.want, cmp.AllowUnexported(uri.Any{})); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", &got, tt.want, diff)
 			}
 		})
 	}

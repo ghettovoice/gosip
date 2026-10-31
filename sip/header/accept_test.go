@@ -14,7 +14,7 @@ import (
 func TestAccept_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Accept
 		want string
@@ -22,17 +22,17 @@ func TestAccept_Render(t *testing.T) {
 		{"nil", header.Accept(nil), ""},
 		{"empty", header.Accept{}, "Accept: "},
 		{"empty elem", header.Accept{{}}, "Accept: /"},
-		{"any", header.Accept{{MIMEType: header.MIMEType{Type: "*", Subtype: "*"}}}, "Accept: */*"},
+		{"any", header.Accept{{Type: "*", Subtype: "*"}}, "Accept: */*"},
 		{
 			"single elem",
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}}},
+			header.Accept{{Type: "text", Subtype: "plain"}},
 			"Accept: text/plain",
 		},
 		{
 			"multiple elems 1",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}},
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "csv"}},
+				{Type: "text", Subtype: "plain"},
+				{Type: "text", Subtype: "csv"},
 			},
 			"Accept: text/plain, text/csv",
 		},
@@ -40,21 +40,21 @@ func TestAccept_Render(t *testing.T) {
 			"multiple elems 2",
 			header.Accept{
 				{
-					MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-					Params:   make(header.Values).Set("a", "123").Set("q", "0.9"),
+					Type: "text", Subtype: "plain",
+					Params: make(header.Values).Set("a", "123").Set("q", "0.9"),
 				},
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "csv"}},
+				{Type: "text", Subtype: "csv"},
 			},
 			"Accept: text/plain;q=0.9;a=123, text/csv",
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(); got != c.want {
-				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(); got != tt.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -63,7 +63,7 @@ func TestAccept_Render(t *testing.T) {
 func TestAccept_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     header.Accept
 		wantRes string
@@ -74,27 +74,27 @@ func TestAccept_RenderTo(t *testing.T) {
 		{
 			"full",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}},
-				{MIMEType: header.MIMEType{Type: "application", Subtype: "*"}},
+				{Type: "text", Subtype: "*"},
+				{Type: "application", Subtype: "*"},
 			},
 			"Accept: text/*, application/*",
 			nil,
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -103,7 +103,7 @@ func TestAccept_RenderTo(t *testing.T) {
 func TestAccept_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Accept
 		want string
@@ -113,19 +113,19 @@ func TestAccept_String(t *testing.T) {
 		{
 			"full",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}},
-				{MIMEType: header.MIMEType{Type: "application", Subtype: "*"}},
+				{Type: "text", Subtype: "*"},
+				{Type: "application", Subtype: "*"},
 			},
 			"text/*, application/*",
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.String(); got != c.want {
-				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			if got := tt.hdr.String(); got != tt.want {
+				t.Errorf("hdr.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -134,7 +134,7 @@ func TestAccept_String(t *testing.T) {
 func TestAccept_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Accept
 		val  any
@@ -146,32 +146,30 @@ func TestAccept_Equal(t *testing.T) {
 		{"zero to zero", header.Accept{}, header.Accept{}, true},
 		{"zero to zero ptr", header.Accept{}, &header.Accept{}, true},
 		{"zero to nil ptr", header.Accept{}, (*header.Accept)(nil), false},
-		{"not match 1", header.Accept{}, header.Accept{{MIMEType: header.MIMEType{Type: "*", Subtype: "*"}}}, false},
+		{"not match 1", header.Accept{}, header.Accept{{Type: "*", Subtype: "*"}}, false},
 		{
 			"not match 2",
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}}},
-			header.Accept{{MIMEType: header.MIMEType{Type: "text"}}},
+			header.Accept{{Type: "text", Subtype: "*"}},
+			header.Accept{{Type: "text"}},
 			false,
 		},
 		{
 			"not match 3",
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}}},
-			header.Accept{{MIMEType: header.MIMEType{Type: "html", Subtype: "*"}}},
+			header.Accept{{Type: "text", Subtype: "*"}},
+			header.Accept{{Type: "html", Subtype: "*"}},
 			false,
 		},
 		{
 			"not match 4",
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}}},
-			header.Accept{{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}}},
+			header.Accept{{Type: "text", Subtype: "plain"}},
+			header.Accept{{Type: "text", Subtype: "*"}},
 			false,
 		},
 		{
 			"not match 5",
 			header.Accept{{
-				MIMEType: header.MIMEType{
-					Type:    "text",
-					Subtype: "*",
-				},
+				Type:    "text",
+				Subtype: "*",
 			}},
 			header.Accept{{
 				MIMEType: header.MIMEType{
@@ -282,12 +280,12 @@ func TestAccept_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -296,7 +294,7 @@ func TestAccept_Equal(t *testing.T) {
 func TestAccept_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Accept
 		want bool
@@ -307,16 +305,16 @@ func TestAccept_IsValid(t *testing.T) {
 		{
 			"invalid 2",
 			header.Accept{{
-				MIMEType: header.MIMEType{Type: "*", Subtype: "*"},
-				Params:   make(header.Values).Set(" f o o ", "bar"),
+				Type: "*", Subtype: "*",
+				Params: make(header.Values).Set(" f o o ", "bar"),
 			}},
 			false,
 		},
 		{
 			"invalid 3",
 			header.Accept{{
-				MIMEType: header.MIMEType{Type: "*", Subtype: "*"},
-				Params:   make(header.Values).Set("foo", " b a r "),
+				Type: "*", Subtype: "*",
+				Params: make(header.Values).Set("foo", " b a r "),
 			}},
 			false,
 		},
@@ -336,12 +334,12 @@ func TestAccept_IsValid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -350,7 +348,7 @@ func TestAccept_IsValid(t *testing.T) {
 func TestAccept_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Accept
 		want any
@@ -360,14 +358,14 @@ func TestAccept_Clone(t *testing.T) {
 		{
 			"full",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}, Params: header.Values{"q": {"0.7"}}},
+				{Type: "text", Subtype: "plain", Params: header.Values{"q": {"0.7"}}},
 				{
 					MIMEType: header.MIMEType{Type: "text", Subtype: "csv", Params: header.Values{"charset": {"utf-8"}}},
 					Params:   header.Values{"q": {"0.5"}},
 				},
 			},
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}, Params: header.Values{"q": {"0.7"}}},
+				{Type: "text", Subtype: "plain", Params: header.Values{"q": {"0.7"}}},
 				{
 					MIMEType: header.MIMEType{Type: "text", Subtype: "csv", Params: header.Values{"charset": {"utf-8"}}},
 					Params:   header.Values{"q": {"0.5"}},
@@ -376,13 +374,13 @@ func TestAccept_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.hdr.Clone()
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			got := tt.hdr.Clone()
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -391,7 +389,7 @@ func TestAccept_Clone(t *testing.T) {
 func TestAccept_MarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Accept
 		want string
@@ -402,8 +400,8 @@ func TestAccept_MarshalJSON(t *testing.T) {
 			"single",
 			header.Accept{
 				{
-					MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-					Params:   make(header.Values).Set("q", "0.8"),
+					Type: "text", Subtype: "plain",
+					Params: make(header.Values).Set("q", "0.8"),
 				},
 			},
 			`{"name":"Accept","value":"text/plain;q=0.8"}`,
@@ -411,10 +409,10 @@ func TestAccept_MarshalJSON(t *testing.T) {
 		{
 			"multiple",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}},
+				{Type: "text", Subtype: "plain"},
 				{
-					MIMEType: header.MIMEType{Type: "application", Subtype: "json"},
-					Params:   make(header.Values).Set("q", "0.5"),
+					Type: "application", Subtype: "json",
+					Params: make(header.Values).Set("q", "0.5"),
 				},
 			},
 			`{"name":"Accept","value":"text/plain, application/json;q=0.5"}`,
@@ -434,17 +432,17 @@ func TestAccept_MarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(c.hdr)
+			got, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
 
-			if got := string(got); got != c.want {
-				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, c.want)
+			if got := string(got); got != tt.want {
+				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -453,7 +451,7 @@ func TestAccept_MarshalJSON(t *testing.T) {
 func TestAccept_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    header.Accept
@@ -470,8 +468,8 @@ func TestAccept_UnmarshalJSON(t *testing.T) {
 			`{"name":"Accept","value":"text/plain;q=0.8"}`,
 			header.Accept{
 				{
-					MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-					Params:   make(header.Values).Set("q", "0.8"),
+					Type: "text", Subtype: "plain",
+					Params: make(header.Values).Set("q", "0.8"),
 				},
 			},
 			false,
@@ -480,10 +478,10 @@ func TestAccept_UnmarshalJSON(t *testing.T) {
 			"multiple",
 			`{"name":"Accept","value":"text/plain, application/json;q=0.5"}`,
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}},
+				{Type: "text", Subtype: "plain"},
 				{
-					MIMEType: header.MIMEType{Type: "application", Subtype: "json"},
-					Params:   make(header.Values).Set("q", "0.5"),
+					Type: "application", Subtype: "json",
+					Params: make(header.Values).Set("q", "0.5"),
 				},
 			},
 			false,
@@ -504,24 +502,24 @@ func TestAccept_UnmarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got header.Accept
-			if err := json.Unmarshal([]byte(c.data), &got); err != nil {
-				if !c.wantErr {
+			if err := json.Unmarshal([]byte(tt.data), &got); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("json.Unmarshal(data, got) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -530,7 +528,7 @@ func TestAccept_UnmarshalJSON(t *testing.T) {
 func TestAccept_RoundTripJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Accept
 	}{
@@ -539,18 +537,18 @@ func TestAccept_RoundTripJSON(t *testing.T) {
 			"single",
 			header.Accept{
 				{
-					MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-					Params:   make(header.Values).Set("q", "0.8"),
+					Type: "text", Subtype: "plain",
+					Params: make(header.Values).Set("q", "0.8"),
 				},
 			},
 		},
 		{
 			"multiple",
 			header.Accept{
-				{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}},
+				{Type: "text", Subtype: "plain"},
 				{
-					MIMEType: header.MIMEType{Type: "application", Subtype: "json"},
-					Params:   make(header.Values).Set("q", "0.5"),
+					Type: "application", Subtype: "json",
+					Params: make(header.Values).Set("q", "0.5"),
 				},
 			},
 		},
@@ -569,11 +567,11 @@ func TestAccept_RoundTripJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(c.hdr)
+			data, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
@@ -583,8 +581,8 @@ func TestAccept_RoundTripJSON(t *testing.T) {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}
@@ -593,7 +591,7 @@ func TestAccept_RoundTripJSON(t *testing.T) {
 func TestMIMERange_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		rng  header.MIMERange
 		want string
@@ -609,12 +607,12 @@ func TestMIMERange_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.rng.String(); got != c.want {
-				t.Errorf("rng.String() = %q, want %q", got, c.want)
+			if got := tt.rng.String(); got != tt.want {
+				t.Errorf("rng.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -623,7 +621,7 @@ func TestMIMERange_String(t *testing.T) {
 func TestMIMERange_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		rng  header.MIMERange
 		val  any
@@ -633,17 +631,17 @@ func TestMIMERange_Equal(t *testing.T) {
 		{"zero to zero", header.MIMERange{}, header.MIMERange{}, true},
 		{"zero to zero ptr", header.MIMERange{}, &header.MIMERange{}, true},
 		{"zero to nil ptr", header.MIMERange{}, (*header.MIMERange)(nil), false},
-		{"not match 1", header.MIMERange{}, header.MIMERange{MIMEType: header.MIMEType{Type: "*", Subtype: "*"}}, false},
+		{"not match 1", header.MIMERange{}, header.MIMERange{Type: "*", Subtype: "*"}, false},
 		{
 			"not match 2",
-			header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}},
-			header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "csv"}},
+			header.MIMERange{Type: "text", Subtype: "*"},
+			header.MIMERange{Type: "text", Subtype: "csv"},
 			false,
 		},
 		{
 			"not match 3",
-			header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}, Params: header.Values{"q": {"0.7"}}},
-			header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}, Params: header.Values{"q": {"0.5"}}},
+			header.MIMERange{Type: "text", Subtype: "*", Params: header.Values{"q": {"0.7"}}},
+			header.MIMERange{Type: "text", Subtype: "*", Params: header.Values{"q": {"0.5"}}},
 			false,
 		},
 		{
@@ -660,12 +658,12 @@ func TestMIMERange_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.rng.Equal(c.val); got != c.want {
-				t.Errorf("rng.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.rng.Equal(tt.val); got != tt.want {
+				t.Errorf("rng.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -674,7 +672,7 @@ func TestMIMERange_Equal(t *testing.T) {
 func TestMIMERange_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		rng  header.MIMERange
 		want bool
@@ -683,35 +681,35 @@ func TestMIMERange_IsValid(t *testing.T) {
 		{
 			"valid",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "*", Subtype: "*"},
-				Params:   header.Values{"q": {"0.7"}},
+				Type: "*", Subtype: "*",
+				Params: header.Values{"q": {"0.7"}},
 			},
 			true,
 		},
 		{
 			"invalid 1",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "text", Subtype: "*"},
-				Params:   header.Values{"f i e l d": {"123"}},
+				Type: "text", Subtype: "*",
+				Params: header.Values{"f i e l d": {"123"}},
 			},
 			false,
 		},
 		{
 			"invalid 2",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "gzip", Subtype: "*"},
-				Params:   header.Values{"field": {" a b c "}},
+				Type: "gzip", Subtype: "*",
+				Params: header.Values{"field": {" a b c "}},
 			},
 			false,
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.rng.IsValid(); got != c.want {
-				t.Errorf("rng.IsValid() = %v, want %v", got, c.want)
+			if got := tt.rng.IsValid(); got != tt.want {
+				t.Errorf("rng.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -720,21 +718,21 @@ func TestMIMERange_IsValid(t *testing.T) {
 func TestMIMERange_IsZero(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		rng  header.MIMERange
 		want bool
 	}{
 		{"zero", header.MIMERange{}, true},
-		{"not zero", header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "*"}}, false},
+		{"not zero", header.MIMERange{Type: "text", Subtype: "*"}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.rng.IsZero(); got != c.want {
-				t.Errorf("rng.IsZero() = %v, want %v", got, c.want)
+			if got := tt.rng.IsZero(); got != tt.want {
+				t.Errorf("rng.IsZero() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -743,7 +741,7 @@ func TestMIMERange_IsZero(t *testing.T) {
 func TestMIMERange_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		rng  header.MIMERange
 		want any
@@ -770,13 +768,13 @@ func TestMIMERange_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.rng.Clone()
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Errorf("rng.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			got := tt.rng.Clone()
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("rng.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -785,7 +783,7 @@ func TestMIMERange_Clone(t *testing.T) {
 func TestMIMERange_MarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		rng  header.MIMERange
 		want string
@@ -794,7 +792,7 @@ func TestMIMERange_MarshalText(t *testing.T) {
 		{
 			"simple",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
+				Type: "text", Subtype: "plain",
 			},
 			"text/plain",
 		},
@@ -814,17 +812,17 @@ func TestMIMERange_MarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := c.rng.MarshalText()
+			got, err := tt.rng.MarshalText()
 			if err != nil {
 				t.Fatalf("rng.MarshalText() error = %v, want nil", err)
 			}
 
-			if string(got) != c.want {
-				t.Fatalf("rng.MarshalText() = %q, want %q", got, c.want)
+			if string(got) != tt.want {
+				t.Fatalf("rng.MarshalText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -833,7 +831,7 @@ func TestMIMERange_MarshalText(t *testing.T) {
 func TestMIMERange_UnmarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    header.MIMERange
@@ -846,8 +844,8 @@ func TestMIMERange_UnmarshalText(t *testing.T) {
 			"simple",
 			"text/plain;q=0.7",
 			header.MIMERange{
-				MIMEType: header.MIMEType{Type: "text", Subtype: "plain"},
-				Params:   make(header.Values).Set("q", "0.7"),
+				Type: "text", Subtype: "plain",
+				Params: make(header.Values).Set("q", "0.7"),
 			},
 			false,
 		},
@@ -868,24 +866,24 @@ func TestMIMERange_UnmarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got header.MIMERange
-			if err := got.UnmarshalText([]byte(c.data)); err != nil {
-				if !c.wantErr {
+			if err := got.UnmarshalText([]byte(tt.data)); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("rng.UnmarshalText(data) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("rng.UnmarshalText(data) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -894,12 +892,12 @@ func TestMIMERange_UnmarshalText(t *testing.T) {
 func TestMIMERange_RoundTripText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		rng  header.MIMERange
 	}{
 		{"empty", header.MIMERange{}},
-		{"simple", header.MIMERange{MIMEType: header.MIMEType{Type: "text", Subtype: "plain"}}},
+		{"simple", header.MIMERange{Type: "text", Subtype: "plain"}},
 		{
 			"with mime and range params",
 			header.MIMERange{
@@ -915,11 +913,11 @@ func TestMIMERange_RoundTripText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := c.rng.MarshalText()
+			data, err := tt.rng.MarshalText()
 			if err != nil {
 				t.Fatalf("rng.MarshalText() error = %v, want nil", err)
 			}
@@ -929,8 +927,8 @@ func TestMIMERange_RoundTripText(t *testing.T) {
 				t.Fatalf("rng.UnmarshalText(data) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got, c.rng); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.rng, diff)
+			if diff := cmp.Diff(got, tt.rng); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.rng, diff)
 			}
 		})
 	}

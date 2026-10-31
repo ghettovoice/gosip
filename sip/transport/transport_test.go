@@ -2,16 +2,13 @@ package transport_test
 
 import (
 	"context"
-	"io"
-	"iter"
 	"net"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/ghettovoice/gosip/dns"
 	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/testutil"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 )
@@ -95,85 +92,36 @@ func (tempError) Temporary() bool { return true }
 
 type tempErrListener struct {
 	net.Listener
-	errOnce sync.Once
+	errOnce     sync.Once
+	acceptOnce  sync.Once
+	errInjected chan struct{}
+	accepted    chan struct{}
 }
 
 func (l *tempErrListener) Accept() (net.Conn, error) {
 	var err error
-	l.errOnce.Do(func() { err = tempError{} })
+	l.errOnce.Do(func() {
+		close(l.errInjected)
+		err = tempError{}
+	})
 
 	if err != nil {
 		return nil, err
 	}
 
-	return l.Listener.Accept()
-}
-
-type stubDNSResolver struct {
-	lookupIP    func(ctx context.Context, network, host string) ([]net.IP, error)
-	lookupSRV   func(ctx context.Context, service, proto, host string) ([]*dns.SRV, error)
-	lookupNAPTR func(ctx context.Context, host string) ([]*dns.NAPTR, error)
-}
-
-func (s stubDNSResolver) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
-	if s.lookupIP == nil {
-		return nil, errors.New("lookup ip not configured")
+	conn, err := l.Listener.Accept()
+	if err == nil {
+		l.acceptOnce.Do(func() { close(l.accepted) })
 	}
-	return s.lookupIP(ctx, network, host)
-}
-
-func (s stubDNSResolver) LookupSRV(ctx context.Context, service, proto, host string) ([]*dns.SRV, error) {
-	if s.lookupSRV == nil {
-		return nil, errors.New("lookup srv not configured")
-	}
-	return s.lookupSRV(ctx, service, proto, host)
-}
-
-func (s stubDNSResolver) LookupNAPTR(ctx context.Context, host string) ([]*dns.NAPTR, error) {
-	if s.lookupNAPTR == nil {
-		return nil, errors.New("lookup naptr not configured")
-	}
-	return s.lookupNAPTR(ctx, host)
-}
-
-type multiTransportProvider struct {
-	metas []sip.TransportMetadata
-}
-
-func (p *multiTransportProvider) TransportMetadataByProto(proto sip.TransportProto) (sip.TransportMetadata, bool) {
-	for _, meta := range p.metas {
-		if meta.Proto.Equal(proto) {
-			return meta, true
-		}
-	}
-	return sip.TransportMetadata{}, false
-}
-
-func (p *multiTransportProvider) TransportMetadataByNAPTRService(service string) (sip.TransportMetadata, bool) {
-	for _, meta := range p.metas {
-		if strings.EqualFold(meta.NAPTRService, service) {
-			return meta, true
-		}
-	}
-	return sip.TransportMetadata{}, false
-}
-
-func (p *multiTransportProvider) AllTransportMetadata() iter.Seq[sip.TransportMetadata] {
-	return func(yield func(sip.TransportMetadata) bool) {
-		for _, meta := range p.metas {
-			if !yield(meta) {
-				return
-			}
-		}
-	}
+	return conn, err
 }
 
 func newMinReq(tb testing.TB) *sip.Request {
 	tb.Helper()
 
-	ruri := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
-	furi := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")}
-	turi := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
+	ruri := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
+	furi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
+	turi := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
 
 	headers := make(sip.Headers).
 		Set(header.Via{{Proto: sip.ProtoVer20(), Params: make(sip.Values).Set("branch", sip.GenerateBranch(16))}}).
@@ -194,8 +142,8 @@ func newMinReq(tb testing.TB) *sip.Request {
 func newMinResp(tb testing.TB, viaTp sip.TransportProto, viaAddr sip.Addr) *sip.Response {
 	tb.Helper()
 
-	furi := &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.com")}
-	turi := &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")}
+	furi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
+	turi := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")}
 
 	headers := make(sip.Headers).
 		Set(header.Via{{
@@ -237,53 +185,6 @@ func readUDPMsg(tb testing.TB, conn net.PacketConn) sip.Message {
 	return msg
 }
 
-// readTCPIdleTimeout is the max time to wait for the next chunk of data after
-// the previous one. It is intentionally much smaller than asyncEventTimeout so
-// that readTCPMsg returns quickly once the sender is done writing.
-const readTCPIdleTimeout = 100 * time.Millisecond
-
-func readTCPMsg(tb testing.TB, conn net.Conn) sip.Message {
-	tb.Helper()
-
-	buf := make([]byte, 0, 4096)
-	tmp := make([]byte, 2048)
-
-	// Wait up to asyncEventTimeout for the very first byte.
-	conn.SetReadDeadline(time.Now().Add(asyncEventTimeout))
-
-	for {
-		n, err := conn.Read(tmp)
-		if n > 0 {
-			buf = append(buf, tmp[:n]...)
-			// Reset deadline: wait only a short idle interval for the next chunk.
-			conn.SetReadDeadline(time.Now().Add(readTCPIdleTimeout))
-		}
-
-		if err != nil {
-			if ne, ok := errors.AsType[net.Error](err); ok && ne.Timeout() {
-				break
-			}
-
-			if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
-				break
-			}
-
-			tb.Fatalf("conn.Read() error = %v, want nil", err)
-		}
-	}
-
-	if len(buf) == 0 {
-		tb.Fatalf("conn.Read() read 0 bytes, want response data")
-	}
-
-	msg, err := sip.DefaultParser().ParsePacket(buf)
-	if err != nil {
-		tb.Fatalf("sip.DefaultParser().ParsePacket() error = %v, want nil", err)
-	}
-
-	return msg
-}
-
 func waitFor(tb testing.TB, fn func() bool) {
 	tb.Helper()
 
@@ -305,6 +206,44 @@ func waitFor(tb testing.TB, fn func() bool) {
 			tb.Fatalf("condition not met within %v", timeout)
 		case <-ticker.C:
 		}
+	}
+}
+
+type acceptResult struct {
+	conn net.Conn
+	err  error
+}
+
+// startTestAccept starts an Accept call and owns cleanup of the listener and
+// accepted socket.
+func startTestAccept(tb testing.TB, lis net.Listener) func() net.Conn {
+	tb.Helper()
+
+	var result acceptResult
+	done := make(chan struct{})
+	go func() {
+		result.conn, result.err = lis.Accept()
+		close(done)
+	}()
+
+	tb.Cleanup(func() {
+		_ = lis.Close()
+		testutil.WaitClosed(tb, done, "listener.Accept()")
+		if result.conn != nil {
+			_ = result.conn.Close()
+		}
+	})
+
+	return func() net.Conn {
+		tb.Helper()
+		testutil.WaitClosed(tb, done, "listener.Accept()")
+		if result.err != nil {
+			tb.Fatalf("listener.Accept() error = %v, want nil", result.err)
+		}
+		if result.conn == nil {
+			tb.Fatal("listener.Accept() connection = nil, want non-nil")
+		}
+		return result.conn
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 func TestWarning_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Warning
 		want string
@@ -37,12 +37,12 @@ func TestWarning_Render(t *testing.T) {
 			"301 isi.edu \"Incompatible network address type 'E.164'\""},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(); got != c.want {
-				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(); got != tt.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -51,7 +51,7 @@ func TestWarning_Render(t *testing.T) {
 func TestWarning_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     header.Warning
 		wantRes string
@@ -79,19 +79,19 @@ func TestWarning_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -100,7 +100,7 @@ func TestWarning_RenderTo(t *testing.T) {
 func TestWarning_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Warning
 		want string
@@ -126,12 +126,12 @@ func TestWarning_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.String(); got != c.want {
-				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			if got := tt.hdr.String(); got != tt.want {
+				t.Errorf("hdr.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -140,7 +140,7 @@ func TestWarning_String(t *testing.T) {
 func TestWarning_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Warning
 		val  any
@@ -210,12 +210,12 @@ func TestWarning_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -224,7 +224,7 @@ func TestWarning_Equal(t *testing.T) {
 func TestWarning_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Warning
 		want bool
@@ -246,12 +246,12 @@ func TestWarning_IsValid(t *testing.T) {
 		{"invalid", header.Warning{{Code: 307}}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -260,7 +260,7 @@ func TestWarning_IsValid(t *testing.T) {
 func TestWarning_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Warning
 	}{
@@ -283,13 +283,13 @@ func TestWarning_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.hdr.Clone()
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			got := tt.hdr.Clone()
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}
@@ -298,7 +298,7 @@ func TestWarning_Clone(t *testing.T) {
 func TestWarning_MarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Warning
 		want string
@@ -323,17 +323,17 @@ func TestWarning_MarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(c.hdr)
+			got, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(string(got), c.want); diff != "" {
-				t.Fatalf("json.Marshal(hdr) = %q, want %q\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(string(got), tt.want); diff != "" {
+				t.Fatalf("json.Marshal(hdr) = %q, want %q\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -342,7 +342,7 @@ func TestWarning_MarshalJSON(t *testing.T) {
 func TestWarning_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    header.Warning
@@ -373,24 +373,24 @@ func TestWarning_UnmarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got header.Warning
-			if err := json.Unmarshal([]byte(c.data), &got); err != nil {
-				if !c.wantErr {
+			if err := json.Unmarshal([]byte(tt.data), &got); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("json.Unmarshal(data, got) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -399,7 +399,7 @@ func TestWarning_UnmarshalJSON(t *testing.T) {
 func TestWarningEntry_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		item header.WarningEntry
 		want string
@@ -416,12 +416,12 @@ func TestWarningEntry_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.item.String(); got != c.want {
-				t.Errorf("item.String() = %q, want %q", got, c.want)
+			if got := tt.item.String(); got != tt.want {
+				t.Errorf("item.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -430,7 +430,7 @@ func TestWarningEntry_String(t *testing.T) {
 func TestWarningEntry_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		item header.WarningEntry
 		val  any
@@ -463,12 +463,12 @@ func TestWarningEntry_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.item.Equal(c.val); got != c.want {
-				t.Errorf("item.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.item.Equal(tt.val); got != tt.want {
+				t.Errorf("item.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -477,7 +477,7 @@ func TestWarningEntry_Equal(t *testing.T) {
 func TestWarningEntry_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		item header.WarningEntry
 		want bool
@@ -492,12 +492,12 @@ func TestWarningEntry_IsValid(t *testing.T) {
 		{"invalid 2", header.WarningEntry{Agent: "isi.edu"}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.item.IsValid(); got != c.want {
-				t.Errorf("item.IsValid() = %v, want %v", got, c.want)
+			if got := tt.item.IsValid(); got != tt.want {
+				t.Errorf("item.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -506,7 +506,7 @@ func TestWarningEntry_IsValid(t *testing.T) {
 func TestWarningEntry_IsZero(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		item header.WarningEntry
 		want bool
@@ -515,12 +515,12 @@ func TestWarningEntry_IsZero(t *testing.T) {
 		{"not zero", header.WarningEntry{Code: 307}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.item.IsZero(); got != c.want {
-				t.Errorf("item.IsZero() = %v, want %v", got, c.want)
+			if got := tt.item.IsZero(); got != tt.want {
+				t.Errorf("item.IsZero() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -529,7 +529,7 @@ func TestWarningEntry_IsZero(t *testing.T) {
 func TestWarningEntry_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		item header.WarningEntry
 		want any
@@ -550,13 +550,13 @@ func TestWarningEntry_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.item.Clone()
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Errorf("item.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			got := tt.item.Clone()
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("item.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -565,7 +565,7 @@ func TestWarningEntry_Clone(t *testing.T) {
 func TestWarningEntry_MarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		wrn  header.WarningEntry
 		want string
@@ -582,17 +582,17 @@ func TestWarningEntry_MarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := c.wrn.MarshalText()
+			got, err := tt.wrn.MarshalText()
 			if err != nil {
 				t.Fatalf("wrn.MarshalText() error = %v, want nil", err)
 			}
 
-			if string(got) != c.want {
-				t.Fatalf("wrn.MarshalText() = %q, want %q", got, c.want)
+			if string(got) != tt.want {
+				t.Fatalf("wrn.MarshalText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -601,7 +601,7 @@ func TestWarningEntry_MarshalText(t *testing.T) {
 func TestWarningEntry_UnmarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    header.WarningEntry
@@ -622,24 +622,24 @@ func TestWarningEntry_UnmarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got header.WarningEntry
-			if err := got.UnmarshalText([]byte(c.data)); err != nil {
-				if !c.wantErr {
+			if err := got.UnmarshalText([]byte(tt.data)); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("warningEntry.UnmarshalText(data) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("warningEntry.UnmarshalText(data) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}

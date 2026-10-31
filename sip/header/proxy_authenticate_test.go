@@ -16,7 +16,7 @@ import (
 func TestProxyAuthenticate_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.ProxyAuthenticate
 		want string
@@ -29,9 +29,9 @@ func TestProxyAuthenticate_Render(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -71,12 +71,12 @@ func TestProxyAuthenticate_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(); got != c.want {
-				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(); got != tt.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -85,7 +85,7 @@ func TestProxyAuthenticate_Render(t *testing.T) {
 func TestProxyAuthenticate_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     *header.ProxyAuthenticate
 		wantRes string
@@ -106,19 +106,19 @@ func TestProxyAuthenticate_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -127,7 +127,7 @@ func TestProxyAuthenticate_RenderTo(t *testing.T) {
 func TestProxyAuthenticate_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.ProxyAuthenticate
 		want string
@@ -146,12 +146,12 @@ func TestProxyAuthenticate_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.String(); got != c.want {
-				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			if got := tt.hdr.String(); got != tt.want {
+				t.Errorf("hdr.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -160,7 +160,7 @@ func TestProxyAuthenticate_String(t *testing.T) {
 func TestProxyAuthenticate_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.ProxyAuthenticate
 		val  any
@@ -187,9 +187,9 @@ func TestProxyAuthenticate_Equal(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -228,12 +228,12 @@ func TestProxyAuthenticate_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -242,7 +242,7 @@ func TestProxyAuthenticate_Equal(t *testing.T) {
 func TestProxyAuthenticate_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.ProxyAuthenticate
 		want bool
@@ -270,12 +270,12 @@ func TestProxyAuthenticate_IsValid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -284,7 +284,7 @@ func TestProxyAuthenticate_IsValid(t *testing.T) {
 func TestProxyAuthenticate_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.ProxyAuthenticate
 	}{
@@ -296,9 +296,9 @@ func TestProxyAuthenticate_Clone(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "ATLANTA.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+						&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -332,20 +332,20 @@ func TestProxyAuthenticate_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.hdr.Clone()
-			if c.hdr == nil {
+			got := tt.hdr.Clone()
+			if tt.hdr == nil {
 				if got != nil {
 					t.Errorf("hdr.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}
@@ -354,7 +354,7 @@ func TestProxyAuthenticate_Clone(t *testing.T) {
 func TestProxyAuthenticate_MarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.ProxyAuthenticate
 		want string
@@ -367,9 +367,9 @@ func TestProxyAuthenticate_MarshalJSON(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -406,17 +406,17 @@ func TestProxyAuthenticate_MarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(c.hdr)
+			got, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
 
-			if got := string(got); got != c.want {
-				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, c.want)
+			if got := string(got); got != tt.want {
+				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -425,7 +425,7 @@ func TestProxyAuthenticate_MarshalJSON(t *testing.T) {
 func TestProxyAuthenticate_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    *header.ProxyAuthenticate
@@ -444,9 +444,9 @@ func TestProxyAuthenticate_UnmarshalJSON(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -485,24 +485,24 @@ func TestProxyAuthenticate_UnmarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got *header.ProxyAuthenticate
-			if err := json.Unmarshal([]byte(c.data), &got); err != nil {
-				if !c.wantErr {
+			if err := json.Unmarshal([]byte(tt.data), &got); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("json.Unmarshal() error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("json.Unmarshal() error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -511,7 +511,7 @@ func TestProxyAuthenticate_UnmarshalJSON(t *testing.T) {
 func TestProxyAuthenticate_RoundTripJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.ProxyAuthenticate
 	}{
@@ -523,9 +523,9 @@ func TestProxyAuthenticate_RoundTripJSON(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -559,11 +559,11 @@ func TestProxyAuthenticate_RoundTripJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(c.hdr)
+			data, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
@@ -573,8 +573,8 @@ func TestProxyAuthenticate_RoundTripJSON(t *testing.T) {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}

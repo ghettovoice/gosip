@@ -1,24 +1,23 @@
 package netutil
 
 import (
-	"context"
 	"log/slog"
 	"net"
 	"time"
 )
 
 // ListenerDecorator decorates [net.Listener].
-type ListenerDecorator = func(context.Context, net.Listener) net.Listener
+type ListenerDecorator = func(net.Listener) net.Listener
 
 // WrapListener composes decorators into a single decorator.
 //
 // Decorators are applied in direct order, so the first decorator in the list
 // will be the innermost wrapper.
 func WrapListener(ds ...ListenerDecorator) ListenerDecorator {
-	return func(ctx context.Context, ls net.Listener) net.Listener {
+	return func(ls net.Listener) net.Listener {
 		for _, d := range ds {
 			if d != nil {
-				ls = d(ctx, ls)
+				ls = d(ls)
 			}
 		}
 		return ls
@@ -26,19 +25,17 @@ func WrapListener(ds ...ListenerDecorator) ListenerDecorator {
 }
 
 func NewLogListenerDecorator(logger *slog.Logger, level slog.Level) ListenerDecorator {
-	return func(ctx context.Context, ls net.Listener) net.Listener {
-		return NewLogListener(ctx, ls, logger, level)
+	return func(ls net.Listener) net.Listener {
+		return NewLogListener(ls, logger, level)
 	}
 }
 
 func NewCloseOnceListenerDecorator() ListenerDecorator {
-	return func(ctx context.Context, ls net.Listener) net.Listener {
-		return NewCloseOnceListener(ls)
-	}
+	return NewCloseOnceListener
 }
 
 // ConnDecorator decorates [net.Conn].
-type ConnDecorator = func(context.Context, net.Conn) net.Conn
+type ConnDecorator = func(net.Conn) net.Conn
 
 // WrapConn composes decorators into a single decorator.
 //
@@ -46,10 +43,10 @@ type ConnDecorator = func(context.Context, net.Conn) net.Conn
 // will be the innermost wrapper.
 // For example: log -> close-once -> auto-close.
 func WrapConn(ds ...ConnDecorator) ConnDecorator {
-	return func(ctx context.Context, conn net.Conn) net.Conn {
+	return func(conn net.Conn) net.Conn {
 		for _, d := range ds {
 			if d != nil {
-				conn = d(ctx, conn)
+				conn = d(conn)
 			}
 		}
 		return conn
@@ -57,31 +54,27 @@ func WrapConn(ds ...ConnDecorator) ConnDecorator {
 }
 
 func NewLogConnDecorator(logger *slog.Logger, level slog.Level) ConnDecorator {
-	return func(ctx context.Context, conn net.Conn) net.Conn {
-		return NewLogConn(ctx, conn, logger, level)
+	return func(conn net.Conn) net.Conn {
+		return NewLogConn(conn, logger, level)
 	}
 }
 
 func NewCloseOnceConnDecorator() ConnDecorator {
-	return func(ctx context.Context, conn net.Conn) net.Conn {
-		return NewCloseOnceConn(conn)
-	}
+	return NewCloseOnceConn
 }
 
 func NewAutoCloseConnDecorator(ttl time.Duration) ConnDecorator {
-	return func(ctx context.Context, conn net.Conn) net.Conn {
+	return func(conn net.Conn) net.Conn {
 		return NewAutoCloseConn(conn, ttl)
 	}
 }
 
 func NewContextConnDecorator() ConnDecorator {
-	return func(ctx context.Context, conn net.Conn) net.Conn {
-		return NewContextConn(conn)
-	}
+	return NewContextConn
 }
 
 // PacketConnDecorator decorates [net.PacketConn].
-type PacketConnDecorator = func(context.Context, net.PacketConn) net.PacketConn
+type PacketConnDecorator = func(net.PacketConn) net.PacketConn
 
 // WrapPacketConn composes decorators into a single decorator.
 //
@@ -89,10 +82,10 @@ type PacketConnDecorator = func(context.Context, net.PacketConn) net.PacketConn
 // will be the innermost wrapper.
 // For example: log -> close-once.
 func WrapPacketConn(ds ...PacketConnDecorator) PacketConnDecorator {
-	return func(ctx context.Context, conn net.PacketConn) net.PacketConn {
+	return func(conn net.PacketConn) net.PacketConn {
 		for _, d := range ds {
 			if d != nil {
-				conn = d(ctx, conn)
+				conn = d(conn)
 			}
 		}
 		return conn
@@ -100,25 +93,21 @@ func WrapPacketConn(ds ...PacketConnDecorator) PacketConnDecorator {
 }
 
 func NewLogPacketConnDecorator(logger *slog.Logger, level slog.Level) PacketConnDecorator {
-	return func(ctx context.Context, conn net.PacketConn) net.PacketConn {
-		return NewLogPacketConn(ctx, conn, logger, level)
+	return func(conn net.PacketConn) net.PacketConn {
+		return NewLogPacketConn(conn, logger, level)
 	}
 }
 
 func NewCloseOncePacketConnDecorator() PacketConnDecorator {
-	return func(ctx context.Context, conn net.PacketConn) net.PacketConn {
-		return NewCloseOncePacketConn(conn)
-	}
+	return NewCloseOncePacketConn
 }
 
 func NewAutoClosePacketConnDecorator(ttl time.Duration) PacketConnDecorator {
-	return func(ctx context.Context, conn net.PacketConn) net.PacketConn {
+	return func(conn net.PacketConn) net.PacketConn {
 		return NewAutoClosePacketConn(conn, ttl)
 	}
 }
 
 func NewContextPacketConnDecorator() PacketConnDecorator {
-	return func(ctx context.Context, conn net.PacketConn) net.PacketConn {
-		return NewContextPacketConn(conn)
-	}
+	return NewContextPacketConn
 }

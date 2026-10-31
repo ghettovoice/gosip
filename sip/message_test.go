@@ -17,7 +17,7 @@ import (
 func TestParseMessage(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		input   any
 		hdrPrs  map[string]header.Parser
@@ -38,8 +38,8 @@ func TestParseMessage(t *testing.T) {
 			&sip.Request{
 				Method: "INVITE",
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 			},
@@ -63,14 +63,14 @@ func TestParseMessage(t *testing.T) {
 				"P-Custom-Header: 123 abc\r\n" +
 				"\r\n" +
 				"Hello world!\r\n",
-			map[string]sip.HeaderParser{
+			map[string]header.Parser{
 				"p-custom-header": parseCustomHeader,
 			},
 			&sip.Request{
 				Method: "INVITE",
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -79,13 +79,13 @@ func TestParseMessage(t *testing.T) {
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      sip.AddrFromHost("a.example.com"),
+								Addr:      sip.MakeHostAddr("a.example.com"),
 								Params:    make(sip.Values).Append("branch", "qwerty"),
 							},
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      sip.AddrFromHost("b.example.com"),
+								Addr:      sip.MakeHostAddr("b.example.com"),
 								Params:    make(sip.Values).Append("branch", "asdf"),
 							},
 						},
@@ -93,7 +93,7 @@ func TestParseMessage(t *testing.T) {
 							{
 								Proto:     sip.ProtoVer20(),
 								Transport: "UDP",
-								Addr:      sip.AddrFromHost("c.example.com"),
+								Addr:      sip.MakeHostAddr("c.example.com"),
 								Params:    make(sip.Values).Append("branch", "zxcvb"),
 							},
 						},
@@ -101,15 +101,15 @@ func TestParseMessage(t *testing.T) {
 					Set(
 						&header.From{
 							URI: &sip.URI{
-								User: sip.UserWithName("alice"),
-								Addr: sip.AddrFromHost("a.example.com"),
+								User: sip.MakeUserInfo("alice"),
+								Addr: sip.MakeHostAddr("a.example.com"),
 							},
 							Params: make(sip.Values).Append("tag", "abc"),
 						},
 						&header.To{
 							URI: &sip.URI{
-								User: sip.UserWithName("bob"),
-								Addr: sip.AddrFromHost("b.example.com"),
+								User: sip.MakeUserInfo("bob"),
+								Addr: sip.MakeHostAddr("b.example.com"),
 							},
 						},
 					).
@@ -121,8 +121,8 @@ func TestParseMessage(t *testing.T) {
 					Set(header.Contact{
 						{
 							URI: &sip.URI{
-								User: sip.UserWithName("alice"),
-								Addr: sip.AddrFromHostPort("a.example.com", 5060),
+								User: sip.MakeUserInfo("alice"),
+								Addr: sip.MakeHostPortAddr("a.example.com", 5060),
 							},
 							Params: make(sip.Values).Append("transport", "tcp"),
 						},
@@ -156,7 +156,7 @@ func TestParseMessage(t *testing.T) {
 				"Content-Length: 6\r\n" +
 				"\r\n" +
 				"done\r\n",
-			map[string]sip.HeaderParser{
+			map[string]header.Parser{
 				"p-custom-header": parseCustomHeader,
 			},
 			&sip.Response{
@@ -168,13 +168,13 @@ func TestParseMessage(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("a.example.com"),
+							Addr:      sip.MakeHostAddr("a.example.com"),
 							Params:    make(sip.Values).Append("branch", "qwerty"),
 						},
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("b.example.com"),
+							Addr:      sip.MakeHostAddr("b.example.com"),
 							Params:    make(sip.Values).Append("branch", "asdf"),
 						},
 					}).
@@ -182,7 +182,7 @@ func TestParseMessage(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: "UDP",
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params: make(sip.Values).
 								Append("branch", "zxcvb").
 								Append("rport", "98761"),
@@ -190,15 +190,15 @@ func TestParseMessage(t *testing.T) {
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "def"),
 					}).
@@ -208,8 +208,8 @@ func TestParseMessage(t *testing.T) {
 					Append(header.Contact{
 						{
 							URI: &sip.URI{
-								User: sip.UserWithName("bob"),
-								Addr: sip.AddrFromHostPort("b.example.com", 5060),
+								User: sip.MakeUserInfo("bob"),
+								Addr: sip.MakeHostPortAddr("b.example.com", 5060),
 							},
 						},
 					}).
@@ -226,13 +226,13 @@ func TestParseMessage(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			for n, p := range c.hdrPrs {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for n, p := range tt.hdrPrs {
 				header.RegisterParser(n, p)
 			}
 			defer func() {
-				for n := range c.hdrPrs {
+				for n := range tt.hdrPrs {
 					header.UnregisterParser(n)
 				}
 			}()
@@ -241,18 +241,19 @@ func TestParseMessage(t *testing.T) {
 				gotMsg sip.Message
 				gotErr error
 			)
-			switch input := c.input.(type) {
+			switch input := tt.input.(type) {
 			case string:
 				gotMsg, gotErr = sip.ParseMessage(input)
 			case []byte:
 				gotMsg, gotErr = sip.ParseMessage(input)
 			}
 
-			input := util.Ellipsis(fmt.Sprintf("%v", c.input), 35)
-			if c.wantErr == nil {
-				if diff := cmp.Diff(gotMsg, c.wantMsg); diff != "" {
-					t.Errorf("sip.ParseMessage(%q) = %+v, want %+v\ndiff (-got +want):\n%v",
-						input, gotMsg, c.wantMsg, diff,
+			input := util.Ellipsis(fmt.Sprintf("%v", tt.input), 35)
+			if tt.wantErr == nil {
+				if diff := cmp.Diff(gotMsg, tt.wantMsg); diff != "" {
+					t.Errorf(
+						"sip.ParseMessage(%q) = %+v, want %+v\ndiff (-got +want):\n%v",
+						input, gotMsg, tt.wantMsg, diff,
 					)
 				}
 
@@ -260,7 +261,7 @@ func TestParseMessage(t *testing.T) {
 					t.Errorf("sip.ParseMessage(%q) error = %v, want nil", input, gotErr)
 				}
 			} else {
-				if got, want := gotErr, c.wantErr; !errors.Is(got, want) {
+				if got, want := gotErr, tt.wantErr; !errors.Is(got, want) {
 					t.Errorf("sip.ParseMessage(%q) error = %v, want %v", input, got, want)
 				}
 			}

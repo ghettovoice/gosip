@@ -4,16 +4,16 @@ import (
 	"context"
 	"iter"
 	"net/netip"
-
-	"github.com/ghettovoice/gosip/internal/errors"
 )
 
-// IsTransportError reports whether err belongs to the transport error class.
-func IsTransportError(err error) bool {
-	return errors.IsNetError(err) || errors.Is(err, ErrClassTransport)
-}
-
 // Transport represents a combination of client and server transport functions.
+// Implementations must use [ContextWithTransport] before invoking message
+// interceptors so middleware can discover the transport handling the operation.
+// Built-in transports do this automatically; custom transports can use the same
+// helper when implementing their interceptor chains. Before intercepting each
+// new inbound message, implementations must also use
+// [ContextWithTransaction] with nil to mask any transaction inherited from a
+// reused serving context.
 type Transport interface {
 	RequestSender
 	ResponseSender
@@ -22,7 +22,7 @@ type Transport interface {
 	// Metadata returns transport metadata.
 	Metadata() TransportMetadata
 	// Close closes the transport and all listeners and connections currently tracked by it.
-	Close(ctx context.Context) error
+	Close() error
 	// Listen binds a new listener to the given local address and registers it as a
 	// transport-owned resource.
 	// It does not start serving the listener.
@@ -47,7 +47,7 @@ type TransportListener interface {
 	// listener is closed. The last breaking error is returned.
 	Serve(ctx context.Context) error
 	// Close closes the underlying listener.
-	Close(ctx context.Context) error
+	Close() error
 }
 
 // TransportConnection represents a transport peer-to-peer connection.
@@ -59,7 +59,7 @@ type TransportConnection interface {
 	// RemoteAddr returns the remote address of the connection.
 	RemoteAddr() netip.AddrPort
 	// Close closes the connection.
-	Close(ctx context.Context) error
+	Close() error
 	// Messages returns iterator of messages and possible read/parse errors received
 	// on the connection.
 	//

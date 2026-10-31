@@ -14,7 +14,7 @@ import (
 func TestVia_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Via
 		want string
@@ -28,7 +28,7 @@ func TestVia_Render(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -36,7 +36,7 @@ func TestVia_Render(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -48,12 +48,12 @@ func TestVia_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(); got != c.want {
-				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(); got != tt.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -62,7 +62,7 @@ func TestVia_Render(t *testing.T) {
 func TestVia_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     header.Via
 		wantRes string
@@ -76,7 +76,7 @@ func TestVia_RenderTo(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -84,7 +84,7 @@ func TestVia_RenderTo(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -97,19 +97,19 @@ func TestVia_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -118,7 +118,7 @@ func TestVia_RenderTo(t *testing.T) {
 func TestVia_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Via
 		want string
@@ -131,7 +131,7 @@ func TestVia_String(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -139,7 +139,7 @@ func TestVia_String(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -151,12 +151,12 @@ func TestVia_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got, want := c.hdr.String(), c.want; got != want {
-				t.Errorf("hdr.String() = %q, want %q\nhdr = %#v", got, want, c.hdr)
+			if got, want := tt.hdr.String(), tt.want; got != want {
+				t.Errorf("hdr.String() = %q, want %q\nhdr = %#v", got, want, tt.hdr)
 			}
 		})
 	}
@@ -165,7 +165,7 @@ func TestVia_String(t *testing.T) {
 func TestVia_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Via
 		val  any
@@ -183,7 +183,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -191,7 +191,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -202,7 +202,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -211,7 +211,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -225,7 +225,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "sip", Version: "2.0"},
 					Transport: "udp",
-					Addr:      header.AddrFromHostPort("ERLANG.BELL-TELEPHONE.COM", 5060),
+					Addr:      header.MakeHostPortAddr("ERLANG.BELL-TELEPHONE.COM", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -233,7 +233,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -246,7 +246,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -254,7 +254,7 @@ func TestVia_Equal(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -266,12 +266,12 @@ func TestVia_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -280,7 +280,7 @@ func TestVia_Equal(t *testing.T) {
 func TestVia_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Via
 		want bool
@@ -303,7 +303,7 @@ func TestVia_IsValid(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "sip", Version: "2.0"},
 					Transport: "udp",
-					Addr:      header.AddrFromHostPort("ERLANG.BELL-TELEPHONE.COM", 5060),
+					Addr:      header.MakeHostPortAddr("ERLANG.BELL-TELEPHONE.COM", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -311,7 +311,7 @@ func TestVia_IsValid(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -324,12 +324,12 @@ func TestVia_IsValid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -338,7 +338,7 @@ func TestVia_IsValid(t *testing.T) {
 func TestVia_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Via
 	}{
@@ -350,7 +350,7 @@ func TestVia_Clone(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "sip", Version: "2.0"},
 					Transport: "udp",
-					Addr:      header.AddrFromHostPort("ERLANG.BELL-TELEPHONE.COM", 5060),
+					Addr:      header.MakeHostPortAddr("ERLANG.BELL-TELEPHONE.COM", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -358,7 +358,7 @@ func TestVia_Clone(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -370,13 +370,13 @@ func TestVia_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.hdr.Clone()
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			got := tt.hdr.Clone()
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}
@@ -385,7 +385,7 @@ func TestVia_Clone(t *testing.T) {
 func TestVia_MarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Via
 		want string
@@ -398,7 +398,7 @@ func TestVia_MarshalJSON(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -406,7 +406,7 @@ func TestVia_MarshalJSON(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -417,17 +417,17 @@ func TestVia_MarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(c.hdr)
+			got, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(string(got), c.want); diff != "" {
-				t.Fatalf("json.Marshal(hdr) = %q, want %q\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(string(got), tt.want); diff != "" {
+				t.Fatalf("json.Marshal(hdr) = %q, want %q\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -436,7 +436,7 @@ func TestVia_MarshalJSON(t *testing.T) {
 func TestVia_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    header.Via
@@ -455,7 +455,7 @@ func TestVia_UnmarshalJSON(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "UDP",
-					Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+					Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 					Params: make(header.Values).
 						Set("received", "192.0.2.207").
 						Set("branch", "z9hG4bK87asdks7"),
@@ -463,7 +463,7 @@ func TestVia_UnmarshalJSON(t *testing.T) {
 				{
 					Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 					Transport: "TCP",
-					Addr:      header.AddrFromHostPort("first.example.com", 4000),
+					Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 					Params: make(header.Values).
 						Set("ttl", "16").
 						Set("maddr", "224.2.0.1").
@@ -474,24 +474,24 @@ func TestVia_UnmarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got header.Via
-			if err := json.Unmarshal([]byte(c.data), &got); err != nil {
-				if !c.wantErr {
+			if err := json.Unmarshal([]byte(tt.data), &got); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("json.Unmarshal(data, got) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -500,7 +500,7 @@ func TestVia_UnmarshalJSON(t *testing.T) {
 func TestViaHop_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hop  header.ViaHop
 		want string
@@ -511,7 +511,7 @@ func TestViaHop_String(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "UDP",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params: make(header.Values).
 					Set("received", "192.0.2.207").
 					Set("branch", "z9hG4bK87asdks7"),
@@ -520,12 +520,12 @@ func TestViaHop_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hop.String(); got != c.want {
-				t.Errorf("hop.String() = %q, want %q", got, c.want)
+			if got := tt.hop.String(); got != tt.want {
+				t.Errorf("hop.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -534,7 +534,7 @@ func TestViaHop_String(t *testing.T) {
 func TestViaHop_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hop  header.ViaHop
 		val  any
@@ -549,12 +549,12 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "3.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			false,
 		},
@@ -563,12 +563,12 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "UDP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			false,
 		},
@@ -577,12 +577,12 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("example.com", 5060),
+				Addr:      header.MakeHostPortAddr("example.com", 5060),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 			},
 			false,
 		},
@@ -591,13 +591,13 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("example.com", 5060),
+				Addr:      header.MakeHostPortAddr("example.com", 5060),
 				Params:    make(header.Values).Set("branch", "z9hG4bKa7c6a8dlze.1"),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("example.com", 5060),
+				Addr:      header.MakeHostPortAddr("example.com", 5060),
 				Params:    make(header.Values).Set("branch", "qwerty"),
 			},
 			false,
@@ -607,7 +607,7 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 				Params: make(header.Values).
 					Set("ttl", "16").
 					Set("maddr", "224.2.0.1").
@@ -618,7 +618,7 @@ func TestViaHop_Equal(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TCP",
-				Addr:      header.AddrFromHostPort("first.example.com", 4000),
+				Addr:      header.MakeHostPortAddr("first.example.com", 4000),
 				Params: make(header.Values).
 					Set("ttl", "16").
 					Set("maddr", "224.2.0.1").
@@ -629,12 +629,12 @@ func TestViaHop_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hop.Equal(c.val); got != c.want {
-				t.Errorf("hop.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hop.Equal(tt.val); got != tt.want {
+				t.Errorf("hop.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -643,7 +643,7 @@ func TestViaHop_Equal(t *testing.T) {
 func TestViaHop_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hop  header.ViaHop
 		want bool
@@ -654,7 +654,7 @@ func TestViaHop_IsValid(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TLS",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params:    make(header.Values).Set("branch", "z9hG4bK87asdks7"),
 			},
 			true,
@@ -664,12 +664,12 @@ func TestViaHop_IsValid(t *testing.T) {
 		{"invalid 3", header.ViaHop{Proto: header.ProtoInfo{Name: "SIP", Version: "2.0"}, Transport: "UDP"}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hop.IsValid(); got != c.want {
-				t.Errorf("hop.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hop.IsValid(); got != tt.want {
+				t.Errorf("hop.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -678,7 +678,7 @@ func TestViaHop_IsValid(t *testing.T) {
 func TestViaHop_IsZero(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hop  header.ViaHop
 		want bool
@@ -687,12 +687,12 @@ func TestViaHop_IsZero(t *testing.T) {
 		{"not zero", header.ViaHop{Transport: "UDP"}, false},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hop.IsZero(); got != c.want {
-				t.Errorf("hop.IsZero() = %v, want %v", got, c.want)
+			if got := tt.hop.IsZero(); got != tt.want {
+				t.Errorf("hop.IsZero() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -701,7 +701,7 @@ func TestViaHop_IsZero(t *testing.T) {
 func TestViaHop_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hop  header.ViaHop
 		want any
@@ -712,25 +712,25 @@ func TestViaHop_Clone(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TLS",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params:    make(header.Values).Set("branch", "z9hG4bK87asdks7"),
 			},
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "TLS",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params:    make(header.Values).Set("branch", "z9hG4bK87asdks7"),
 			},
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.hop.Clone()
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Errorf("hop.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			got := tt.hop.Clone()
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("hop.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -739,7 +739,7 @@ func TestViaHop_Clone(t *testing.T) {
 func TestViaHop_MarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hop  header.ViaHop
 		want string
@@ -750,7 +750,7 @@ func TestViaHop_MarshalText(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "UDP",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params: make(header.Values).
 					Set("received", "192.0.2.207").
 					Set("branch", "z9hG4bK87asdks7"),
@@ -759,17 +759,17 @@ func TestViaHop_MarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := c.hop.MarshalText()
+			got, err := tt.hop.MarshalText()
 			if err != nil {
 				t.Fatalf("hop.MarshalText() error = %v, want nil", err)
 			}
 
-			if string(got) != c.want {
-				t.Fatalf("hop.MarshalText() = %q, want %q", got, c.want)
+			if string(got) != tt.want {
+				t.Fatalf("hop.MarshalText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -778,7 +778,7 @@ func TestViaHop_MarshalText(t *testing.T) {
 func TestViaHop_UnmarshalText(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    header.ViaHop
@@ -793,7 +793,7 @@ func TestViaHop_UnmarshalText(t *testing.T) {
 			header.ViaHop{
 				Proto:     header.ProtoInfo{Name: "SIP", Version: "2.0"},
 				Transport: "UDP",
-				Addr:      header.AddrFromHostPort("erlang.bell-telephone.com", 5060),
+				Addr:      header.MakeHostPortAddr("erlang.bell-telephone.com", 5060),
 				Params: make(header.Values).
 					Set("received", "192.0.2.207").
 					Set("branch", "z9hG4bK87asdks7"),
@@ -802,24 +802,24 @@ func TestViaHop_UnmarshalText(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got header.ViaHop
-			if err := got.UnmarshalText([]byte(c.data)); err != nil {
-				if !c.wantErr {
+			if err := got.UnmarshalText([]byte(tt.data)); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("hop.UnmarshalText(data) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("hop.UnmarshalText(data) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}

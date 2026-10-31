@@ -3,16 +3,16 @@ package header
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/internal/types"
 )
 
-type ProxyAuthorization Authorization
+type ProxyAuthorization struct {
+	AuthCredentials
+}
 
 func (*ProxyAuthorization) CanonicName() Name { return "Proxy-Authorization" }
 
@@ -22,67 +22,42 @@ func (hdr *ProxyAuthorization) RenderTo(w io.Writer, opts ...RenderOptions) (num
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(func(w io.Writer) (int, error) {
-		return errors.Wrap2((*Authorization)(hdr).renderValueTo(w, opts...))
-	})
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderValueTo(w, hdr.AuthCredentials, opts...))
+	}))
 }
 
 func (hdr *ProxyAuthorization) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return types.Render(hdr, opts...)
 }
 
 func (hdr *ProxyAuthorization) RenderValue() string {
-	return (*Authorization)(hdr).RenderValue()
+	if hdr == nil {
+		return ""
+	}
+	return renderValue(hdr.AuthCredentials)
 }
 
 func (hdr *ProxyAuthorization) String() string { return hdr.RenderValue() }
 
 func (hdr *ProxyAuthorization) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods        ProxyAuthorization
-			ProxyAuthorization hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*ProxyAuthorization)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods        ProxyAuthorization
+		ProxyAuthorization hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*ProxyAuthorization)(hdr))
 }
 
 func (hdr *ProxyAuthorization) Clone() Header {
-	hdr2, ok := (*Authorization)(hdr).Clone().(*Authorization)
-	if !ok {
+	if hdr == nil {
 		return nil
 	}
-	return (*ProxyAuthorization)(hdr2)
+	hdr2 := *hdr
+	hdr2.AuthCredentials = types.Clone[AuthCredentials](hdr.AuthCredentials)
+	return &hdr2
 }
 
 func (hdr *ProxyAuthorization) Equal(val any) bool {
@@ -96,39 +71,27 @@ func (hdr *ProxyAuthorization) Equal(val any) bool {
 		return false
 	}
 
-	return (*Authorization)(hdr).Equal((*Authorization)(other))
+	if hdr == other {
+		return true
+	}
+	if hdr == nil || other == nil {
+		return false
+	}
+	return types.IsEqual(hdr.AuthCredentials, other.AuthCredentials)
 }
 
-func (hdr *ProxyAuthorization) IsValid() bool { return (*Authorization)(hdr).IsValid() }
+func (hdr *ProxyAuthorization) IsValid() bool {
+	return hdr != nil && types.IsValid(hdr.AuthCredentials)
+}
 
 func (hdr *ProxyAuthorization) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))
 }
 
 func (hdr *ProxyAuthorization) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = ProxyAuthorization{}
-		return nil
-	}
-
-	h, ok := gh.(*ProxyAuthorization)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
 }
 
 func buildFromProxyAuthorizationNode(node *abnf.Node) *ProxyAuthorization {
-	return (*ProxyAuthorization)(buildFromAuthorizationNode(node))
+	return &ProxyAuthorization{AuthCredentials: buildAuthCredentialsFromNode(node)}
 }

@@ -3,15 +3,13 @@ package header
 import (
 	"fmt"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/internal/types"
 )
 
 // Expires represents the Expires header field.
@@ -31,30 +29,14 @@ func (hdr *Expires) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err erro
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
-}
-
-func (hdr *Expires) renderValueTo(w io.Writer) (num int, err error) {
-	return errors.Wrap2(fmt.Fprint(w, int64(hdr.Seconds())))
+	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderDeltaSecondsTo(w, hdr.Duration))
+	}))
 }
 
 // Render returns the string representation of the header.
 func (hdr *Expires) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return types.Render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
@@ -62,41 +44,21 @@ func (hdr *Expires) RenderValue() string {
 	if hdr == nil {
 		return ""
 	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderDeltaSeconds(hdr.Duration)
 }
 
 func (hdr *Expires) String() string { return hdr.RenderValue() }
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr *Expires) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods Expires
-			Expires     hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*Expires)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods Expires
+		Expires     hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*Expires)(hdr))
 }
 
 // Clone returns a copy of the header.
@@ -131,40 +93,20 @@ func (hdr *Expires) Equal(val any) bool {
 }
 
 // IsValid checks whether the header is syntactically valid.
-func (hdr *Expires) IsValid() bool { return hdr != nil }
+func (hdr *Expires) IsValid() bool { return hdr != nil && validDeltaSeconds(hdr.Duration) }
 
 func (hdr *Expires) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))
 }
 
 func (hdr *Expires) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = Expires{}
-		return nil
-	}
-
-	h, ok := gh.(*Expires)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
 }
 
 func buildFromExpiresNode(node *abnf.Node) *Expires {
-	sec, err := strconv.ParseUint(grammar.MustGetNode(node, "delta-seconds").String(), 10, 64)
+	duration, err := parseDeltaSeconds(grammar.MustGetNode(node, "delta-seconds").String())
 	if err != nil {
-		panic(errors.ErrorfWrap("invalid expiry value: %w", err))
+		panic(errors.Wrap(err))
 	}
-	return &Expires{time.Duration(sec) * time.Second}
+	return &Expires{Duration: duration}
 }

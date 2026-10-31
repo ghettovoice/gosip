@@ -12,10 +12,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ghettovoice/timeutil"
+
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/netutil"
-	"github.com/ghettovoice/gosip/internal/timeutil"
 	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/pkg/errclass"
 	"github.com/ghettovoice/gosip/sip"
 )
 
@@ -37,7 +39,6 @@ var _ sip.TransportListener = (*ConnectionOrientedListener)(nil)
 type ConnectionOrientedListenerOptions = ConnectionOptions
 
 func NewConnectionOrientedListener(
-	ctx context.Context,
 	base net.Listener,
 	tp *ConnectionOrientedTransport,
 	opts ...ConnectionOrientedListenerOptions,
@@ -54,10 +55,10 @@ func NewConnectionOrientedListener(
 		closed: make(chan struct{}),
 	}
 	ls.log = lsOpts.log().With(slog.Any("listener", ls))
-	ls.baseLis = netutil.WrapListener([]netutil.ListenerDecorator{
+	ls.baseLis = netutil.WrapListener(
 		netutil.NewLogListenerDecorator(ls.log, slog.LevelDebug),
 		netutil.NewCloseOnceListenerDecorator(),
-	}...)(ctx, base)
+	)(base)
 
 	ls.connOpts = lsOpts
 	ls.connOpts.Logger = ls.log
@@ -115,7 +116,7 @@ func (ls *ConnectionOrientedListener) Accept(ctx context.Context) (*Connection, 
 	netConn, err := ls.baseLis.Accept()
 	if err != nil {
 		if errors.Is(err, net.ErrClosed) {
-			err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+			err = NewNetworkClosedError(err)
 		}
 		return nil, errors.Wrap(err)
 	}
@@ -128,7 +129,7 @@ func (ls *ConnectionOrientedListener) Accept(ctx context.Context) (*Connection, 
 
 	if done == nil {
 		netConn.Close()
-		return nil, errors.Wrap(ErrConnectionTracked)
+		return nil, errors.Wrap(NewConnectionTrackedError())
 	}
 
 	return conn.Connection, nil
@@ -143,11 +144,11 @@ func (ls *ConnectionOrientedListener) isClosed() bool {
 	}
 }
 
-func (ls *ConnectionOrientedListener) Close(_ context.Context) error {
+func (ls *ConnectionOrientedListener) Close() error {
 	ls.closeOnce.Do(func() {
 		ls.closeErr = ls.baseLis.Close()
 		if ls.closeErr != nil && errors.Is(ls.closeErr, net.ErrClosed) {
-			ls.closeErr = errors.Errorf("%w: %w", ls.closeErr, ErrNetworkClosed)
+			ls.closeErr = NewNetworkClosedError(ls.closeErr)
 		}
 		close(ls.closed)
 	})
@@ -156,10 +157,10 @@ func (ls *ConnectionOrientedListener) Close(_ context.Context) error {
 
 func (ls *ConnectionOrientedListener) Serve(ctx context.Context) error {
 	if ls.isClosed() {
-		return errors.Wrap(ErrNetworkClosed)
+		return errors.Wrap(NewNetworkClosedError())
 	}
 	if !ls.serving.CompareAndSwap(false, true) {
-		return errors.Wrap(ErrListenerServing)
+		return errors.Wrap(NewListenerServingError())
 	}
 	defer ls.serving.Store(false)
 
@@ -175,11 +176,9 @@ func (ls *ConnectionOrientedListener) Serve(ctx context.Context) error {
 				return
 			}
 
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-			defer cancel()
-
-			if err := ls.Close(ctx); err != nil {
-				ls.log.LogAttrs(ctx, slog.LevelWarn, "failed to close listener",
+			if err := ls.Close(); err != nil {
+				ls.log.WarnContext(
+					ctx, "failed to close listener",
 					slog.Any("listener", ls),
 					slog.Any("error", err),
 				)
@@ -201,8 +200,10 @@ func (ls *ConnectionOrientedListener) Serve(ctx context.Context) error {
 
 	select {
 	case <-ls.closed:
-		if !errors.Is(err, ErrNetworkClosed) {
-			err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+		if err == nil {
+			err = NewNetworkClosedError()
+		} else if !errors.Is(err, ErrNetworkClosed) {
+			err = NewNetworkClosedError(err)
 		}
 		return errors.Wrap(err)
 	default:
@@ -237,7 +238,7 @@ func (ls *ConnectionOrientedListener) serve(ctx context.Context) error {
 				continue
 			}
 
-			if !sip.IsTemporaryError(err) {
+			if !errclass.IsTemporary(err) {
 				return errors.Wrap(err)
 			}
 
@@ -250,8 +251,8 @@ func (ls *ConnectionOrientedListener) serve(ctx context.Context) error {
 				accDelay = v
 			}
 
-			ls.log.LogAttrs(ctx, slog.LevelDebug,
-				"failed to accept connection due to the temporary error, continue accepting after delay...",
+			ls.log.DebugContext(
+				ctx, "failed to accept connection due to the temporary error, continue accepting after delay...",
 				slog.Any("error", err),
 				slog.Duration("delay", accDelay),
 				slog.Any("local_addr", ls.addr),
@@ -265,7 +266,7 @@ func (ls *ConnectionOrientedListener) serve(ctx context.Context) error {
 
 			select {
 			case <-ls.closed:
-				return errors.Wrap(ErrNetworkClosed)
+				return errors.Wrap(NewNetworkClosedError())
 			case <-ctx.Done():
 				return errors.Wrap(ctx.Err())
 			case <-accDelayTmr.C:
@@ -297,7 +298,7 @@ func (l *netListenerAdapter) Accept() (net.Conn, error) {
 }
 
 func (l *netListenerAdapter) Close() error {
-	return errors.Wrap(l.ConnectionOrientedListener.Close(context.Background()))
+	return errors.Wrap(l.ConnectionOrientedListener.Close())
 }
 
 func (l *netListenerAdapter) Unwrap() net.Listener {
@@ -318,11 +319,10 @@ type Connection struct {
 	connBase
 	origConn net.Conn
 	ctxConn  netutil.ContextConn
-	idleTmr  *timeutil.InactivityTimer
+	idleTmr  *timeutil.Watchdog
 }
 
 func NewConnection(
-	ctx context.Context,
 	base net.Conn,
 	meta sip.TransportMetadata,
 	opts ...ConnectionOptions,
@@ -343,39 +343,35 @@ func NewConnection(
 	connOpts := util.LastSliceElemOr(opts, ConnectionOptions{})
 
 	c := &Connection{
-		connBase: connBase{
-			meta:            meta.Canonic(),
-			laddr:           netutil.UnmapAddrPort(netip.MustParseAddrPort(base.LocalAddr().String())),
-			raddr:           netutil.UnmapAddrPort(netip.MustParseAddrPort(base.RemoteAddr().String())),
-			prsr:            connOpts.prsr(),
-			maxMsgReadSize:  connOpts.maxMsgReadSize(),
-			maxMsgWriteSize: connOpts.maxMsgWriteSize(),
-			readTimeout:     connOpts.readTimeout(),
-			writeTimeout:    connOpts.writeTimeout(),
-			idleTimeout:     connOpts.idleTimeout(),
-			closed:          make(chan struct{}),
-		},
-		origConn: base,
+		meta:            meta.Canonic(),
+		laddr:           netutil.UnmapAddrPort(netip.MustParseAddrPort(base.LocalAddr().String())),
+		raddr:           netutil.UnmapAddrPort(netip.MustParseAddrPort(base.RemoteAddr().String())),
+		prsr:            connOpts.prsr(),
+		maxMsgReadSize:  connOpts.maxMsgReadSize(),
+		maxMsgWriteSize: connOpts.maxMsgWriteSize(),
+		readTimeout:     connOpts.readTimeout(),
+		writeTimeout:    connOpts.writeTimeout(),
+		idleTimeout:     connOpts.idleTimeout(),
+		closed:          make(chan struct{}),
+		origConn:        base,
 	}
 	c.log = connOpts.log().With(slog.Any("connection", c))
 	//nolint:forcetypeassert
-	c.ctxConn = netutil.WrapConn([]netutil.ConnDecorator{
+	c.ctxConn = netutil.WrapConn(
 		netutil.NewLogConnDecorator(c.log, slog.LevelDebug),
 		netutil.NewCloseOnceConnDecorator(),
 		netutil.NewContextConnDecorator(),
-	}...)(ctx, base).(netutil.ContextConn)
-	c.idleTmr = timeutil.NewInactivityTimer(c.idleTimeout, func() {
-		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-		defer cancel()
-
-		if err := c.Close(closeCtx); err != nil {
-			c.log.LogAttrs(closeCtx, slog.LevelWarn, "failed to close connection",
+	)(base).(netutil.ContextConn)
+	c.idleTmr = timeutil.NewWatchdog(c.idleTimeout, func() {
+		if err := c.Close(); err != nil {
+			c.log.WarnContext(
+				context.Background(), "failed to close connection",
 				slog.Any("connection", c),
 				slog.Any("error", err),
 			)
 		}
 	})
-	c.resetIdleTmr()
+	c.idleTmr.Start()
 	return c, nil
 }
 
@@ -416,26 +412,26 @@ func (c *Connection) Format(f fmt.State, verb rune) {
 	}
 }
 
-func (c *Connection) Close(_ context.Context) error {
+func (c *Connection) Close() error {
 	c.closeOnce.Do(func() {
 		c.closeErr = c.ctxConn.Close()
 		if c.closeErr != nil && errors.Is(c.closeErr, net.ErrClosed) {
-			c.closeErr = errors.Errorf("%w: %w", c.closeErr, ErrNetworkClosed)
+			c.closeErr = NewNetworkClosedError(c.closeErr)
 		}
 		close(c.closed)
 	})
 	if c.idleTmr != nil {
-		c.idleTmr.Stop()
+		c.idleTmr.Close()
 	}
 	return errors.Wrap(c.closeErr)
 }
 
 func (c *Connection) Write(ctx context.Context, buf []byte) (int, error) {
 	if c.isClosed() {
-		return 0, errors.Wrap(ErrNetworkClosed)
+		return 0, errors.Wrap(NewNetworkClosedError())
 	}
 
-	if _, ok := ctx.Deadline(); !ok {
+	if _, ok := ctx.Deadline(); !ok && c.writeTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.writeTimeout)
 		defer cancel()
@@ -444,7 +440,7 @@ func (c *Connection) Write(ctx context.Context, buf []byte) (int, error) {
 	n, err := c.ctxConn.WriteContext(ctx, buf)
 	if err != nil {
 		if errors.Is(err, net.ErrClosed) {
-			err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+			err = NewNetworkClosedError(err)
 		}
 		return 0, errors.Wrap(err)
 	}
@@ -454,10 +450,10 @@ func (c *Connection) Write(ctx context.Context, buf []byte) (int, error) {
 
 func (c *Connection) Read(ctx context.Context, buf []byte) (int, error) {
 	if c.isClosed() {
-		return 0, errors.Wrap(ErrNetworkClosed)
+		return 0, errors.Wrap(NewNetworkClosedError())
 	}
 
-	if _, ok := ctx.Deadline(); !ok {
+	if _, ok := ctx.Deadline(); !ok && c.readTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.readTimeout)
 		defer cancel()
@@ -466,7 +462,7 @@ func (c *Connection) Read(ctx context.Context, buf []byte) (int, error) {
 	n, err := c.ctxConn.ReadContext(ctx, buf)
 	if err != nil {
 		if errors.Is(err, net.ErrClosed) {
-			err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+			err = NewNetworkClosedError(err)
 		}
 		return 0, errors.Wrap(err)
 	}
@@ -478,7 +474,8 @@ func (c *Connection) Messages(ctx context.Context) iter.Seq2[sip.Message, error]
 	if c.meta.Streamed() {
 		msgs = c.streamMsgs(ctx, c, c.recvKeepAlive)
 	} else {
-		msgs = c.packetMsgs(ctx, &streamToPacketAdapter{c},
+		msgs = c.packetMsgs(
+			ctx, &streamToPacketAdapter{c},
 			func(ctx context.Context, kaType uint8, raddr netip.AddrPort) {
 				c.recvKeepAlive(ctx, kaType)
 			},
@@ -508,7 +505,7 @@ func (c *Connection) recvKeepAlive(ctx context.Context, kaType uint8) {
 		c.resetIdleTmr()
 
 		if _, err := c.Write(ctx, crlf); err != nil {
-			c.log.LogAttrs(ctx, slog.LevelWarn, "failed to send CRLF pong", slog.Any("error", err))
+			c.log.WarnContext(ctx, "failed to send CRLF pong", slog.Any("error", err))
 		}
 		// TODO: fire event or callback for upper layer
 	case kaPongCRLF:
@@ -524,13 +521,15 @@ func (c *Connection) WriteMessage(
 	opts ...sip.RenderOptions,
 ) error {
 	if c.isClosed() {
-		return errors.Wrap(ErrNetworkClosed)
+		return errors.Wrap(NewNetworkClosedError())
 	}
 
 	addr = netutil.UnmapAddrPort(addr)
 	if addr.IsValid() && addr != c.raddr {
-		// TODO: add sentinel or classified error
-		return errors.ErrorfWrap("can't write to %q", addr)
+		return errors.Wrap(errclass.Classify(
+			errors.Errorf("can't write to %q", addr),
+			sip.ErrClassTransport,
+		))
 	}
 
 	if err := msg.Validate(); err != nil {
@@ -544,7 +543,7 @@ func (c *Connection) WriteMessage(
 		return errors.Wrap(err)
 	}
 	if uint(bb.Len()) > c.maxMsgWriteSize {
-		return errors.Wrap(sip.ErrMessageTooLarge)
+		return errors.Wrap(sip.NewMessageTooLargeError(c.maxMsgWriteSize))
 	}
 
 	if _, err := c.Write(ctx, bb.Bytes()); err != nil {
@@ -592,7 +591,7 @@ func (c *netConnAdapter) Write(b []byte) (int, error) {
 func (c *netConnAdapter) SetDeadline(t time.Time) error {
 	err := c.ctxConn.SetDeadline(t)
 	if err != nil && errors.Is(err, net.ErrClosed) {
-		err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+		err = NewNetworkClosedError(err)
 	}
 	return errors.Wrap(err)
 }
@@ -600,7 +599,7 @@ func (c *netConnAdapter) SetDeadline(t time.Time) error {
 func (c *netConnAdapter) SetReadDeadline(t time.Time) error {
 	err := c.ctxConn.SetReadDeadline(t)
 	if err != nil && errors.Is(err, net.ErrClosed) {
-		err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+		err = NewNetworkClosedError(err)
 	}
 	return errors.Wrap(err)
 }
@@ -608,13 +607,13 @@ func (c *netConnAdapter) SetReadDeadline(t time.Time) error {
 func (c *netConnAdapter) SetWriteDeadline(t time.Time) error {
 	err := c.ctxConn.SetWriteDeadline(t)
 	if err != nil && errors.Is(err, net.ErrClosed) {
-		err = errors.Errorf("%w: %w", err, ErrNetworkClosed)
+		err = NewNetworkClosedError(err)
 	}
 	return errors.Wrap(err)
 }
 
 func (c *netConnAdapter) Close() error {
-	return errors.Wrap(c.Connection.Close(context.Background()))
+	return errors.Wrap(c.Connection.Close())
 }
 
 func (c *netConnAdapter) Unwrap() net.Conn {
@@ -666,7 +665,7 @@ func (tp *ConnectionOrientedTransport) LogValue() slog.Value {
 }
 
 func (tp *ConnectionOrientedTransport) newListener(ctx context.Context, netLis net.Listener) (transpListener, error) {
-	return errors.Wrap2(NewConnectionOrientedListener(ctx, netLis, tp, tp.connOpts))
+	return errors.Wrap2(NewConnectionOrientedListener(netLis, tp, tp.connOpts))
 }
 
 // AcquireConnection acquires a connection to the given remote address.
@@ -676,7 +675,7 @@ func (tp *ConnectionOrientedTransport) AcquireConnection(
 	opts ...AcquireConnectionOptions,
 ) (sip.TransportConnection, error) {
 	if tp.isClosing() {
-		return nil, errors.Wrap(ErrTransportClosed)
+		return nil, errors.Wrap(NewTransportClosedError())
 	}
 
 	acqOpts := util.LastSliceElemOr(opts, AcquireConnectionOptions{})
@@ -687,10 +686,10 @@ func (tp *ConnectionOrientedTransport) AcquireConnection(
 	}
 
 	if !acqOpts.Dial {
-		return nil, errors.Wrap(ErrConnectionNotFound)
+		return nil, errors.Wrap(NewConnectionNotFoundError())
 	}
 
-	conn, err := tp.dialConn(ctx, raddr)
+	conn, err := tp.dialConn(ctx, raddr, acqOpts)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}

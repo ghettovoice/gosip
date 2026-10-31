@@ -8,6 +8,7 @@ import (
 )
 
 func (elm *Element) Capabilities() ElementCapabilities {
+	elm.ensureInit()
 	return elm.curCpb.Load().(ElementCapabilities) //nolint:forcetypeassert
 }
 

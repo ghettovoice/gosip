@@ -20,15 +20,15 @@ import (
 // Addr represents a network address consisting of a host and optional port.
 type Addr = types.Addr
 
-// AddrFromHost creates an Addr from a hostname without a port.
-func AddrFromHost(host string) Addr { return types.AddrFromHost(host) }
+// MakeHostAddr creates an Addr from a hostname without a port.
+func MakeHostAddr(host string) Addr { return types.MakeHostAddr(host) }
 
-// AddrFromHostPort creates an Addr from a hostname and port.
-func AddrFromHostPort(host string, port uint16) Addr { return types.AddrFromHostPort(host, port) }
+// MakeHostPortAddr creates an Addr from a hostname and port.
+func MakeHostPortAddr(host string, port uint16) Addr { return types.MakeHostPortAddr(host, port) }
 
-func AddrFromIP(ip net.IP) Addr { return types.AddrFromIP(ip) }
+func MakeIPAddr(ip net.IP) Addr { return types.MakeIPAddr(ip) }
 
-func AddrFromIPPort(ip net.IP, port uint16) Addr { return types.AddrFromIPPort(ip, port) }
+func MakeIPPortAddr(ip net.IP, port uint16) Addr { return types.MakeIPPortAddr(ip, port) }
 
 // ParseAddr parses a network address from the given input s (string or []byte).
 func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }
@@ -129,7 +129,13 @@ func renderHdrEntries[H ~[]E, E any](w io.Writer, hdr H) (num int, err error) {
 		if i > 0 {
 			cw.Fprint(", ")
 		}
-		cw.Fprint(hdr[i])
+		if entry, ok := any(hdr[i]).(interface {
+			renderTo(w io.Writer) (int, error)
+		}); ok {
+			cw.Call(entry.renderTo)
+		} else {
+			cw.Fprint(hdr[i])
+		}
 	}
 	return errors.Wrap2(cw.Result())
 }
@@ -174,7 +180,7 @@ func renderHdrParams(w io.Writer, params Values, addQParam bool) (num int, err e
 	return errors.Wrap2(cw.Result())
 }
 
-func compareHdrParams(params1, params2 Values, specParams map[string]bool) bool {
+func compareHdrParams(params1, params2 Values, specParams map[string]bool, caseSensParams ...string) bool {
 	switch {
 	case len(params1) == 0 && len(params2) == 0:
 		return true
@@ -193,11 +199,13 @@ func compareHdrParams(params1, params2 Values, specParams map[string]bool) bool 
 			// Any parameter appearing in both URIs must match.
 			v1, _ := params1.Last(k)
 			v2, _ := params2.Last(k)
-			if !grammar.IsQuoted(v1) {
-				v1 = util.LCase(v1)
-			}
-			if !grammar.IsQuoted(v2) {
-				v2 = util.LCase(v2)
+			if !slices.Contains(caseSensParams, util.LCase(k)) {
+				if !grammar.IsQuoted(v1) {
+					v1 = util.LCase(v1)
+				}
+				if !grammar.IsQuoted(v2) {
+					v2 = util.LCase(v2)
+				}
 			}
 			if v1 != v2 {
 				return false

@@ -12,6 +12,100 @@ import (
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
+func findTransportStats(
+	report sip.StatsReport,
+	proto sip.TransportProto,
+	localAddr netip.AddrPort,
+) (sip.TransportStats, bool) {
+	for _, transportStats := range report.Transports {
+		if transportStats.Proto == proto && transportStats.Addr == localAddr.String() {
+			return transportStats, true
+		}
+	}
+	return sip.TransportStats{}, false
+}
+
+type statsTransactionState interface {
+	fireState(ctx context.Context, to sip.TransactionState)
+}
+
+type statsTransactionStub struct {
+	stubTransactionDefaults
+
+	typ      sip.TransactionType
+	handlers []sip.TransactionStateHandler
+}
+
+func (tx *statsTransactionStub) Type() sip.TransactionType {
+	return tx.typ
+}
+
+func (*statsTransactionStub) State() sip.TransactionState {
+	return sip.TransactionStateTrying
+}
+
+func (tx *statsTransactionStub) BindStateHandler(handler sip.TransactionStateHandler) (unbind func()) {
+	tx.handlers = append(tx.handlers, handler)
+	return func() {}
+}
+
+func (*statsTransactionStub) Started() bool { return false }
+
+func (*statsTransactionStub) BindStartHandler(sip.TransactionStartHandler) (unbind func()) {
+	return func() {}
+}
+
+func (tx *statsTransactionStub) fireState(ctx context.Context, to sip.TransactionState) {
+	for _, handler := range tx.handlers {
+		if handler != nil {
+			handler.HandleTransactionState(ctx, 0, to)
+		}
+	}
+}
+
+type statsClientTransactionStub struct {
+	*statsTransactionStub
+	stubClientTransactionDefaults
+}
+
+func newStatsClientTransactionStub(typ sip.TransactionType) *statsClientTransactionStub {
+	return &statsClientTransactionStub{
+		statsTransactionStub: &statsTransactionStub{typ: typ},
+	}
+}
+
+func (*statsClientTransactionStub) Start(context.Context) error {
+	return nil
+}
+
+func (*statsClientTransactionStub) Key() sip.ClientTransactionKey {
+	return sip.ClientTransactionKey{}
+}
+
+type statsServerTransactionStub struct {
+	*statsTransactionStub
+	stubServerTransactionDefaults
+}
+
+func newStatsServerTransactionStub(typ sip.TransactionType) *statsServerTransactionStub {
+	return &statsServerTransactionStub{
+		statsTransactionStub: &statsTransactionStub{typ: typ},
+	}
+}
+
+func (*statsServerTransactionStub) Start(context.Context) error {
+	return nil
+}
+
+func (*statsServerTransactionStub) Key() sip.ServerTransactionKey {
+	return sip.ServerTransactionKey{}
+}
+
+var (
+	_ sip.ClientTransaction = (*statsClientTransactionStub)(nil)
+	_ sip.ServerTransaction = (*statsServerTransactionStub)(nil)
+)
+
 func TestStatsRecorder_ReportTransportStats(t *testing.T) {
 	t.Parallel()
 
@@ -138,7 +232,7 @@ func TestStatsRecorder_ReportTransactionStats(t *testing.T) {
 		t.Errorf("stats.Report() transaction stats mismatch (-want +got):\n%s", diff)
 	}
 
-	for _, tx := range []statsTransactionLifecycle{clientInvite, clientNonInvite, serverInvite, serverNonInvite} {
+	for _, tx := range []statsTransactionState{clientInvite, clientNonInvite, serverInvite, serverNonInvite} {
 		tx.fireState(ctx, sip.TransactionStateTerminated)
 	}
 
@@ -153,155 +247,3 @@ func TestStatsRecorder_ReportTransactionStats(t *testing.T) {
 		t.Errorf("stats.Report() transaction stats after termination mismatch (-want +got):\n%s", diff)
 	}
 }
-
-func findTransportStats(
-	report sip.StatsReport,
-	proto sip.TransportProto,
-	localAddr netip.AddrPort,
-) (sip.TransportStats, bool) {
-	for _, transportStats := range report.Transports {
-		if transportStats.Proto == proto && transportStats.Addr == localAddr.String() {
-			return transportStats, true
-		}
-	}
-	return sip.TransportStats{}, false
-}
-
-type statsTransactionLifecycle interface {
-	fireState(ctx context.Context, to sip.TransactionState)
-}
-
-type statsTransactionStub struct {
-	typ      sip.TransactionType
-	handlers []sip.TransactionStateHandler
-}
-
-func (tx *statsTransactionStub) Type() sip.TransactionType {
-	return tx.typ
-}
-
-func (*statsTransactionStub) State() sip.TransactionState {
-	return sip.TransactionStateTrying
-}
-
-func (*statsTransactionStub) MatchMessage(sip.Message) bool {
-	return true
-}
-
-func (*statsTransactionStub) LastError() error {
-	return nil
-}
-
-func (tx *statsTransactionStub) BindStateHandler(handler sip.TransactionStateHandler) (unbind func()) {
-	tx.handlers = append(tx.handlers, handler)
-	return func() {}
-}
-
-func (*statsTransactionStub) BindErrorHandler(sip.ErrorHandler) (unbind func()) {
-	return func() {}
-}
-
-func (*statsTransactionStub) Terminate(context.Context, error) error {
-	return nil
-}
-
-func (tx *statsTransactionStub) fireState(ctx context.Context, to sip.TransactionState) {
-	for _, handler := range tx.handlers {
-		if handler != nil {
-			handler.HandleTransactionState(ctx, 0, to)
-		}
-	}
-}
-
-type statsClientTransactionStub struct {
-	*statsTransactionStub
-}
-
-func newStatsClientTransactionStub(typ sip.TransactionType) *statsClientTransactionStub {
-	return &statsClientTransactionStub{
-		statsTransactionStub: &statsTransactionStub{typ: typ},
-	}
-}
-
-func (*statsClientTransactionStub) RecvResponse(context.Context, *sip.ResponseEnvelope) error {
-	return nil
-}
-
-func (*statsClientTransactionStub) Start(context.Context) error {
-	return nil
-}
-
-func (*statsClientTransactionStub) Key() sip.ClientTransactionKey {
-	return sip.ClientTransactionKey{}
-}
-
-func (*statsClientTransactionStub) Request() *sip.RequestEnvelope {
-	return nil
-}
-
-func (*statsClientTransactionStub) LastResponse() *sip.ResponseEnvelope {
-	return nil
-}
-
-func (*statsClientTransactionStub) Transport() sip.ClientTransport {
-	return nil
-}
-
-func (*statsClientTransactionStub) BindResponseHandler(sip.InboundResponseHandler) (unbind func()) {
-	return func() {}
-}
-
-type statsServerTransactionStub struct {
-	*statsTransactionStub
-}
-
-func newStatsServerTransactionStub(typ sip.TransactionType) *statsServerTransactionStub {
-	return &statsServerTransactionStub{
-		statsTransactionStub: &statsTransactionStub{typ: typ},
-	}
-}
-
-func (*statsServerTransactionStub) RecvRequest(context.Context, *sip.RequestEnvelope) error {
-	return nil
-}
-
-func (*statsServerTransactionStub) SendResponse(
-	context.Context,
-	*sip.ResponseEnvelope,
-	...sip.SendResponseOptions,
-) error {
-	return nil
-}
-
-func (*statsServerTransactionStub) Start(context.Context) error {
-	return nil
-}
-
-func (*statsServerTransactionStub) Key() sip.ServerTransactionKey {
-	return sip.ServerTransactionKey{}
-}
-
-func (*statsServerTransactionStub) Request() *sip.RequestEnvelope {
-	return nil
-}
-
-func (*statsServerTransactionStub) LastResponse() *sip.ResponseEnvelope {
-	return nil
-}
-
-func (*statsServerTransactionStub) Transport() sip.ServerTransport {
-	return nil
-}
-
-func (*statsServerTransactionStub) Respond(
-	context.Context,
-	sip.ResponseStatus,
-	...sip.RespondOptions,
-) error {
-	return nil
-}
-
-var (
-	_ sip.ClientTransaction = (*statsClientTransactionStub)(nil)
-	_ sip.ServerTransaction = (*statsServerTransactionStub)(nil)
-)

@@ -2,7 +2,6 @@ package sip_test
 
 import (
 	"context"
-	"iter"
 	"net"
 	"net/netip"
 	"testing"
@@ -10,72 +9,12 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	"github.com/ghettovoice/gosip/dns"
-	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/internal/testutil/dnstest"
+	"github.com/ghettovoice/gosip/internal/testutil/siptest"
+	"github.com/ghettovoice/gosip/pkg/dns"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 )
-
-// mockDNSResolver is a test double for DNSResolver.
-type mockDNSResolver struct {
-	lookupIPFunc    func(ctx context.Context, network, host string) ([]net.IP, error)
-	lookupSRVFunc   func(ctx context.Context, service, proto, host string) ([]*dns.SRV, error)
-	lookupNAPTRFunc func(ctx context.Context, host string) ([]*dns.NAPTR, error)
-}
-
-func (m *mockDNSResolver) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
-	if m.lookupIPFunc != nil {
-		return m.lookupIPFunc(ctx, network, host)
-	}
-	return nil, nil
-}
-
-func (m *mockDNSResolver) LookupSRV(ctx context.Context, service, proto, host string) ([]*dns.SRV, error) {
-	if m.lookupSRVFunc != nil {
-		return m.lookupSRVFunc(ctx, service, proto, host)
-	}
-	return nil, nil
-}
-
-func (m *mockDNSResolver) LookupNAPTR(ctx context.Context, host string) ([]*dns.NAPTR, error) {
-	if m.lookupNAPTRFunc != nil {
-		return m.lookupNAPTRFunc(ctx, host)
-	}
-	return nil, nil
-}
-
-// multiTransportProvider is a test double providing multiple transports.
-type multiTransportProvider struct {
-	metas []sip.TransportMetadata
-}
-
-func (p *multiTransportProvider) TransportMetadataByProto(proto sip.TransportProto) (sip.TransportMetadata, bool) {
-	for _, m := range p.metas {
-		if m.Proto.Equal(proto) {
-			return m, true
-		}
-	}
-	return sip.TransportMetadata{}, false
-}
-
-func (p *multiTransportProvider) TransportMetadataByNAPTRService(service string) (sip.TransportMetadata, bool) {
-	for _, m := range p.metas {
-		if util.EqFold(m.NAPTRService, service) {
-			return m, true
-		}
-	}
-	return sip.TransportMetadata{}, false
-}
-
-func (p *multiTransportProvider) AllTransportMetadata() iter.Seq[sip.TransportMetadata] {
-	return func(yield func(sip.TransportMetadata) bool) {
-		for _, m := range p.metas {
-			if !yield(m) {
-				return
-			}
-		}
-	}
-}
 
 func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 	t.Parallel()
@@ -83,8 +22,8 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 	udpMeta := sip.UDPMetadata()
 	tcpMeta := sip.TCPMetadata()
 	tlsMeta := sip.TLSMetadata()
-	multiPrvd := &multiTransportProvider{
-		metas: []sip.TransportMetadata{udpMeta, tcpMeta, tlsMeta},
+	multiPrvd := siptest.MetadataProvider{
+		Metas: []sip.TransportMetadata{udpMeta, tcpMeta, tlsMeta},
 	}
 
 	t.Run("IP address directly in URI", func(t *testing.T) {
@@ -94,7 +33,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr: sip.AddrFromHostPort("192.168.1.1", 5060),
+			Addr: sip.MakeHostPortAddr("192.168.1.1", 5060),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr.Addr)
@@ -114,8 +53,8 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		t.Parallel()
 
 		lctr := &sip.RemoteElementLocator{
-			DNSResolver: &mockDNSResolver{
-				lookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
+			DNSResolver: dnstest.StubResolver{
+				LookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
 					if host == "example.com" {
 						return []net.IP{net.ParseIP("192.168.1.1")}, nil
 					}
@@ -127,7 +66,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr: sip.AddrFromHostPort("example.com", 5070),
+			Addr: sip.MakeHostPortAddr("example.com", 5070),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr.Addr)
@@ -144,8 +83,8 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		t.Parallel()
 
 		lctr := &sip.RemoteElementLocator{
-			DNSResolver: &mockDNSResolver{
-				lookupSRVFunc: func(_ context.Context, service, proto, host string) ([]*dns.SRV, error) {
+			DNSResolver: dnstest.StubResolver{
+				LookupSRVFunc: func(_ context.Context, service, proto, host string) ([]*dns.SRV, error) {
 					if service == "sip" && proto == "udp" && host == "example.com" {
 						return []*dns.SRV{
 							{Target: "sip1.example.com.", Port: 5060},
@@ -154,7 +93,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 					}
 					return nil, nil
 				},
-				lookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
+				LookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
 					switch host {
 					case "sip1.example.com.", "sip2.example.com.":
 						return []net.IP{net.ParseIP("10.0.0.1")}, nil
@@ -167,7 +106,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr:   sip.AddrFromHost("example.com"),
+			Addr:   sip.MakeHostAddr("example.com"),
 			Params: make(sip.Values).Set("transport", "UDP"),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
@@ -191,8 +130,8 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		t.Parallel()
 
 		lctr := &sip.RemoteElementLocator{
-			DNSResolver: &mockDNSResolver{
-				lookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
+			DNSResolver: dnstest.StubResolver{
+				LookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
 					if host == "example.com" {
 						return []net.IP{net.ParseIP("192.168.1.1")}, nil
 					}
@@ -204,7 +143,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []sip.ResolvedAddr
 		reqURI := &sip.URI{
-			Addr:   sip.AddrFromHost("example.com"),
+			Addr:   sip.MakeHostAddr("example.com"),
 			Params: make(sip.Values).Set("transport", "UDP"),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
@@ -227,8 +166,8 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		t.Parallel()
 
 		lctr := &sip.RemoteElementLocator{
-			DNSResolver: &mockDNSResolver{
-				lookupNAPTRFunc: func(_ context.Context, host string) ([]*dns.NAPTR, error) {
+			DNSResolver: dnstest.StubResolver{
+				LookupNAPTRFunc: func(_ context.Context, host string) ([]*dns.NAPTR, error) {
 					if host == "example.com" {
 						return []*dns.NAPTR{
 							{
@@ -242,7 +181,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 					}
 					return nil, nil
 				},
-				lookupSRVFunc: func(_ context.Context, service, proto, host string) ([]*dns.SRV, error) {
+				LookupSRVFunc: func(_ context.Context, service, proto, host string) ([]*dns.SRV, error) {
 					switch {
 					case service == "sip" && proto == "udp" && host == "_sip._udp.example.com.":
 						return []*dns.SRV{
@@ -255,7 +194,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 					}
 					return nil, nil
 				},
-				lookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
+				LookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
 					switch host {
 					case "sip.example.com.":
 						return []net.IP{net.ParseIP("10.0.0.1")}, nil
@@ -270,7 +209,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr: sip.AddrFromHost("example.com"),
+			Addr: sip.MakeHostAddr("example.com"),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr.Addr)
@@ -287,14 +226,14 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		t.Parallel()
 
 		lctr := &sip.RemoteElementLocator{
-			DNSResolver: &mockDNSResolver{
-				lookupSRVFunc: func(_ context.Context, _, _, _ string) ([]*dns.SRV, error) {
+			DNSResolver: dnstest.StubResolver{
+				LookupSRVFunc: func(_ context.Context, _, _, _ string) ([]*dns.SRV, error) {
 					return nil, nil
 				},
-				lookupNAPTRFunc: func(_ context.Context, _ string) ([]*dns.NAPTR, error) {
+				LookupNAPTRFunc: func(_ context.Context, _ string) ([]*dns.NAPTR, error) {
 					return nil, nil
 				},
-				lookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
+				LookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
 					if host == "example.com" {
 						return []net.IP{net.ParseIP("192.168.1.1")}, nil
 					}
@@ -306,7 +245,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 
 		var got []netip.AddrPort
 		reqURI := &sip.URI{
-			Addr: sip.AddrFromHost("example.com"),
+			Addr: sip.MakeHostAddr("example.com"),
 		}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr.Addr)
@@ -324,8 +263,8 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		t.Parallel()
 
 		lctr := &sip.RemoteElementLocator{
-			DNSResolver: &mockDNSResolver{
-				lookupSRVFunc: func(_ context.Context, service, proto, host string) ([]*dns.SRV, error) {
+			DNSResolver: dnstest.StubResolver{
+				LookupSRVFunc: func(_ context.Context, service, proto, host string) ([]*dns.SRV, error) {
 					if service == "sip" && proto == "udp" && host == "example.com" {
 						return []*dns.SRV{
 							{Target: "sip.example.com.", Port: 5060},
@@ -333,7 +272,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 					}
 					return nil, nil
 				},
-				lookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
+				LookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
 					switch host {
 					case "sip.example.com.":
 						return []net.IP{net.ParseIP("10.0.0.1")}, nil
@@ -347,7 +286,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		}
 
 		var got []sip.ResolvedAddr
-		reqURI := &sip.URI{Addr: sip.AddrFromHost("example.com")}
+		reqURI := &sip.URI{Addr: sip.MakeHostAddr("example.com")}
 		for addr := range lctr.LookupRequestAddrs(t.Context(), reqURI) {
 			got = append(got, addr)
 		}
@@ -386,14 +325,14 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 	t.Parallel()
 
 	udpMeta := sip.UDPMetadata()
-	multiPrvd := &multiTransportProvider{metas: []sip.TransportMetadata{udpMeta}}
+	multiPrvd := siptest.MetadataProvider{Metas: []sip.TransportMetadata{udpMeta}}
 
 	t.Run("maddr parameter", func(t *testing.T) {
 		t.Parallel()
 
 		lctr := &sip.RemoteElementLocator{
-			DNSResolver: &mockDNSResolver{
-				lookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
+			DNSResolver: dnstest.StubResolver{
+				LookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
 					if host == "maddr.example.com" {
 						return []net.IP{net.ParseIP("10.0.0.1")}, nil
 					}
@@ -407,7 +346,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("sentby.example.com", 5060),
+			Addr:      sip.MakeHostPortAddr("sentby.example.com", 5060),
 			Params:    make(sip.Values).Set("maddr", "maddr.example.com"),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
@@ -433,7 +372,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("sentby.example.com", 5060),
+			Addr:      sip.MakeHostPortAddr("sentby.example.com", 5060),
 			Params:    make(sip.Values).Set("received", "203.0.113.1"),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
@@ -459,7 +398,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("sentby.example.com", 5060),
+			Addr:      sip.MakeHostPortAddr("sentby.example.com", 5060),
 			Params:    make(sip.Values).Set("received", "203.0.113.1").Set("rport", "12345"),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
@@ -485,7 +424,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("192.168.1.1", 5070),
+			Addr:      sip.MakeHostPortAddr("192.168.1.1", 5070),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
 			got = append(got, addr.Addr)
@@ -502,8 +441,8 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		t.Parallel()
 
 		lctr := &sip.RemoteElementLocator{
-			DNSResolver: &mockDNSResolver{
-				lookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
+			DNSResolver: dnstest.StubResolver{
+				LookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
 					if host == "example.com" {
 						return []net.IP{net.ParseIP("192.168.1.1")}, nil
 					}
@@ -517,7 +456,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHostPort("example.com", 5070),
+			Addr:      sip.MakeHostPortAddr("example.com", 5070),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
 			got = append(got, addr.Addr)
@@ -534,8 +473,8 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		t.Parallel()
 
 		lctr := &sip.RemoteElementLocator{
-			DNSResolver: &mockDNSResolver{
-				lookupSRVFunc: func(_ context.Context, service, proto, host string) ([]*dns.SRV, error) {
+			DNSResolver: dnstest.StubResolver{
+				LookupSRVFunc: func(_ context.Context, service, proto, host string) ([]*dns.SRV, error) {
 					if service == "sip" && proto == "udp" && host == "example.com" {
 						return []*dns.SRV{
 							{Target: "sip.example.com.", Port: 5060},
@@ -543,7 +482,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 					}
 					return nil, nil
 				},
-				lookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
+				LookupIPFunc: func(_ context.Context, _, host string) ([]net.IP, error) {
 					if host == "sip.example.com." {
 						return []net.IP{net.ParseIP("10.0.0.1")}, nil
 					}
@@ -557,7 +496,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		via := header.ViaHop{
 			Proto:     sip.ProtoVer20(),
 			Transport: sip.UDPMetadata().Proto,
-			Addr:      sip.AddrFromHost("example.com"),
+			Addr:      sip.MakeHostAddr("example.com"),
 		}
 		for addr := range lctr.LookupResponseAddrs(t.Context(), via) {
 			got = append(got, addr.Addr)

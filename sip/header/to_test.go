@@ -15,7 +15,7 @@ import (
 func TestTo_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.To
 		want string
@@ -27,8 +27,8 @@ func TestTo_Render(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -37,12 +37,12 @@ func TestTo_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(); got != c.want {
-				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(); got != tt.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -51,7 +51,7 @@ func TestTo_Render(t *testing.T) {
 func TestTo_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     *header.To
 		wantRes string
@@ -64,8 +64,8 @@ func TestTo_RenderTo(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -75,19 +75,19 @@ func TestTo_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -96,7 +96,7 @@ func TestTo_RenderTo(t *testing.T) {
 func TestTo_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.To
 		want string
@@ -108,8 +108,8 @@ func TestTo_String(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -118,12 +118,12 @@ func TestTo_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.String(); got != c.want {
-				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			if got := tt.hdr.String(); got != tt.want {
+				t.Errorf("hdr.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -132,7 +132,7 @@ func TestTo_String(t *testing.T) {
 func TestTo_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.To
 		val  any
@@ -147,8 +147,8 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{},
 			header.To{
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 			},
@@ -159,8 +159,8 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -168,8 +168,8 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User: uri.User("AGB"),
-					Addr: uri.AddrFromHost("bell-telephone.com"),
+					User: uri.MakeUserInfo("AGB"),
+					Addr: uri.MakeHostAddr("bell-telephone.com"),
 				},
 				Params: make(header.Values).Set("tag", "qwerty"),
 			},
@@ -180,16 +180,16 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "def"),
 			},
 			&header.To{
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "abc"),
@@ -201,16 +201,16 @@ func TestTo_Equal(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
 			},
 			header.To{
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "abc"),
@@ -219,12 +219,12 @@ func TestTo_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -233,7 +233,7 @@ func TestTo_Equal(t *testing.T) {
 func TestTo_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.To
 		want bool
@@ -244,18 +244,18 @@ func TestTo_IsValid(t *testing.T) {
 		{
 			"valid",
 			&header.To{
-				URI: &uri.SIP{Addr: uri.AddrFromHost("bell-telephone.com")},
+				URI: &uri.SIP{Addr: uri.MakeHostAddr("bell-telephone.com")},
 			},
 			true,
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -264,7 +264,7 @@ func TestTo_IsValid(t *testing.T) {
 func TestTo_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.To
 	}{
@@ -275,8 +275,8 @@ func TestTo_Clone(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("x", "def"),
@@ -284,20 +284,20 @@ func TestTo_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.hdr.Clone()
-			if c.hdr == nil {
+			got := tt.hdr.Clone()
+			if tt.hdr == nil {
 				if got != nil {
 					t.Errorf("hdr.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}
@@ -306,7 +306,7 @@ func TestTo_Clone(t *testing.T) {
 func TestTo_MarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.To
 		want string
@@ -317,8 +317,8 @@ func TestTo_MarshalJSON(t *testing.T) {
 			"simple",
 			&header.To{
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 			},
 			`{"name":"To","value":"\u003csip:alice@example.com\u003e"}`,
@@ -328,8 +328,8 @@ func TestTo_MarshalJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -341,8 +341,8 @@ func TestTo_MarshalJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 				Params: make(header.Values).Set("tag", "xyz123").Set("expires", "3600"),
 			},
@@ -350,17 +350,17 @@ func TestTo_MarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(c.hdr)
+			got, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
 
-			if got := string(got); got != c.want {
-				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, c.want)
+			if got := string(got); got != tt.want {
+				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -369,7 +369,7 @@ func TestTo_MarshalJSON(t *testing.T) {
 func TestTo_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    *header.To
@@ -387,8 +387,8 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 			`{"name":"To","value":"<sip:alice@example.com>"}`,
 			&header.To{
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 			},
 			false,
@@ -399,8 +399,8 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp"),
 				},
 				Params: make(header.Values).Set("tag", "a48s"),
@@ -413,8 +413,8 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "Alice",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 				Params: make(header.Values).Set("tag", "xyz123").Set("expires", "3600"),
 			},
@@ -425,8 +425,8 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 			`{"name":"t","value":"<sip:bob@biloxi.com>;tag=1234"}`,
 			&header.To{
 				URI: &uri.SIP{
-					User: uri.User("bob"),
-					Addr: uri.AddrFromHost("biloxi.com"),
+					User: uri.MakeUserInfo("bob"),
+					Addr: uri.MakeHostAddr("biloxi.com"),
 				},
 				Params: make(header.Values).Set("tag", "1234"),
 			},
@@ -434,24 +434,24 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got *header.To
-			if err := json.Unmarshal([]byte(c.data), &got); err != nil {
-				if !c.wantErr {
+			if err := json.Unmarshal([]byte(tt.data), &got); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("json.Unmarshal(data, got) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -460,7 +460,7 @@ func TestTo_UnmarshalJSON(t *testing.T) {
 func TestTo_RoundTripJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.To
 	}{
@@ -470,8 +470,8 @@ func TestTo_RoundTripJSON(t *testing.T) {
 			"simple",
 			&header.To{
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 			},
 		},
@@ -480,8 +480,8 @@ func TestTo_RoundTripJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "Alice Smith",
 				URI: &uri.SIP{
-					User: uri.User("alice"),
-					Addr: uri.AddrFromHost("example.com"),
+					User: uri.MakeUserInfo("alice"),
+					Addr: uri.MakeHostAddr("example.com"),
 				},
 				Params: make(header.Values).Set("tag", "abc123"),
 			},
@@ -491,8 +491,8 @@ func TestTo_RoundTripJSON(t *testing.T) {
 			&header.To{
 				DisplayName: "A. G. Bell",
 				URI: &uri.SIP{
-					User:   uri.User("agb"),
-					Addr:   uri.AddrFromHost("bell-telephone.com"),
+					User:   uri.MakeUserInfo("agb"),
+					Addr:   uri.MakeHostAddr("bell-telephone.com"),
 					Params: make(header.Values).Set("transport", "udp").Set("user", "phone"),
 				},
 				Params: make(header.Values).Set("tag", "a48s").Set("expires", "3600"),
@@ -500,11 +500,11 @@ func TestTo_RoundTripJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(c.hdr)
+			data, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
@@ -514,8 +514,8 @@ func TestTo_RoundTripJSON(t *testing.T) {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}

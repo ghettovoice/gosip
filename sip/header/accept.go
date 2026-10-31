@@ -114,23 +114,7 @@ func (hdr Accept) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Accept) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = nil
-		return nil
-	}
-
-	h, ok := gh.(Accept)
-	if !ok {
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), nil))
 }
 
 func buildFromAcceptNode(node *abnf.Node) Accept {

@@ -12,8 +12,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	"github.com/ghettovoice/gosip/dns"
 	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/testutil"
+	"github.com/ghettovoice/gosip/internal/testutil/dnstest"
+	"github.com/ghettovoice/gosip/internal/testutil/siptest"
+	"github.com/ghettovoice/gosip/pkg/dns"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/sip/transport"
@@ -31,12 +34,12 @@ func TestConnectionLessTransport_Lifecycle(t *testing.T) {
 		t.Fatalf("tp.Metadata().Flags = %+v, want unreliable packet-oriented", got.Flags)
 	}
 
-	if err := tp.Close(t.Context()); err != nil {
-		t.Fatalf("tp.Close(t.Context()) error = %v, want nil", err)
+	if err := tp.Close(); err != nil {
+		t.Fatalf("tp.Close() error = %v, want nil", err)
 	}
 
-	if err := tp.Close(t.Context()); err != nil {
-		t.Fatalf("tp.Close(t.Context()) second call error = %v, want nil", err)
+	if err := tp.Close(); err != nil {
+		t.Fatalf("tp.Close() second call error = %v, want nil", err)
 	}
 
 	_, err = tp.AcquireConnection(t.Context(), netip.AddrPort{})
@@ -72,7 +75,7 @@ func TestConnectionLessListener_Serve_Duplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -99,9 +102,9 @@ func TestConnectionLessListener_Serve_Duplicate(t *testing.T) {
 
 	cancel()
 	conn.Close()
-	tp.Close(t.Context())
+	tp.Close()
 
-	if err := <-done; err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+	if err := testutil.WaitResult(t, done, "tp.ServeListener()"); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("tp.ServeListener() error = %v, want context canceled or closed", err)
 	}
 }
@@ -123,7 +126,7 @@ func TestConnectionLessTransport_SendAndReceive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	req := newMinReq(t)
 
@@ -158,7 +161,7 @@ func TestConnectionLessTransport_SendAndReceive(t *testing.T) {
 		t.Fatalf("Via.Branch = %q (ok=%v), want non-empty", branch, ok)
 	}
 
-	resp := newMinResp(t, "UDP", sip.AddrFromHostPort(srvAddr.Addr().String(), srvAddr.Port()))
+	resp := newMinResp(t, "UDP", sip.MakeHostPortAddr(srvAddr.Addr().String(), srvAddr.Port()))
 
 	outRes := sip.NewResponseEnvelope(resp).
 		SetRemoteAddr(srvAddr)
@@ -187,12 +190,12 @@ func TestConnectionLessTransport_SendAndReceive(t *testing.T) {
 func TestConnectionLessTransport_InterceptInboundMessages(t *testing.T) {
 	t.Parallel()
 
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHost("127.0.0.1")})
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostAddr("127.0.0.1")})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -232,7 +235,7 @@ func TestConnectionLessTransport_InterceptInboundMessages(t *testing.T) {
 	req.Headers.Set(header.Via{{
 		Proto:     sip.ProtoVer20(),
 		Transport: "UDP",
-		Addr:      sip.AddrFromHostPort(laddr.Addr().String(), laddr.Port()),
+		Addr:      sip.MakeHostPortAddr(laddr.Addr().String(), laddr.Port()),
 		Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
 	}})
 
@@ -247,7 +250,7 @@ func TestConnectionLessTransport_InterceptInboundMessages(t *testing.T) {
 		t.Fatalf("inbound request not received")
 	}
 
-	res := newMinResp(t, "UDP", sip.AddrFromHost(laddr.Addr().String()))
+	res := newMinResp(t, "UDP", sip.MakeHostAddr(laddr.Addr().String()))
 
 	_, err = conn.WriteTo([]byte(res.Render()), net.UDPAddrFromAddrPort(laddr))
 	if err != nil {
@@ -262,8 +265,10 @@ func TestConnectionLessTransport_InterceptInboundMessages(t *testing.T) {
 
 	cancel()
 	conn.Close()
-	tp.Close(t.Context())
-	<-done
+	tp.Close()
+	if err := testutil.WaitResult(t, done, "tp.ServeListener()"); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("tp.ServeListener() error = %v, want context canceled or closed", err)
+	}
 }
 
 func TestConnectionLessTransport_RecvRequest_SetsReceivedAndRPort(t *testing.T) {
@@ -274,7 +279,7 @@ func TestConnectionLessTransport_RecvRequest_SetsReceivedAndRPort(t *testing.T) 
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -322,7 +327,7 @@ func TestConnectionLessTransport_RecvRequest_SetsReceivedAndRPort(t *testing.T) 
 	req.Headers.Set(header.Via{header.ViaHop{
 		Proto:     sip.ProtoVer20(),
 		Transport: "UDP",
-		Addr:      sip.AddrFromHost("example.com"),
+		Addr:      sip.MakeHostAddr("example.com"),
 		Params:    viaParams,
 	}})
 
@@ -377,12 +382,12 @@ func TestConnectionLessTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 
 	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -411,7 +416,7 @@ func TestConnectionLessTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 		return err == nil
 	})
 
-	matchAddr := sip.AddrFromHostPort(lisAddr.Addr().String(), lisAddr.Port())
+	matchAddr := sip.MakeHostPortAddr(lisAddr.Addr().String(), lisAddr.Port())
 	res := newMinResp(t, "UDP", matchAddr)
 	res.Headers.Set(header.ContentLength(0))
 
@@ -425,7 +430,7 @@ func TestConnectionLessTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 		t.Fatalf("inbound response not received")
 	}
 
-	res = newMinResp(t, "UDP", sip.AddrFromHostPort("192.0.2.1", lisAddr.Port()))
+	res = newMinResp(t, "UDP", sip.MakeHostPortAddr("192.0.2.1", lisAddr.Port()))
 	res.Headers.Set(header.ContentLength(0))
 
 	if _, err := peer.WriteTo([]byte(res.Render()), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
@@ -442,12 +447,12 @@ func TestConnectionLessTransport_ReceiveResponse_MatchSentBy(t *testing.T) {
 func TestConnectionLessTransport_RecvResponse_PanicContinues(t *testing.T) {
 	t.Parallel()
 
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.AddrFromHost("127.0.0.1")})
+	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostAddr("127.0.0.1")})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -495,7 +500,7 @@ func TestConnectionLessTransport_RecvResponse_PanicContinues(t *testing.T) {
 		return err == nil
 	})
 
-	matchAddr := sip.AddrFromHost(lisAddr.Addr().String())
+	matchAddr := sip.MakeHostAddr(lisAddr.Addr().String())
 	res := newMinResp(t, "UDP", matchAddr)
 	res.Headers.Set(header.ContentLength(0))
 
@@ -525,7 +530,7 @@ func TestConnectionLessTransport_RecvRequest_PanicRespondsAndContinues(t *testin
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -593,7 +598,7 @@ func TestConnectionLessTransport_RecvRequest_PanicRespondsAndContinues(t *testin
 	})
 
 	firstReq := newMinReq(t)
-	firstReq.Headers.Set(header.Via{newViaHop(t, "UDP", sip.AddrFromHostPort(peerAddr.Addr().String(), peerAddr.Port()))})
+	firstReq.Headers.Set(header.Via{newViaHop(t, "UDP", sip.MakeHostPortAddr(peerAddr.Addr().String(), peerAddr.Port()))})
 	firstReq.Headers.Set(header.ContentLength(0))
 
 	if _, err := peer.WriteTo([]byte(firstReq.Render()), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
@@ -618,7 +623,7 @@ func TestConnectionLessTransport_RecvRequest_PanicRespondsAndContinues(t *testin
 	}
 
 	secondReq := newMinReq(t)
-	secondReq.Headers.Set(header.Via{newViaHop(t, "UDP", sip.AddrFromHostPort(peerAddr.Addr().String(), peerAddr.Port()))})
+	secondReq.Headers.Set(header.Via{newViaHop(t, "UDP", sip.MakeHostPortAddr(peerAddr.Addr().String(), peerAddr.Port()))})
 	secondReq.Headers.Set(header.ContentLength(0))
 
 	if _, err := peer.WriteTo([]byte(secondReq.Render()), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
@@ -640,7 +645,7 @@ func TestConnectionLessTransport_RecvRequest_ParseErrorRespondsBadRequest(t *tes
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -722,7 +727,7 @@ func TestConnectionLessTransport_RecvRequest_ParseErrorRespondsRequestEntityTooL
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -769,7 +774,7 @@ func TestConnectionLessTransport_RecvRequest_ParseErrorRespondsRequestEntityTooL
 	})
 
 	request := newMinReq(t)
-	request.Headers.Set(header.Via{newViaHop(t, "UDP", sip.AddrFromHostPort(peerAddr.Addr().String(), peerAddr.Port()))})
+	request.Headers.Set(header.Via{newViaHop(t, "UDP", sip.MakeHostPortAddr(peerAddr.Addr().String(), peerAddr.Port()))})
 	request.Headers.Set(header.ContentLength(math.MaxUint16 + 1))
 
 	if _, err := peer.WriteTo([]byte(request.Render()), net.UDPAddrFromAddrPort(lisAddr)); err != nil {
@@ -798,7 +803,7 @@ func TestConnectionLessTransport_RecvResponse_ParseErrorDiscarded(t *testing.T) 
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
 	lis, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -870,14 +875,14 @@ func TestConnectionLessTransport_SendRequest_SentBy(t *testing.T) {
 		srvAddr := netip.MustParseAddrPort(srv.LocalAddr().String())
 		meta := sip.UDPMetadata()
 		meta.DefaultPort = srvAddr.Port()
-		sentBy := sip.AddrFromHostPort("sentby.example.com", 5070)
+		sentBy := sip.MakeHostPortAddr("sentby.example.com", 5070)
 
 		tp, err := transport.NewConnectionLessTransport(meta, transport.TransportOptions{PublicAddr: sentBy})
 		if err != nil {
 			t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { tp.Close(t.Context()) })
+		t.Cleanup(func() { tp.Close() })
 
 		outReq := sip.NewRequestEnvelope(newMinReq(t)).
 			SetRemoteAddr(srvAddr)
@@ -898,7 +903,7 @@ func TestConnectionLessTransport_SendRequest_SentBy(t *testing.T) {
 			t.Fatalf("parsed request Via header missing")
 		}
 
-		wantAddr := sip.AddrFromHostPort(sentBy.Host(), 5070)
+		wantAddr := sip.MakeHostPortAddr(sentBy.Host(), 5070)
 		if !via.Addr.Equal(wantAddr) {
 			t.Fatalf("Via.sent-by = %q, want %q", via.Addr, wantAddr)
 		}
@@ -926,18 +931,23 @@ func TestConnectionLessTransport_SendRequest_SentBy(t *testing.T) {
 		meta := sip.UDPMetadata()
 		meta.DefaultPort = srvAddr.Port()
 
-		tp, err := transport.NewConnectionLessTransport(meta, transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("", 0)})
+		tp, err := transport.NewConnectionLessTransport(meta, transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("", 0)})
 		if err != nil {
 			t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { tp.Close(t.Context()) })
+		t.Cleanup(func() { tp.Close() })
 
 		ctx, cancel := context.WithCancel(t.Context())
 		t.Cleanup(cancel)
 
 		done := make(chan error, 1)
 		go func() { done <- tp.ServeListener(ctx, lis) }()
+
+		waitFor(t, func() bool {
+			_, err := tp.AcquireConnection(t.Context(), lisAddr, transport.AcquireConnectionOptions{LocalAddr: lisAddr})
+			return err == nil
+		})
 
 		outReq := sip.NewRequestEnvelope(newMinReq(t)).
 			SetLocalAddr(lisAddr).
@@ -965,7 +975,9 @@ func TestConnectionLessTransport_SendRequest_SentBy(t *testing.T) {
 
 		cancel()
 		lis.Close()
-		<-done
+		if err := testutil.WaitResult(t, done, "tp.ServeListener()"); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("tp.ServeListener() error = %v, want context canceled or closed", err)
+		}
 	})
 
 	t.Run("from connection", func(t *testing.T) {
@@ -982,12 +994,12 @@ func TestConnectionLessTransport_SendRequest_SentBy(t *testing.T) {
 		meta := sip.UDPMetadata()
 		meta.DefaultPort = srvAddr.Port()
 
-		tp, err := transport.NewConnectionLessTransport(meta, transport.TransportOptions{PublicAddr: sip.AddrFromHostPort("", 0)})
+		tp, err := transport.NewConnectionLessTransport(meta, transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("", 0)})
 		if err != nil {
 			t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { tp.Close(t.Context()) })
+		t.Cleanup(func() { tp.Close() })
 
 		outReq := sip.NewRequestEnvelope(newMinReq(t)).
 			SetRemoteAddr(srvAddr)
@@ -1029,17 +1041,17 @@ func TestConnectionLessTransport_SendResponse_FallbackDNS(t *testing.T) {
 	meta := sip.UDPMetadata()
 	meta.DefaultPort = srvAddr.Port()
 
-	dnsResolver := stubDNSResolver{
-		lookupIP: func(ctx context.Context, network, host string) ([]net.IP, error) {
+	dnsResolver := dnstest.StubResolver{
+		LookupIPFunc: func(ctx context.Context, network, host string) ([]net.IP, error) {
 			if host != "example.com" {
 				return nil, errors.New("unexpected host")
 			}
 			return []net.IP{srvAddr.Addr().AsSlice()}, nil
 		},
-		lookupSRV: func(ctx context.Context, service, proto, host string) ([]*dns.SRV, error) {
+		LookupSRVFunc: func(ctx context.Context, service, proto, host string) ([]*dns.SRV, error) {
 			return nil, errors.New("srv lookup not used")
 		},
-		lookupNAPTR: func(ctx context.Context, host string) ([]*dns.NAPTR, error) {
+		LookupNAPTRFunc: func(ctx context.Context, host string) ([]*dns.NAPTR, error) {
 			return nil, errors.New("naptr lookup not used")
 		},
 	}
@@ -1047,16 +1059,16 @@ func TestConnectionLessTransport_SendResponse_FallbackDNS(t *testing.T) {
 	tp, err := transport.NewConnectionLessTransport(meta, transport.TransportOptions{
 		ClientLocator: &sip.RemoteElementLocator{
 			DNSResolver:      dnsResolver,
-			MetadataProvider: &multiTransportProvider{metas: []sip.TransportMetadata{meta}},
+			MetadataProvider: siptest.MetadataProvider{Metas: []sip.TransportMetadata{meta}},
 		},
 	})
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	t.Cleanup(func() { tp.Close(t.Context()) })
+	t.Cleanup(func() { tp.Close() })
 
-	viaAddr := sip.AddrFromHostPort("example.com", srvAddr.Port())
+	viaAddr := sip.MakeHostPortAddr("example.com", srvAddr.Port())
 	resp := newMinResp(t, "UDP", viaAddr)
 
 	outRes := sip.NewResponseEnvelope(resp).
@@ -1130,7 +1142,7 @@ func TestConnectionLessListener_ServeRejectsConcurrentCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
-	t.Cleanup(func() { _ = tp.Close(context.Background()) })
+	t.Cleanup(func() { _ = tp.Close() })
 
 	listener, err := tp.Listen(context.Background(), "127.0.0.1:5060")
 	if err != nil {
@@ -1154,9 +1166,7 @@ func TestConnectionLessListener_ServeRejectsConcurrentCall(t *testing.T) {
 	}
 
 	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("ls.Serve() did not stop after context cancellation")
+	if err := testutil.WaitResult(t, done, "ls.Serve()"); err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("ls.Serve() error = %v, want context canceled", err)
 	}
 }

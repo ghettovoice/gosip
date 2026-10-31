@@ -105,7 +105,8 @@
 //   - Parameters present in both headers must have matching values
 //   - Non-special parameters present in only one header are ignored
 //   - Special parameters (defined per header type) must be present in both or neither
-//   - Unquoted parameter values are compared case-insensitively
+//   - Unquoted parameter values are compared case-insensitively, except for protocol-defined
+//     case-sensitive parameters such as "tag"
 //
 // Parameter validation requires:
 //

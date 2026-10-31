@@ -5,29 +5,38 @@ version: "3"
 tasks:
   test:
     desc: Run all tests
-    env:
-      GOEXPERIMENT: goroutineleakprofile
     vars:
       PACKAGE: '{{.PACKAGE | default "..." }}'
       TIMEOUT: '{{.TIMEOUT | default "1m" }}'
       COVERAGE_FILE: '{{.COVERAGE_FILE | default "cover.out"}}'
+    # sources:
+    #   - "**/*.go"
     cmd: go test -race -vet=all -timeout={{.TIMEOUT}} -covermode=atomic -coverprofile={{.COVERAGE_FILE}} {{.CLI_ARGS}} ./{{.PACKAGE}}
 
   lint:
     desc: Run golangci-lint
     vars:
       PACKAGE: '{{.PACKAGE | default "..." }}'
+    # sources:
+    #   - "**/*.go"
     cmd: golangci-lint run {{.CLI_ARGS}} ./{{.PACKAGE}}
 
   vuln:
     desc: Run govulncheck
     vars:
       PACKAGE: '{{.PACKAGE | default "..." }}'
+    # sources:
+    #   - "**/*.go"
+    #   - go.mod
+    #   - go.sum
     cmd: govulncheck {{.CLI_ARGS}} ./{{.PACKAGE}}
 
   check:
     desc: Run all checks (test, lint, vuln)
-    deps: [test, lint, vuln]
+    cmds:
+      - task: test
+      - task: lint
+      - task: vuln
 
   bench:
     desc: Run benchmarks

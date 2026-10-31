@@ -3,16 +3,16 @@ package header
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/internal/types"
 )
 
-type ProxyAuthenticate WWWAuthenticate
+type ProxyAuthenticate struct {
+	AuthChallenge
+}
 
 func (*ProxyAuthenticate) CanonicName() Name { return "Proxy-Authenticate" }
 
@@ -22,67 +22,42 @@ func (hdr *ProxyAuthenticate) RenderTo(w io.Writer, opts ...RenderOptions) (num 
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(func(w io.Writer) (int, error) {
-		return errors.Wrap2((*WWWAuthenticate)(hdr).renderValueTo(w, opts...))
-	})
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderValueTo(w, hdr.AuthChallenge, opts...))
+	}))
 }
 
 func (hdr *ProxyAuthenticate) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return types.Render(hdr, opts...)
 }
 
 func (hdr *ProxyAuthenticate) RenderValue() string {
-	return (*WWWAuthenticate)(hdr).RenderValue()
+	if hdr == nil {
+		return ""
+	}
+	return renderValue(hdr.AuthChallenge)
 }
 
 func (hdr *ProxyAuthenticate) String() string { return hdr.RenderValue() }
 
 func (hdr *ProxyAuthenticate) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods       ProxyAuthenticate
-			ProxyAuthenticate hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*ProxyAuthenticate)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods       ProxyAuthenticate
+		ProxyAuthenticate hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*ProxyAuthenticate)(hdr))
 }
 
 func (hdr *ProxyAuthenticate) Clone() Header {
-	hdr2, ok := (*WWWAuthenticate)(hdr).Clone().(*WWWAuthenticate)
-	if !ok {
+	if hdr == nil {
 		return nil
 	}
-	return (*ProxyAuthenticate)(hdr2)
+	hdr2 := *hdr
+	hdr2.AuthChallenge = types.Clone[AuthChallenge](hdr.AuthChallenge)
+	return &hdr2
 }
 
 func (hdr *ProxyAuthenticate) Equal(val any) bool {
@@ -96,39 +71,27 @@ func (hdr *ProxyAuthenticate) Equal(val any) bool {
 		return false
 	}
 
-	return (*WWWAuthenticate)(hdr).Equal((*WWWAuthenticate)(other))
+	if hdr == other {
+		return true
+	}
+	if hdr == nil || other == nil {
+		return false
+	}
+	return types.IsEqual(hdr.AuthChallenge, other.AuthChallenge)
 }
 
-func (hdr *ProxyAuthenticate) IsValid() bool { return (*WWWAuthenticate)(hdr).IsValid() }
+func (hdr *ProxyAuthenticate) IsValid() bool {
+	return hdr != nil && types.IsValid(hdr.AuthChallenge)
+}
 
 func (hdr *ProxyAuthenticate) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))
 }
 
 func (hdr *ProxyAuthenticate) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = ProxyAuthenticate{}
-		return nil
-	}
-
-	h, ok := gh.(*ProxyAuthenticate)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && len(ah.Value) == 0 {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
 }
 
 func buildFromProxyAuthenticateNode(node *abnf.Node) *ProxyAuthenticate {
-	return (*ProxyAuthenticate)(buildFromWWWAuthenticateNode(node))
+	return &ProxyAuthenticate{AuthChallenge: buildAuthChallengeFromNode(node)}
 }

@@ -13,7 +13,7 @@ import (
 func TestPriority_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Priority
 		want string
@@ -22,12 +22,12 @@ func TestPriority_Render(t *testing.T) {
 		{"full", header.Priority("non-urgent"), "Priority: non-urgent"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(); got != c.want {
-				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(); got != tt.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -36,7 +36,7 @@ func TestPriority_Render(t *testing.T) {
 func TestPriority_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     header.Priority
 		wantRes string
@@ -46,19 +46,19 @@ func TestPriority_RenderTo(t *testing.T) {
 		{"full", header.Priority("non-urgent"), "Priority: non-urgent", nil},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -67,7 +67,7 @@ func TestPriority_RenderTo(t *testing.T) {
 func TestPriority_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Priority
 		val  any
@@ -81,12 +81,12 @@ func TestPriority_Equal(t *testing.T) {
 		{"match", header.Priority("non-urgent"), header.Priority("NON-URGENT"), true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -95,7 +95,7 @@ func TestPriority_Equal(t *testing.T) {
 func TestPriority_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Priority
 		want bool
@@ -104,12 +104,12 @@ func TestPriority_IsValid(t *testing.T) {
 		{"valid", header.Priority("non-urgent"), true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -118,7 +118,7 @@ func TestPriority_IsValid(t *testing.T) {
 func TestPriority_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  header.Priority
 	}{
@@ -126,12 +126,12 @@ func TestPriority_Clone(t *testing.T) {
 		{"full", header.Priority("non-urgent")},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Clone(); got != c.hdr {
-				t.Errorf("hdr.Clone() = %+v, want %+v", got, c.hdr)
+			if got := tt.hdr.Clone(); got != tt.hdr {
+				t.Errorf("hdr.Clone() = %+v, want %+v", got, tt.hdr)
 			}
 		})
 	}

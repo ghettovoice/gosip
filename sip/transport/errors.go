@@ -1,79 +1,77 @@
 package transport
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net"
-	"os"
 
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/pkg/errclass"
 	"github.com/ghettovoice/gosip/sip"
 )
 
 const (
-	ErrNetworkClosed          Error = "network closed"
-	ErrTransportClosed        Error = "transport closed"
-	ErrListenerTracked        Error = "listener already tracked"
-	ErrListenerServing        Error = "listener already serving"
-	ErrConnectionTracked      Error = "connection already tracked"
-	ErrBrokenConnectionStream Error = "broken connection stream"
-	ErrConnectionNotFound     Error = "connection not found"
+	ErrNetworkClosed          errors.Error = "network closed"
+	ErrTransportClosed        errors.Error = "transport closed"
+	ErrListenerTracked        errors.Error = "listener already tracked"
+	ErrListenerServing        errors.Error = "listener already serving"
+	ErrConnectionTracked      errors.Error = "connection already tracked"
+	ErrBrokenConnectionStream errors.Error = "broken connection stream"
+	ErrConnectionNotFound     errors.Error = "connection not found"
 )
 
-type Error string
-
-func (e Error) Error() string { return string(e) }
-
-// Classes returns the classifications assigned to the sentinel error.
-func (e Error) Classes() sip.ClassError { return errClasses(string(e)) }
-
-// Is reports whether the sentinel error belongs to target class.
-func (e Error) Is(target error) bool {
-	if matchClassError(e.Classes(), target) {
-		return true
-	}
-
-	isStdClosed := target == net.ErrClosed || target == io.ErrClosedPipe ||
-		target == io.EOF || target == os.ErrClosed
-	if isStdClosed && matchClassError(e.Classes(), sip.ErrClassClosed) {
-		return true
-	}
-
-	return false
+func NewNetworkClosedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrNetworkClosed, args...),
+		errclass.ClassClosed,
+		sip.ErrClassTransport,
+	)
 }
 
-// Closed reports whether the sentinel error describes a closed resource.
-func (e Error) Closed() bool { return e.Classes()&sip.ErrClassClosed != 0 }
-
-// Timeout reports whether the sentinel error describes a timeout.
-func (e Error) Timeout() bool { return e.Classes()&sip.ErrClassTimeout != 0 }
-
-// Temporary reports whether the sentinel error is temporary.
-func (e Error) Temporary() bool { return e.Classes()&sip.ErrClassTemporary != 0 }
-
-// Canceled reports whether the sentinel error was caused by cancellation.
-func (e Error) Canceled() bool { return e.Classes()&sip.ErrClassCanceled != 0 }
-
-func errClasses(message string) sip.ClassError {
-	switch message {
-	case string(ErrConnectionNotFound):
-		return sip.ErrClassTransport | sip.ErrClassNotFound
-	case string(ErrBrokenConnectionStream):
-		return sip.ErrClassTransport
-	case string(ErrConnectionTracked), string(ErrListenerTracked), string(ErrListenerServing):
-		return sip.ErrClassTransport | sip.ErrClassConflict
-	case string(ErrTransportClosed), string(ErrNetworkClosed):
-		return sip.ErrClassTransport | sip.ErrClassClosed
-
-	default:
-		return 0
-	}
+func NewTransportClosedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrTransportClosed, args...),
+		errclass.ClassClosed,
+		sip.ErrClassTransport,
+	)
 }
 
-func matchClassError(classes sip.ClassError, target error) bool {
-	var class sip.ClassError
-	return errors.As(target, &class) && class != 0 && classes&class == class
+func NewListenerTrackedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrListenerTracked, args...),
+		errclass.ClassConflict,
+		sip.ErrClassTransport,
+	)
+}
+
+func NewListenerServingError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrListenerServing, args...),
+		errclass.ClassConflict,
+		sip.ErrClassTransport,
+	)
+}
+
+func NewConnectionTrackedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrConnectionTracked, args...),
+		errclass.ClassConflict,
+		sip.ErrClassTransport,
+	)
+}
+
+func NewBrokenConnectionStreamError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrBrokenConnectionStream, args...),
+		sip.ErrClassTransport,
+	)
+}
+
+func NewConnectionNotFoundError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrConnectionNotFound, args...),
+		errclass.ClassNotFound,
+		sip.ErrClassTransport,
+	)
 }
 
 type RequestRejectedError interface {

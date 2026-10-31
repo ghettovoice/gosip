@@ -10,7 +10,7 @@ import (
 func TestEscape(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		str  string
 		cb   func(byte) bool
@@ -22,12 +22,12 @@ func TestEscape(t *testing.T) {
 		{"escape some", "abc+?qwe!", func(c byte) bool { return c != '+' && !grammar.IsCharUnreserved(c) }, "abc+%3Fqwe!"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got, want := grammar.Escape(c.str, c.cb), c.want; got != want {
-				t.Errorf("grammar.Escape(%q, %p) = %q, want %q", c.str, c.cb, got, want)
+			if got, want := grammar.Escape(tt.str, tt.cb), tt.want; got != want {
+				t.Errorf("grammar.Escape(%q, %p) = %q, want %q", tt.str, tt.cb, got, want)
 			}
 		})
 	}
@@ -36,7 +36,7 @@ func TestEscape(t *testing.T) {
 func TestUnescape(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		str  string
 		want string
@@ -46,19 +46,19 @@ func TestUnescape(t *testing.T) {
 		{"unescape all", "abc%E4%b8%96", "abc世"}, //nolint:gosmopolitan
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got, want := grammar.Unescape(c.str), c.want; got != want {
-				t.Errorf("grammar.Unescape(%q) = %q, want %q", c.str, got, want)
+			if got, want := grammar.Unescape(tt.str), tt.want; got != want {
+				t.Errorf("grammar.Unescape(%q) = %q, want %q", tt.str, got, want)
 			}
 		})
 	}
 }
 
 func BenchmarkEscape(b *testing.B) {
-	cases := []struct {
+	tests := []struct {
 		name    string
 		in, out any
 	}{
@@ -68,19 +68,19 @@ func BenchmarkEscape(b *testing.B) {
 
 	b.ResetTimer()
 
-	for _, c := range cases {
-		b.Run(c.name, func(b *testing.B) {
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
 			b.ResetTimer()
 
 			for b.Loop() {
-				switch in := c.in.(type) {
+				switch in := tt.in.(type) {
 				case string:
-					want, _ := c.out.(string)
+					want, _ := tt.out.(string)
 					if got := grammar.Escape(in, nil); got != want {
 						b.Errorf("grammar.Escape(%q, nil) = %q, want %q", in, got, want)
 					}
 				case []byte:
-					want, _ := c.out.([]byte)
+					want, _ := tt.out.([]byte)
 					if got := grammar.Escape(in, nil); !bytes.Equal(got, want) {
 						b.Errorf("grammar.Escape(%q, nil) = %q, want %q", in, got, want)
 					}

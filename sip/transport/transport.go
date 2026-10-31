@@ -7,20 +7,21 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"runtime"
 	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/ghettovoice/gosip/dns"
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/netutil"
 	"github.com/ghettovoice/gosip/internal/syncutil"
 	"github.com/ghettovoice/gosip/internal/util"
-	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/pkg/dns"
+	"github.com/ghettovoice/gosip/pkg/errclass"
+	"github.com/ghettovoice/gosip/pkg/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 )
@@ -118,15 +119,15 @@ func (o TransportOptions) pubAddr() sip.Addr {
 
 	if port, ok := o.PublicAddr.Port(); ok {
 		if ip == nil {
-			return sip.AddrFromHostPort(host, port)
+			return sip.MakeHostPortAddr(host, port)
 		}
-		return sip.AddrFromIPPort(ip, port)
+		return sip.MakeIPPortAddr(ip, port)
 	}
 
 	if ip == nil {
-		return sip.AddrFromHost(host)
+		return sip.MakeHostAddr(host)
 	}
-	return sip.AddrFromIP(ip)
+	return sip.MakeIPAddr(ip)
 }
 
 func (o TransportOptions) prsr() sip.Parser {
@@ -208,10 +209,11 @@ type transpBase[L any] struct {
 	connDlr  ConnectionDialer
 	connOpts ConnectionOptions
 
+	lcMu      sync.Mutex
 	closeOnce sync.Once
 	closeErr  error
 	closing   chan struct{}
-	closed    atomic.Bool
+	// closed  atomic.Bool
 
 	lisMap  listenerMap
 	connMap connMap
@@ -243,6 +245,21 @@ type trackedListener struct {
 	// borrowed means the underlying listener was supplied by the caller through
 	// ServeListener. Serve does not close it; Transport.Close does while it is tracked.
 	borrowed bool
+	// remove drops this exact tracked record from the owning transport's
+	// listener registry; Close invokes it so a discarded listener can no
+	// longer be resolved by address lookups.
+	remove func()
+}
+
+// Close closes the underlying listener and drops this exact record from the
+// transport's listener registry. A replacement already tracked under the
+// same local address is never removed.
+func (ls *trackedListener) Close() error {
+	err := ls.transpListener.Close()
+	if ls.remove != nil {
+		ls.remove()
+	}
+	return errors.Wrap(err)
 }
 
 type trackedConn struct {
@@ -294,33 +311,65 @@ func (tb *transpBase[L]) isClosing() bool {
 //
 // Borrowed resources supplied through ServeListener or ServeConn remain caller-owned
 // when serving stops, but are closed here while they are still tracked.
-func (tb *transpBase[L]) Close(ctx context.Context) error {
+func (tb *transpBase[L]) Close() error {
 	tb.closeOnce.Do(func() {
+		tb.lcMu.Lock()
 		close(tb.closing)
-		tb.closeErr = tb.close(ctx)
-		tb.closed.Store(true)
+		tb.lcMu.Unlock()
 
-		tb.log.LogAttrs(ctx, slog.LevelDebug, "transport closed")
+		tb.closeErr = tb.close()
+		// tb.closed.Store(true)
+
+		tb.log.Debug("transport closed")
 	})
 	return errors.Wrap(tb.closeErr)
 }
 
-func (tb *transpBase[L]) close(ctx context.Context) error {
-	errs := make([]error, 0, tb.lisMap.Len()+tb.connMap.Len())
+func (tb *transpBase[L]) close() error {
+	var (
+		wg     sync.WaitGroup
+		errsMu sync.Mutex
+		errs   []error
+	)
+
+	collectErr := func(err error) {
+		if err == nil {
+			return
+		}
+
+		errsMu.Lock()
+		errs = append(errs, err)
+		errsMu.Unlock()
+	}
+
+	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
+	run := func(fn func()) {
+		sem <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			fn()
+		})
+	}
 
 	for _, l := range tb.lisMap.All() {
-		if err := l.Close(ctx); err != nil {
-			errs = append(errs, errors.Errorf("close listener %q: %w", l, err))
-		}
+		run(func() {
+			if err := l.Close(); err != nil {
+				collectErr(errors.Errorf("close listener %q: %w", l, err))
+			}
+		})
 	}
 
 	for _, conns := range tb.connMap.All() {
 		for _, c := range conns.All() {
-			if err := c.Close(ctx); err != nil {
-				errs = append(errs, errors.Errorf("close connection %q: %w", c, err))
-			}
+			run(func() {
+				if err := c.Close(); err != nil {
+					collectErr(errors.Errorf("close connection %q: %w", c, err))
+				}
+			})
 		}
 	}
+
+	wg.Wait()
 
 	return errors.JoinPrefixWrap("transport close errors:", errs...)
 }
@@ -363,9 +412,9 @@ func (tb *transpBase[L]) buildSentBy(laddr netip.AddrPort) sip.Addr {
 	}
 
 	if port > 0 {
-		return sip.AddrFromHostPort(host, port)
+		return sip.MakeHostPortAddr(host, port)
 	}
-	return sip.AddrFromHost(host)
+	return sip.MakeHostAddr(host)
 }
 
 func (tb *transpBase[L]) MatchSentBy(sentBy sip.Addr) bool {
@@ -411,7 +460,7 @@ func (tb *transpBase[L]) ListenAddrs() iter.Seq[netip.AddrPort] {
 
 func (tb *transpBase[L]) Listen(ctx context.Context, addr string) (ls sip.TransportListener, err error) {
 	if tb.isClosing() {
-		return nil, errors.Wrap(ErrTransportClosed)
+		return nil, errors.Wrap(NewTransportClosedError())
 	}
 
 	var (
@@ -420,7 +469,6 @@ func (tb *transpBase[L]) Listen(ctx context.Context, addr string) (ls sip.Transp
 	)
 	switch {
 	case strings.HasPrefix(tb.meta.Network, "udp") || strings.HasPrefix(tb.meta.Network, "ip"):
-
 		var ls net.PacketConn
 		ls, err = tb.lisCfg.ListenPacket(ctx, tb.meta.Network, addr)
 		defer func() {
@@ -431,7 +479,6 @@ func (tb *transpBase[L]) Listen(ctx context.Context, addr string) (ls sip.Transp
 
 		netLis = ls
 	case strings.HasPrefix(tb.meta.Network, "tcp"):
-
 		var ls net.Listener
 		ls, err = tb.lisCfg.Listen(ctx, tb.meta.Network, addr)
 		defer func() {
@@ -463,7 +510,7 @@ func (tb *transpBase[L]) Listen(ctx context.Context, addr string) (ls sip.Transp
 // Transport.Close closes the listener if it is still tracked.
 func (tb *transpBase[L]) ServeListener(ctx context.Context, netLis L) error {
 	if tb.isClosing() {
-		return errors.Wrap(ErrTransportClosed)
+		return errors.Wrap(NewTransportClosedError())
 	}
 	if util.IsNil(netLis) {
 		return errors.ErrorWrap("nil listener")
@@ -474,7 +521,7 @@ func (tb *transpBase[L]) ServeListener(ctx context.Context, netLis L) error {
 		return errors.Wrap(err)
 	}
 	if found {
-		return errors.Wrap(ErrListenerTracked)
+		return errors.Wrap(NewListenerTrackedError())
 	}
 	defer tb.untrackListener(ctx, ls)
 
@@ -494,9 +541,9 @@ func (tb *transpBase[L]) ServeListener(ctx context.Context, netLis L) error {
 	select {
 	case <-tb.closing:
 		if err == nil {
-			err = ErrTransportClosed
+			err = NewTransportClosedError()
 		} else if !errors.Is(err, ErrTransportClosed) {
-			err = errors.Errorf("%w: %w", err, ErrTransportClosed)
+			err = NewTransportClosedError(err)
 		}
 		return errors.Wrap(err)
 	default:
@@ -510,9 +557,6 @@ func (tb *transpBase[L]) trackListener(
 	netLis L,
 	external bool,
 ) (ls *trackedListener, found bool, err error) {
-	if tb.isClosing() {
-		return nil, false, errors.Wrap(ErrTransportClosed)
-	}
 	if util.IsNil(netLis) {
 		return nil, false, errors.ErrorWrap("nil listener")
 	}
@@ -528,6 +572,13 @@ func (tb *transpBase[L]) trackListener(
 
 	laddr := netutil.UnmapAddrPort(netip.MustParseAddrPort(blAddr.String()))
 
+	tb.lcMu.Lock()
+	defer tb.lcMu.Unlock()
+
+	if tb.isClosing() {
+		return nil, false, errors.Wrap(NewTransportClosedError())
+	}
+
 	if l, ok := tb.lisMap.Load(laddr); ok {
 		if !l.isClosed() {
 			return l, true, nil
@@ -541,33 +592,43 @@ func (tb *transpBase[L]) trackListener(
 		if err != nil {
 			return nil, errors.Wrap(err)
 		}
-		return &trackedListener{l, external}, nil
+
+		trLs := &trackedListener{transpListener: l, borrowed: external}
+		trLs.remove = func() {
+			if tb.lisMap.CompareAndDelete(laddr, func(actual *trackedListener) bool {
+				return actual == trLs
+			}) {
+				tb.log.DebugContext(context.Background(), "listener removed", slog.Any("listener", trLs))
+			}
+		}
+		return trLs, nil
 	})
 	if err != nil {
 		return ls, false, errors.Wrap(err)
 	}
 
 	if !found {
-		tb.log.LogAttrs(ctx, slog.LevelDebug, "listener tracked", slog.Any("listener", ls))
+		tb.log.DebugContext(ctx, "listener tracked", slog.Any("listener", ls))
 	}
 
 	return ls, found, nil
 }
 
 func (tb *transpBase[L]) untrackListener(ctx context.Context, ls *trackedListener) {
-	if !tb.lisMap.CompareAndDeleteFunc(ls.LocalAddr(), func(actual *trackedListener) bool {
+	if !tb.lisMap.CompareAndDelete(ls.LocalAddr(), func(actual *trackedListener) bool {
 		return actual == ls
 	}) {
 		return
 	}
 
-	tb.log.LogAttrs(ctx, slog.LevelDebug, "listener untracked", slog.Any("listener", ls))
+	tb.log.DebugContext(ctx, "listener untracked", slog.Any("listener", ls))
 
 	if ls.borrowed {
 		return
 	}
-	if err := ls.Close(ctx); err != nil {
-		tb.log.LogAttrs(ctx, slog.LevelWarn, "failed to close listener",
+	if err := ls.Close(); err != nil {
+		tb.log.WarnContext(
+			ctx, "failed to close listener",
 			slog.Any("listener", ls),
 			slog.Any("error", err),
 		)
@@ -587,7 +648,7 @@ func (tb *transpBase[L]) untrackListener(ctx context.Context, ls *trackedListene
 // In case of any other breaking read error, it returns the last read error.
 func (tb *transpBase[L]) ServeConn(ctx context.Context, netConn net.Conn) error {
 	if tb.isClosing() {
-		return errors.Wrap(ErrTransportClosed)
+		return errors.Wrap(NewTransportClosedError())
 	}
 	if netConn == nil {
 		return errors.ErrorWrap("nil connection")
@@ -598,7 +659,7 @@ func (tb *transpBase[L]) ServeConn(ctx context.Context, netConn net.Conn) error 
 		return errors.Wrap(err)
 	}
 	if done == nil {
-		return errors.Wrap(ErrConnectionTracked)
+		return errors.Wrap(NewConnectionTrackedError())
 	}
 
 	err = <-done
@@ -617,9 +678,9 @@ func (tb *transpBase[L]) ServeConn(ctx context.Context, netConn net.Conn) error 
 	select {
 	case <-tb.closing:
 		if err == nil {
-			err = ErrTransportClosed
+			err = NewTransportClosedError()
 		} else if !errors.Is(err, ErrTransportClosed) {
-			err = errors.Errorf("%w: %w", err, ErrTransportClosed)
+			err = NewTransportClosedError(err)
 		}
 		return errors.Wrap(err)
 	default:
@@ -641,29 +702,24 @@ func (tb *transpBase[L]) serveConn(
 		return conn, nil, nil
 	}
 
-	go func() {
-		select {
-		case <-ctx.Done():
-			if conn.borrowed {
-				return
-			}
-
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-			defer cancel()
-
-			if err := conn.Close(ctx); err != nil {
-				tb.log.LogAttrs(ctx, slog.LevelWarn, "failed to close connection",
-					slog.Any("connection", conn),
-					slog.Any("error", err),
-				)
-			}
-		case <-tb.closing:
+	stop := context.AfterFunc(ctx, func() {
+		if conn.borrowed {
+			return
 		}
-	}()
+
+		if err := conn.Close(); err != nil {
+			tb.log.WarnContext(
+				ctx, "failed to close connection",
+				slog.Any("connection", conn),
+				slog.Any("error", err),
+			)
+		}
+	})
 
 	ch := make(chan error, 1)
 	go func() {
 		defer func() {
+			stop()
 			tb.untrackConn(ctx, conn)
 			close(ch)
 		}()
@@ -679,9 +735,6 @@ func (tb *transpBase[L]) trackConn(
 	netConn net.Conn,
 	external bool,
 ) (conn *trackedConn, found bool, err error) {
-	if tb.isClosing() {
-		return nil, false, errors.Wrap(ErrTransportClosed)
-	}
 	if netConn == nil {
 		return nil, false, errors.ErrorWrap("nil connection")
 	}
@@ -691,6 +744,13 @@ func (tb *transpBase[L]) trackConn(
 
 	laddr := netutil.UnmapAddrPort(netip.MustParseAddrPort(netConn.LocalAddr().String()))
 	raddr := netutil.UnmapAddrPort(netip.MustParseAddrPort(netConn.RemoteAddr().String()))
+
+	tb.lcMu.Lock()
+	defer tb.lcMu.Unlock()
+
+	if tb.isClosing() {
+		return nil, false, errors.Wrap(NewTransportClosedError())
+	}
 
 	conns, _, _ := tb.connMap.LoadOrStoreFunc(raddr, func() (*connBucket, error) { return &connBucket{}, nil })
 	if found, ok := conns.Load(laddr); ok {
@@ -702,42 +762,47 @@ func (tb *transpBase[L]) trackConn(
 	}
 
 	conn, found, err = conns.LoadOrStoreFunc(laddr, func() (*trackedConn, error) {
-		c, err := NewConnection(ctx, netConn, tb.meta, tb.connOpts)
+		c, err := NewConnection(netConn, tb.meta, tb.connOpts)
 		if err != nil {
 			return nil, errors.Wrap(err)
 		}
 		return &trackedConn{c, external}, nil
 	})
 	if err != nil {
-		tb.connMap.CompareAndDeleteFunc(raddr, func(v *connBucket) bool { return v.Len() == 0 })
+		tb.connMap.CompareAndDelete(raddr, func(v *connBucket) bool { return v.Len() == 0 })
 		return nil, false, errors.Wrap(err)
 	}
 
 	if !found {
-		tb.log.LogAttrs(ctx, slog.LevelDebug, "connection tracked", slog.Any("connection", conn))
+		tb.log.DebugContext(ctx, "connection tracked", slog.Any("connection", conn))
 	}
 
 	return conn, found, nil
 }
 
 func (tb *transpBase[L]) untrackConn(ctx context.Context, conn *trackedConn) {
+	tb.lcMu.Lock()
 	conns, ok := tb.connMap.Load(conn.raddr)
 	if !ok {
+		tb.lcMu.Unlock()
 		return
 	}
-	if _, ok = conns.LoadAndDelete(conn.laddr); !ok {
+	if !conns.CompareAndDelete(conn.laddr, func(actual *trackedConn) bool { return actual == conn }) {
+		tb.lcMu.Unlock()
 		return
 	}
 
-	tb.connMap.CompareAndDeleteFunc(conn.raddr, func(v *connBucket) bool { return v.Len() == 0 })
+	tb.connMap.CompareAndDelete(conn.raddr, func(v *connBucket) bool { return v.Len() == 0 })
+	tb.lcMu.Unlock()
 
-	tb.log.LogAttrs(ctx, slog.LevelDebug, "connection untracked", slog.Any("connection", conn))
+	tb.log.DebugContext(ctx, "connection untracked", slog.Any("connection", conn))
 
 	if conn.borrowed {
 		return
 	}
-	if err := conn.Close(ctx); err != nil {
-		tb.log.LogAttrs(ctx, slog.LevelWarn, "failed to close connection",
+	if err := conn.Close(); err != nil {
+		tb.log.WarnContext(
+			ctx, "failed to close connection",
 			slog.Any("connection", conn),
 			slog.Any("error", err),
 		)
@@ -753,7 +818,7 @@ func (tb *transpBase[L]) findConn(raddr, laddr netip.AddrPort, host string) (*tr
 				}
 
 				if c.isClosed() {
-					conns.Delete(laddr)
+					conns.CompareAndDelete(laddr, func(actual *trackedConn) bool { return actual == c })
 				}
 			}
 		} else {
@@ -763,7 +828,7 @@ func (tb *transpBase[L]) findConn(raddr, laddr netip.AddrPort, host string) (*tr
 				}
 
 				if c.isClosed() {
-					conns.Delete(a)
+					conns.CompareAndDelete(a, func(actual *trackedConn) bool { return actual == c })
 				}
 			}
 		}
@@ -772,13 +837,26 @@ func (tb *transpBase[L]) findConn(raddr, laddr netip.AddrPort, host string) (*tr
 	return nil, false
 }
 
-func (tb *transpBase[L]) dialConn(ctx context.Context, raddr netip.AddrPort) (*trackedConn, error) {
+func (tb *transpBase[L]) dialConn(
+	ctx context.Context,
+	raddr netip.AddrPort,
+	opts AcquireConnectionOptions,
+) (*trackedConn, error) {
 	netConn, err := tb.connDlr.Dial(ctx, tb.meta.Network, raddr.String())
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
-	conn, _, err := tb.serveConn(context.WithoutCancel(ctx), netConn, false)
+	serveCtx := context.Background()
+	if opts.ServeContext != nil {
+		serveCtx = opts.ServeContext()
+		if util.IsNil(serveCtx) {
+			netConn.Close()
+			return nil, errors.ErrorWrap("nil serve context")
+		}
+	}
+
+	conn, _, err := tb.serveConn(serveCtx, netConn, false)
 	if err != nil {
 		netConn.Close()
 		return nil, errors.Wrap(err)
@@ -818,7 +896,8 @@ func (tb *transpBase[L]) readMsgs(ctx context.Context, msgs iter.Seq2[sip.Messag
 				if tb.handleCustomMsg != nil {
 					tb.handleCustomMsg(msg)
 				} else {
-					tb.log.LogAttrs(ctx, slog.LevelWarn, "unsupported inbound message received",
+					tb.log.WarnContext(
+						ctx, "unsupported inbound message received",
 						slog.Any("message", msg),
 					)
 				}
@@ -827,7 +906,7 @@ func (tb *transpBase[L]) readMsgs(ctx context.Context, msgs iter.Seq2[sip.Messag
 
 		if perr != nil && tb.meta.Streamed() {
 			// stop on broken stream
-			return errors.PrefixWrap(ErrBrokenConnectionStream, err)
+			return errors.Wrap(NewBrokenConnectionStreamError(err))
 		}
 	}
 
@@ -835,10 +914,15 @@ func (tb *transpBase[L]) readMsgs(ctx context.Context, msgs iter.Seq2[sip.Messag
 }
 
 func (tb *transpBase[L]) recvReqSafe(ctx context.Context, req *sip.RequestEnvelope, err error) (finErr error) {
+	// A serving context may carry a transaction, but each inbound message starts
+	// without one until the manager matches or creates one.
+	ctx = sip.ContextWithTransaction(ctx, nil)
+	ctx = sip.ContextWithTransport(ctx, tb.impl)
+
 	defer func() {
 		if pe := recover(); pe != nil {
-			tb.log.LogAttrs(ctx, slog.LevelError,
-				"panic occurred while processing the inbound request",
+			tb.log.ErrorContext(
+				ctx, "panic occurred while processing the inbound request",
 				slog.Any("request", req),
 				slog.Any("error", pe),
 				slog.Any("stack", log.StringValue(debug.Stack())),
@@ -853,8 +937,8 @@ func (tb *transpBase[L]) recvReqSafe(ctx context.Context, req *sip.RequestEnvelo
 			func() {
 				defer func() {
 					if pe := recover(); pe != nil {
-						tb.log.LogAttrs(ctx, slog.LevelError,
-							"panic occurred while processing of the previous panic error",
+						tb.log.ErrorContext(
+							ctx, "panic occurred while processing of the previous panic error",
 							slog.Any("request", req),
 							slog.Any("error", pe),
 							slog.Any("stack", log.StringValue(debug.Stack())),
@@ -880,8 +964,8 @@ func (tb *transpBase[L]) recvReqSafe(ctx context.Context, req *sip.RequestEnvelo
 			}
 		}
 
-		tb.log.LogAttrs(ctx, lvl,
-			"rejecting the inbound request due to error",
+		tb.log.LogAttrs(
+			ctx, lvl, "rejecting the inbound request due to error",
 			slog.Any("request", req),
 			slog.Any("error", err),
 		)
@@ -917,11 +1001,11 @@ func (tb *transpBase[L]) recvReq(ctx context.Context, req *sip.RequestEnvelope, 
 		// then we can respond to it with a proper error response.
 		var sts sip.ResponseStatus
 		switch {
-		case errors.Is(err, sip.ErrEntityTooLarge):
+		case errors.Is(err, sip.ErrMessageBodyTooLarge):
 			sts = sip.ResponseStatusRequestEntityTooLarge
 		case errors.Is(err, sip.ErrMessageTooLarge):
 			sts = sip.ResponseStatusMessageTooLarge
-		case sip.IsMessageError(err) || errors.IsGrammarError(err):
+		case sip.IsMessageError(err) || errclass.IsGrammar(err):
 			sts = sip.ResponseStatusBadRequest
 		default:
 			sts = sip.ResponseStatusServerInternalError
@@ -949,7 +1033,7 @@ func (tb *transpBase[L]) recvReq(ctx context.Context, req *sip.RequestEnvelope, 
 		)),
 		sip.RequestReceiverFunc(func(ctx context.Context, req *sip.RequestEnvelope) error {
 			return errors.Wrap(&reqRejectedError{
-				cause:     sip.ErrUnhandledMessage,
+				cause:     sip.NewUnhandledMessage(),
 				resStatus: sip.ResponseStatusServiceUnavailable,
 				logLevel:  slog.LevelWarn,
 			})
@@ -967,13 +1051,13 @@ func (tb *transpBase[L]) respondOrDiscard(
 	if err := tb.Respond(ctx, req, sts, opts...); err != nil {
 		lvl := slog.LevelWarn
 		if sip.IsMessageError(err) ||
-			errors.IsClosedError(err) ||
-			errors.IsCanceledError(err) {
+			errclass.IsClosed(err) ||
+			errclass.IsCanceled(err) {
 			lvl = slog.LevelDebug
 		}
 
-		tb.log.LogAttrs(ctx, lvl,
-			"silently discard the inbound request due to respond failure",
+		tb.log.LogAttrs(
+			ctx, lvl, "silently discard the inbound request due to respond failure",
 			slog.Any("request", req),
 			slog.Any("error", err),
 		)
@@ -981,10 +1065,15 @@ func (tb *transpBase[L]) respondOrDiscard(
 }
 
 func (tb *transpBase[L]) recvResSafe(ctx context.Context, res *sip.ResponseEnvelope, err error) (finErr error) {
+	// A serving context may carry a transaction, but each inbound message starts
+	// without one until the manager matches or creates one.
+	ctx = sip.ContextWithTransaction(ctx, nil)
+	ctx = sip.ContextWithTransport(ctx, tb.impl)
+
 	defer func() {
 		if pe := recover(); pe != nil {
-			tb.log.LogAttrs(ctx, slog.LevelError,
-				"panic occurred while processing the inbound response",
+			tb.log.ErrorContext(
+				ctx, "panic occurred while processing the inbound response",
 				slog.Any("response", res),
 				slog.Any("error", pe),
 				slog.Any("stack", log.StringValue(debug.Stack())),
@@ -1004,8 +1093,8 @@ func (tb *transpBase[L]) recvResSafe(ctx context.Context, res *sip.ResponseEnvel
 			lvl = e.LogLevel()
 		}
 
-		tb.log.LogAttrs(ctx, lvl,
-			"silently discard the inbound response due to error",
+		tb.log.LogAttrs(
+			ctx, lvl, "silently discard the inbound response due to error",
 			slog.Any("response", res),
 			slog.Any("error", err),
 		)
@@ -1049,7 +1138,7 @@ func (tb *transpBase[L]) recvRes(ctx context.Context, res *sip.ResponseEnvelope,
 		)),
 		sip.ResponseReceiverFunc(func(ctx context.Context, res *sip.ResponseEnvelope) error {
 			return errors.Wrap(&resRejectedError{
-				cause:    sip.ErrUnhandledMessage,
+				cause:    sip.NewUnhandledMessage(),
 				logLevel: slog.LevelWarn,
 			})
 		}),
@@ -1071,8 +1160,10 @@ func (tb *transpBase[L]) SendRequest(
 	req *sip.RequestEnvelope,
 	opts ...sip.SendRequestOptions,
 ) error {
+	ctx = sip.ContextWithTransport(ctx, tb.impl)
+
 	if tb.isClosing() {
-		return errors.Wrap(ErrTransportClosed)
+		return errors.Wrap(NewTransportClosedError())
 	}
 
 	sender := sip.InterceptOutboundRequest(
@@ -1091,7 +1182,7 @@ func (tb *transpBase[L]) sendRequest(
 	opts ...sip.SendRequestOptions,
 ) error {
 	if tb.isClosing() {
-		return errors.Wrap(ErrTransportClosed)
+		return errors.Wrap(NewTransportClosedError())
 	}
 
 	req.SetTransport(tb.meta)
@@ -1146,8 +1237,10 @@ func (tb *transpBase[L]) SendResponse(
 	res *sip.ResponseEnvelope,
 	opts ...sip.SendResponseOptions,
 ) error {
+	ctx = sip.ContextWithTransport(ctx, tb.impl)
+
 	if tb.isClosing() {
-		return errors.Wrap(ErrTransportClosed)
+		return errors.Wrap(NewTransportClosedError())
 	}
 
 	sender := sip.InterceptOutboundResponse(
@@ -1167,7 +1260,7 @@ func (tb *transpBase[L]) sendResponse(
 	opts ...sip.SendResponseOptions,
 ) error {
 	if tb.isClosing() {
-		return errors.Wrap(ErrTransportClosed)
+		return errors.Wrap(NewTransportClosedError())
 	}
 
 	res.SetTransport(tb.meta)
@@ -1238,7 +1331,7 @@ func (tb *transpBase[L]) sendResponse(
 		}
 
 		err = conn.WriteMessage(ctx, res, res.RemoteAddr(), sendOpts.RenderOptions)
-		if err == nil || errors.IsClosedError(err) || errors.Is(err, ctx.Err()) {
+		if err == nil || errclass.IsClosed(err) || errors.Is(err, ctx.Err()) {
 			return errors.Wrap(err)
 		}
 
@@ -1246,7 +1339,7 @@ func (tb *transpBase[L]) sendResponse(
 	}
 
 	if len(errs) == 0 {
-		return errors.Wrap(sip.ErrNoAddress)
+		return errors.Wrap(sip.NewNoAddressError())
 	}
 	return errors.JoinPrefixWrap("send response errors:", errs...)
 }
@@ -1257,8 +1350,10 @@ func (tb *transpBase[L]) Respond(
 	sts sip.ResponseStatus,
 	opts ...sip.RespondOptions,
 ) error {
+	ctx = sip.ContextWithTransport(ctx, tb.impl)
+
 	if tb.isClosing() {
-		return errors.Wrap(ErrTransportClosed)
+		return errors.Wrap(NewTransportClosedError())
 	}
 
 	resOpts := util.LastSliceElemOr(opts, sip.RespondOptions{})

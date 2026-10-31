@@ -3,12 +3,11 @@ package header
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/internal/types"
 )
 
 // To represents the To header field.
@@ -26,27 +25,14 @@ func (hdr *To) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error)
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(fmt.Fprint(w, hdr.name(opts...), ": ", hdr.RenderValue()))
-}
-
-func (hdr *To) name(opts ...RenderOptions) Name {
-	if util.LastSliceElemOr(opts, RenderOptions{}).Compact {
-		return hdr.CompactName()
-	}
-	return hdr.CanonicName()
+	return errors.Wrap2(renderHdrTo(w, renderHdrName(hdr, opts...), func(w io.Writer) (int, error) {
+		return errors.Wrap2(NameAddr(*hdr).renderTo(w))
+	}))
 }
 
 // Render returns the string representation of the header.
 func (hdr *To) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return types.Render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
@@ -64,29 +50,14 @@ func (hdr *To) String() string {
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr *To) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods To
-			To          hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*To)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods To
+		To          hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*To)(hdr))
 }
 
 // Clone returns a copy of the header.
@@ -128,27 +99,7 @@ func (hdr *To) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *To) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = To{}
-		return nil
-	}
-
-	h, ok := gh.(*To)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && (len(ah.Value) == 0 || ah.Value == "<>") {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyNameAddrValue))
 }
 
 func (hdr *To) Tag() (string, bool) {

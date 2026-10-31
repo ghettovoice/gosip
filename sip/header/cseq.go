@@ -140,28 +140,9 @@ func (hdr *CSeq) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *CSeq) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = CSeq{}
-		return nil
-	}
-
-	h, ok := gh.(*CSeq)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) &&
-			(len(ah.Value) == 0 || strings.TrimSpace(ah.Value) == "0") {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), func(value string) bool {
+		return value == "" || strings.TrimSpace(value) == "0"
+	}))
 }
 
 func buildFromCSeqNode(node *abnf.Node) *CSeq {

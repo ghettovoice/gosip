@@ -7,12 +7,16 @@ import (
 	"math"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/testutil"
+	"github.com/ghettovoice/gosip/internal/testutil/siptest"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/sip/transport"
@@ -125,18 +129,6 @@ type temporaryReadError struct{}
 func (temporaryReadError) Error() string   { return "temporary read error" }
 func (temporaryReadError) Temporary() bool { return true }
 
-func waitMsgResult(tb testing.TB, results <-chan msgResult) msgResult {
-	tb.Helper()
-
-	select {
-	case res := <-results:
-		return res
-	case <-time.After(2 * time.Second):
-		tb.Fatal("timed out waiting for message result")
-		return msgResult{}
-	}
-}
-
 func assertInReqEnvelopeMeta(tb testing.TB, msg sip.Message, wantMeta sip.TransportMetadata, wantLocAddr, wantRmtAddr netip.AddrPort) {
 	tb.Helper()
 
@@ -173,20 +165,7 @@ func newTestTCPConnWithPeer(tb testing.TB) (sip.TransportConnection, net.Conn) {
 		tb.Fatalf("net.Listen() error = %v, want nil", err)
 	}
 
-	tb.Cleanup(func() { lis.Close() })
-
-	acceptedCh := make(chan net.Conn, 1)
-	acceptErrCh := make(chan error, 1)
-
-	go func() {
-		accepted, acceptErr := lis.Accept()
-		if acceptErr != nil {
-			acceptErrCh <- acceptErr
-			return
-		}
-
-		acceptedCh <- accepted
-	}()
+	waitAccept := startTestAccept(tb, lis)
 
 	peer, err := net.Dial("tcp", lis.Addr().String())
 	if err != nil {
@@ -195,21 +174,14 @@ func newTestTCPConnWithPeer(tb testing.TB) (sip.TransportConnection, net.Conn) {
 
 	tb.Cleanup(func() { peer.Close() })
 
-	var base net.Conn
-	select {
-	case base = <-acceptedCh:
-	case err = <-acceptErrCh:
-		tb.Fatalf("listener.Accept() error = %v, want nil", err)
-	case <-time.After(2 * time.Second):
-		tb.Fatal("timed out waiting for listener.Accept()")
-	}
+	base := waitAccept()
 
-	conn, err := transport.NewConnection(tb.Context(), base, sip.TCPMetadata())
+	conn, err := transport.NewConnection(base, sip.TCPMetadata())
 	if err != nil {
 		tb.Fatalf("transport.NewConnection(tcp) error = %v, want nil", err)
 	}
 
-	tb.Cleanup(func() { conn.Close(tb.Context()) })
+	tb.Cleanup(func() { conn.Close() })
 
 	return conn, peer
 }
@@ -243,12 +215,12 @@ func newTestPacketConnWithPeer(tb testing.TB) (sip.TransportConnection, net.Pack
 		tb.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 	}
 
-	conn, err := transport.NewConnectionLessListener(tb.Context(), base, tp)
+	conn, err := transport.NewConnectionLessListener(base, tp)
 	if err != nil {
 		tb.Fatalf("transport.NewConnectionLessListener() error = %v, want nil", err)
 	}
 
-	tb.Cleanup(func() { conn.Close(tb.Context()) })
+	tb.Cleanup(func() { conn.Close() })
 
 	return conn, peer
 }
@@ -261,7 +233,7 @@ func newConnReq(tb testing.TB, conn sip.TransportConnection) *sip.Request {
 	req.Headers.Set(header.Via{{
 		Proto:     sip.ProtoVer20(),
 		Transport: conn.Metadata().Proto,
-		Addr:      sip.AddrFromHostPort(laddr.Addr().String(), laddr.Port()),
+		Addr:      sip.MakeHostPortAddr(laddr.Addr().String(), laddr.Port()),
 		Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
 	}})
 
@@ -437,11 +409,11 @@ func TestNewConnection(t *testing.T) {
 			)
 			switch base := base.(type) {
 			case net.Conn:
-				conn, err = transport.NewConnection(t.Context(), base, tt.meta)
+				conn, err = transport.NewConnection(base, tt.meta)
 			case net.PacketConn:
 				tp, tpErr := transport.NewConnectionLessTransport(tt.meta)
 				if tpErr == nil {
-					conn, err = transport.NewConnectionLessListener(t.Context(), base, tp)
+					conn, err = transport.NewConnectionLessListener(base, tp)
 				} else {
 					err = tpErr
 				}
@@ -464,7 +436,7 @@ func TestNewConnection(t *testing.T) {
 				t.Fatalf("transport.NewConnection() conn = nil, want non-nil")
 			}
 
-			t.Cleanup(func() { conn.Close(t.Context()) })
+			t.Cleanup(func() { conn.Close() })
 
 			if diff := cmp.Diff(tt.wantMeta, conn.Metadata()); diff != "" {
 				t.Fatalf("transport.NewConnection() metadata mismatch (-want +got):\n%s", diff)
@@ -497,66 +469,13 @@ func TestConnection_Close_Idempotent(t *testing.T) {
 			t.Parallel()
 
 			conn := tt.new(t)
-			if err := conn.Close(t.Context()); err != nil {
-				t.Fatalf("conn.Close(t.Context()) first call error = %v, want nil", err)
+			if err := conn.Close(); err != nil {
+				t.Fatalf("conn.Close() first call error = %v, want nil", err)
 			}
 
-			if err := conn.Close(t.Context()); err != nil {
-				t.Fatalf("conn.Close(t.Context()) second call error = %v, want nil", err)
+			if err := conn.Close(); err != nil {
+				t.Fatalf("conn.Close() second call error = %v, want nil", err)
 			}
-		})
-	}
-}
-
-func TestConnection_AfterClose_WriteMessage_ReturnsNetErrClosed(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		test func(t *testing.T)
-	}{
-		{
-			name: "connected tcp",
-			test: func(t *testing.T) {
-				t.Helper()
-
-				conn, _ := newTestTCPConnWithPeer(t)
-				raddr := conn.RemoteAddr()
-
-				if err := conn.Close(t.Context()); err != nil {
-					t.Fatalf("conn.Close(t.Context()) error = %v, want nil", err)
-				}
-
-				err := conn.WriteMessage(t.Context(), newConnReq(t, conn), raddr)
-				if !errors.Is(err, net.ErrClosed) {
-					t.Fatalf("conn.WriteMessage() error = %v, want %v", err, net.ErrClosed)
-				}
-			},
-		},
-		{
-			name: "packet udp",
-			test: func(t *testing.T) {
-				t.Helper()
-
-				conn, peer := newTestPacketConnWithPeer(t)
-				raddr := netip.MustParseAddrPort(peer.LocalAddr().String())
-
-				if err := conn.Close(t.Context()); err != nil {
-					t.Fatalf("conn.Close(t.Context()) error = %v, want nil", err)
-				}
-
-				err := conn.WriteMessage(t.Context(), newConnReq(t, conn), raddr)
-				if !errors.Is(err, net.ErrClosed) {
-					t.Fatalf("conn.WriteMessage() error = %v, want %v", err, net.ErrClosed)
-				}
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.test(t)
 		})
 	}
 }
@@ -644,12 +563,13 @@ func TestConnection_WriteMessage(t *testing.T) {
 
 		conn, peer := newTestTCPConnWithPeer(t)
 		msg := newConnReq(t, conn)
+		msg.Headers.Set(header.ContentLength(0))
 
 		if err := conn.WriteMessage(t.Context(), msg, conn.RemoteAddr()); err != nil {
 			t.Fatalf("conn.WriteMessage() error = %v, want nil", err)
 		}
 
-		received := readTCPMsg(t, peer)
+		received := siptest.NewStreamReader(t, peer).Read(t)
 		if _, ok := received.(*sip.Request); !ok {
 			t.Fatalf("received message type = %T, want *sip.Request", received)
 		}
@@ -700,7 +620,7 @@ func TestConnection_Messages(t *testing.T) {
 			t.Fatalf("peer.Write() error = %v, want nil", err)
 		}
 
-		res := waitMsgResult(t, results)
+		res := testutil.WaitResult(t, results, "message result")
 		if res.err != nil {
 			t.Fatalf("conn.Messages() first error = %v, want nil", res.err)
 		}
@@ -733,7 +653,7 @@ func TestConnection_Messages(t *testing.T) {
 			t.Fatalf("peer.Write(overflow) error = %v, want nil", err)
 		}
 
-		res := waitMsgResult(t, results)
+		res := testutil.WaitResult(t, results, "message result")
 		if res.msg != nil {
 			t.Fatalf("conn.Messages() first message = %T, want nil", res.msg)
 		}
@@ -743,7 +663,7 @@ func TestConnection_Messages(t *testing.T) {
 		}
 	})
 
-	t.Run("connected tcp oversize in-message stream yields parse message with ErrMessageTooLarge", func(t *testing.T) {
+	t.Run("connected tcp oversize in-message stream yields parse message with ErrMessageBodyTooLarge", func(t *testing.T) {
 		t.Parallel()
 
 		conn, peer := newTestTCPConnWithPeer(t)
@@ -771,13 +691,13 @@ func TestConnection_Messages(t *testing.T) {
 			t.Fatalf("peer.Write(oversize-in-message) error = %v, want nil", err)
 		}
 
-		res := waitMsgResult(t, results)
+		res := testutil.WaitResult(t, results, "message result")
 		if res.msg != nil {
 			t.Fatalf("conn.Messages() first message = %T, want nil", res.msg)
 		}
 
-		if !errors.Is(res.err, sip.ErrMessageTooLarge) {
-			t.Fatalf("conn.Messages() first error = %v, want wraps %v", res.err, sip.ErrMessageTooLarge)
+		if !errors.Is(res.err, sip.ErrMessageBodyTooLarge) {
+			t.Fatalf("conn.Messages() first error = %v, want wraps %v", res.err, sip.ErrMessageBodyTooLarge)
 		}
 
 		perr, ok := errors.AsType[*sip.ParseError](res.err)
@@ -810,12 +730,12 @@ func TestConnection_Messages(t *testing.T) {
 			t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
 		}
 
-		conn, err := transport.NewConnectionLessListener(t.Context(), base, tp)
+		conn, err := transport.NewConnectionLessListener(base, tp)
 		if err != nil {
 			t.Fatalf("transport.NewConnectionLessListener() error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { conn.Close(t.Context()) })
+		t.Cleanup(func() { conn.Close() })
 
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
@@ -832,7 +752,7 @@ func TestConnection_Messages(t *testing.T) {
 			results <- msgResult{}
 		}()
 
-		res := waitMsgResult(t, results)
+		res := testutil.WaitResult(t, results, "message result")
 		if res.err != nil {
 			t.Fatalf("conn.Messages() first error = %v, want nil", res.err)
 		}
@@ -854,12 +774,12 @@ func TestConnection_Messages(t *testing.T) {
 			},
 		}
 
-		conn, err := transport.NewConnection(t.Context(), base, sip.TCPMetadata())
+		conn, err := transport.NewConnection(base, sip.TCPMetadata())
 		if err != nil {
 			t.Fatalf("transport.NewConnection() error = %v, want nil", err)
 		}
 
-		t.Cleanup(func() { conn.Close(t.Context()) })
+		t.Cleanup(func() { conn.Close() })
 
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
@@ -876,7 +796,7 @@ func TestConnection_Messages(t *testing.T) {
 			results <- msgResult{}
 		}()
 
-		res := waitMsgResult(t, results)
+		res := testutil.WaitResult(t, results, "message result")
 		if res.err != nil {
 			t.Fatalf("conn.Messages() first error = %v, want nil", res.err)
 		}
@@ -914,7 +834,7 @@ func TestConnection_Messages(t *testing.T) {
 			t.Fatalf("peer.WriteTo(valid) error = %v, want nil", err)
 		}
 
-		res := waitMsgResult(t, results)
+		res := testutil.WaitResult(t, results, "message result")
 		if res.err != nil {
 			t.Fatalf("conn.Messages() first error = %v, want nil", res.err)
 		}
@@ -965,7 +885,7 @@ func TestConnection_Messages(t *testing.T) {
 			t.Fatalf("peer.WriteTo(valid) error = %v, want nil", err)
 		}
 
-		res := waitMsgResult(t, results)
+		res := testutil.WaitResult(t, results, "message result")
 		if res.err != nil {
 			t.Fatalf("conn.Messages() first error = %v, want nil", res.err)
 		}
@@ -1014,10 +934,9 @@ func TestConnection_Messages_StopsOnContextCancel(t *testing.T) {
 				}
 
 				if !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
-					t.Fatalf("conn.Messages() terminal error = %v, want wraps %v or %v",
-						err,
-						context.Canceled,
-						net.ErrClosed,
+					t.Fatalf(
+						"conn.Messages() terminal error = %v, want wraps %v or %v",
+						err, context.Canceled, net.ErrClosed,
 					)
 				}
 			case <-time.After(2 * time.Second):
@@ -1057,8 +976,8 @@ func TestConnection_MetadataAndAddr_Stable(t *testing.T) {
 				t.Fatalf("conn.RemoteAddr().IsValid() = %v, want %v", raddrBefore.IsValid(), tt.wantRemote)
 			}
 
-			if err := conn.Close(t.Context()); err != nil {
-				t.Fatalf("conn.Close(t.Context()) error = %v, want nil", err)
+			if err := conn.Close(); err != nil {
+				t.Fatalf("conn.Close() error = %v, want nil", err)
 			}
 
 			if diff := cmp.Diff(metaBefore, conn.Metadata()); diff != "" {
@@ -1074,4 +993,93 @@ func TestConnection_MetadataAndAddr_Stable(t *testing.T) {
 			}
 		})
 	}
+}
+
+type countingStubConn struct {
+	stubConn
+	closes atomic.Int32
+}
+
+func (c *countingStubConn) Close() error {
+	c.closes.Add(1)
+	return c.stubConn.Close()
+}
+
+func newTCPStubConn() *countingStubConn {
+	c := &countingStubConn{}
+	c.laddr = &net.TCPAddr{IP: net.IPv4(11, 11, 11, 11), Port: 5070}
+	c.raddr = &net.TCPAddr{IP: net.IPv4(55, 55, 55, 55), Port: 5060}
+	return c
+}
+
+func TestNewConnection_IdleTimeoutCloses(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		base := newTCPStubConn()
+		conn, err := transport.NewConnection(
+			base, sip.TCPMetadata(),
+			transport.ConnectionOptions{IdleTimeout: time.Second},
+		)
+		if err != nil {
+			t.Fatalf("transport.NewConnection() error = %v, want nil", err)
+		}
+		defer func() { _ = conn.Close() }()
+
+		time.Sleep(1100 * time.Millisecond)
+		if got := base.closes.Load(); got != 1 {
+			t.Fatalf("underlying closes = %d after idle timeout, want 1", got)
+		}
+	})
+}
+
+func TestNewConnection_IdleWriteResets(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		base := newTCPStubConn()
+		conn, err := transport.NewConnection(
+			base, sip.TCPMetadata(),
+			transport.ConnectionOptions{IdleTimeout: time.Second},
+		)
+		if err != nil {
+			t.Fatalf("transport.NewConnection() error = %v, want nil", err)
+		}
+		defer func() { _ = conn.Close() }()
+
+		time.Sleep(600 * time.Millisecond)
+		if _, err := conn.Write(t.Context(), []byte("x")); err != nil {
+			t.Fatalf("conn.Write() error = %v, want nil", err)
+		}
+
+		time.Sleep(500 * time.Millisecond)
+		if got := base.closes.Load(); got != 0 {
+			t.Fatalf("underlying closes = %d at original deadline, want 0", got)
+		}
+
+		time.Sleep(600 * time.Millisecond)
+		if got := base.closes.Load(); got != 1 {
+			t.Fatalf("underlying closes = %d after new full timeout, want 1", got)
+		}
+	})
+}
+
+func TestNewConnection_NegativeIdleTimeout(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		base := newTCPStubConn()
+		conn, err := transport.NewConnection(
+			base, sip.TCPMetadata(),
+			transport.ConnectionOptions{IdleTimeout: -time.Second},
+		)
+		if err != nil {
+			t.Fatalf("transport.NewConnection() error = %v, want nil", err)
+		}
+
+		time.Sleep(3 * time.Second)
+		if got := base.closes.Load(); got != 0 {
+			t.Fatalf("underlying closes = %d with disabled idle timeout, want 0", got)
+		}
+		if err := conn.Close(); err != nil {
+			t.Fatalf("conn.Close() error = %v, want nil", err)
+		}
+	})
 }

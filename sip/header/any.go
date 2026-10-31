@@ -114,23 +114,7 @@ func (hdr *Any) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Any) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = Any{}
-		return nil
-	}
-
-	h, ok := gh.(*Any)
-	if !ok {
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, "", nil))
 }
 
 func buildFromExtensionHeaderNode(node *abnf.Node) *Any {

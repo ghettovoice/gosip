@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/testutil"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/sip"
 )
@@ -69,7 +71,7 @@ func (tp *stubClientTransport) SendRequest(
 
 	if hook != nil {
 		if err := hook(call, idx); err != nil {
-			return err
+			return errors.Wrap(err)
 		}
 	}
 
@@ -80,17 +82,7 @@ func (tp *stubClientTransport) SendRequest(
 
 func (tp *stubClientTransport) waitSendReq(tb testing.TB) sendReqCall {
 	tb.Helper()
-
-	tmr := time.NewTimer(5 * time.Second)
-	defer tmr.Stop()
-
-	select {
-	case call := <-tp.sendReqCalls:
-		return call
-	case <-tmr.C:
-		tb.Fatalf("timed out waiting for request send call")
-		return sendReqCall{}
-	}
+	return testutil.WaitResult(tb, tp.sendReqCalls, "request send call")
 }
 
 func (tp *stubClientTransport) ensureNoSendReq(tb testing.TB) {
@@ -139,5 +131,65 @@ func assertResponseStatus(tb testing.TB, resCh <-chan *sip.ResponseEnvelope, wan
 		}
 	case <-time.After(100 * time.Millisecond):
 		tb.Fatalf("response wait timeout, want %v", want)
+	}
+}
+
+func TestClientTransactionKey_RoundTripBinary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		key  sip.ClientTransactionKey
+	}{
+		{
+			name: "standard",
+			key: sip.ClientTransactionKey{
+				Branch: "z9hG4bK-123",
+				Method: "INVITE",
+			},
+		},
+		{
+			name: "lowercase method",
+			key: sip.ClientTransactionKey{
+				Branch: "z9hG4bK-abc",
+				Method: "invite",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := tt.key
+
+			data, err := original.MarshalBinary()
+			if err != nil {
+				t.Fatalf("key.MarshalBinary() error = %v", err)
+			}
+
+			if len(data) == 0 {
+				t.Fatalf("key.MarshalBinary() = %v, want non-empty", data)
+			}
+
+			var restored sip.ClientTransactionKey
+			if err := restored.UnmarshalBinary(data); err != nil {
+				t.Fatalf("new.UnmarshalBinary(data) error = %v, want nil", err)
+			}
+
+			// Compare with canonical form (method uppercased)
+			if !original.Canonic().Equal(&restored) {
+				t.Fatalf("round-trip mismatch: got %+v, want %+v", restored, original.Canonic())
+			}
+		})
+	}
+}
+
+func TestClientTransactionKey_UnmarshalBinary_Invalid(t *testing.T) {
+	t.Parallel()
+
+	var key sip.ClientTransactionKey
+	if err := key.UnmarshalBinary([]byte{0x03}); err == nil {
+		t.Fatalf("key.UnmarshalBinary([]byte{0x03}) = nil, want error")
 	}
 }

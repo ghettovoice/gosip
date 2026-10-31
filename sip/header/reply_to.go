@@ -3,12 +3,11 @@ package header
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/internal/types"
 )
 
 // ReplyTo represents the Reply-To header field.
@@ -26,20 +25,14 @@ func (hdr *ReplyTo) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err erro
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(fmt.Fprint(w, hdr.CanonicName(), ": ", hdr.RenderValue()))
+	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
+		return errors.Wrap2(NameAddr(*hdr).renderTo(w))
+	}))
 }
 
 // Render returns the string representation of the header.
 func (hdr *ReplyTo) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return types.Render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
@@ -55,29 +48,14 @@ func (hdr *ReplyTo) String() string { return hdr.RenderValue() }
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr *ReplyTo) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods ReplyTo
-			ReplyTo     hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*ReplyTo)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods ReplyTo
+		ReplyTo     hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*ReplyTo)(hdr))
 }
 
 // Clone returns a copy of the header.
@@ -119,27 +97,7 @@ func (hdr *ReplyTo) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *ReplyTo) UnmarshalJSON(data []byte) error {
-	gh, err := FromJSON(data)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	if gh == nil {
-		*hdr = ReplyTo{}
-		return nil
-	}
-
-	h, ok := gh.(*ReplyTo)
-	if !ok {
-		ah, ok := gh.(*Any)
-		if ok && ah.CanonicName().Equal(hdr.CanonicName()) && (len(ah.Value) == 0 || ah.Value == "<>") {
-			return nil
-		}
-		return errors.Wrap(newUnexpectHdrTypeErr(gh))
-	}
-
-	*hdr = *h
-	return nil
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyNameAddrValue))
 }
 
 func buildFromReplyToNode(node *abnf.Node) *ReplyTo {

@@ -15,7 +15,7 @@ import (
 func TestWWWAuthenticate_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.WWWAuthenticate
 		want string
@@ -28,9 +28,9 @@ func TestWWWAuthenticate_Render(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -70,12 +70,12 @@ func TestWWWAuthenticate_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(); got != c.want {
-				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(); got != tt.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -84,7 +84,7 @@ func TestWWWAuthenticate_Render(t *testing.T) {
 func TestWWWAuthenticate_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     *header.WWWAuthenticate
 		wantRes string
@@ -105,19 +105,19 @@ func TestWWWAuthenticate_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -126,7 +126,7 @@ func TestWWWAuthenticate_RenderTo(t *testing.T) {
 func TestWWWAuthenticate_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.WWWAuthenticate
 		want string
@@ -145,12 +145,12 @@ func TestWWWAuthenticate_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.String(); got != c.want {
-				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			if got := tt.hdr.String(); got != tt.want {
+				t.Errorf("hdr.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -159,7 +159,7 @@ func TestWWWAuthenticate_String(t *testing.T) {
 func TestWWWAuthenticate_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.WWWAuthenticate
 		val  any
@@ -186,9 +186,9 @@ func TestWWWAuthenticate_Equal(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "atlanta.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+						&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -227,12 +227,12 @@ func TestWWWAuthenticate_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -241,7 +241,7 @@ func TestWWWAuthenticate_Equal(t *testing.T) {
 func TestWWWAuthenticate_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.WWWAuthenticate
 		want bool
@@ -269,12 +269,12 @@ func TestWWWAuthenticate_IsValid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -283,7 +283,7 @@ func TestWWWAuthenticate_IsValid(t *testing.T) {
 func TestWWWAuthenticate_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.WWWAuthenticate
 	}{
@@ -295,9 +295,9 @@ func TestWWWAuthenticate_Clone(t *testing.T) {
 				AuthChallenge: &header.DigestChallenge{
 					Realm: "ATLANTA.com",
 					Domain: []uri.URI{
-						&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+						&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 						&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-						&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+						&uri.Any{Path: "/a/b/c"},
 					},
 					QOP:       []string{"auth", "auth-int"},
 					Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -331,20 +331,20 @@ func TestWWWAuthenticate_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.hdr.Clone()
-			if c.hdr == nil {
+			got := tt.hdr.Clone()
+			if tt.hdr == nil {
 				if got != nil {
 					t.Errorf("hdr.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}
@@ -353,7 +353,7 @@ func TestWWWAuthenticate_Clone(t *testing.T) {
 func TestDigestChallenge_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.DigestChallenge
 		want string
@@ -365,9 +365,9 @@ func TestDigestChallenge_Render(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -382,12 +382,12 @@ func TestDigestChallenge_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.Render(); got != c.want {
-				t.Errorf("cln.Render() = %q, want %q", got, c.want)
+			if got := tt.cln.Render(); got != tt.want {
+				t.Errorf("cln.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -396,7 +396,7 @@ func TestDigestChallenge_Render(t *testing.T) {
 func TestDigestChallenge_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		cln     *header.DigestChallenge
 		wantRes string
@@ -409,9 +409,9 @@ func TestDigestChallenge_RenderTo(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -427,19 +427,19 @@ func TestDigestChallenge_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.cln.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("cln.RenderTo(&sb) error = %v, want %q\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.cln.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("cln.RenderTo(&sb) error = %v, want %q\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -448,7 +448,7 @@ func TestDigestChallenge_RenderTo(t *testing.T) {
 func TestDigestChallenge_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.DigestChallenge
 		want string
@@ -460,9 +460,9 @@ func TestDigestChallenge_String(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -477,12 +477,12 @@ func TestDigestChallenge_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.String(); got != c.want {
-				t.Errorf("cln.String() = %q, want %q", got, c.want)
+			if got := tt.cln.String(); got != tt.want {
+				t.Errorf("cln.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -491,7 +491,7 @@ func TestDigestChallenge_String(t *testing.T) {
 func TestDigestChallenge_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.DigestChallenge
 		val  any
@@ -506,7 +506,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -532,7 +532,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "F84F1CEC41E6CBE5AEA9C8E88D359",
@@ -543,7 +543,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -558,7 +558,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -569,7 +569,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -584,7 +584,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -595,7 +595,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -610,7 +610,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -621,7 +621,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 				},
 				QOP:       []string{"auth"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -636,9 +636,9 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "atlanta.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("ss1.carrier.com")},
+					&uri.SIP{Addr: uri.MakeHostAddr("ss1.carrier.com")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -650,9 +650,9 @@ func TestDigestChallenge_Equal(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "ATLANTA.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+					&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -665,12 +665,12 @@ func TestDigestChallenge_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.Equal(c.val); got != c.want {
-				t.Errorf("cln.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.cln.Equal(tt.val); got != tt.want {
+				t.Errorf("cln.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -679,7 +679,7 @@ func TestDigestChallenge_Equal(t *testing.T) {
 func TestDigestChallenge_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.DigestChallenge
 		want bool
@@ -720,12 +720,12 @@ func TestDigestChallenge_IsValid(t *testing.T) {
 		{"valid", &header.DigestChallenge{Realm: "ATLANTA.com", Nonce: "f84f1cec41e6cbe5aea9c8e88d359"}, true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.IsValid(); got != c.want {
-				t.Errorf("cln.IsValid() = %v, want %v", got, c.want)
+			if got := tt.cln.IsValid(); got != tt.want {
+				t.Errorf("cln.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -734,7 +734,7 @@ func TestDigestChallenge_IsValid(t *testing.T) {
 func TestDigestChallenge_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.DigestChallenge
 		want any
@@ -746,9 +746,9 @@ func TestDigestChallenge_Clone(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "ATLANTA.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+					&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -760,9 +760,9 @@ func TestDigestChallenge_Clone(t *testing.T) {
 			&header.DigestChallenge{
 				Realm: "ATLANTA.com",
 				Domain: []uri.URI{
-					&uri.SIP{Addr: uri.AddrFromHost("SS1.CARRIER.COM")},
+					&uri.SIP{Addr: uri.MakeHostAddr("SS1.CARRIER.COM")},
 					&uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}},
-					&uri.Any{URL: url.URL{Path: "/a/b/c"}},
+					&uri.Any{Path: "/a/b/c"},
 				},
 				QOP:       []string{"auth", "auth-int"},
 				Nonce:     "f84f1cec41e6cbe5aea9c8e88d359",
@@ -774,20 +774,20 @@ func TestDigestChallenge_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.cln.Clone()
-			if c.cln == nil {
+			got := tt.cln.Clone()
+			if tt.cln == nil {
 				if got != nil {
 					t.Errorf("cln.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Errorf("cln.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("cln.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -796,7 +796,7 @@ func TestDigestChallenge_Clone(t *testing.T) {
 func TestBearerChallenge_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.BearerChallenge
 		want string
@@ -817,12 +817,12 @@ func TestBearerChallenge_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.Render(); got != c.want {
-				t.Errorf("cln.Render() = %q, want %q", got, c.want)
+			if got := tt.cln.Render(); got != tt.want {
+				t.Errorf("cln.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -831,7 +831,7 @@ func TestBearerChallenge_Render(t *testing.T) {
 func TestBearerChallenge_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		cln     *header.BearerChallenge
 		wantRes string
@@ -854,19 +854,19 @@ func TestBearerChallenge_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.cln.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("cln.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.cln.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("cln.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -875,7 +875,7 @@ func TestBearerChallenge_RenderTo(t *testing.T) {
 func TestBearerChallenge_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.BearerChallenge
 		want string
@@ -896,12 +896,12 @@ func TestBearerChallenge_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.String(); got != c.want {
-				t.Errorf("cln.String() = %q, want %q", got, c.want)
+			if got := tt.cln.String(); got != tt.want {
+				t.Errorf("cln.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -910,7 +910,7 @@ func TestBearerChallenge_String(t *testing.T) {
 func TestBearerChallenge_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.BearerChallenge
 		val  any
@@ -974,12 +974,12 @@ func TestBearerChallenge_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.Equal(c.val); got != c.want {
-				t.Errorf("cln.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.cln.Equal(tt.val); got != tt.want {
+				t.Errorf("cln.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -988,7 +988,7 @@ func TestBearerChallenge_Equal(t *testing.T) {
 func TestBearerChallenge_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.BearerChallenge
 		want bool
@@ -999,12 +999,12 @@ func TestBearerChallenge_IsValid(t *testing.T) {
 		{"valid", &header.BearerChallenge{AuthzServer: &uri.Any{URL: url.URL{Scheme: "http", Host: "example.com"}}}, true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.IsValid(); got != c.want {
-				t.Errorf("cln.IsValid() = %v, want %v", got, c.want)
+			if got := tt.cln.IsValid(); got != tt.want {
+				t.Errorf("cln.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1013,7 +1013,7 @@ func TestBearerChallenge_IsValid(t *testing.T) {
 func TestBearerChallenge_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.BearerChallenge
 	}{
@@ -1031,20 +1031,20 @@ func TestBearerChallenge_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.cln.Clone()
-			if c.cln == nil {
+			got := tt.cln.Clone()
+			if tt.cln == nil {
 				if got != nil {
 					t.Errorf("cln.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.cln); diff != "" {
-				t.Errorf("cln.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.cln, diff)
+			if diff := cmp.Diff(got, tt.cln); diff != "" {
+				t.Errorf("cln.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.cln, diff)
 			}
 		})
 	}
@@ -1053,7 +1053,7 @@ func TestBearerChallenge_Clone(t *testing.T) {
 func TestAnyChallenge_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.AnyChallenge
 		want string
@@ -1070,12 +1070,12 @@ func TestAnyChallenge_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.Render(); got != c.want {
-				t.Errorf("cln.Render() = %q, want %q", got, c.want)
+			if got := tt.cln.Render(); got != tt.want {
+				t.Errorf("cln.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -1084,7 +1084,7 @@ func TestAnyChallenge_Render(t *testing.T) {
 func TestAnyChallenge_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		cln     *header.AnyChallenge
 		wantRes string
@@ -1103,19 +1103,19 @@ func TestAnyChallenge_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.cln.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("cln.RenderTo(&sb) error = %v, want %q\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.cln.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("cln.RenderTo(&sb) error = %v, want %q\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -1124,7 +1124,7 @@ func TestAnyChallenge_RenderTo(t *testing.T) {
 func TestAnyChallenge_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.AnyChallenge
 		want string
@@ -1141,12 +1141,12 @@ func TestAnyChallenge_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.String(); got != c.want {
-				t.Errorf("cln.String() = %q, want %q", got, c.want)
+			if got := tt.cln.String(); got != tt.want {
+				t.Errorf("cln.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -1155,7 +1155,7 @@ func TestAnyChallenge_String(t *testing.T) {
 func TestAnyChallenge_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.AnyChallenge
 		val  any
@@ -1203,12 +1203,12 @@ func TestAnyChallenge_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.Equal(c.val); got != c.want {
-				t.Errorf("cln.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.cln.Equal(tt.val); got != tt.want {
+				t.Errorf("cln.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1217,7 +1217,7 @@ func TestAnyChallenge_Equal(t *testing.T) {
 func TestAnyChallenge_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.AnyChallenge
 		want bool
@@ -1229,12 +1229,12 @@ func TestAnyChallenge_IsValid(t *testing.T) {
 		{"valid", &header.AnyChallenge{Scheme: "qwerty", Params: make(header.Values).Set("p1", "abc")}, true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.cln.IsValid(); got != c.want {
-				t.Errorf("cln.IsValid() = %v, want %v", got, c.want)
+			if got := tt.cln.IsValid(); got != tt.want {
+				t.Errorf("cln.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1243,7 +1243,7 @@ func TestAnyChallenge_IsValid(t *testing.T) {
 func TestAnyChallenge_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		cln  *header.AnyChallenge
 	}{
@@ -1259,20 +1259,20 @@ func TestAnyChallenge_Clone(t *testing.T) {
 		cmp.AllowUnexported(header.AnyChallenge{}),
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.cln.Clone()
-			if c.cln == nil {
+			got := tt.cln.Clone()
+			if tt.cln == nil {
 				if got != nil {
 					t.Errorf("cln.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.cln, cmpOpts...); diff != "" {
-				t.Errorf("cln.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.cln, diff)
+			if diff := cmp.Diff(got, tt.cln, cmpOpts...); diff != "" {
+				t.Errorf("cln.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.cln, diff)
 			}
 		})
 	}

@@ -16,7 +16,8 @@ import (
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/netutil"
 	"github.com/ghettovoice/gosip/internal/util"
-	"github.com/ghettovoice/gosip/log"
+	"github.com/ghettovoice/gosip/pkg/errclass"
+	"github.com/ghettovoice/gosip/pkg/log"
 	"github.com/ghettovoice/gosip/sip"
 )
 
@@ -34,18 +35,18 @@ type ConnectionOptions struct {
 	// If zero, [math.MaxUint16] is used.
 	MaxMessageWriteSize uint
 	// ReadTimeout is the timeout for reading from the connection.
-	// If zero, [time.Second] is used.
+	// If zero, [time.Second] is used. If negative, no read timeout is applied.
 	ReadTimeout time.Duration
 	// WriteTimeout is the timeout for writing to the connection.
-	// If zero, 10*[time.Second] is used.
+	// If zero, 10*[time.Second] is used. If negative, no write timeout is applied.
 	WriteTimeout time.Duration
 	// IdleTimeout is the timeout for idle connections.
 	//
 	// Idle timer resets every time a new message is received or sent.
-	// If the TTL is set to -1, then no idle timer is used, connections will stay
+	// If negative, no idle timer is used and connections stay
 	// opened until transport shutdown.
-	// If the TTL is set to 0, then the value of [sip.TimingConfig.TimeC] + [sip.TimeD]
-	// is used, which is 5m by default.
+	// If zero, the value of [sip.TimingConfig.TimeC] + [sip.TimeD]
+	// is used, which is 5m32s by default.
 	IdleTimeout time.Duration
 }
 
@@ -93,8 +94,7 @@ func (o ConnectionOptions) writeTimeout() time.Duration {
 
 func (o ConnectionOptions) idleTimeout() time.Duration {
 	if o.IdleTimeout == 0 {
-		var tmCfg sip.TimingConfig
-		return tmCfg.TimeC() + tmCfg.TimeD
+		return (sip.TimingConfig{}).TimeC() + sip.TimeD
 	}
 	return o.IdleTimeout
 }
@@ -372,7 +372,7 @@ func (cb *connBase) streamMsgs(
 					kas.reset()
 
 					if isTooLong {
-						err = sip.ErrMessageTooLarge
+						err = sip.NewMessageTooLargeError(cb.maxMsgReadSize)
 					}
 
 					if err = cb.continueOnTempReadErr(
@@ -411,7 +411,7 @@ func (cb *connBase) streamMsgs(
 				kas.reset()
 
 				if isTooLong {
-					err = errors.Errorf("%w: %w", err, sip.ErrMessageTooLarge)
+					err = errors.Errorf("%w: %w", err, sip.NewMessageTooLargeError(cb.maxMsgReadSize))
 				}
 
 				perr.Msg = cb.wrapInMsg(perr.Msg, conn.LocalAddr(), conn.RemoteAddr())
@@ -446,7 +446,7 @@ func (cb *connBase) continueOnTempReadErr(
 	rdrDelay *time.Duration,
 	rdrDelayTmr **time.Timer,
 ) error {
-	if !errors.IsTemporaryError(err) {
+	if !errclass.IsTemporary(err) {
 		*rdrDelay = 0
 		if *rdrDelayTmr != nil {
 			(*rdrDelayTmr).Stop()
@@ -455,7 +455,7 @@ func (cb *connBase) continueOnTempReadErr(
 	}
 
 	// retry after delay on temp conn errors
-	if errors.IsDeadlineError(err) {
+	if errclass.IsDeadline(err) {
 		// our read deadline, no need for exponetial rise
 		*rdrDelay = time.Millisecond
 	} else {
@@ -469,7 +469,8 @@ func (cb *connBase) continueOnTempReadErr(
 			*rdrDelay = v
 		}
 
-		attrs := append(make([]slog.Attr, 0, 4),
+		attrs := append(
+			make([]any, 0, 4),
 			slog.Any("error", err),
 			slog.Duration("delay", *rdrDelay),
 			slog.Any("local_addr", laddr),
@@ -478,8 +479,8 @@ func (cb *connBase) continueOnTempReadErr(
 			attrs = append(attrs, slog.Any("remote_addr", raddr))
 		}
 
-		cb.log.LogAttrs(ctx, slog.LevelDebug,
-			"failed to read connection due to the temporary error, continue reading after delay...",
+		cb.log.DebugContext(
+			ctx, "failed to read connection due to the temporary error, continue reading after delay...",
 			attrs...,
 		)
 	}
@@ -496,7 +497,7 @@ func (cb *connBase) continueOnTempReadErr(
 		if *rdrDelayTmr != nil {
 			(*rdrDelayTmr).Stop()
 		}
-		return errors.Wrap(ErrNetworkClosed)
+		return errors.Wrap(NewNetworkClosedError())
 	case <-ctx.Done():
 		*rdrDelay = 0
 		if *rdrDelayTmr != nil {
@@ -513,6 +514,14 @@ type AcquireConnectionOptions struct {
 	LocalAddr netip.AddrPort
 	Dial      bool
 	Host      string
+	// ServeContext creates the context used to serve a newly dialed connection.
+	// If nil, [context.Background] is used. The factory runs once after dialing
+	// succeeds, not when an existing connection or listener is reused, Dial is
+	// false, or dialing fails. It must return a non-nil context; its cancellation
+	// and deadline control the connection's serving lifetime. The factory has no
+	// operation context argument, so capture only values needed for this
+	// connection rather than retaining request or transaction context.
+	ServeContext func() context.Context
 }
 
 func (o AcquireConnectionOptions) locAddr() netip.AddrPort {

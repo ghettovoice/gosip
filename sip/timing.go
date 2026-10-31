@@ -20,62 +20,57 @@ const (
 
 // TimingConfig represents SIP timing config.
 // It is used to configure SIP timers as described in RFC 3261.
-// Zero value uses default base values [T1], [T2], [T4], [TimeD], [Time100].
+// Non-positive base values use their corresponding defaults:
+// [T1], [T2], [T4], [TimeD], [Time100].
 // All other timings are calculated based on these base values.
 type TimingConfig struct {
 	// T1 is the message RTT estimate.
-	// It is equal to [T1] if not specified.
+	// It is equal to [T1] when zero or negative.
 	T1 time.Duration `json:"t1,omitempty"`
 	// T2 is the maximum retransmit interval for non-INVITE requests and INVITE responses.
-	// It is equal to [T2] if not specified.
+	// It is equal to [T2] when zero or negative.
 	T2 time.Duration `json:"t2,omitempty"`
 	// T4 is the maximum duration a message will remain in the network.
-	// It is equal to [T4] if not specified.
+	// It is equal to [T4] when zero or negative.
 	T4 time.Duration `json:"t4,omitempty"`
 	// TimeD is the wait duration for response retransmits via unreliable transport.
-	// It is equal to [TimeD] if not specified.
+	// It is equal to [TimeD] when zero or negative.
 	TimeD time.Duration `json:"time_d,omitempty"`
 	// Time100 is the timeout for automatic 100 Trying response on INVITE.
-	// It is equal to [Time100] if not specified.
+	// It is equal to [Time100] when zero or negative.
 	Time100 time.Duration `json:"time_100,omitempty"`
 }
 
-// NewTimings creates a new SIP timing config with specified base values.
-// See [TimingConfig] for more details about how base timing values are used.
-func NewTimings(t1, t2, t4, timeD, time100 time.Duration) TimingConfig {
-	return TimingConfig{t1, t2, t4, timeD, time100}
-}
-
 func (c TimingConfig) t1() time.Duration {
-	if c.T1 == 0 {
+	if c.T1 <= 0 {
 		return T1
 	}
 	return c.T1
 }
 
 func (c TimingConfig) t2() time.Duration {
-	if c.T2 == 0 {
+	if c.T2 <= 0 {
 		return T2
 	}
 	return c.T2
 }
 
 func (c TimingConfig) t4() time.Duration {
-	if c.T4 == 0 {
+	if c.T4 <= 0 {
 		return T4
 	}
 	return c.T4
 }
 
 func (c TimingConfig) timeD() time.Duration {
-	if c.TimeD == 0 {
+	if c.TimeD <= 0 {
 		return TimeD
 	}
 	return c.TimeD
 }
 
 func (c TimingConfig) time100() time.Duration {
-	if c.Time100 == 0 {
+	if c.Time100 <= 0 {
 		return Time100
 	}
 	return c.Time100

@@ -16,7 +16,7 @@ import (
 func TestRequest_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		req  *sip.Request
 		opts []sip.RenderOptions
@@ -29,8 +29,8 @@ func TestRequest_Render(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -38,13 +38,13 @@ func TestRequest_Render(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("a.example.com"),
+							Addr:      sip.MakeHostAddr("a.example.com"),
 							Params:    make(sip.Values).Append("branch", "qwerty"),
 						},
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("b.example.com"),
+							Addr:      sip.MakeHostAddr("b.example.com"),
 							Params:    make(sip.Values).Append("branch", "asdf"),
 						},
 					}).
@@ -52,21 +52,21 @@ func TestRequest_Render(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: "INVITE"}).
@@ -75,8 +75,8 @@ func TestRequest_Render(t *testing.T) {
 					Append(header.Contact{
 						{
 							URI: &sip.URI{
-								User: sip.UserWithName("alice"),
-								Addr: sip.AddrFromHostPort("a.example.com", 5060),
+								User: sip.MakeUserInfo("alice"),
+								Addr: sip.MakeHostPortAddr("a.example.com", 5060),
 							},
 						},
 					}).
@@ -108,13 +108,13 @@ func TestRequest_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.req.Render(c.opts...)
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Errorf("req.Render(opts...) = %q, want %q\ndiff (-got +want):\n%v", got, c.want, diff)
+			got := tt.req.Render(tt.opts...)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("req.Render(opts...) = %q, want %q\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -123,7 +123,7 @@ func TestRequest_Render(t *testing.T) {
 func TestRequest_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		req     *sip.Request
 		wantRes string
@@ -136,8 +136,8 @@ func TestRequest_RenderTo(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -152,20 +152,20 @@ func TestRequest_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.req.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Fatalf("req.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.req.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("req.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
 			got := sb.String()
-			if diff := cmp.Diff(got, c.wantRes); diff != "" {
-				t.Fatalf("sb.String() = %q, want %q\ndiff (-got +want):\n%v", got, c.wantRes, diff)
+			if diff := cmp.Diff(got, tt.wantRes); diff != "" {
+				t.Fatalf("sb.String() = %q, want %q\ndiff (-got +want):\n%v", got, tt.wantRes, diff)
 			}
 		})
 	}
@@ -174,7 +174,7 @@ func TestRequest_RenderTo(t *testing.T) {
 func TestRequest_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		req  *sip.Request
 		want string
@@ -186,8 +186,8 @@ func TestRequest_String(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -197,13 +197,13 @@ func TestRequest_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.req.String()
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Errorf("req.String() = %q, want %q\ndiff (-got +want):\n%v", got, c.want, diff)
+			got := tt.req.String()
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("req.String() = %q, want %q\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -212,7 +212,7 @@ func TestRequest_String(t *testing.T) {
 func TestRequest_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		req  *sip.Request
 		val  any
@@ -235,15 +235,15 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 			},
 			&sip.Request{
 				Method: sip.RequestMethodBye,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 			},
 			false,
@@ -253,16 +253,16 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 			},
 			&sip.Request{
 				Method: sip.RequestMethodBye,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoInfo{Name: "Qwe", Version: "1.0"},
 			},
@@ -273,15 +273,15 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
 					Set(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}),
@@ -289,15 +289,15 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodBye,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
 					Set(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("localhost"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("localhost"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}),
@@ -309,8 +309,8 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Body:  []byte("Hello world!\r\n"),
@@ -318,8 +318,8 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodBye,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Body:  []byte("Hello world!"),
@@ -331,8 +331,8 @@ func TestRequest_Equal(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -340,21 +340,21 @@ func TestRequest_Equal(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
@@ -364,8 +364,8 @@ func TestRequest_Equal(t *testing.T) {
 			sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -373,21 +373,21 @@ func TestRequest_Equal(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
@@ -398,12 +398,12 @@ func TestRequest_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.req.Equal(c.val); got != c.want {
-				t.Errorf("req.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.req.Equal(tt.val); got != tt.want {
+				t.Errorf("req.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -412,7 +412,7 @@ func TestRequest_Equal(t *testing.T) {
 func TestRequest_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		req  *sip.Request
 		want bool
@@ -424,7 +424,7 @@ func TestRequest_IsValid(t *testing.T) {
 			"invalid 2",
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
-				URI:    &sip.URI{Addr: sip.AddrFromHostPort("example.com", 5060)},
+				URI:    &sip.URI{Addr: sip.MakeHostPortAddr("example.com", 5060)},
 			},
 			false,
 		},
@@ -433,8 +433,8 @@ func TestRequest_IsValid(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 			},
@@ -445,8 +445,8 @@ func TestRequest_IsValid(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -454,21 +454,21 @@ func TestRequest_IsValid(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
@@ -479,12 +479,12 @@ func TestRequest_IsValid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.req.IsValid(); got != c.want {
-				t.Errorf("req.IsValid() = %v, want %v", got, c.want)
+			if got := tt.req.IsValid(); got != tt.want {
+				t.Errorf("req.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -493,7 +493,7 @@ func TestRequest_IsValid(t *testing.T) {
 func TestRequest_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		req  *sip.Request
 	}{
@@ -504,8 +504,8 @@ func TestRequest_Clone(t *testing.T) {
 			&sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("bob"),
-					Addr: sip.AddrFromHost("b.example.com"),
+					User: sip.MakeUserInfo("bob"),
+					Addr: sip.MakeHostAddr("b.example.com"),
 				},
 				Proto: sip.ProtoVer20(),
 				Headers: make(sip.Headers).
@@ -513,21 +513,21 @@ func TestRequest_Clone(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("c.example.com"),
+							Addr:      sip.MakeHostAddr("c.example.com"),
 							Params:    make(sip.Values).Append("branch", "zxcvb"),
 						},
 					}).
 					Append(&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("a.example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("a.example.com"),
 						},
 						Params: make(sip.Values).Append("tag", "abc"),
 					}).
 					Append(&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("b.example.com"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("b.example.com"),
 						},
 					}).
 					Append(&header.CSeq{SeqNum: 1, Method: sip.RequestMethodInvite}).
@@ -538,20 +538,20 @@ func TestRequest_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.req.Clone()
-			if c.req == nil {
+			got := tt.req.Clone()
+			if tt.req == nil {
 				if got != nil {
 					t.Errorf("req.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.req); diff != "" {
-				t.Errorf("req.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.req, diff)
+			if diff := cmp.Diff(got, tt.req); diff != "" {
+				t.Errorf("req.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.req, diff)
 			}
 		})
 	}
@@ -560,7 +560,7 @@ func TestRequest_Clone(t *testing.T) {
 func TestRequest_RoundTripJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		req  *sip.Request
 	}{
@@ -577,8 +577,8 @@ func TestRequest_RoundTripJSON(t *testing.T) {
 			req: &sip.Request{
 				Method: sip.RequestMethodInvite,
 				URI: &sip.URI{
-					User: sip.UserWithName("alice"),
-					Addr: sip.AddrFromHost("example.com"),
+					User: sip.MakeUserInfo("alice"),
+					Addr: sip.MakeHostAddr("example.com"),
 					Params: make(sip.Values).
 						Append("transport", "tcp").
 						Append("ttl", "10"),
@@ -590,15 +590,15 @@ func TestRequest_RoundTripJSON(t *testing.T) {
 					Set(
 						&header.From{
 							URI: &sip.URI{
-								User: sip.UserWithName("alice"),
-								Addr: sip.AddrFromHost("example.com"),
+								User: sip.MakeUserInfo("alice"),
+								Addr: sip.MakeHostAddr("example.com"),
 							},
 							Params: make(sip.Values).Set("tag", "abc"),
 						},
 						&header.To{
 							URI: &sip.URI{
-								User: sip.UserWithName("bob"),
-								Addr: sip.AddrFromHost("example.net"),
+								User: sip.MakeUserInfo("bob"),
+								Addr: sip.MakeHostAddr("example.net"),
 							},
 						},
 						&header.CSeq{SeqNum: 42, Method: sip.RequestMethodInvite},
@@ -609,7 +609,7 @@ func TestRequest_RoundTripJSON(t *testing.T) {
 						{
 							Proto:     sip.ProtoVer20(),
 							Transport: sip.UDPMetadata().Proto,
-							Addr:      sip.AddrFromHost("proxy.example.com"),
+							Addr:      sip.MakeHostAddr("proxy.example.com"),
 							Params:    make(sip.Values).Set("branch", "z9hG4bK-4321"),
 						},
 					}).
@@ -620,11 +620,11 @@ func TestRequest_RoundTripJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(c.req)
+			data, err := json.Marshal(tt.req)
 			if err != nil {
 				t.Fatalf("json.Marshal(req) error = %v, want nil", err)
 			}
@@ -634,8 +634,8 @@ func TestRequest_RoundTripJSON(t *testing.T) {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got, c.req); diff != "" {
-				t.Errorf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", got, c.req, diff)
+			if diff := cmp.Diff(got, tt.req); diff != "" {
+				t.Errorf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", got, tt.req, diff)
 			}
 		})
 	}
@@ -650,12 +650,12 @@ func TestRequest_NewResponse(t *testing.T) {
 				{
 					Proto:     sip.ProtoVer20(),
 					Transport: sip.UDPMetadata().Proto,
-					Addr:      sip.AddrFromHost("proxy.example.com"),
+					Addr:      sip.MakeHostAddr("proxy.example.com"),
 					Params:    make(sip.Values).Set("branch", "z9hG4bK-req"),
 				},
 			}).
 			Append(&header.From{
-				URI:    &sip.URI{User: sip.UserWithName("alice"), Addr: sip.AddrFromHost("example.com")},
+				URI:    &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("example.com")},
 				Params: make(sip.Values).Set("tag", "from-tag"),
 			}).
 			Append(to).
@@ -669,7 +669,7 @@ func TestRequest_NewResponse(t *testing.T) {
 		t.Parallel()
 
 		to := &header.To{
-			URI: &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.net")},
+			URI: &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.net")},
 		}
 		req := &sip.Request{
 			Proto:   sip.ProtoVer20(),
@@ -680,7 +680,7 @@ func TestRequest_NewResponse(t *testing.T) {
 			Append(header.Via{{
 				Proto:     sip.ProtoVer20(),
 				Transport: sip.UDPMetadata().Proto,
-				Addr:      sip.AddrFromHost("extra.example.com"),
+				Addr:      sip.MakeHostAddr("extra.example.com"),
 			}}).
 			Append(&header.Any{Name: "X-Trace-Id", Value: "42"}).
 			Append(&header.Any{Name: "X-Extra", Value: "first"}).
@@ -745,7 +745,7 @@ func TestRequest_NewResponse(t *testing.T) {
 		t.Parallel()
 
 		to := &header.To{
-			URI:    &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.net")},
+			URI:    &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.net")},
 			Params: make(sip.Values).Set("tag", "existing"),
 		}
 		req := &sip.Request{
@@ -768,7 +768,7 @@ func TestRequest_NewResponse(t *testing.T) {
 		t.Parallel()
 
 		to := &header.To{
-			URI: &sip.URI{User: sip.UserWithName("bob"), Addr: sip.AddrFromHost("example.net")},
+			URI: &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.net")},
 		}
 		req := &sip.Request{
 			Proto:   sip.ProtoVer20(),
@@ -802,23 +802,23 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 		req := &sip.Request{
 			Method: sip.RequestMethodInvite,
 			URI: &sip.URI{
-				User: sip.UserWithName("alice"),
-				Addr: sip.AddrFromHost("example.com"),
+				User: sip.MakeUserInfo("alice"),
+				Addr: sip.MakeHostAddr("example.com"),
 			},
 			Proto: sip.ProtoVer20(),
 			Headers: make(sip.Headers).
 				Set(
 					&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("example.com"),
 						},
 						Params: make(sip.Values).Set("tag", "abc"),
 					},
 					&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("example.net"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("example.net"),
 						},
 					},
 					&header.CSeq{SeqNum: 7, Method: sip.RequestMethodInvite},
@@ -838,7 +838,7 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 		return env
 	}
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		env  *sip.RequestEnvelope
 	}{
@@ -846,11 +846,11 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 		{"full", newEnvelope(t)},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(c.env)
+			data, err := json.Marshal(tt.env)
 			if err != nil {
 				t.Fatalf("json.Marshal(env) error = %v, want nil", err)
 			}
@@ -860,7 +860,7 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
 
-			if c.env == nil {
+			if tt.env == nil {
 				if got != nil {
 					t.Errorf("json.Unmarshal(null, got) = %+v, want nil", got)
 				}
@@ -871,29 +871,29 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 				t.Fatal("json.Unmarshal(data, got) = nil, want non-nil")
 			}
 
-			if diff := cmp.Diff(got.Message(), c.env.Message()); diff != "" {
-				t.Errorf("got.Message() = %+v, want %+v\ndiff (-got +want):\n%s", got.Message(), c.env.Message(), diff)
+			if diff := cmp.Diff(got.Message(), tt.env.Message()); diff != "" {
+				t.Errorf("got.Message() = %+v, want %+v\ndiff (-got +want):\n%s", got.Message(), tt.env.Message(), diff)
 			}
 
-			if diff := cmp.Diff(got.Transport(), c.env.Transport()); diff != "" {
-				t.Errorf("got.Transport() = %+v, want %+v\ndiff (-got +want):\n%s", got.Transport(), c.env.Transport(), diff)
+			if diff := cmp.Diff(got.Transport(), tt.env.Transport()); diff != "" {
+				t.Errorf("got.Transport() = %+v, want %+v\ndiff (-got +want):\n%s", got.Transport(), tt.env.Transport(), diff)
 			}
 
-			if got.LocalAddr() != c.env.LocalAddr() {
-				t.Errorf("got.LocalAddr() = %v, want %v", got.LocalAddr(), c.env.LocalAddr())
+			if got.LocalAddr() != tt.env.LocalAddr() {
+				t.Errorf("got.LocalAddr() = %v, want %v", got.LocalAddr(), tt.env.LocalAddr())
 			}
 
-			if got.RemoteAddr() != c.env.RemoteAddr() {
-				t.Errorf("got.RemoteAddr() = %v, want %v", got.RemoteAddr(), c.env.RemoteAddr())
+			if got.RemoteAddr() != tt.env.RemoteAddr() {
+				t.Errorf("got.RemoteAddr() = %v, want %v", got.RemoteAddr(), tt.env.RemoteAddr())
 			}
 
-			if !got.MessageTime().Equal(c.env.MessageTime()) {
-				t.Errorf("got.MessageTime() = %v, want %v", got.MessageTime(), c.env.MessageTime())
+			if !got.MessageTime().Equal(tt.env.MessageTime()) {
+				t.Errorf("got.MessageTime() = %v, want %v", got.MessageTime(), tt.env.MessageTime())
 			}
 
 			gotMeta := got.Metadata()
 
-			wantMeta := c.env.Metadata()
+			wantMeta := tt.env.Metadata()
 			if gotMeta == nil || wantMeta == nil {
 				t.Fatalf("got.Metadata() = %v, want non-nil and want.Metadata() = %v", gotMeta, wantMeta)
 			}
@@ -932,23 +932,23 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 		req := &sip.Request{
 			Method: sip.RequestMethodAck,
 			URI: &sip.URI{
-				User: sip.UserWithName("bob"),
-				Addr: sip.AddrFromHost("example.net"),
+				User: sip.MakeUserInfo("bob"),
+				Addr: sip.MakeHostAddr("example.net"),
 			},
 			Proto: sip.ProtoVer20(),
 			Headers: make(sip.Headers).
 				Set(
 					&header.From{
 						URI: &sip.URI{
-							User: sip.UserWithName("alice"),
-							Addr: sip.AddrFromHost("example.com"),
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostAddr("example.com"),
 						},
 						Params: make(sip.Values).Set("tag", "local"),
 					},
 					&header.To{
 						URI: &sip.URI{
-							User: sip.UserWithName("bob"),
-							Addr: sip.AddrFromHost("example.net"),
+							User: sip.MakeUserInfo("bob"),
+							Addr: sip.MakeHostAddr("example.net"),
 						},
 						Params: make(sip.Values).Set("tag", "remote"),
 					},
@@ -967,7 +967,7 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 		return env
 	}
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		env  *sip.RequestEnvelope
 	}{
@@ -975,16 +975,16 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 		{"full", newEnvelope(t)},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(c.env)
+			data, err := json.Marshal(tt.env)
 			if err != nil {
 				t.Fatalf("json.Marshal(env) error = %v, want nil", err)
 			}
 
-			if c.env == nil {
+			if tt.env == nil {
 				var got *sip.RequestEnvelope
 				if err := json.Unmarshal(data, &got); err != nil {
 					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
@@ -1003,29 +1003,29 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got.Message(), c.env.Message()); diff != "" {
-				t.Errorf("got.Message() = %+v, want %+v\ndiff (-got +want):\n%s", got.Message(), c.env.Message(), diff)
+			if diff := cmp.Diff(got.Message(), tt.env.Message()); diff != "" {
+				t.Errorf("got.Message() = %+v, want %+v\ndiff (-got +want):\n%s", got.Message(), tt.env.Message(), diff)
 			}
 
-			if diff := cmp.Diff(got.Transport(), c.env.Transport()); diff != "" {
-				t.Errorf("got.Transport() = %+v, want %+v\ndiff (-got +want):\n%s", got.Transport(), c.env.Transport(), diff)
+			if diff := cmp.Diff(got.Transport(), tt.env.Transport()); diff != "" {
+				t.Errorf("got.Transport() = %+v, want %+v\ndiff (-got +want):\n%s", got.Transport(), tt.env.Transport(), diff)
 			}
 
-			if got.LocalAddr() != c.env.LocalAddr() {
-				t.Errorf("got.LocalAddr() = %v, want %v", got.LocalAddr(), c.env.LocalAddr())
+			if got.LocalAddr() != tt.env.LocalAddr() {
+				t.Errorf("got.LocalAddr() = %v, want %v", got.LocalAddr(), tt.env.LocalAddr())
 			}
 
-			if got.RemoteAddr() != c.env.RemoteAddr() {
-				t.Errorf("got.RemoteAddr() = %v, want %v", got.RemoteAddr(), c.env.RemoteAddr())
+			if got.RemoteAddr() != tt.env.RemoteAddr() {
+				t.Errorf("got.RemoteAddr() = %v, want %v", got.RemoteAddr(), tt.env.RemoteAddr())
 			}
 
-			if !got.MessageTime().Equal(c.env.MessageTime()) {
-				t.Errorf("got.MessageTime() = %v, want %v", got.MessageTime(), c.env.MessageTime())
+			if !got.MessageTime().Equal(tt.env.MessageTime()) {
+				t.Errorf("got.MessageTime() = %v, want %v", got.MessageTime(), tt.env.MessageTime())
 			}
 
 			gotMeta := got.Metadata()
 
-			wantMeta := c.env.Metadata()
+			wantMeta := tt.env.Metadata()
 			if gotMeta == nil || wantMeta == nil {
 				t.Fatalf("got.Metadata() = %v, want non-nil and want.Metadata() = %v", gotMeta, wantMeta)
 			}
@@ -1058,7 +1058,7 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 func TestRequestEnvelope_UnmarshalJSON_EdgeCases(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		data string
 	}{
@@ -1068,19 +1068,19 @@ func TestRequestEnvelope_UnmarshalJSON_EdgeCases(t *testing.T) {
 		{"message zero", `{"message":{}}`},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var env *sip.RequestEnvelope
 
-			if err := json.Unmarshal([]byte(c.data), &env); err != nil {
-				t.Fatalf("json.Unmarshal(%q) error = %v, want nil", c.data, err)
+			if err := json.Unmarshal([]byte(tt.data), &env); err != nil {
+				t.Fatalf("json.Unmarshal(%q) error = %v, want nil", tt.data, err)
 			}
 
-			if c.data == "null" {
+			if tt.data == "null" {
 				if env != nil {
-					t.Errorf("json.Unmarshal(%q) = %+v, want nil", c.data, env)
+					t.Errorf("json.Unmarshal(%q) = %+v, want nil", tt.data, env)
 				}
 				return
 			}

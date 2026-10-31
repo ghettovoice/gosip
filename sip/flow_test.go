@@ -13,7 +13,7 @@ import (
 func TestFlowToken_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		tkn  sip.FlowToken
 		val  any
@@ -214,12 +214,12 @@ func TestFlowToken_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.tkn.Equal(c.val); got != c.want {
-				t.Errorf("tkn.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.tkn.Equal(tt.val); got != tt.want {
+				t.Errorf("tkn.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -228,7 +228,7 @@ func TestFlowToken_Equal(t *testing.T) {
 func TestFlowToken_RoundTripText_Valid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		tkn  sip.FlowToken
 	}{
@@ -282,12 +282,12 @@ func TestFlowToken_RoundTripText_Valid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			// MarshalText
-			data, err := c.tkn.MarshalText()
+			data, err := tt.tkn.MarshalText()
 			if err != nil {
 				t.Fatalf("token.MarshalText() error = %v, want nil", err)
 			}
@@ -303,12 +303,12 @@ func TestFlowToken_RoundTripText_Valid(t *testing.T) {
 			}
 
 			// Verify round-trip
-			if diff := cmp.Diff(parsed, c.tkn, cmpopts.EquateComparable(netip.AddrPort{})); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want = %+v\ndiff (-got +want):\n%s", parsed, c.tkn, diff)
+			if diff := cmp.Diff(parsed, tt.tkn, cmpopts.EquateComparable(netip.AddrPort{})); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want = %+v\ndiff (-got +want):\n%s", parsed, tt.tkn, diff)
 			}
 
 			// Verify string representation
-			str := c.tkn.String()
+			str := tt.tkn.String()
 			if str == "" {
 				t.Fatalf("token.String() = %q, want non-empty string", str)
 			}
@@ -319,8 +319,8 @@ func TestFlowToken_RoundTripText_Valid(t *testing.T) {
 				t.Fatalf("parsed.UnmarshalText(string) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(parsed2, c.tkn, cmpopts.EquateComparable(netip.AddrPort{})); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want = %+v\ndiff (-got +want):\n%s", parsed2, c.tkn, diff)
+			if diff := cmp.Diff(parsed2, tt.tkn, cmpopts.EquateComparable(netip.AddrPort{})); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want = %+v\ndiff (-got +want):\n%s", parsed2, tt.tkn, diff)
 			}
 		})
 	}
@@ -348,12 +348,12 @@ func TestFlowToken_RoundTripText_Invalid(t *testing.T) {
 		{"invalid payload", []byte("aaaaaaaaaaaaaaaaYWJjZGVmZ2g=")}, // valid HMAC prefix, invalid payload
 	}
 
-	for _, c := range invalidTokens {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range invalidTokens {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var parsed sip.FlowToken
-			if err := parsed.UnmarshalText(c.data); err == nil {
+			if err := parsed.UnmarshalText(tt.data); err == nil {
 				t.Fatalf("parsed.UnmarshalText() error = nil, want error")
 			}
 		})

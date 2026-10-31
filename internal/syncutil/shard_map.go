@@ -6,15 +6,16 @@ import (
 	"hash/fnv"
 	"iter"
 	"maps"
+	"runtime"
 	"sync"
-
-	"github.com/google/go-cmp/cmp"
+	"sync/atomic"
 )
 
 // ShardMap is a thread-safe map that uses sharding to reduce lock contention.
 type ShardMap[K comparable, V any] struct {
-	shards    []*shard[K, V]
-	shardsNum uint32
+	shards []*shard[K, V]
+	len    atomic.Uint64
+	once   sync.Once
 }
 
 // shard is a single thread-safe map with its own mutex.
@@ -23,36 +24,54 @@ type shard[K comparable, V any] struct {
 	items map[K]V
 }
 
-type ShardsNum uint
-
-// defShardsNum is the default number of shards to use.
-const defShardsNum ShardsNum = 32
+func defShardsNum() uint {
+	return uint(min(max(runtime.GOMAXPROCS(0), 8), 32))
+}
 
 // NewShardMap creates a new [ShardMap].
-// If no number of shards is specified, the default number of shards (32) is used.
-// The number of shards can be specified using the [ShardsNum] option and must be greater than 0.
-func NewShardMap[K comparable, V any](opts ...any) *ShardMap[K, V] {
-	var shardsNum ShardsNum
-	for _, o := range opts {
-		if v, ok := o.(ShardsNum); ok {
-			shardsNum = v
-		}
-	}
-
+// If no number of shards is specified, the default number of shards is used,
+// which is bounded between 8 and 32 based on the current GOMAXPROCS value.
+func NewShardMap[K comparable, V any](shardsNum uint) *ShardMap[K, V] {
 	if shardsNum == 0 {
-		shardsNum = defShardsNum
+		shardsNum = defShardsNum()
 	}
 
-	shards := make([]*shard[K, V], shardsNum)
-	for i := range shards {
-		shards[i] = &shard[K, V]{
+	m := &ShardMap[K, V]{}
+	m.setup(shardsNum)
+	return m
+}
+
+// setup initializes the shard slice. It is safe to call multiple times, but
+// only the first call actually allocates the shards.
+func (m *ShardMap[K, V]) setup(shardsNum uint) {
+	if len(m.shards) != 0 {
+		return
+	}
+
+	m.shards = make([]*shard[K, V], shardsNum)
+	for i := range m.shards {
+		m.shards[i] = &shard[K, V]{
 			items: make(map[K]V),
 		}
 	}
+}
 
-	return &ShardMap[K, V]{
-		shards:    shards,
-		shardsNum: uint32(shardsNum),
+// init lazily initializes a zero-value map with the default number of shards.
+func (m *ShardMap[K, V]) init() {
+	m.setup(defShardsNum())
+}
+
+func (m *ShardMap[K, V]) incLen() { m.len.Add(1) }
+
+func (m *ShardMap[K, V]) decLen() {
+	for {
+		cur := m.len.Load()
+		if cur == 0 {
+			return
+		}
+		if m.len.CompareAndSwap(cur, cur-1) {
+			return
+		}
 	}
 }
 
@@ -61,7 +80,7 @@ var shardHasherPool = sync.Pool{
 }
 
 func (m *ShardMap[K, V]) getShard(key K) *shard[K, V] {
-	if m == nil {
+	if m == nil || len(m.shards) == 0 {
 		return nil
 	}
 
@@ -72,8 +91,7 @@ func (m *ShardMap[K, V]) getShard(key K) *shard[K, V] {
 	}()
 
 	fmt.Fprint(h, key)
-	sum := h.Sum32()
-	return m.shards[sum%m.shardsNum]
+	return m.shards[h.Sum32()%uint32(len(m.shards))]
 }
 
 // Store adds or updates a key-value pair.
@@ -82,14 +100,15 @@ func (m *ShardMap[K, V]) Store(key K, value V) *ShardMap[K, V] {
 		return nil
 	}
 
-	shard := m.getShard(key)
-	if shard == nil {
-		return m
-	}
+	m.once.Do(m.init)
 
+	shard := m.getShard(key)
 	shard.Lock()
 	defer shard.Unlock()
 
+	if _, ok := shard.items[key]; !ok {
+		m.incLen()
+	}
 	shard.items[key] = value
 	return m
 }
@@ -100,6 +119,8 @@ func (m *ShardMap[K, V]) Load(key K) (V, bool) {
 		var zero V
 		return zero, false
 	}
+
+	m.once.Do(m.init)
 
 	shard := m.getShard(key)
 	if shard == nil {
@@ -121,6 +142,8 @@ func (m *ShardMap[K, V]) Delete(key K) (V, bool) {
 		return zero, false
 	}
 
+	m.once.Do(m.init)
+
 	shard := m.getShard(key)
 	if shard == nil {
 		var zero V
@@ -133,6 +156,7 @@ func (m *ShardMap[K, V]) Delete(key K) (V, bool) {
 	val, ok := shard.items[key]
 	if ok {
 		delete(shard.items, key)
+		m.decLen()
 	}
 	return val, ok
 }
@@ -143,11 +167,9 @@ func (m *ShardMap[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 		return value, false
 	}
 
-	shard := m.getShard(key)
-	if shard == nil {
-		return value, false
-	}
+	m.once.Do(m.init)
 
+	shard := m.getShard(key)
 	shard.Lock()
 	defer shard.Unlock()
 
@@ -156,6 +178,7 @@ func (m *ShardMap[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 	}
 
 	shard.items[key] = value
+	m.incLen()
 	return value, false
 }
 
@@ -165,6 +188,8 @@ func (m *ShardMap[K, V]) LoadAndDelete(key K) (actual V, loaded bool) {
 		var zero V
 		return zero, false
 	}
+
+	m.once.Do(m.init)
 
 	shard := m.getShard(key)
 	if shard == nil {
@@ -178,15 +203,20 @@ func (m *ShardMap[K, V]) LoadAndDelete(key K) (actual V, loaded bool) {
 	v, ok := shard.items[key]
 	if ok {
 		delete(shard.items, key)
+		m.decLen()
 	}
 	return v, ok
 }
 
-// CompareAndDelete deletes a key-value pair if the current value equals old.
-func (m *ShardMap[K, V]) CompareAndDelete(key K, old V) (deleted bool) {
+// CompareAndDelete deletes a key-value pair if check accepts its current value.
+// check is called once if key exists, under the shard's exclusive lock.
+// It must not call methods that acquire the same map's locks.
+func (m *ShardMap[K, V]) CompareAndDelete(key K, check func(actual V) bool) (deleted bool) {
 	if m == nil {
 		return false
 	}
+
+	m.once.Do(m.init)
 
 	shard := m.getShard(key)
 	if shard == nil {
@@ -197,11 +227,12 @@ func (m *ShardMap[K, V]) CompareAndDelete(key K, old V) (deleted bool) {
 	defer shard.Unlock()
 
 	v, ok := shard.items[key]
-	if !ok || !cmp.Equal(v, old) {
+	if !ok || !check(v) {
 		return false
 	}
 
 	delete(shard.items, key)
+	m.decLen()
 	return true
 }
 
@@ -212,25 +243,29 @@ func (m *ShardMap[K, V]) Swap(key K, newVal V) (oldVal V, loaded bool) {
 		return zero, false
 	}
 
-	shard := m.getShard(key)
-	if shard == nil {
-		var zero V
-		return zero, false
-	}
+	m.once.Do(m.init)
 
+	shard := m.getShard(key)
 	shard.Lock()
 	defer shard.Unlock()
 
 	prev, ok := shard.items[key]
 	shard.items[key] = newVal
+	if !ok {
+		m.incLen()
+	}
 	return prev, ok
 }
 
-// CompareAndSwap swaps the value for a key if the current value equals old.
-func (m *ShardMap[K, V]) CompareAndSwap(key K, oldVal, newVal V) (swapped bool) {
+// CompareAndSwap swaps the value for a key if check accepts its current value.
+// check is called once if key exists, under the shard's exclusive lock.
+// It must not call methods that acquire the same map's locks.
+func (m *ShardMap[K, V]) CompareAndSwap(key K, newVal V, check func(actual V) bool) (swapped bool) {
 	if m == nil {
 		return false
 	}
+
+	m.once.Do(m.init)
 
 	shard := m.getShard(key)
 	if shard == nil {
@@ -241,7 +276,7 @@ func (m *ShardMap[K, V]) CompareAndSwap(key K, oldVal, newVal V) (swapped bool) 
 	defer shard.Unlock()
 
 	v, ok := shard.items[key]
-	if !ok || !cmp.Equal(v, oldVal) {
+	if !ok || !check(v) {
 		return false
 	}
 
@@ -254,6 +289,8 @@ func (m *ShardMap[K, V]) Has(key K) bool {
 	if m == nil {
 		return false
 	}
+
+	m.once.Do(m.init)
 
 	shard := m.getShard(key)
 	if shard == nil {
@@ -272,26 +309,32 @@ func (m *ShardMap[K, V]) Len() int {
 	if m == nil {
 		return 0
 	}
-
-	size := 0
-	for _, shard := range m.shards {
-		shard.RLock()
-		size += len(shard.items)
-		shard.RUnlock()
-	}
-
-	return size
+	return int(m.len.Load())
 }
 
 // Clear removes all items from the map.
+// It acquires all shard locks simultaneously, so it provides snapshot
+// semantics: any Store/Delete/LoadOrStore that starts after Clear returns
+// will observe an empty map, and no concurrent Store can leak into the map.
 func (m *ShardMap[K, V]) Clear() *ShardMap[K, V] {
 	if m == nil {
 		return nil
 	}
 
+	m.once.Do(m.init)
+
+	// Lock all shards in ascending order. No other method in this file
+	// acquires more than one shard lock at a time, so this cannot deadlock.
 	for _, shard := range m.shards {
 		shard.Lock()
+	}
+
+	for _, shard := range m.shards {
 		clear(shard.items)
+	}
+	m.len.Store(0)
+
+	for _, shard := range m.shards {
 		shard.Unlock()
 	}
 
@@ -304,6 +347,8 @@ func (m *ShardMap[K, V]) All() iter.Seq2[K, V] {
 		if m == nil {
 			return
 		}
+
+		m.once.Do(m.init)
 
 		for _, shard := range m.shards {
 			shard.RLock()
@@ -325,19 +370,24 @@ func (m *ShardMap[K, V]) Clone() *ShardMap[K, V] {
 		return nil
 	}
 
-	newShards := make([]*shard[K, V], m.shardsNum)
+	m.once.Do(m.init)
+
+	newShards := make([]*shard[K, V], len(m.shards))
+	total := 0
 	for i, currentShard := range m.shards {
 		currentShard.RLock()
 		clonedItems := maps.Clone(currentShard.items)
 		currentShard.RUnlock()
 
+		total += len(clonedItems)
 		newShards[i] = &shard[K, V]{
 			items: clonedItems,
 		}
 	}
 
-	return &ShardMap[K, V]{
-		shards:    newShards,
-		shardsNum: m.shardsNum,
+	clone := &ShardMap[K, V]{
+		shards: newShards,
 	}
+	clone.len.Store(uint64(total))
+	return clone
 }

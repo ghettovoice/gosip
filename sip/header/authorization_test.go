@@ -15,7 +15,7 @@ import (
 func TestAuthorization_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Authorization
 		want string
@@ -29,7 +29,7 @@ func TestAuthorization_Render(t *testing.T) {
 					Username:   "root",
 					Realm:      "example.com",
 					Nonce:      "qwerty",
-					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 					Response:   "587245234b3434cc3412213e5f113a54",
 					Algorithm:  "MD5",
 					CNonce:     "1q2w3e",
@@ -62,12 +62,12 @@ func TestAuthorization_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Render(); got != c.want {
-				t.Errorf("hdr.Render() = %q, want %q", got, c.want)
+			if got := tt.hdr.Render(); got != tt.want {
+				t.Errorf("hdr.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -76,7 +76,7 @@ func TestAuthorization_Render(t *testing.T) {
 func TestAuthorization_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		hdr     *header.Authorization
 		wantRes string
@@ -97,19 +97,19 @@ func TestAuthorization_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.hdr.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.hdr.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -118,7 +118,7 @@ func TestAuthorization_RenderTo(t *testing.T) {
 func TestAuthorization_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Authorization
 		want string
@@ -137,12 +137,12 @@ func TestAuthorization_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.String(); got != c.want {
-				t.Errorf("hdr.String() = %q, want %q", got, c.want)
+			if got := tt.hdr.String(); got != tt.want {
+				t.Errorf("hdr.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -151,7 +151,7 @@ func TestAuthorization_String(t *testing.T) {
 func TestAuthorization_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Authorization
 		val  any
@@ -179,7 +179,7 @@ func TestAuthorization_Equal(t *testing.T) {
 					Username:   "root",
 					Realm:      "example.com",
 					Nonce:      "qwerty",
-					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 					Response:   "587245234b3434cc3412213e5f113a54",
 					Algorithm:  "MD5",
 					CNonce:     "1q2w3e",
@@ -214,12 +214,12 @@ func TestAuthorization_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.Equal(c.val); got != c.want {
-				t.Errorf("hdr.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.hdr.Equal(tt.val); got != tt.want {
+				t.Errorf("hdr.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -228,7 +228,7 @@ func TestAuthorization_Equal(t *testing.T) {
 func TestAuthorization_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Authorization
 		want bool
@@ -259,12 +259,12 @@ func TestAuthorization_IsValid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.hdr.IsValid(); got != c.want {
-				t.Errorf("hdr.IsValid() = %v, want %v", got, c.want)
+			if got := tt.hdr.IsValid(); got != tt.want {
+				t.Errorf("hdr.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -273,7 +273,7 @@ func TestAuthorization_IsValid(t *testing.T) {
 func TestAuthorization_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Authorization
 	}{
@@ -286,7 +286,7 @@ func TestAuthorization_Clone(t *testing.T) {
 					Username:   "root",
 					Realm:      "example.com",
 					Nonce:      "qwerty",
-					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 					Response:   "587245234b3434cc3412213e5f113a54",
 					Algorithm:  "MD5",
 					CNonce:     "1q2w3e",
@@ -316,20 +316,20 @@ func TestAuthorization_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.hdr.Clone()
-			if c.hdr == nil {
+			got := tt.hdr.Clone()
+			if tt.hdr == nil {
 				if got != nil {
 					t.Errorf("hdr.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Errorf("hdr.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}
@@ -338,7 +338,7 @@ func TestAuthorization_Clone(t *testing.T) {
 func TestAuthorization_MarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Authorization
 		want string
@@ -352,7 +352,7 @@ func TestAuthorization_MarshalJSON(t *testing.T) {
 					Username:   "root",
 					Realm:      "example.com",
 					Nonce:      "qwerty",
-					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 					Response:   "587245234b3434cc3412213e5f113a54",
 					Algorithm:  "MD5",
 					CNonce:     "1q2w3e",
@@ -383,17 +383,17 @@ func TestAuthorization_MarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(c.hdr)
+			got, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
 
-			if got := string(got); got != c.want {
-				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, c.want)
+			if got := string(got); got != tt.want {
+				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -402,7 +402,7 @@ func TestAuthorization_MarshalJSON(t *testing.T) {
 func TestAuthorization_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		data    string
 		want    *header.Authorization
@@ -422,7 +422,7 @@ func TestAuthorization_UnmarshalJSON(t *testing.T) {
 					Username:   "root",
 					Realm:      "example.com",
 					Nonce:      "qwerty",
-					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 					Response:   "587245234b3434cc3412213e5f113a54",
 					Algorithm:  "MD5",
 					CNonce:     "1q2w3e",
@@ -455,24 +455,24 @@ func TestAuthorization_UnmarshalJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var got *header.Authorization
-			if err := json.Unmarshal([]byte(c.data), &got); err != nil {
-				if !c.wantErr {
+			if err := json.Unmarshal([]byte(tt.data), &got); err != nil {
+				if !tt.wantErr {
 					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 				}
 				return
 			}
 
-			if c.wantErr {
+			if tt.wantErr {
 				t.Fatal("json.Unmarshal(data, got) error = nil, want error")
 			}
 
-			if diff := cmp.Diff(got, c.want); diff != "" {
-				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.want, diff)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -481,7 +481,7 @@ func TestAuthorization_UnmarshalJSON(t *testing.T) {
 func TestAuthorization_RoundTripJSON(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		hdr  *header.Authorization
 	}{
@@ -494,7 +494,7 @@ func TestAuthorization_RoundTripJSON(t *testing.T) {
 					Username:   "root",
 					Realm:      "example.com",
 					Nonce:      "qwerty",
-					URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+					URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 					Response:   "587245234b3434cc3412213e5f113a54",
 					Algorithm:  "MD5",
 					CNonce:     "1q2w3e",
@@ -517,11 +517,11 @@ func TestAuthorization_RoundTripJSON(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(c.hdr)
+			data, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
@@ -531,8 +531,8 @@ func TestAuthorization_RoundTripJSON(t *testing.T) {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
 
-			if diff := cmp.Diff(got, c.hdr); diff != "" {
-				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, c.hdr, diff)
+			if diff := cmp.Diff(got, tt.hdr); diff != "" {
+				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}
 		})
 	}
@@ -541,7 +541,7 @@ func TestAuthorization_RoundTripJSON(t *testing.T) {
 func TestDigestCredentials_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.DigestCredentials
 		want string
@@ -554,7 +554,7 @@ func TestDigestCredentials_Render(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -569,12 +569,12 @@ func TestDigestCredentials_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.Render(); got != c.want {
-				t.Errorf("crd.Render() = %q, want %q", got, c.want)
+			if got := tt.crd.Render(); got != tt.want {
+				t.Errorf("crd.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -583,7 +583,7 @@ func TestDigestCredentials_Render(t *testing.T) {
 func TestDigestCredentials_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		crd     *header.DigestCredentials
 		wantRes string
@@ -597,7 +597,7 @@ func TestDigestCredentials_RenderTo(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -613,19 +613,19 @@ func TestDigestCredentials_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.crd.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("crd.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.crd.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("crd.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -634,7 +634,7 @@ func TestDigestCredentials_RenderTo(t *testing.T) {
 func TestDigestCredentials_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.DigestCredentials
 		want string
@@ -647,7 +647,7 @@ func TestDigestCredentials_String(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -662,12 +662,12 @@ func TestDigestCredentials_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.String(); got != c.want {
-				t.Errorf("crd.String() = %q, want %q", got, c.want)
+			if got := tt.crd.String(); got != tt.want {
+				t.Errorf("crd.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -676,7 +676,7 @@ func TestDigestCredentials_String(t *testing.T) {
 func TestDigestCredentials_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.DigestCredentials
 		val  any
@@ -692,7 +692,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -705,7 +705,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "ROOT",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -722,7 +722,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -735,7 +735,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "QWERTY",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -752,7 +752,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "ABC123QWE",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -765,7 +765,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "abc123qwe",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -782,7 +782,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -795,7 +795,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1Q2W3E",
@@ -812,7 +812,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("localhost")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("localhost")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -825,7 +825,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -842,7 +842,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "Example.COM",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.COM")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.COM")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "MD5",
 				CNonce:     "1q2w3e",
@@ -855,7 +855,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "md5",
 				CNonce:     "1q2w3e",
@@ -868,12 +868,12 @@ func TestDigestCredentials_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.Equal(c.val); got != c.want {
-				t.Errorf("crd.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.crd.Equal(tt.val); got != tt.want {
+				t.Errorf("crd.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -882,7 +882,7 @@ func TestDigestCredentials_Equal(t *testing.T) {
 func TestDigestCredentials_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.DigestCredentials
 		want bool
@@ -898,7 +898,7 @@ func TestDigestCredentials_IsValid(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "md5",
 				CNonce:     "1q2w3e",
@@ -911,12 +911,12 @@ func TestDigestCredentials_IsValid(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.IsValid(); got != c.want {
-				t.Errorf("crd.IsValid() = %v, want %v", got, c.want)
+			if got := tt.crd.IsValid(); got != tt.want {
+				t.Errorf("crd.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -925,7 +925,7 @@ func TestDigestCredentials_IsValid(t *testing.T) {
 func TestDigestCredentials_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.DigestCredentials
 	}{
@@ -937,7 +937,7 @@ func TestDigestCredentials_Clone(t *testing.T) {
 				Username:   "root",
 				Realm:      "example.com",
 				Nonce:      "qwerty",
-				URI:        &uri.SIP{Addr: uri.AddrFromHost("example.com")},
+				URI:        &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
 				Response:   "587245234b3434cc3412213e5f113a54",
 				Algorithm:  "md5",
 				CNonce:     "1q2w3e",
@@ -949,20 +949,20 @@ func TestDigestCredentials_Clone(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.crd.Clone()
-			if c.crd == nil {
+			got := tt.crd.Clone()
+			if tt.crd == nil {
 				if got != nil {
 					t.Errorf("crd.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.crd); diff != "" {
-				t.Errorf("crd.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.crd, diff)
+			if diff := cmp.Diff(got, tt.crd); diff != "" {
+				t.Errorf("crd.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.crd, diff)
 			}
 		})
 	}
@@ -971,7 +971,7 @@ func TestDigestCredentials_Clone(t *testing.T) {
 func TestBearerCredentials_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.BearerCredentials
 		want string
@@ -981,12 +981,12 @@ func TestBearerCredentials_Render(t *testing.T) {
 		{"full", &header.BearerCredentials{Token: "qwerty"}, "Bearer qwerty"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.Render(); got != c.want {
-				t.Errorf("crd.Render() = %q, want %q", got, c.want)
+			if got := tt.crd.Render(); got != tt.want {
+				t.Errorf("crd.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -995,7 +995,7 @@ func TestBearerCredentials_Render(t *testing.T) {
 func TestBearerCredentials_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		crd     *header.BearerCredentials
 		wantRes string
@@ -1006,19 +1006,19 @@ func TestBearerCredentials_RenderTo(t *testing.T) {
 		{"full", &header.BearerCredentials{Token: "qwerty"}, "Bearer qwerty", nil},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.crd.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("crd.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.crd.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("crd.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -1027,7 +1027,7 @@ func TestBearerCredentials_RenderTo(t *testing.T) {
 func TestBearerCredentials_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.BearerCredentials
 		want string
@@ -1037,12 +1037,12 @@ func TestBearerCredentials_String(t *testing.T) {
 		{"full", &header.BearerCredentials{Token: "qwerty"}, "Bearer qwerty"},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.String(); got != c.want {
-				t.Errorf("crd.String() = %q, want %q", got, c.want)
+			if got := tt.crd.String(); got != tt.want {
+				t.Errorf("crd.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -1051,7 +1051,7 @@ func TestBearerCredentials_String(t *testing.T) {
 func TestBearerCredentials_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.BearerCredentials
 		val  any
@@ -1066,12 +1066,12 @@ func TestBearerCredentials_Equal(t *testing.T) {
 		{"match", &header.BearerCredentials{Token: "qwerty"}, &header.BearerCredentials{Token: "qwerty"}, true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.Equal(c.val); got != c.want {
-				t.Errorf("crd.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.crd.Equal(tt.val); got != tt.want {
+				t.Errorf("crd.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1080,7 +1080,7 @@ func TestBearerCredentials_Equal(t *testing.T) {
 func TestBearerCredentials_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.BearerCredentials
 		want bool
@@ -1091,12 +1091,12 @@ func TestBearerCredentials_IsValid(t *testing.T) {
 		{"valid", &header.BearerCredentials{Token: "qwerty"}, true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.IsValid(); got != c.want {
-				t.Errorf("crd.IsValid() = %v, want %v", got, c.want)
+			if got := tt.crd.IsValid(); got != tt.want {
+				t.Errorf("crd.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1105,7 +1105,7 @@ func TestBearerCredentials_IsValid(t *testing.T) {
 func TestBearerCredentials_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.BearerCredentials
 	}{
@@ -1114,20 +1114,20 @@ func TestBearerCredentials_Clone(t *testing.T) {
 		{"full", &header.BearerCredentials{Token: "qwerty"}},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.crd.Clone()
-			if c.crd == nil {
+			got := tt.crd.Clone()
+			if tt.crd == nil {
 				if got != nil {
 					t.Errorf("crd.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.crd); diff != "" {
-				t.Errorf("crd.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.crd, diff)
+			if diff := cmp.Diff(got, tt.crd); diff != "" {
+				t.Errorf("crd.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.crd, diff)
 			}
 		})
 	}
@@ -1136,7 +1136,7 @@ func TestBearerCredentials_Clone(t *testing.T) {
 func TestAnyCredentials_Render(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.AnyCredentials
 		want string
@@ -1153,12 +1153,12 @@ func TestAnyCredentials_Render(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.Render(); got != c.want {
-				t.Errorf("crd.Render() = %q, want %q", got, c.want)
+			if got := tt.crd.Render(); got != tt.want {
+				t.Errorf("crd.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -1167,7 +1167,7 @@ func TestAnyCredentials_Render(t *testing.T) {
 func TestAnyCredentials_RenderTo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name    string
 		crd     *header.AnyCredentials
 		wantRes string
@@ -1186,19 +1186,19 @@ func TestAnyCredentials_RenderTo(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
 
-			_, err := c.crd.RenderTo(&sb)
-			if diff := cmp.Diff(err, c.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("crd.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, c.wantErr, diff)
+			_, err := tt.crd.RenderTo(&sb)
+			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("crd.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
 
-			if got := sb.String(); got != c.wantRes {
-				t.Errorf("sb.String() = %q, want %q", got, c.wantRes)
+			if got := sb.String(); got != tt.wantRes {
+				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
 		})
 	}
@@ -1207,7 +1207,7 @@ func TestAnyCredentials_RenderTo(t *testing.T) {
 func TestAnyCredentials_String(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.AnyCredentials
 		want string
@@ -1224,12 +1224,12 @@ func TestAnyCredentials_String(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.String(); got != c.want {
-				t.Errorf("crd.String() = %q, want %q", got, c.want)
+			if got := tt.crd.String(); got != tt.want {
+				t.Errorf("crd.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -1238,7 +1238,7 @@ func TestAnyCredentials_String(t *testing.T) {
 func TestAnyCredentials_Equal(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.AnyCredentials
 		val  any
@@ -1286,12 +1286,12 @@ func TestAnyCredentials_Equal(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.Equal(c.val); got != c.want {
-				t.Errorf("crd.Equal(val) = %v, want %v", got, c.want)
+			if got := tt.crd.Equal(tt.val); got != tt.want {
+				t.Errorf("crd.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1300,7 +1300,7 @@ func TestAnyCredentials_Equal(t *testing.T) {
 func TestAnyCredentials_IsValid(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.AnyCredentials
 		want bool
@@ -1312,12 +1312,12 @@ func TestAnyCredentials_IsValid(t *testing.T) {
 		{"valid", &header.AnyCredentials{Scheme: "qwerty", Params: make(header.Values).Set("p1", "abc")}, true},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := c.crd.IsValid(); got != c.want {
-				t.Errorf("crd.IsValid() = %v, want %v", got, c.want)
+			if got := tt.crd.IsValid(); got != tt.want {
+				t.Errorf("crd.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1326,7 +1326,7 @@ func TestAnyCredentials_IsValid(t *testing.T) {
 func TestAnyCredentials_Clone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	tests := []struct {
 		name string
 		crd  *header.AnyCredentials
 	}{
@@ -1335,20 +1335,20 @@ func TestAnyCredentials_Clone(t *testing.T) {
 		{"full", &header.AnyCredentials{Scheme: "qwerty", Params: make(header.Values).Set("p1", "abc")}},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := c.crd.Clone()
-			if c.crd == nil {
+			got := tt.crd.Clone()
+			if tt.crd == nil {
 				if got != nil {
 					t.Errorf("crd.Clone() = %+v, want nil", got)
 				}
 				return
 			}
 
-			if diff := cmp.Diff(got, c.crd); diff != "" {
-				t.Errorf("crd.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, c.crd, diff)
+			if diff := cmp.Diff(got, tt.crd); diff != "" {
+				t.Errorf("crd.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.crd, diff)
 			}
 		})
 	}

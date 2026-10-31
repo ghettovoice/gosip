@@ -3,6 +3,7 @@ package header
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net/url"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/uri"
@@ -30,18 +32,30 @@ func (addr NameAddr) String() string {
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
 
-	if addr.DisplayName != "" {
-		fmt.Fprint(sb, grammar.Quote(addr.DisplayName), " ")
-	}
-
-	fmt.Fprint(sb, "<")
-	if addr.URI != nil {
-		addr.URI.RenderTo(sb)
-	}
-	fmt.Fprint(sb, ">")
-
-	_, _ = renderHdrParams(sb, addr.Params, false)
+	_, _ = addr.renderTo(sb)
 	return sb.String()
+}
+
+func (addr NameAddr) renderTo(w io.Writer) (num int, err error) {
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	if addr.DisplayName != "" {
+		cw.Fprint(grammar.Quote(addr.DisplayName), " ")
+	}
+
+	cw.Fprint("<")
+	if addr.URI != nil {
+		cw.Call(func(w io.Writer) (int, error) {
+			return errors.Wrap2(addr.URI.RenderTo(w))
+		})
+	}
+	cw.Fprint(">")
+
+	cw.Call(func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderHdrParams(w, addr.Params, false))
+	})
+	return errors.Wrap2(cw.Result())
 }
 
 // Format implements fmt.Formatter for custom formatting of the NameAddr.
@@ -88,7 +102,7 @@ func (addr NameAddr) Equal(val any) bool {
 			"q":       true,
 			"tag":     true,
 			"expires": true,
-		})
+		}, "tag")
 }
 
 // IsValid checks whether the NameAddr is syntactically valid.
