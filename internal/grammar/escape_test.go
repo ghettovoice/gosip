@@ -43,7 +43,7 @@ func TestUnescape(t *testing.T) {
 	}{
 		{"empty", "", ""},
 		{"no unescape", "abc%ax%", "abc%ax%"},
-		{"unescape all", "abc%E4%b8%96", "abc世"}, //nolint:gosmopolitan
+		{"unescape all", "abc%E4%b8%96", "abc世"}, //nolint:gosmopolitan // non-ASCII unescape output is the test subject
 	}
 
 	for _, tt := range tests {

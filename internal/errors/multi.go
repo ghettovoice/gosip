@@ -8,7 +8,7 @@ import (
 )
 
 func Join(errs ...error) error {
-	errs = filterNilErrors(errs)
+	errs = filterNilErrs(errs)
 	if len(errs) == 0 {
 		return nil
 	}
@@ -19,7 +19,7 @@ func Join(errs ...error) error {
 }
 
 func JoinPrefix(prefix string, errs ...error) error {
-	errs = filterNilErrors(errs)
+	errs = filterNilErrs(errs)
 	if len(errs) == 0 {
 		return nil
 	}
@@ -29,7 +29,7 @@ func JoinPrefix(prefix string, errs ...error) error {
 	return &multiError{prefix: prefix, errs: errs} //errtrace:skip
 }
 
-func filterNilErrors(errs []error) []error {
+func filterNilErrs(errs []error) []error {
 	filtered := errs[:0]
 	for _, err := range errs {
 		if err != nil {
@@ -53,12 +53,11 @@ func (e *multiError) Error() string {
 	defer util.FreeStringBuilder(sb)
 
 	sb.WriteString(e.prefix)
-	e.writeErrors(sb, "")
-
+	e.writeErrs(sb, "")
 	return sb.String()
 }
 
-func (e *multiError) writeErrors(sb *strings.Builder, indent string) {
+func (e *multiError) writeErrs(sb *strings.Builder, indent string) {
 	for _, err := range e.errs {
 		if err == nil {
 			continue
@@ -67,17 +66,14 @@ func (e *multiError) writeErrors(sb *strings.Builder, indent string) {
 		sb.WriteString("\n")
 		sb.WriteString(indent)
 		sb.WriteString("  - ")
-
-		//nolint:errorlint
+		//nolint:errorlint // multiError is an internal type produced only by Join
 		if nested, ok := err.(*multiError); ok {
 			label := nested.prefix
 			if label == "" {
 				label = "multiple errors"
 			}
-
 			sb.WriteString(label)
-			nested.writeErrors(sb, indent+"  ")
-
+			nested.writeErrs(sb, indent+"  ")
 			continue
 		}
 
@@ -85,7 +81,6 @@ func (e *multiError) writeErrors(sb *strings.Builder, indent string) {
 		if strings.Contains(msg, "\n") {
 			msg = indentMultiline(msg, indent+"    ")
 		}
-
 		sb.WriteString(msg)
 	}
 }

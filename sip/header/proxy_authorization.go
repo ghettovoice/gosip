@@ -7,7 +7,8 @@ import (
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 type ProxyAuthorization struct {
@@ -22,23 +23,27 @@ func (hdr *ProxyAuthorization) RenderTo(w io.Writer, opts ...RenderOptions) (num
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderValueTo(w, hdr.AuthCredentials, opts...))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr *ProxyAuthorization) renderValTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderTo(w, hdr.AuthCredentials, opts...))
 }
 
 func (hdr *ProxyAuthorization) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 func (hdr *ProxyAuthorization) RenderValue() string {
 	if hdr == nil {
 		return ""
 	}
-	return renderValue(hdr.AuthCredentials)
+	return renderHdrVal(hdr)
 }
 
-func (hdr *ProxyAuthorization) String() string { return hdr.RenderValue() }
+func (hdr *ProxyAuthorization) String() string {
+	return hdr.RenderValue()
+}
 
 func (hdr *ProxyAuthorization) Format(f fmt.State, verb rune) {
 	if formatHdr(f, verb, hdr) {
@@ -55,33 +60,19 @@ func (hdr *ProxyAuthorization) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
-	hdr2 := *hdr
-	hdr2.AuthCredentials = types.Clone[AuthCredentials](hdr.AuthCredentials)
-	return &hdr2
+	clone := *hdr
+	clone.AuthCredentials = shared.Clone[AuthCredentials](hdr.AuthCredentials)
+	return &clone
 }
 
 func (hdr *ProxyAuthorization) Equal(val any) bool {
-	var other *ProxyAuthorization
-	switch v := val.(type) {
-	case ProxyAuthorization:
-		other = &v
-	case *ProxyAuthorization:
-		other = v
-	default:
-		return false
-	}
-
-	if hdr == other {
-		return true
-	}
-	if hdr == nil || other == nil {
-		return false
-	}
-	return types.IsEqual(hdr.AuthCredentials, other.AuthCredentials)
+	return util.EqualPointer(hdr, val, func(other *ProxyAuthorization) bool {
+		return shared.IsEqual(hdr.AuthCredentials, other.AuthCredentials)
+	})
 }
 
 func (hdr *ProxyAuthorization) IsValid() bool {
-	return hdr != nil && types.IsValid(hdr.AuthCredentials)
+	return hdr != nil && shared.IsValid(hdr.AuthCredentials)
 }
 
 func (hdr *ProxyAuthorization) MarshalJSON() ([]byte, error) {
@@ -89,7 +80,7 @@ func (hdr *ProxyAuthorization) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *ProxyAuthorization) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromProxyAuthorizationNode(node *abnf.Node) *ProxyAuthorization {

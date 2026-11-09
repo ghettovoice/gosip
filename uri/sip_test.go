@@ -31,11 +31,9 @@ func TestParseSIP(t *testing.T) {
 			t.Parallel()
 
 			got, err := uri.ParseSIP(tt.src)
-
 			if diff := cmp.Diff(err, tt.err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("uri.ParseSIP() error diff (-want +got):\n%s", diff)
 			}
-
 			if diff := cmp.Diff(got, tt.want, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("uri.ParseSIP() diff (-want +got):\n%s", diff)
 			}
@@ -91,7 +89,7 @@ func TestSIP_Render(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.Render(); got != tt.want {
-				t.Errorf("uri.Render() = %q, want %q", got, tt.want)
+				t.Errorf("u.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -117,11 +115,9 @@ func TestSIP_RenderTo(t *testing.T) {
 
 			var sb strings.Builder
 			_, err := tt.uri.RenderTo(&sb)
-
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("uri.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
+				t.Errorf("u.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -147,7 +143,7 @@ func TestSIP_String(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.String(); got != tt.want {
-				t.Errorf("uri.String() = %q, want %q", got, tt.want)
+				t.Errorf("u.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -429,7 +425,7 @@ func TestSIP_Equal(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.Equal(tt.val); got != tt.want {
-				t.Errorf("uri.Equal(val) = %v, want %v", got, tt.want)
+				t.Errorf("u.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -454,7 +450,7 @@ func TestSIP_IsValid(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.IsValid(); got != tt.want {
-				t.Errorf("uri.IsValid() = %v, want %v", got, tt.want)
+				t.Errorf("u.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -485,16 +481,14 @@ func TestSIP_Clone(t *testing.T) {
 			t.Parallel()
 
 			got := tt.uri.Clone()
-
 			if tt.uri == nil {
 				if got != nil {
-					t.Errorf("uri.Clone() = %+v, want nil", got)
+					t.Errorf("u.Clone() = %+v, want nil", got)
 				}
 				return
 			}
-
 			if diff := cmp.Diff(got, tt.uri, cmp.AllowUnexported(uri.SIP{})); diff != "" {
-				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.uri, diff)
+				t.Errorf("u.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.uri, diff)
 			}
 		})
 	}
@@ -557,19 +551,17 @@ func TestSIP_RoundTripText(t *testing.T) {
 
 			text, err := tt.uri.MarshalText()
 			if err != nil {
-				t.Fatalf("uri.MarshalText() error = %v, want nil", err)
+				t.Fatalf("want.MarshalText() error = %v, want nil", err)
 			}
 
 			var got uri.SIP
 			err = got.UnmarshalText(text)
-
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("got.UnmarshalText(text) error = nil, want error")
 				}
 				return
 			}
-
 			if err != nil {
 				t.Fatalf("got.UnmarshalText(text) error = %v, want nil", err)
 			}
@@ -597,11 +589,9 @@ func TestMakeUserInfo(t *testing.T) {
 			t.Parallel()
 
 			ui := uri.MakeUserInfo(tt.user)
-
 			if got, want := ui.Username(), tt.user; got != want {
 				t.Errorf("ui.Username() = %q, want %q", got, want)
 			}
-
 			if got, ok := ui.Password(); ok || got != "" {
 				t.Errorf("ui.Password() = (%q, %v), want (\"\", false)", got, ok)
 			}
@@ -626,11 +616,9 @@ func TestMakeUserPasswordInfo(t *testing.T) {
 			t.Parallel()
 
 			ui := uri.MakeUserPasswordInfo(tt.user, tt.passwd)
-
 			if got := ui.Username(); got != tt.user {
 				t.Errorf("ui.Username() = %q, want %q", got, tt.user)
 			}
-
 			if got, ok := ui.Password(); !ok || got != tt.passwd {
 				t.Errorf("ui.Password() = (%q, %v), want (%q, true)", got, ok, tt.passwd)
 			}

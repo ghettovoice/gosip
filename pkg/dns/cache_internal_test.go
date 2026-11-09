@@ -56,7 +56,6 @@ func TestWeightedSRVOrder_PrioritiesGrouped(t *testing.T) {
 	}
 
 	got := weightedSRVOrder(recs, scriptRandInt(0))
-
 	if diff := cmp.Diff([]uint16{5, 10, 10, 20, 20}, srvPriorities(got)); diff != "" {
 		t.Errorf("weightedSRVOrder() priorities mismatch (-want +got):\n%s", diff)
 	}

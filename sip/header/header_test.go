@@ -48,6 +48,7 @@ func TestCanonicName(t *testing.T) {
 	}
 }
 
+//nolint:tparallel // parallel parent while subtests mutate the shared global parser registry
 func TestParse(t *testing.T) {
 	t.Parallel()
 
@@ -59,7 +60,7 @@ func TestParse(t *testing.T) {
 		wantErr error
 	}{
 		{"empty string", "", nil, nil, grammar.ErrEmptyInput},
-		{"empty bytes", []byte{}, nil, nil, grammar.ErrEmptyInput},
+		{"empty bytes", []byte(nil), nil, nil, grammar.ErrEmptyInput},
 		{"trash", "qwerty", nil, nil, grammar.ErrMalformedInput},
 		{"trash bytes", []byte("qwerty"), nil, nil, grammar.ErrMalformedInput},
 
@@ -421,7 +422,10 @@ func TestParse(t *testing.T) {
 			"X-Custom: abc\r\n\tqwe",
 			map[string]header.Parser{
 				"x-custom": func(name string, value []byte) (header.Header, error) {
-					return &customHeader{Name: name, Value: value}, nil
+					return &customHeader{
+						Name:  name,
+						Value: value,
+					}, nil
 				},
 			},
 			&customHeader{Name: "X-Custom", Value: []byte("abc\r\n\tqwe")},
@@ -1007,10 +1011,8 @@ func TestParse(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:paralleltest // subtests mutate the shared global parser registry
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			for n, p := range tt.hdrPrs {
 				header.RegisterParser(n, p)
 			}
@@ -1038,7 +1040,6 @@ func TestParse(t *testing.T) {
 						fmt.Sprintf("%v", tt.src), gotHdr, tt.wantHdr, diff,
 					)
 				}
-
 				if gotErr != nil {
 					t.Errorf("header.Parse(%q) error = %v, want nil", fmt.Sprintf("%v", tt.src), gotErr)
 				}
@@ -1075,11 +1076,20 @@ func (h *customHeader) RenderTo(w io.Writer, _ ...header.RenderOptions) (int, er
 	return w.Write([]byte(h.RenderValue()))
 }
 
-func (h *customHeader) String() string { return string(h.Value) }
+func (h *customHeader) String() string {
+	return string(h.Value)
+}
 
-func (h *customHeader) Clone() header.Header { return &customHeader{Name: h.Name, Value: h.Value} }
+func (h *customHeader) Clone() header.Header {
+	return &customHeader{
+		Name:  h.Name,
+		Value: h.Value,
+	}
+}
 
-func (h *customHeader) IsValid() bool { return h != nil && h.Name != "" }
+func (h *customHeader) IsValid() bool {
+	return h != nil && h.Name != ""
+}
 
 func (h *customHeader) Equal(val any) bool {
 	return reflect.DeepEqual(h, val)

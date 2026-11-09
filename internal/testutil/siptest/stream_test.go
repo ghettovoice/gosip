@@ -13,119 +13,129 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 )
 
-func TestStreamReader_ReadFragmentedMessage(t *testing.T) {
+func TestStreamReader_Read_FragmentedMessage(t *testing.T) {
 	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		server, client := net.Pipe()
-		t.Cleanup(func() { _ = server.Close() })
-		t.Cleanup(func() { _ = client.Close() })
-		reader := siptest.NewStreamReader(t, server)
 
-		wire := streamTestRequest("OPTIONS", nil)
+	synctest.Test(t, func(t *testing.T) {
+		srv, cln := net.Pipe()
+		t.Cleanup(func() {
+			_ = srv.Close()
+			_ = cln.Close()
+		})
+		rdr := siptest.NewStreamReader(t, srv)
+
+		wire := streamTestReq("OPTIONS", nil)
 		writeDone := make(chan error, 1)
 		go func() {
 			firstPart := len(wire) / 2
-			if _, err := client.Write([]byte(wire[:firstPart])); err != nil {
+			if _, err := cln.Write([]byte(wire[:firstPart])); err != nil {
 				writeDone <- errors.Wrap(err)
 				return
 			}
+
 			time.Sleep(200 * time.Millisecond)
-			_, err := client.Write([]byte(wire[firstPart:]))
+			_, err := cln.Write([]byte(wire[firstPart:]))
 			writeDone <- errors.Wrap(err)
 		}()
 
-		msg := reader.Read(t)
+		msg := rdr.Read(t)
 		req, ok := msg.(*sip.Request)
 		if !ok {
-			t.Fatalf("siptest.StreamReader.Read() type = %T, want *sip.Request", msg)
+			t.Fatalf("rdr.Read() type = %T, want *sip.Request", msg)
 		}
 		if got, want := req.Method, sip.RequestMethodOptions; got != want {
-			t.Errorf("siptest.StreamReader.Read() method = %q, want %q", got, want)
+			t.Errorf("rdr.Read() method = %q, want %q", got, want)
 		}
-		if err := testutil.WaitResult(t, writeDone, "client.Write()"); err != nil {
-			t.Fatalf("client.Write() error = %v, want nil", err)
+		if err := testutil.WaitResult(t, writeDone, "cln.Write()"); err != nil {
+			t.Fatalf("rdr.Write() error = %v, want nil", err)
 		}
 	})
 }
 
-func TestStreamReader_ReadCoalescedMessages(t *testing.T) {
+func TestStreamReader_Read_CoalescedMessages(t *testing.T) {
 	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		server, client := net.Pipe()
-		t.Cleanup(func() { _ = server.Close() })
-		t.Cleanup(func() { _ = client.Close() })
-		reader := siptest.NewStreamReader(t, server)
 
-		wire := streamTestRequest("OPTIONS", nil) + streamTestResponse()
+	synctest.Test(t, func(t *testing.T) {
+		srv, cln := net.Pipe()
+		t.Cleanup(func() {
+			_ = srv.Close()
+			_ = cln.Close()
+		})
+		rdr := siptest.NewStreamReader(t, srv)
+
+		wire := streamTestReq("OPTIONS", nil) + streamTestRes()
 		writeDone := make(chan error, 1)
 		go func() {
-			_, err := client.Write([]byte(wire))
+			_, err := cln.Write([]byte(wire))
 			writeDone <- errors.Wrap(err)
 		}()
 
-		firstMsg := reader.Read(t)
+		firstMsg := rdr.Read(t)
 		first, ok := firstMsg.(*sip.Request)
 		if !ok {
-			t.Fatalf("first siptest.StreamReader.Read() type = %T, want *sip.Request", firstMsg)
+			t.Fatalf("first rdr.Read() type = %T, want *sip.Request", firstMsg)
 		}
 		if got, want := first.Method, sip.RequestMethodOptions; got != want {
-			t.Errorf("first siptest.StreamReader.Read() method = %q, want %q", got, want)
+			t.Errorf("first rdr.Read() method = %q, want %q", got, want)
 		}
 
-		secondMsg := reader.Read(t)
+		secondMsg := rdr.Read(t)
 		second, ok := secondMsg.(*sip.Response)
 		if !ok {
-			t.Fatalf("second siptest.StreamReader.Read() type = %T, want *sip.Response", secondMsg)
+			t.Fatalf("second rdr.Read() type = %T, want *sip.Response", secondMsg)
 		}
 		if got, want := second.Status, sip.ResponseStatusOK; got != want {
-			t.Errorf("second siptest.StreamReader.Read() status = %v, want %v", got, want)
+			t.Errorf("second rdr.Read() status = %v, want %v", got, want)
 		}
-		if err := testutil.WaitResult(t, writeDone, "client.Write()"); err != nil {
-			t.Fatalf("client.Write() error = %v, want nil", err)
+		if err := testutil.WaitResult(t, writeDone, "cln.Write()"); err != nil {
+			t.Fatalf("cln.Write() error = %v, want nil", err)
 		}
 	})
 }
 
-func TestStreamReader_ReadContentLengthBody(t *testing.T) {
+func TestStreamReader_Read_ContentLengthBody(t *testing.T) {
 	t.Parallel()
+
 	synctest.Test(t, func(t *testing.T) {
-		server, client := net.Pipe()
-		t.Cleanup(func() { _ = server.Close() })
-		t.Cleanup(func() { _ = client.Close() })
-		reader := siptest.NewStreamReader(t, server)
+		srv, cln := net.Pipe()
+		t.Cleanup(func() {
+			_ = srv.Close()
+			_ = cln.Close()
+		})
+		rdr := siptest.NewStreamReader(t, srv)
 
 		body := "SIP/2.0 200 OK\r\nContent-Length: 0\r\n\r\n"
-		wire := streamTestRequest("MESSAGE", []byte(body)) + streamTestRequest("BYE", nil)
+		wire := streamTestReq("MESSAGE", []byte(body)) + streamTestReq("BYE", nil)
 		writeDone := make(chan error, 1)
 		go func() {
-			_, err := client.Write([]byte(wire))
+			_, err := cln.Write([]byte(wire))
 			writeDone <- errors.Wrap(err)
 		}()
 
-		msg := reader.Read(t)
+		msg := rdr.Read(t)
 		req, ok := msg.(*sip.Request)
 		if !ok {
-			t.Fatalf("siptest.StreamReader.Read() type = %T, want *sip.Request", msg)
+			t.Fatalf("rdr.Read() type = %T, want *sip.Request", msg)
 		}
 		if got := string(req.Body); got != body {
-			t.Errorf("siptest.StreamReader.Read() body = %q, want %q", got, body)
+			t.Errorf("rdr.Read() body = %q, want %q", got, body)
 		}
 
-		msg = reader.Read(t)
+		msg = rdr.Read(t)
 		req, ok = msg.(*sip.Request)
 		if !ok {
-			t.Fatalf("second siptest.StreamReader.Read() type = %T, want *sip.Request", msg)
+			t.Fatalf("second rdr.Read() type = %T, want *sip.Request", msg)
 		}
 		if got, want := req.Method, sip.RequestMethodBye; got != want {
-			t.Errorf("second siptest.StreamReader.Read() method = %q, want %q", got, want)
+			t.Errorf("second rdr.Read() method = %q, want %q", got, want)
 		}
-		if err := testutil.WaitResult(t, writeDone, "client.Write()"); err != nil {
-			t.Fatalf("client.Write() error = %v, want nil", err)
+		if err := testutil.WaitResult(t, writeDone, "rdr.Write()"); err != nil {
+			t.Fatalf("rdr.Write() error = %v, want nil", err)
 		}
 	})
 }
 
-func streamTestRequest(method string, body []byte) string {
+func streamTestReq(method string, body []byte) string {
 	return fmt.Sprintf(
 		"%s sip:alice@example.com SIP/2.0\r\n"+
 			"Via: SIP/2.0/TCP 127.0.0.1:5060;branch=z9hG4bK-test\r\n"+
@@ -138,7 +148,7 @@ func streamTestRequest(method string, body []byte) string {
 	)
 }
 
-func streamTestResponse() string {
+func streamTestRes() string {
 	return "SIP/2.0 200 OK\r\n" +
 		"Via: SIP/2.0/TCP 127.0.0.1:5060;branch=z9hG4bK-test\r\n" +
 		"From: <sip:bob@example.com>;tag=from\r\n" +

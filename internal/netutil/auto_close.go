@@ -9,7 +9,7 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 )
 
-type autoClosePacketConn struct {
+type autoClosePktConn struct {
 	net.PacketConn
 	tmr *timeutil.Watchdog
 }
@@ -17,23 +17,23 @@ type autoClosePacketConn struct {
 // NewAutoClosePacketConn wraps net.PacketConn and automatically closes it after a specified idle timeout.
 // Any successful read or write operation resets the timer.
 func NewAutoClosePacketConn(conn net.PacketConn, ttl time.Duration) net.PacketConn {
-	if _, ok := AsPacketConn[*autoClosePacketConn](conn); ok {
+	if _, ok := AsPacketConn[*autoClosePktConn](conn); ok {
 		return conn
 	}
 
-	c := &autoClosePacketConn{PacketConn: conn}
+	c := &autoClosePktConn{PacketConn: conn}
 	c.tmr = timeutil.NewWatchdog(ttl, func() { _ = c.Close() })
 	c.tmr.Start()
 	return c
 }
 
-func (c *autoClosePacketConn) resetTmr() {
+func (c *autoClosePktConn) resetTmr() {
 	if c.tmr != nil {
 		c.tmr.Reset()
 	}
 }
 
-func (c *autoClosePacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+func (c *autoClosePktConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	n, err := c.PacketConn.WriteTo(p, addr)
 	if err != nil {
 		return n, errors.Wrap(err)
@@ -43,7 +43,7 @@ func (c *autoClosePacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	return n, nil
 }
 
-func (c *autoClosePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+func (c *autoClosePktConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	n, addr, err := c.PacketConn.ReadFrom(p)
 	if err != nil {
 		return n, addr, errors.Wrap(err)
@@ -53,14 +53,14 @@ func (c *autoClosePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	return n, addr, nil
 }
 
-func (c *autoClosePacketConn) Close() error {
+func (c *autoClosePktConn) Close() error {
 	if c.tmr != nil {
 		c.tmr.Close()
 	}
 	return errors.Wrap(c.PacketConn.Close())
 }
 
-func (c *autoClosePacketConn) Unwrap() net.PacketConn {
+func (c *autoClosePktConn) Unwrap() net.PacketConn {
 	if c == nil {
 		return nil
 	}

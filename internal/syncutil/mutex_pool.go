@@ -11,7 +11,7 @@ type MutexPool[K comparable] struct {
 // Returns a function that releases the mutex.
 func (mp *MutexPool[K]) Lock(key K) (unlock func()) {
 	v, _ := mp.pool.LoadOrStore(key, &sync.Mutex{})
-	m := v.(*sync.Mutex) //nolint:forcetypeassert
+	m := v.(*sync.Mutex) //nolint:forcetypeassert // the pool only stores *sync.Mutex
 	m.Lock()
 	return func() { m.Unlock() }
 }
@@ -21,7 +21,7 @@ func (mp *MutexPool[K]) Lock(key K) (unlock func()) {
 func (mp *MutexPool[K]) TryLock(key K) (unlock func(), ok bool) {
 	v, _ := mp.pool.LoadOrStore(key, &sync.Mutex{})
 
-	m := v.(*sync.Mutex) //nolint:forcetypeassert
+	m := v.(*sync.Mutex) //nolint:forcetypeassert // the pool only stores *sync.Mutex
 	if !m.TryLock() {
 		return nil, false
 	}

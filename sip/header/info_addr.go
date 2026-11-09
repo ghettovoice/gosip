@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/uri"
 )
@@ -24,11 +23,7 @@ type InfoAddr struct {
 
 // String returns the string representation of the InfoAddr.
 func (addr InfoAddr) String() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = addr.renderTo(sb)
-	return sb.String()
+	return renderVal(addr)
 }
 
 func (addr InfoAddr) renderTo(w io.Writer) (num int, err error) {
@@ -44,65 +39,46 @@ func (addr InfoAddr) renderTo(w io.Writer) (num int, err error) {
 	cw.Fprint(">")
 
 	cw.Call(func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderHdrParams(w, addr.Params, false))
+		return errors.Wrap2(renderHdrParamsTo(w, addr.Params, false))
 	})
 	return errors.Wrap2(cw.Result())
 }
 
 // Format implements fmt.Formatter for custom formatting of the InfoAddr.
 func (addr InfoAddr) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		fmt.Fprint(f, addr.String())
-		return
-	case 'q':
-		fmt.Fprint(f, strconv.Quote(addr.String()))
-		return
-	default:
-		if !f.Flag('+') && !f.Flag('#') {
-			fmt.Fprint(f, addr.String())
-			return
-		}
-
-		type (
-			hideMethods  InfoAddr
-			ResourceAddr hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), ResourceAddr(addr))
+	if formatVal(f, verb, addr) {
 		return
 	}
+	type (
+		hideMethods  InfoAddr
+		ResourceAddr hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), ResourceAddr(addr))
 }
 
 // Equal compares this InfoAddr with another for equality.
 func (addr InfoAddr) Equal(val any) bool {
-	var other InfoAddr
-	switch v := val.(type) {
-	case InfoAddr:
-		other = v
-	case *InfoAddr:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return types.IsEqual(addr.URI, other.URI) &&
-		compareHdrParams(addr.Params, other.Params, map[string]bool{"purpose": true})
+	return util.EqualValue(val, func(other InfoAddr) bool {
+		return shared.IsEqual(addr.URI, other.URI) &&
+			compareHdrParams(addr.Params, other.Params, map[string]bool{
+				"purpose": true,
+			})
+	})
 }
 
 // IsValid checks whether the InfoAddr is syntactically valid.
 func (addr InfoAddr) IsValid() bool {
-	return types.IsValid(addr.URI) && validateHdrParams(addr.Params)
+	return shared.IsValid(addr.URI) && validateHdrParams(addr.Params)
 }
 
 // IsZero checks whether the InfoAddr is empty.
-func (addr InfoAddr) IsZero() bool { return addr.URI == nil && len(addr.Params) == 0 }
+func (addr InfoAddr) IsZero() bool {
+	return addr.URI == nil && len(addr.Params) == 0
+}
 
 // Clone returns a copy of the InfoAddr.
 func (addr InfoAddr) Clone() InfoAddr {
-	addr.URI = types.Clone[uri.URI](addr.URI)
+	addr.URI = shared.Clone[uri.URI](addr.URI)
 	addr.Params = addr.Params.Clone()
 	return addr
 }
@@ -147,6 +123,6 @@ func buildFromInfoAddrNode(node *abnf.Node) InfoAddr {
 	}
 	return InfoAddr{
 		URI:    util.Must2(uri.FromABNF(grammar.MustGetNode(node, "absoluteURI"))),
-		Params: buildFromHeaderParamNodes(node.GetNodes(psKey), nil),
+		Params: buildFromHdrParamNodes(node.GetNodes(psKey), nil),
 	}
 }

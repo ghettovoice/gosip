@@ -7,7 +7,8 @@ import (
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 type ProxyAuthenticate struct {
@@ -22,23 +23,27 @@ func (hdr *ProxyAuthenticate) RenderTo(w io.Writer, opts ...RenderOptions) (num 
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderValueTo(w, hdr.AuthChallenge, opts...))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr *ProxyAuthenticate) renderValTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderTo(w, hdr.AuthChallenge, opts...))
 }
 
 func (hdr *ProxyAuthenticate) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 func (hdr *ProxyAuthenticate) RenderValue() string {
 	if hdr == nil {
 		return ""
 	}
-	return renderValue(hdr.AuthChallenge)
+	return renderHdrVal(hdr)
 }
 
-func (hdr *ProxyAuthenticate) String() string { return hdr.RenderValue() }
+func (hdr *ProxyAuthenticate) String() string {
+	return hdr.RenderValue()
+}
 
 func (hdr *ProxyAuthenticate) Format(f fmt.State, verb rune) {
 	if formatHdr(f, verb, hdr) {
@@ -55,33 +60,19 @@ func (hdr *ProxyAuthenticate) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
-	hdr2 := *hdr
-	hdr2.AuthChallenge = types.Clone[AuthChallenge](hdr.AuthChallenge)
-	return &hdr2
+	clone := *hdr
+	clone.AuthChallenge = shared.Clone[AuthChallenge](hdr.AuthChallenge)
+	return &clone
 }
 
 func (hdr *ProxyAuthenticate) Equal(val any) bool {
-	var other *ProxyAuthenticate
-	switch v := val.(type) {
-	case ProxyAuthenticate:
-		other = &v
-	case *ProxyAuthenticate:
-		other = v
-	default:
-		return false
-	}
-
-	if hdr == other {
-		return true
-	}
-	if hdr == nil || other == nil {
-		return false
-	}
-	return types.IsEqual(hdr.AuthChallenge, other.AuthChallenge)
+	return util.EqualPointer(hdr, val, func(other *ProxyAuthenticate) bool {
+		return shared.IsEqual(hdr.AuthChallenge, other.AuthChallenge)
+	})
 }
 
 func (hdr *ProxyAuthenticate) IsValid() bool {
-	return hdr != nil && types.IsValid(hdr.AuthChallenge)
+	return hdr != nil && shared.IsValid(hdr.AuthChallenge)
 }
 
 func (hdr *ProxyAuthenticate) MarshalJSON() ([]byte, error) {
@@ -89,7 +80,7 @@ func (hdr *ProxyAuthenticate) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *ProxyAuthenticate) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromProxyAuthenticateNode(node *abnf.Node) *ProxyAuthenticate {

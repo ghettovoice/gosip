@@ -11,7 +11,7 @@ import (
 	"github.com/ghettovoice/gosip/internal/syncutil"
 )
 
-func collectOrderedList[T any](seq iter.Seq[T]) []T {
+func collectOrdList[T any](seq iter.Seq[T]) []T {
 	return slices.Collect(seq)
 }
 
@@ -23,24 +23,25 @@ func TestOrderedList_OrderAndRemove(t *testing.T) {
 	removeSecond := values.Add(2)
 	removeThird := values.Add(3)
 
-	if diff := cmp.Diff([]int{1, 2, 3}, collectOrderedList(values.All())); diff != "" {
-		t.Errorf("OrderedList.All() mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff([]int{1, 2, 3}, collectOrdList(values.All())); diff != "" {
+		t.Errorf("list.All() mismatch (-want +got):\n%s", diff)
 	}
 	if got, want := values.Len(), 3; got != want {
-		t.Errorf("OrderedList.Len() = %d, want %d", got, want)
+		t.Errorf("list.Len() = %d, want %d", got, want)
 	}
 
 	removeSecond()
 	removeSecond()
 
-	if diff := cmp.Diff([]int{1, 3}, collectOrderedList(values.All())); diff != "" {
-		t.Errorf("OrderedList.All() after remove mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff([]int{1, 3}, collectOrdList(values.All())); diff != "" {
+		t.Errorf("list.All() after remove mismatch (-want +got):\n%s", diff)
 	}
 
 	removeFirst()
 	removeThird()
+
 	if got, want := values.Len(), 0; got != want {
-		t.Errorf("OrderedList.Len() after remove all = %d, want %d", got, want)
+		t.Errorf("list.Len() after remove all = %d, want %d", got, want)
 	}
 }
 
@@ -70,10 +71,10 @@ func TestOrderedList_At(t *testing.T) {
 
 			got, ok := values.At(tt.index)
 			if ok != tt.wantOK {
-				t.Errorf("OrderedList.At(%d) ok = %t, want %t", tt.index, ok, tt.wantOK)
+				t.Errorf("list.At(%d) ok = %t, want %t", tt.index, ok, tt.wantOK)
 			}
 			if got != tt.want {
-				t.Errorf("OrderedList.At(%d) = %d, want %d", tt.index, got, tt.want)
+				t.Errorf("list.At(%d) = %d, want %d", tt.index, got, tt.want)
 			}
 		})
 	}
@@ -96,10 +97,10 @@ func TestOrderedList_All_UsesSnapshot(t *testing.T) {
 	}
 
 	if diff := cmp.Diff([]int{1, 2}, got); diff != "" {
-		t.Errorf("OrderedList.All() mismatch (-want +got):\n%s", diff)
+		t.Errorf("list.All() mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff([]int{1, 3}, collectOrderedList(values.All())); diff != "" {
-		t.Errorf("OrderedList.All() after concurrent update mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff([]int{1, 3}, collectOrdList(values.All())); diff != "" {
+		t.Errorf("list.All() after concurrent update mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -123,17 +124,17 @@ func TestOrderedList_ConcurrentAddAndRemove(t *testing.T) {
 	wg.Wait()
 
 	if got, want := values.Len(), n; got != want {
-		t.Fatalf("OrderedList.Len() after concurrent add = %d, want %d", got, want)
+		t.Fatalf("list.Len() after concurrent add = %d, want %d", got, want)
 	}
 
-	got := collectOrderedList(values.All())
+	got := collectOrdList(values.All())
 	slices.Sort(got)
 	want := make([]int, n)
 	for i := range want {
 		want[i] = i
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("OrderedList.All() after concurrent add mismatch (-want +got):\n%s", diff)
+		t.Errorf("list.All() after concurrent add mismatch (-want +got):\n%s", diff)
 	}
 
 	wg.Add(n)
@@ -146,6 +147,6 @@ func TestOrderedList_ConcurrentAddAndRemove(t *testing.T) {
 	wg.Wait()
 
 	if got, want := values.Len(), 0; got != want {
-		t.Errorf("OrderedList.Len() after concurrent remove = %d, want %d", got, want)
+		t.Errorf("list.Len() after concurrent remove = %d, want %d", got, want)
 	}
 }

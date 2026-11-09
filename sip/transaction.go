@@ -14,7 +14,7 @@ import (
 	"github.com/qmuntal/stateless"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 )
 
 type TransactionState uint
@@ -192,13 +192,13 @@ type baseTransact struct {
 	terminated    chan struct{}
 	terminateOnce sync.Once
 
-	onStart types.CallbackManager[TransactionStartHandler]
+	onStart shared.CallbackManager[TransactionStartHandler]
 
-	onStateChanged types.CallbackManager[TransactionStateHandler]
-	pendingStates  types.Queue[pendingState]
+	onStateChanged shared.CallbackManager[TransactionStateHandler]
+	pendingStates  shared.Queue[pendingTxState]
 
-	onErr       types.CallbackManager[ErrorHandler]
-	pendingErrs types.Queue[pendingError]
+	onErr       shared.CallbackManager[ErrorHandler]
+	pendingErrs shared.Queue[pendingTxError]
 	lastErr     atomic.Value // error
 
 	snapUpdating int      // in-flight tracked state mutations, guarded by lcMu
@@ -212,13 +212,13 @@ type transactImpl interface {
 	snapshotNotificationLocked(ctx context.Context) func()
 }
 
-type pendingState struct {
-	ctx        context.Context
+type pendingTxState struct {
+	ctx        context.Context //nolint:containedctx // the pending handler needs the originating ctx
 	transition stateless.Transition
 }
 
-type pendingError struct {
-	ctx context.Context
+type pendingTxError struct {
+	ctx context.Context //nolint:containedctx // the pending handler needs the originating ctx
 	err error
 }
 
@@ -237,11 +237,10 @@ func (tx *baseTransact) Type() TransactionType { return tx.typ }
 
 // State returns the current state of the transaction.
 func (tx *baseTransact) State() TransactionState {
-	return tx.state.Load().(TransactionState) //nolint:forcetypeassert
+	return tx.state.Load().(TransactionState) //nolint:forcetypeassert // the concrete type is fixed by construction
 }
 
 func (tx *baseTransact) Logger() *slog.Logger { return tx.log }
-
 func (tx *baseTransact) Started() bool {
 	tx.lcMu.Lock()
 	defer tx.lcMu.Unlock()
@@ -480,7 +479,7 @@ func (tx *baseTransact) deliverPendingStates() {
 
 	for _, v := range states {
 		for fn := range tx.onStateChanged.All() {
-			//nolint:forcetypeassert
+			//nolint:forcetypeassert // the concrete type is fixed by construction
 			fn.HandleTransactionState(
 				v.ctx,
 				v.transition.Source.(TransactionState),
@@ -491,7 +490,7 @@ func (tx *baseTransact) deliverPendingStates() {
 }
 
 func (tx *baseTransact) passStateTransition(ctx context.Context, tr stateless.Transition) {
-	tx.pendingStates.Push(pendingState{ctx, tr})
+	tx.pendingStates.Push(pendingTxState{ctx, tr})
 	if tx.onStateChanged.Len() > 0 {
 		tx.deliverPendingStates()
 	}
@@ -523,7 +522,7 @@ func (tx *baseTransact) deliverPendingErrs() {
 func (tx *baseTransact) passErr(ctx context.Context, err error) {
 	tx.lastErr.Store(err)
 
-	tx.pendingErrs.Push(pendingError{ctx, errors.Wrap(err)})
+	tx.pendingErrs.Push(pendingTxError{ctx, errors.Wrap(err)})
 	if tx.onErr.Len() > 0 {
 		tx.deliverPendingErrs()
 	}
@@ -537,11 +536,11 @@ func (tx *baseTransact) LastError() error {
 }
 
 const (
-	txEvtTranspErr = "transp_err"
+	txEvtTpErr     = "transp_err"
 	txEvtTerminate = "terminate"
 )
 
-//nolint:unparam
+//nolint:unparam // kept uniform with the FSM lifecycle helpers
 func (tx *baseTransact) initFSM(start TransactionState) error {
 	tx.state.Store(start)
 	tx.fsm = stateless.NewStateMachineWithExternalStorage(
@@ -560,12 +559,11 @@ func (tx *baseTransact) initFSM(start TransactionState) error {
 		stateless.FiringQueued,
 	)
 
-	tx.fsm.SetTriggerParameters(txEvtTranspErr, reflect.TypeFor[error]())
+	tx.fsm.SetTriggerParameters(txEvtTpErr, reflect.TypeFor[error]())
 	tx.fsm.SetTriggerParameters(txEvtTerminate, reflect.TypeFor[error]())
 
 	tx.fsm.OnTransitioned(func(ctx context.Context, transition stateless.Transition) {
-		tx.log.DebugContext(
-			ctx, "transaction state changed",
+		tx.log.DebugContext(ctx, "transaction state changed",
 			slog.Any("transaction", tx.impl),
 			slog.Any("from", transition.Source),
 			slog.Any("to", transition.Destination),
@@ -586,12 +584,10 @@ func (tx *baseTransact) initFSM(start TransactionState) error {
 }
 
 func (*baseTransact) actNoop(context.Context, ...any) error { return nil }
-
 func (tx *baseTransact) actTranspErr(ctx context.Context, args ...any) error {
-	err := args[0].(error) //nolint:forcetypeassert
+	err := args[0].(error) //nolint:forcetypeassert // the concrete type is fixed by construction
 
-	tx.log.DebugContext(
-		ctx, "transport error occurred",
+	tx.log.DebugContext(ctx, "transport error occurred",
 		slog.Any("transaction", tx.impl),
 		slog.Any("error", err),
 	)
@@ -608,10 +604,9 @@ func (tx *baseTransact) actTimedOut(ctx context.Context, _ ...any) error {
 }
 
 func (tx *baseTransact) actTermErr(ctx context.Context, args ...any) error {
-	err := args[0].(error) //nolint:forcetypeassert
+	err := args[0].(error) //nolint:forcetypeassert // the concrete type is fixed by construction
 
-	tx.log.DebugContext(
-		ctx, "transaction terminated forcefully",
+	tx.log.DebugContext(ctx, "transaction terminated forcefully",
 		slog.Any("transaction", tx.impl),
 		slog.Any("error", err),
 	)
@@ -620,7 +615,7 @@ func (tx *baseTransact) actTermErr(ctx context.Context, args ...any) error {
 	return nil
 }
 
-//nolint:unparam
+//nolint:unparam // kept uniform with the FSM lifecycle helpers
 func (tx *baseTransact) actTerminated(ctx context.Context, _ ...any) error {
 	tx.log.DebugContext(ctx, "transaction terminated", slog.Any("transaction", tx.impl))
 

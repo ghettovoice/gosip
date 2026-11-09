@@ -90,7 +90,7 @@ func Respond(
 	sndr ResponseSender,
 	opts ...RespondOptions,
 ) error {
-	resOpts := util.LastSliceElemOr(opts, RespondOptions{})
+	resOpts := util.LastSliceElem(opts, RespondOptions{})
 
 	res, err := req.NewResponse(sts, resOpts.ResponseOptions)
 	if err != nil {

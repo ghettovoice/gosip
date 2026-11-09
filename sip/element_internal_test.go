@@ -11,19 +11,19 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 )
 
-type countingClnTxHdlr struct {
+type countingClnTxHandler struct {
 	calls atomic.Int32
 }
 
-func (h *countingClnTxHdlr) HandleClientTransaction(context.Context, ClientTransaction) {
+func (h *countingClnTxHandler) HandleClientTransaction(context.Context, ClientTransaction) {
 	h.calls.Add(1)
 }
 
-type countingOutReqIntcptr struct {
+type countingOutReqInceptor struct {
 	calls atomic.Int32
 }
 
-func (i *countingOutReqIntcptr) InterceptOutboundRequest(
+func (i *countingOutReqInceptor) InterceptOutboundRequest(
 	ctx context.Context,
 	next RequestSender,
 	req *RequestEnvelope,
@@ -33,11 +33,11 @@ func (i *countingOutReqIntcptr) InterceptOutboundRequest(
 	return errors.Wrap(next.SendRequest(ctx, req, opts...))
 }
 
-// TestElementInternal_ManagersInitializedOnce proves lazy initialization
+// TestElement_ManagersInitializedOnce proves lazy initialization
 // creates the private transport and transaction managers exactly once:
 // public queries before and after Close reuse the same instances, and Close
 // leaves them in their closed state instead of recreating them.
-func TestElementInternal_ManagersInitializedOnce(t *testing.T) {
+func TestElement_ManagersInitializedOnce(t *testing.T) {
 	t.Parallel()
 
 	elm := &Element{}
@@ -91,11 +91,11 @@ func TestElementInternal_ManagersInitializedOnce(t *testing.T) {
 	}
 }
 
-// TestElementInternal_TransactionTimeoutForwarding proves the element forwards
+// TestElement_TransactionTimeoutForwarding proves the element forwards
 // the configured transaction timeouts to its private transaction manager
 // unchanged; the manager applies its own defaults internally and the public
 // fields are not rewritten.
-func TestElementInternal_TransactionTimeoutForwarding(t *testing.T) {
+func TestElement_TransactionTimeoutForwarding(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -128,11 +128,11 @@ func TestElementInternal_TransactionTimeoutForwarding(t *testing.T) {
 	}
 }
 
-// TestElementInternal_CallbackLeaseBlocksClose proves the callback drain is
+// TestElement_CallbackLeaseBlocksClose proves the callback drain is
 // independent of the admitted-operation gate: an outstanding callback lease
 // keeps Close blocked after callback admission was already sealed, and Close
 // completes once the lease is released.
-func TestElementInternal_CallbackLeaseBlocksClose(t *testing.T) {
+func TestElement_CallbackLeaseBlocksClose(t *testing.T) {
 	t.Parallel()
 
 	elm := &Element{}
@@ -169,7 +169,7 @@ func TestElementInternal_CallbackLeaseBlocksClose(t *testing.T) {
 	// the callback group non-zero, so Close must still be blocked on the
 	// callback drain.
 	tmr := time.NewTimer(5 * time.Second)
-	defer tmr.Stop()
+	t.Cleanup(func() { tmr.Stop() })
 	for {
 		elm.lcMu.Lock()
 		sealed := elm.cbSealed
@@ -213,10 +213,10 @@ func TestElementInternal_CallbackLeaseBlocksClose(t *testing.T) {
 	}
 }
 
-// TestElementInternal_CallbackAdmissionSealed covers the callback drain lease:
+// TestElement_CallbackAdmissionSealed covers the callback drain lease:
 // callbacks are admitted while the element is running and rejected once Close
 // sealed admission before closing middleware.
-func TestElementInternal_CallbackAdmissionSealed(t *testing.T) {
+func TestElement_CallbackAdmissionSealed(t *testing.T) {
 	t.Parallel()
 
 	elm := &Element{}
@@ -245,21 +245,21 @@ func TestElementInternal_CallbackAdmissionSealed(t *testing.T) {
 	}
 }
 
-// TestElementInternal_AdaptersAfterSeal covers saved Element-wired callbacks
+// TestElement_AdaptersAfterSeal covers saved Element-wired callbacks
 // invoked after callback admission was sealed: transaction notifications
 // become no-ops and interceptors report the element as closed instead of
 // reaching closed middleware.
-func TestElementInternal_AdaptersAfterSeal(t *testing.T) {
+func TestElement_AdaptersAfterSeal(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	elm := &Element{}
 
-	clnHdlr := &countingClnTxHdlr{}
-	wrappedCln := elmClnTxHandler{elm: elm, hdlr: clnHdlr}
+	clnHdlr := &countingClnTxHandler{}
+	wrappedCln := elemClnTxHandler{elm: elm, hdlr: clnHdlr}
 
-	outReq := &countingOutReqIntcptr{}
-	wrappedOutReq := elmOutReqInterceptor{elm: elm, intcptr: outReq}
+	outReq := &countingOutReqInceptor{}
+	wrappedOutReq := elemOutReqInceptor{elm: elm, intcptr: outReq}
 
 	if err := elm.Close(); err != nil {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
@@ -278,10 +278,10 @@ func TestElementInternal_AdaptersAfterSeal(t *testing.T) {
 	}
 }
 
-// TestElementInternal_LifecycleStates covers the managed-runtime lifecycle
+// TestElement_LifecycleStates covers the managed-runtime lifecycle
 // state enum: a fresh element is Ready, a successful Start moves it to
 // Running, and Close ends it Closed.
-func TestElementInternal_LifecycleStates(t *testing.T) {
+func TestElement_LifecycleStates(t *testing.T) {
 	t.Parallel()
 
 	var elm Element

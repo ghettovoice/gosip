@@ -9,7 +9,7 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
@@ -17,13 +17,13 @@ import (
 // See [header.Header].
 type Header = header.Header
 
-// HeaderName represents a SIP header name.
-// See [header.Name].
-type HeaderName = header.Name
-
 // ParseHeader parses a generic SIP header.
 // See [header.Parse].
 func ParseHeader[T ~string | ~[]byte](s T) (Header, error) { return errors.Wrap2(header.Parse(s)) }
+
+// HeaderName represents a SIP header name.
+// See [header.Name].
+type HeaderName = header.Name
 
 // CanonicHeaderName returns a canonicalized header name.
 // See [header.CanonicName].
@@ -170,7 +170,7 @@ func (hdrs Headers) Clone() Headers {
 
 		hdrs2[n] = make([]Header, len(hs))
 		for i := range hs {
-			hdrs2[n][i] = types.Clone[Header](hs[i])
+			hdrs2[n][i] = shared.Clone[Header](hs[i])
 		}
 	}
 	return hdrs2
@@ -267,7 +267,7 @@ func (hdrs Headers) CallID() (header.CallID, bool) {
 
 // Contacts returns an iterator over all Contacts header elements.
 func (hdrs Headers) Contacts() iter.Seq[*header.ContactAddr] {
-	return AllHeaderElems[header.Contact](hdrs, "Contact")
+	return AllHeaderValues[header.Contact](hdrs, "Contact")
 }
 
 // ContentLength returns the first Content-Length header.
@@ -297,23 +297,23 @@ func (hdrs Headers) MaxForwards() (header.MaxForwards, bool) {
 
 // RecordRoutes returns an iterator over all Record-Route header elements.
 func (hdrs Headers) RecordRoutes() iter.Seq[*header.RouteHop] {
-	return AllHeaderElems[header.RecordRoute](hdrs, "Record-Route")
+	return AllHeaderValues[header.RecordRoute](hdrs, "Record-Route")
 }
 
 func (hdrs Headers) FirstRecordRoute() (*header.RouteHop, bool) {
-	return FirstHeaderElem[header.RecordRoute](hdrs, "Record-Route")
+	return FirstHeaderValue[header.RecordRoute](hdrs, "Record-Route")
 }
 
 func (hdrs Headers) LastRecordRoute() (*header.RouteHop, bool) {
-	return LastHeaderElem[header.RecordRoute](hdrs, "Record-Route")
+	return LastHeaderValue[header.RecordRoute](hdrs, "Record-Route")
 }
 
 func (hdrs Headers) PopFirstRecordRoute() (*header.RouteHop, bool) {
-	return PopFirstHeaderElem[header.RecordRoute](hdrs, "Record-Route")
+	return PopFirstHeaderValue[header.RecordRoute](hdrs, "Record-Route")
 }
 
 func (hdrs Headers) PopLastRecordRoute() (*header.RouteHop, bool) {
-	return PopLastHeaderElem[header.RecordRoute](hdrs, "Record-Route")
+	return PopLastHeaderValue[header.RecordRoute](hdrs, "Record-Route")
 }
 
 func (hdrs Headers) PrependRecordRoute(hop header.RouteHop) Headers {
@@ -326,23 +326,23 @@ func (hdrs Headers) AppendRecordRoute(hop header.RouteHop) Headers {
 
 // Routes returns an iterator over all Routes header elements.
 func (hdrs Headers) Routes() iter.Seq[*header.RouteHop] {
-	return AllHeaderElems[header.Route](hdrs, "Route")
+	return AllHeaderValues[header.Route](hdrs, "Route")
 }
 
 func (hdrs Headers) FirstRoute() (*header.RouteHop, bool) {
-	return FirstHeaderElem[header.Route](hdrs, "Route")
+	return FirstHeaderValue[header.Route](hdrs, "Route")
 }
 
 func (hdrs Headers) LastRoute() (*header.RouteHop, bool) {
-	return LastHeaderElem[header.Route](hdrs, "Route")
+	return LastHeaderValue[header.Route](hdrs, "Route")
 }
 
 func (hdrs Headers) PopFirstRoute() (*header.RouteHop, bool) {
-	return PopFirstHeaderElem[header.Route](hdrs, "Route")
+	return PopFirstHeaderValue[header.Route](hdrs, "Route")
 }
 
 func (hdrs Headers) PopLastRoute() (*header.RouteHop, bool) {
-	return PopLastHeaderElem[header.Route](hdrs, "Route")
+	return PopLastHeaderValue[header.Route](hdrs, "Route")
 }
 
 func (hdrs Headers) PrependRoute(hop header.RouteHop) Headers {
@@ -360,25 +360,25 @@ func (hdrs Headers) To() (*header.To, bool) {
 
 // Vias returns an iterator over all Vias header elements.
 func (hdrs Headers) Vias() iter.Seq[*header.ViaHop] {
-	return AllHeaderElems[header.Via](hdrs, "Via")
+	return AllHeaderValues[header.Via](hdrs, "Via")
 }
 
 func (hdrs Headers) FirstVia() (*header.ViaHop, bool) {
-	return FirstHeaderElem[header.Via](hdrs, "Via")
+	return FirstHeaderValue[header.Via](hdrs, "Via")
 }
 
 func (hdrs Headers) LastVia() (*header.ViaHop, bool) {
-	return LastHeaderElem[header.Via](hdrs, "Via")
+	return LastHeaderValue[header.Via](hdrs, "Via")
 }
 
 // PopFirstVia removes and returns the first Via header element.
 // It returns false if no such element exists.
 func (hdrs Headers) PopFirstVia() (*header.ViaHop, bool) {
-	return PopFirstHeaderElem[header.Via](hdrs, "Via")
+	return PopFirstHeaderValue[header.Via](hdrs, "Via")
 }
 
 func (hdrs Headers) PopLastVia() (*header.ViaHop, bool) {
-	return PopLastHeaderElem[header.Via](hdrs, "Via")
+	return PopLastHeaderValue[header.Via](hdrs, "Via")
 }
 
 func (hdrs Headers) PrependVia(hop header.ViaHop) Headers {
@@ -419,7 +419,7 @@ func (hdrs Headers) ProxyRequireOptions() iter.Seq[header.OptionTag] {
 
 func copyHdrs(dst, src Headers, name HeaderName) {
 	for _, hdr := range src.Get(name) {
-		dst.Append(types.Clone[Header](hdr))
+		dst.Append(shared.Clone[Header](hdr))
 	}
 }
 
@@ -462,7 +462,7 @@ func compareHdrs(hdrs, other Headers) bool {
 		}
 
 		for i := range hs1 {
-			if !types.IsEqual(hs1[i], hs2[i]) {
+			if !shared.IsEqual(hs1[i], hs2[i]) {
 				return false
 			}
 		}
@@ -558,8 +558,8 @@ func FirstHeader[H Header](hdrs Headers, name HeaderName) (hdr H, ok bool) {
 	return h, ok
 }
 
-// FirstHeaderElem returns the first element of the first header of the given name.
-func FirstHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E, ok bool) {
+// FirstHeaderValue returns the first value of the first header of the given name.
+func FirstHeaderValue[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E, ok bool) {
 	hdr, ok := FirstHeader[Header](hdrs, name)
 	if !ok {
 		return nil, false
@@ -583,8 +583,8 @@ func LastHeader[H Header](hdrs Headers, name HeaderName) (hdr H, ok bool) {
 	return h, ok
 }
 
-// LastHeaderElem returns the last element of the last header of the given name.
-func LastHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E, ok bool) {
+// LastHeaderValue returns the last value of the last header of the given name.
+func LastHeaderValue[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E, ok bool) {
 	hdr, ok := LastHeader[Header](hdrs, name)
 	if !ok {
 		return nil, false
@@ -597,8 +597,8 @@ func LastHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (el *E, ok boo
 	return &es[len(es)-1], true
 }
 
-// AllHeaderElems returns all elements of all headers of the given name.
-func AllHeaderElems[H ~[]E, E any](hdrs Headers, name HeaderName) iter.Seq[*E] {
+// AllHeaderValues returns all values of all headers of the given name.
+func AllHeaderValues[H ~[]E, E any](hdrs Headers, name HeaderName) iter.Seq[*E] {
 	return func(yield func(*E) bool) {
 	loop:
 		for _, hdr := range hdrs.Get(name) {
@@ -613,9 +613,9 @@ func AllHeaderElems[H ~[]E, E any](hdrs Headers, name HeaderName) iter.Seq[*E] {
 	}
 }
 
-// PopFirstHeaderElem returns the first element of the first header of the given name
+// PopFirstHeaderValue returns the first value of the first header of the given name
 // and removes it from the headers.
-func PopFirstHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool) {
+func PopFirstHeaderValue[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool) {
 	hdr, ok := FirstHeader[Header](hdrs, name)
 	if !ok {
 		return nil, false
@@ -632,14 +632,14 @@ func PopFirstHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool)
 	} else {
 		copy(es, es[1:])
 		clear(es[len(es)-1:])
-		hdrs[name][0] = any(es[:len(es)-1]).(Header) //nolint:forcetypeassert
+		hdrs[name][0] = any(es[:len(es)-1]).(Header) //nolint:forcetypeassert // the concrete type is fixed by construction
 	}
 	return &el, true
 }
 
-// PopLastHeaderElem returns the last element of the last header of the given name
+// PopLastHeaderValue returns the last value of the last header of the given name
 // and removes it from the headers.
-func PopLastHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool) {
+func PopLastHeaderValue[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool) {
 	hdr, ok := LastHeader[Header](hdrs, name)
 	if !ok {
 		return nil, false
@@ -655,7 +655,7 @@ func PopLastHeaderElem[H ~[]E, E any](hdrs Headers, name HeaderName) (*E, bool) 
 		hdrs.PopLast(name)
 	} else {
 		clear(es[len(es)-1:])
-		hdrs[name][len(hdrs[name])-1] = any(es[:len(es)-1]).(Header) //nolint:forcetypeassert
+		hdrs[name][len(hdrs[name])-1] = any(es[:len(es)-1]).(Header) //nolint:forcetypeassert // the concrete type is fixed by construction
 	}
 	return &el, true
 }

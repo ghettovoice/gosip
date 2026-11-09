@@ -157,12 +157,10 @@ func TestRequest_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.req.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("req.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			got := sb.String()
 			if diff := cmp.Diff(got, tt.wantRes); diff != "" {
 				t.Fatalf("sb.String() = %q, want %q\ndiff (-got +want):\n%v", got, tt.wantRes, diff)
@@ -549,7 +547,6 @@ func TestRequest_Clone(t *testing.T) {
 				}
 				return
 			}
-
 			if diff := cmp.Diff(got, tt.req); diff != "" {
 				t.Errorf("req.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.req, diff)
 			}
@@ -633,7 +630,6 @@ func TestRequest_RoundTripJSON(t *testing.T) {
 			if err := json.Unmarshal(data, &got); err != nil {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(got, tt.req); diff != "" {
 				t.Errorf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%s", got, tt.req, diff)
 			}
@@ -702,40 +698,32 @@ func TestRequest_NewResponse(t *testing.T) {
 		if got, want := res.Status, sip.ResponseStatusOK; got != want {
 			t.Fatalf("res.Status = %v, want %v", got, want)
 		}
-
 		if got, want := res.Reason, reason; got != want {
 			t.Fatalf("res.Reason = %v, want %v", got, want)
 		}
-
 		if got, want := res.Proto, req.Proto; got != want {
 			t.Fatalf("res.Proto = %#v, want %#v", got, want)
 		}
-
 		if diff := cmp.Diff(res.Body, body); diff != "" {
 			t.Fatalf("res.Body mismatch (-got +want):\n%v", diff)
 		}
-
 		if viaCount := len(res.Headers.Get("Via")); viaCount != len(req.Headers.Get("Via")) {
 			t.Fatalf("unexpected Via count: got %d, want %d", viaCount, len(req.Headers.Get("Via")))
 		}
-
 		if foo := res.Headers.Get("X-Trace-Id"); len(foo) != 1 {
 			t.Fatalf("expected 1 X-Trace-Id, got %d", len(foo))
 		} else if v, ok := foo[0].(*header.Any); !ok || v.Value != "42" {
 			t.Fatalf("X-Trace-Id value = %q, want %q", v.Value, "42")
 		}
-
 		if extras := res.Headers.Get("X-Extra"); len(extras) != 2 {
 			t.Fatalf("expected 2 X-Extra headers, got %d", len(extras))
 		}
-
 		toHdr, _ := res.Headers.To()
 		if toTag, _ := toHdr.Tag(); toTag != locTag {
 			t.Fatalf("To tag = %q, want %q", toTag, locTag)
 		}
 
 		res.Headers.Append(&header.Any{Name: "X-New", Value: "value"})
-
 		if req.Headers.Has("X-New") {
 			t.Fatal("request headers mutated by response")
 		}
@@ -768,13 +756,15 @@ func TestRequest_NewResponse(t *testing.T) {
 		t.Parallel()
 
 		to := &header.To{
-			URI: &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.net")},
+			URI: &sip.URI{
+				User: sip.MakeUserInfo("bob"),
+				Addr: sip.MakeHostAddr("example.net"),
+			},
 		}
 		req := &sip.Request{
 			Proto:   sip.ProtoVer20(),
 			Headers: buildBaseHeaders(to),
 		}
-
 		reason := sip.ResponseReason("Trying")
 
 		res, err := req.NewResponse(sip.ResponseStatusTrying, sip.ResponseOptions{Reason: reason})
@@ -785,7 +775,6 @@ func TestRequest_NewResponse(t *testing.T) {
 		if got, want := res.Reason, reason; got != want {
 			t.Fatalf("res.Reason = %v, want %v", got, want)
 		}
-
 		toHdr, _ := res.Headers.To()
 		if toTag, _ := toHdr.Tag(); toTag != "" {
 			t.Fatalf("To tag unexpectedly set: %q", toTag)
@@ -833,7 +822,8 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 			SetLocalAddr(netip.MustParseAddrPort("192.0.2.10:5060")).
 			SetRemoteAddr(netip.MustParseAddrPort("198.51.100.20:5090"))
 		env.Metadata().
-			Set("trace_id", "inbound-req").Set("authenticated", true)
+			Set("trace_id", "inbound-req").
+			Set("authenticated", true)
 
 		return env
 	}
@@ -859,40 +849,32 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 			if err := json.Unmarshal(data, &got); err != nil {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
-
 			if tt.env == nil {
 				if got != nil {
 					t.Errorf("json.Unmarshal(null, got) = %+v, want nil", got)
 				}
 				return
 			}
-
 			if got == nil {
 				t.Fatal("json.Unmarshal(data, got) = nil, want non-nil")
 			}
-
 			if diff := cmp.Diff(got.Message(), tt.env.Message()); diff != "" {
 				t.Errorf("got.Message() = %+v, want %+v\ndiff (-got +want):\n%s", got.Message(), tt.env.Message(), diff)
 			}
-
 			if diff := cmp.Diff(got.Transport(), tt.env.Transport()); diff != "" {
 				t.Errorf("got.Transport() = %+v, want %+v\ndiff (-got +want):\n%s", got.Transport(), tt.env.Transport(), diff)
 			}
-
 			if got.LocalAddr() != tt.env.LocalAddr() {
 				t.Errorf("got.LocalAddr() = %v, want %v", got.LocalAddr(), tt.env.LocalAddr())
 			}
-
 			if got.RemoteAddr() != tt.env.RemoteAddr() {
 				t.Errorf("got.RemoteAddr() = %v, want %v", got.RemoteAddr(), tt.env.RemoteAddr())
 			}
-
 			if !got.MessageTime().Equal(tt.env.MessageTime()) {
 				t.Errorf("got.MessageTime() = %v, want %v", got.MessageTime(), tt.env.MessageTime())
 			}
 
 			gotMeta := got.Metadata()
-
 			wantMeta := tt.env.Metadata()
 			if gotMeta == nil || wantMeta == nil {
 				t.Fatalf("got.Metadata() = %v, want non-nil and want.Metadata() = %v", gotMeta, wantMeta)
@@ -900,12 +882,10 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 
 			for _, key := range []string{"trace_id", "authenticated"} {
 				gotVal, gotOK := gotMeta.Get(key)
-
 				wantVal, wantOK := wantMeta.Get(key)
 				if diff := cmp.Diff(gotOK, wantOK); diff != "" {
 					t.Errorf("got.Metadata().Get(%q) ok = %v, want %v\ndiff (-got +want):\n%s", key, gotOK, wantOK, diff)
 				}
-
 				if diff := cmp.Diff(gotVal, wantVal); diff != "" {
 					t.Errorf("got.Metadata().Get(%q) = %+v, want %+v\ndiff (-got +want):\n%s", key, gotVal, wantVal, diff)
 				}
@@ -915,7 +895,6 @@ func TestRequestEnvelope_RoundTripJSONWithAddr(t *testing.T) {
 			if err != nil {
 				t.Fatalf("json.Marshal(got) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(string(roundData), string(data)); diff != "" {
 				t.Errorf("round-trip data mismatch: got = %s, want %s\ndiff (-got +want):\n%s", roundData, data, diff)
 			}
@@ -962,7 +941,9 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 			SetTransport(sip.TCPMetadata()).
 			SetLocalAddr(netip.MustParseAddrPort("203.0.113.10:5070")).
 			SetRemoteAddr(netip.MustParseAddrPort("203.0.113.20:5080"))
-		env.Metadata().Set("trace_id", "outbound-req").Set("retransmit", false)
+		env.Metadata().
+			Set("trace_id", "outbound-req").
+			Set("retransmit", false)
 
 		return env
 	}
@@ -983,48 +964,38 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("json.Marshal(env) error = %v, want nil", err)
 			}
-
 			if tt.env == nil {
 				var got *sip.RequestEnvelope
 				if err := json.Unmarshal(data, &got); err != nil {
 					t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 				}
-
 				if got != nil {
 					t.Errorf("json.Unmarshal(null, got) = %+v, want nil", got)
 				}
-
 				return
 			}
 
 			var got *sip.RequestEnvelope
-
 			if err := json.Unmarshal(data, &got); err != nil {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(got.Message(), tt.env.Message()); diff != "" {
 				t.Errorf("got.Message() = %+v, want %+v\ndiff (-got +want):\n%s", got.Message(), tt.env.Message(), diff)
 			}
-
 			if diff := cmp.Diff(got.Transport(), tt.env.Transport()); diff != "" {
 				t.Errorf("got.Transport() = %+v, want %+v\ndiff (-got +want):\n%s", got.Transport(), tt.env.Transport(), diff)
 			}
-
 			if got.LocalAddr() != tt.env.LocalAddr() {
 				t.Errorf("got.LocalAddr() = %v, want %v", got.LocalAddr(), tt.env.LocalAddr())
 			}
-
 			if got.RemoteAddr() != tt.env.RemoteAddr() {
 				t.Errorf("got.RemoteAddr() = %v, want %v", got.RemoteAddr(), tt.env.RemoteAddr())
 			}
-
 			if !got.MessageTime().Equal(tt.env.MessageTime()) {
 				t.Errorf("got.MessageTime() = %v, want %v", got.MessageTime(), tt.env.MessageTime())
 			}
 
 			gotMeta := got.Metadata()
-
 			wantMeta := tt.env.Metadata()
 			if gotMeta == nil || wantMeta == nil {
 				t.Fatalf("got.Metadata() = %v, want non-nil and want.Metadata() = %v", gotMeta, wantMeta)
@@ -1032,12 +1003,10 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 
 			for _, key := range []string{"trace_id", "retransmit"} {
 				gotVal, gotOK := gotMeta.Get(key)
-
 				wantVal, wantOK := wantMeta.Get(key)
 				if diff := cmp.Diff(gotOK, wantOK); diff != "" {
 					t.Errorf("got.Metadata().Get(%q) ok = %v, want %v\ndiff (-got +want):\n%s", key, gotOK, wantOK, diff)
 				}
-
 				if diff := cmp.Diff(gotVal, wantVal); diff != "" {
 					t.Errorf("got.Metadata().Get(%q) = %+v, want %+v\ndiff (-got +want):\n%s", key, gotVal, wantVal, diff)
 				}
@@ -1047,7 +1016,6 @@ func TestRequestEnvelope_RoundTripJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("json.Marshal(got) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(string(roundData), string(data)); diff != "" {
 				t.Errorf("round-trip data mismatch: got = %s, want %s\ndiff (-got +want):\n%s", roundData, data, diff)
 			}
@@ -1073,11 +1041,9 @@ func TestRequestEnvelope_UnmarshalJSON_EdgeCases(t *testing.T) {
 			t.Parallel()
 
 			var env *sip.RequestEnvelope
-
 			if err := json.Unmarshal([]byte(tt.data), &env); err != nil {
 				t.Fatalf("json.Unmarshal(%q) error = %v, want nil", tt.data, err)
 			}
-
 			if tt.data == "null" {
 				if env != nil {
 					t.Errorf("json.Unmarshal(%q) = %+v, want nil", tt.data, env)
@@ -1089,15 +1055,12 @@ func TestRequestEnvelope_UnmarshalJSON_EdgeCases(t *testing.T) {
 			if msg == nil {
 				t.Fatal("env.Message() = nil, want non-nil pointer")
 			}
-
 			if diff := cmp.Diff(msg, &sip.Request{}); diff != "" {
 				t.Errorf("env.Message() not zero: diff (-got +want):\n%s", diff)
 			}
-
 			if env.MessageTime().IsZero() {
 				t.Errorf("env.MessageTime() is zero, want non-zero")
 			}
-
 			if env.Metadata() == nil {
 				t.Errorf("env.Metadata() = nil, want non-nil")
 			}

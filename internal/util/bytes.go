@@ -15,7 +15,7 @@ var bytesRdrPool = sync.Pool{
 }
 
 func GetBytesReader(b []byte) *bytes.Reader {
-	r := bytesRdrPool.Get().(*bytes.Reader) //nolint:forcetypeassert
+	r := bytesRdrPool.Get().(*bytes.Reader) //nolint:forcetypeassert // the pool only stores *bytes.Reader
 	r.Reset(b)
 	return r
 }
@@ -30,16 +30,14 @@ var bytesBufPool = &sync.Pool{
 }
 
 func GetBytesBuffer() *bytes.Buffer {
-	return bytesBufPool.Get().(*bytes.Buffer) //nolint:forcetypeassert
+	return bytesBufPool.Get().(*bytes.Buffer) //nolint:forcetypeassert // the pool only stores *bytes.Buffer
 }
 
 func FreeBytesBuffer(b *bytes.Buffer) {
 	b.Reset()
-
 	if b.Cap() > math.MaxUint16 {
 		return
 	}
-
 	bytesBufPool.Put(b)
 }
 
@@ -47,19 +45,19 @@ const maxVarintBytes = 10
 
 var (
 	ErrUnexpectedEOF    = io.ErrUnexpectedEOF
-	ErrMalformedUvarint = errors.New("malformed uvarint")
+	ErrMalformedUVarint = errors.New("malformed uvarint")
 )
 
 func SizePrefixedString[T ~string | ~[]byte](val T) int {
-	return SizeUVarInt(uint64(len(val))) + len(val)
+	return SizeUVarint(uint64(len(val))) + len(val)
 }
 
 func AppendPrefixedString[T ~string | ~[]byte](buf []byte, val T) []byte {
-	buf = AppendUVarInt(buf, uint64(len(val)))
+	buf = AppendUVarint(buf, uint64(len(val)))
 	return append(buf, val...)
 }
 
-func SizeUVarInt(val uint64) int {
+func SizeUVarint(val uint64) int {
 	size := 1
 	for val >= 0x80 {
 		size++
@@ -69,7 +67,7 @@ func SizeUVarInt(val uint64) int {
 	return size
 }
 
-func AppendUVarInt(buf []byte, val uint64) []byte {
+func AppendUVarint(buf []byte, val uint64) []byte {
 	for val >= 0x80 {
 		buf = append(buf, byte(val)|0x80)
 		val >>= 7
@@ -79,7 +77,7 @@ func AppendUVarInt(buf []byte, val uint64) []byte {
 }
 
 func ConsumePrefixedString(data []byte) (string, []byte, error) {
-	length, consumed, err := readUVarInt(data)
+	length, consumed, err := readUVarint(data)
 	if err != nil {
 		return "", nil, errtrace.Wrap(err)
 	}
@@ -98,8 +96,8 @@ func ConsumePrefixedString(data []byte) (string, []byte, error) {
 	return string(data[start:end]), data[end:], nil
 }
 
-func ConsumeUVarInt(data []byte) (uint64, []byte, error) {
-	val, consumed, err := readUVarInt(data)
+func ConsumeUVarint(data []byte) (uint64, []byte, error) {
+	val, consumed, err := readUVarint(data)
 	if err != nil {
 		return 0, nil, errtrace.Wrap(err)
 	}
@@ -111,7 +109,7 @@ func ConsumeUVarInt(data []byte) (uint64, []byte, error) {
 	return val, data[consumed:], nil
 }
 
-func readUVarInt(data []byte) (uint64, int, error) {
+func readUVarint(data []byte) (uint64, int, error) {
 	var (
 		value uint64
 		shift uint
@@ -119,7 +117,7 @@ func readUVarInt(data []byte) (uint64, int, error) {
 
 	for i, b := range data {
 		if i == maxVarintBytes {
-			return 0, i + 1, errtrace.Wrap(ErrMalformedUvarint)
+			return 0, i + 1, errtrace.Wrap(ErrMalformedUVarint)
 		}
 
 		value |= uint64(b&0x7f) << shift

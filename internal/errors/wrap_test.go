@@ -14,8 +14,7 @@ func TestWrap(t *testing.T) {
 	if err == nil {
 		t.Fatal("errors.Wrap() = nil, want error")
 	}
-
-	assertErrorIs(t, err, base)
+	assertErrIs(t, err, base)
 }
 
 func TestWrap2(t *testing.T) {
@@ -29,7 +28,6 @@ func TestWrap2(t *testing.T) {
 		if err != nil {
 			t.Fatalf("errors.Wrap2() error = %v, want nil", err)
 		}
-
 		if got != want {
 			t.Fatalf("errors.Wrap2() = %d, want %d", got, want)
 		}
@@ -44,12 +42,10 @@ func TestWrap2(t *testing.T) {
 		if got != want {
 			t.Fatalf("errors.Wrap2() = %d, want %d", got, want)
 		}
-
 		if err == nil {
 			t.Fatal("errors.Wrap2() error = nil, want error")
 		}
-
-		assertErrorIs(t, err, base)
+		assertErrIs(t, err, base)
 	})
 }
 
@@ -67,7 +63,6 @@ func TestWrap3(t *testing.T) {
 		if err != nil {
 			t.Fatalf("errors.Wrap3() error = %v, want nil", err)
 		}
-
 		if got1 != want1 || got2 != want2 {
 			t.Fatalf("errors.Wrap3() = (%q, %q), want (%q, %q)", got1, got2, want1, want2)
 		}
@@ -85,11 +80,9 @@ func TestWrap3(t *testing.T) {
 		if got1 != want1 || got2 != want2 {
 			t.Fatalf("errors.Wrap3() = (%q, %q), want (%q, %q)", got1, got2, want1, want2)
 		}
-
 		if err == nil {
 			t.Fatal("errors.Wrap3() error = nil, want error")
 		}
-
-		assertErrorIs(t, err, base)
+		assertErrIs(t, err, base)
 	})
 }

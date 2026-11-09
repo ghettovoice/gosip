@@ -11,8 +11,8 @@ import (
 	"github.com/ghettovoice/timeutil"
 
 	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/syncutil"
-	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/pkg/log"
 )
@@ -50,12 +50,12 @@ type TransactionManager struct {
 	closeOnce sync.Once
 	closeErr  error
 
-	clnTxs     syncutil.ShardMap[ClientTransactionKey, *clientTransactRegistration]
-	clnTxHdlrs types.CallbackManager[ClientTransactionHandler]
+	clnTxs     syncutil.ShardMap[ClientTransactionKey, *clnTxRegistration]
+	clnTxHdlrs shared.CallbackManager[ClientTransactionHandler]
 
-	srvTxs     syncutil.ShardMap[ServerTransactionKey, *serverTransactRegistration]
-	srvTxHdlrs types.CallbackManager[ServerTransactionHandler]
-	mergedReqs syncutil.ShardMap[mergedRequestKey, *serverTransactRegistration]
+	srvTxs     syncutil.ShardMap[ServerTransactionKey, *srvTxRegistration]
+	srvTxHdlrs shared.CallbackManager[ServerTransactionHandler]
+	mergedReqs syncutil.ShardMap[mergedReqKey, *srvTxRegistration]
 }
 
 var _ MessageInterceptor = (*TransactionManager)(nil)
@@ -66,18 +66,18 @@ const (
 	txmStateClosed
 )
 
-type clientTransactRegistration struct {
-	transactRegistration[ClientTransaction]
+type clnTxRegistration struct {
+	txRegistration[ClientTransaction]
 	txKey ClientTransactionKey
 }
 
-type serverTransactRegistration struct {
-	transactRegistration[ServerTransaction]
+type srvTxRegistration struct {
+	txRegistration[ServerTransaction]
 	txKey     ServerTransactionKey
-	mergedKey mergedRequestKey
+	mergedKey mergedReqKey
 }
 
-type transactRegistration[T Transaction] struct {
+type txRegistration[T Transaction] struct {
 	tx           T
 	startWatcher *timeutil.Watchdog
 	staleWatcher *timeutil.Watchdog
@@ -87,11 +87,11 @@ type transactRegistration[T Transaction] struct {
 	rejected bool
 	admitted bool
 	closed   bool
-	lastCtx  context.Context
+	lastCtx  context.Context //nolint:containedctx // the unbind callbacks run with the last observed ctx
 	unbinds  []func()
 }
 
-func (r *transactRegistration[T]) addUnbind(fn func()) {
+func (r *txRegistration[T]) addUnbind(fn func()) {
 	r.mu.Lock()
 	if !r.closed {
 		r.unbinds = append(r.unbinds, fn)
@@ -102,19 +102,19 @@ func (r *transactRegistration[T]) addUnbind(fn func()) {
 	fn()
 }
 
-func (r *transactRegistration[T]) reject() {
+func (r *txRegistration[T]) reject() {
 	r.mu.Lock()
 	r.rejected = true
 	r.mu.Unlock()
 }
 
-func (r *transactRegistration[T]) noteCtx(ctx context.Context) {
+func (r *txRegistration[T]) noteCtx(ctx context.Context) {
 	r.mu.Lock()
 	r.lastCtx = ctx
 	r.mu.Unlock()
 }
 
-func (r *transactRegistration[T]) notifyCtxOr(ctx context.Context) context.Context {
+func (r *txRegistration[T]) notifyCtxOr(ctx context.Context) context.Context {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.lastCtx == nil {
@@ -123,13 +123,13 @@ func (r *transactRegistration[T]) notifyCtxOr(ctx context.Context) context.Conte
 	return r.lastCtx
 }
 
-func (r *transactRegistration[T]) isUsable() bool {
+func (r *txRegistration[T]) isUsable() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.admitted && !r.closed
 }
 
-func (r *transactRegistration[T]) close() {
+func (r *txRegistration[T]) close() {
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
@@ -153,7 +153,7 @@ func (r *transactRegistration[T]) close() {
 	}
 }
 
-func (r *transactRegistration[T]) watchStart(
+func (r *txRegistration[T]) watchStart(
 	ctx context.Context,
 	timeout time.Duration,
 	onTimeout func(context.Context, Transaction),
@@ -185,7 +185,7 @@ func (r *transactRegistration[T]) watchStart(
 	}
 }
 
-func (r *transactRegistration[T]) stopStartWatcher() {
+func (r *txRegistration[T]) stopStartWatcher() {
 	r.mu.Lock()
 	if r.startWatcher != nil {
 		r.startWatcher.Close()
@@ -194,7 +194,7 @@ func (r *transactRegistration[T]) stopStartWatcher() {
 	r.mu.Unlock()
 }
 
-func (r *transactRegistration[T]) expireStartWatcher(
+func (r *txRegistration[T]) expireStartWatcher(
 	ctx context.Context,
 	watcher *timeutil.Watchdog,
 	onTimeout func(context.Context, Transaction),
@@ -215,7 +215,7 @@ func (r *transactRegistration[T]) expireStartWatcher(
 	}
 }
 
-func (r *transactRegistration[T]) watchStale(
+func (r *txRegistration[T]) watchStale(
 	ctx context.Context,
 	timeout time.Duration,
 	onTimeout func(context.Context, Transaction),
@@ -249,7 +249,7 @@ func (r *transactRegistration[T]) watchStale(
 	watcher.Start()
 }
 
-func (r *transactRegistration[T]) expireStaleWatcher(
+func (r *txRegistration[T]) expireStaleWatcher(
 	ctx context.Context,
 	watcher *timeutil.Watchdog,
 	onTimeout func(context.Context, Transaction),
@@ -272,24 +272,24 @@ func (r *transactRegistration[T]) expireStaleWatcher(
 	onTimeout(ctx, r.tx)
 }
 
-type mergedRequestKey struct {
+type mergedReqKey struct {
 	fromTag,
 	callID,
 	method string
 	seqNum uint
 }
 
-func makeMergedRequestKey(msg Message) (mergedRequestKey, error) {
+func makeMergedReqKey(msg Message) (mergedReqKey, error) {
 	if err := msg.Validate(); err != nil {
-		return mergedRequestKey{}, errors.Wrap(err)
+		return mergedReqKey{}, errors.Wrap(err)
 	}
 
 	hdrs, ok := GetMessageHeaders(msg)
 	if !ok {
-		return mergedRequestKey{}, errors.Wrap(newUnexpectMsgTypeErr(msg))
+		return mergedReqKey{}, errors.Wrap(newUnexpectMsgTypeErr(msg))
 	}
 
-	var k mergedRequestKey
+	var k mergedReqKey
 
 	from, _ := hdrs.From()
 	k.fromTag, _ = from.Tag()
@@ -391,13 +391,9 @@ func (txm *TransactionManager) InterceptInboundRequest(
 			}
 			if respondErr := Respond(
 				ContextWithTransaction(ctx, tx),
-				req,
-				sts,
-				tx,
-				rejectErr.RespondOptions(),
+				req, sts, tx, rejectErr.RespondOptions(),
 			); respondErr != nil {
-				txm.log().WarnContext(
-					ctx, "failed to respond via server transaction",
+				txm.log().WarnContext(ctx, "failed to respond via server transaction",
 					slog.Any("error", respondErr),
 					slog.Any("request", req),
 					slog.Any("transaction", tx),
@@ -574,7 +570,7 @@ func (txm *TransactionManager) RegisterClientTransaction(ctx context.Context, tx
 	ctx = ContextWithTransaction(ctx, tx)
 	txKey := tx.Key()
 
-	rec := &clientTransactRegistration{txKey: txKey}
+	rec := &clnTxRegistration{txKey: txKey}
 	rec.tx = tx
 	rec.drop = func() { txm.dropClnTx(rec) }
 	rec.addUnbind(tx.BindStateHandler(txm.clnTxStateHdlr(rec)))
@@ -619,14 +615,14 @@ func (txm *TransactionManager) RegisterClientTransaction(ctx context.Context, tx
 	return nil
 }
 
-func (txm *TransactionManager) dropClnTx(rec *clientTransactRegistration) {
+func (txm *TransactionManager) dropClnTx(rec *clnTxRegistration) {
 	rec.close()
-	txm.clnTxs.CompareAndDelete(rec.txKey, func(actual *clientTransactRegistration) bool {
+	txm.clnTxs.CompareAndDelete(rec.txKey, func(actual *clnTxRegistration) bool {
 		return actual == rec
 	})
 }
 
-func (txm *TransactionManager) clnTxStateHdlr(rec *clientTransactRegistration) TransactionStateHandlerFunc {
+func (txm *TransactionManager) clnTxStateHdlr(rec *clnTxRegistration) TransactionStateHandlerFunc {
 	return func(ctx context.Context, _, to TransactionState) {
 		rec.noteCtx(ctx)
 		if to == TransactionStateTerminated {
@@ -639,7 +635,7 @@ func (txm *TransactionManager) clnTxStateHdlr(rec *clientTransactRegistration) T
 	}
 }
 
-func (txm *TransactionManager) clnTxStartHdlr(rec *clientTransactRegistration) TransactionStartHandlerFunc {
+func (txm *TransactionManager) clnTxStartHdlr(rec *clnTxRegistration) TransactionStartHandlerFunc {
 	return func(ctx context.Context) {
 		rec.noteCtx(ctx)
 		rec.reject()
@@ -651,8 +647,7 @@ func (txm *TransactionManager) clnTxStartHdlr(rec *clientTransactRegistration) T
 func (txm *TransactionManager) handleTxTimeout(ctx context.Context, tx Transaction) {
 	ctx = ContextWithTransaction(ctx, tx)
 	if err := tx.Terminate(ctx, errors.Wrap(NewTransactionTimedOutError())); err != nil {
-		txm.log().ErrorContext(
-			ctx, "failed to terminate timed out transaction",
+		txm.log().ErrorContext(ctx, "failed to terminate timed out transaction",
 			slog.Any("transaction", tx),
 			slog.Any("error", err),
 		)
@@ -827,13 +822,13 @@ func (txm *TransactionManager) RegisterServerTransaction(ctx context.Context, tx
 	}
 	ctx = ContextWithTransaction(ctx, tx)
 
-	mergedKey, err := makeMergedRequestKey(tx.Request())
+	mergedKey, err := makeMergedReqKey(tx.Request())
 	if err != nil {
 		return errors.Wrap(err)
 	}
 	txKey := tx.Key()
 
-	rec := &serverTransactRegistration{txKey: txKey, mergedKey: mergedKey}
+	rec := &srvTxRegistration{txKey: txKey, mergedKey: mergedKey}
 	rec.tx = tx
 	rec.drop = func() { txm.dropSrvTx(rec) }
 	rec.addUnbind(tx.BindStateHandler(txm.srvTxStateHdlr(rec)))
@@ -879,18 +874,18 @@ func (txm *TransactionManager) RegisterServerTransaction(ctx context.Context, tx
 	return nil
 }
 
-func (txm *TransactionManager) dropSrvTx(rec *serverTransactRegistration) {
+func (txm *TransactionManager) dropSrvTx(rec *srvTxRegistration) {
 	rec.close()
-	if deleted := txm.srvTxs.CompareAndDelete(rec.txKey, func(actual *serverTransactRegistration) bool {
+	if deleted := txm.srvTxs.CompareAndDelete(rec.txKey, func(actual *srvTxRegistration) bool {
 		return actual == rec
 	}); deleted {
-		txm.mergedReqs.CompareAndDelete(rec.mergedKey, func(actual *serverTransactRegistration) bool {
+		txm.mergedReqs.CompareAndDelete(rec.mergedKey, func(actual *srvTxRegistration) bool {
 			return actual == rec
 		})
 	}
 }
 
-func (txm *TransactionManager) srvTxStateHdlr(rec *serverTransactRegistration) TransactionStateHandlerFunc {
+func (txm *TransactionManager) srvTxStateHdlr(rec *srvTxRegistration) TransactionStateHandlerFunc {
 	return func(ctx context.Context, _, to TransactionState) {
 		rec.noteCtx(ctx)
 		if to == TransactionStateTerminated {
@@ -903,7 +898,7 @@ func (txm *TransactionManager) srvTxStateHdlr(rec *serverTransactRegistration) T
 	}
 }
 
-func (txm *TransactionManager) srvTxStartHdlr(rec *serverTransactRegistration) TransactionStartHandlerFunc {
+func (txm *TransactionManager) srvTxStartHdlr(rec *srvTxRegistration) TransactionStartHandlerFunc {
 	return func(ctx context.Context) {
 		rec.noteCtx(ctx)
 		rec.reject()
@@ -943,7 +938,7 @@ func (txm *TransactionManager) NewServerTransaction(
 }
 
 func (txm *TransactionManager) LoadServerTransaction(key ServerTransactionKey) (ServerTransaction, bool) {
-	isAck := util.EqFold(key.Method, string(RequestMethodAck))
+	isAck := util.EqualFold(key.Method, string(RequestMethodAck))
 	if isAck {
 		key.Method = string(RequestMethodInvite)
 	}
@@ -970,7 +965,7 @@ func (txm *TransactionManager) LoadServerTransaction(key ServerTransactionKey) (
 // RFC 3261 Section 8.2.2.2.
 func (txm *TransactionManager) LookupMergedRequest(req Message) (ServerTransactionKey, bool) {
 	// TODO: check that req is actually a some request implementation
-	key, err := makeMergedRequestKey(req)
+	key, err := makeMergedReqKey(req)
 	if err != nil {
 		return ServerTransactionKey{}, false
 	}

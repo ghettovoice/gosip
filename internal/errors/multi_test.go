@@ -26,9 +26,8 @@ func TestJoin(t *testing.T) {
 		if err == nil {
 			t.Fatal("errors.Join() = nil, want error")
 		}
-
-		assertErrorIs(t, err, base)
-		assertErrorContains(t, err, "boom")
+		assertErrIs(t, err, base)
+		assertErrContains(t, err, "boom")
 	})
 
 	t.Run("multiple errors", func(t *testing.T) {
@@ -40,20 +39,18 @@ func TestJoin(t *testing.T) {
 		if err == nil {
 			t.Fatal("errors.Join() = nil, want error")
 		}
-
-		assertErrorIs(t, err, err1)
-		assertErrorIs(t, err, err2)
+		assertErrIs(t, err, err1)
+		assertErrIs(t, err, err2)
 
 		const want = "\n  - one\n  - two"
 		if err.Error() != want {
 			t.Fatalf("errors.Join() = %q, want %q", err.Error(), want)
 		}
 
-		unwrapped := unwrapErrors(t, err)
+		unwrapped := unwrapErrs(t, err)
 		if len(unwrapped) != 2 {
 			t.Fatalf("errors.Join() unwrap length = %d, want 2", len(unwrapped))
 		}
-
 		if !errors.Is(unwrapped[0], err1) || !errors.Is(unwrapped[1], err2) {
 			t.Fatalf("errors.Join() unwrap = %#v, want [%v %v]", unwrapped, err1, err2)
 		}
@@ -96,9 +93,8 @@ func TestJoinPrefix(t *testing.T) {
 		if err == nil {
 			t.Fatal("errors.JoinPrefix() = nil, want error")
 		}
-
-		assertErrorIs(t, err, base)
-		assertErrorContains(t, err, "root: boom")
+		assertErrIs(t, err, base)
+		assertErrContains(t, err, "root: boom")
 	})
 
 	t.Run("multiple errors", func(t *testing.T) {
@@ -110,20 +106,18 @@ func TestJoinPrefix(t *testing.T) {
 		if err == nil {
 			t.Fatal("errors.JoinPrefix() = nil, want error")
 		}
-
-		assertErrorIs(t, err, err1)
-		assertErrorIs(t, err, err2)
+		assertErrIs(t, err, err1)
+		assertErrIs(t, err, err2)
 
 		const want = "root:\n  - one\n  - two"
 		if err.Error() != want {
 			t.Fatalf("errors.JoinPrefix() = %q, want %q", err.Error(), want)
 		}
 
-		unwrapped := unwrapErrors(t, err)
+		unwrapped := unwrapErrs(t, err)
 		if len(unwrapped) != 2 {
 			t.Fatalf("errors.JoinPrefix() unwrap length = %d, want 2", len(unwrapped))
 		}
-
 		if !errors.Is(unwrapped[0], err1) || !errors.Is(unwrapped[1], err2) {
 			t.Fatalf("errors.JoinPrefix() unwrap = %#v, want [%v %v]", unwrapped, err1, err2)
 		}

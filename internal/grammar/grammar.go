@@ -29,7 +29,7 @@ const (
 	ErrUnexpectedNode Error = "unexpected ABNF node"
 )
 
-func newNodeNotFoundError(args ...any) error {
+func newNodeNotFoundErr(args ...any) error {
 	return errors.Prefix(ErrNodeNotFound, args...)
 }
 
@@ -37,7 +37,7 @@ func newNodeNotFoundError(args ...any) error {
 func MustGetNode(n *abnf.Node, k string) *abnf.Node {
 	sn, ok := n.GetNode(k)
 	if !ok {
-		panic(errors.Wrap(newNodeNotFoundError("node %q doesn't has child with key %q", n.Key, k)))
+		panic(errors.Wrap(newNodeNotFoundErr("node %q doesn't has child with key %q", n.Key, k)))
 	}
 	return sn
 }
@@ -99,7 +99,7 @@ func Unquote(s string) string {
 	return qs
 }
 
-func IsTelNum[T ~string | ~[]byte](s T) bool {
+func IsPhoneNumber[T ~string | ~[]byte](s T) bool {
 	if len(s) == 0 {
 		return false
 	}
@@ -121,14 +121,16 @@ func IsTelNum[T ~string | ~[]byte](s T) bool {
 	return ns.Best().Len() == len(s)
 }
 
-func IsGlobTelNum[T ~string | ~[]byte](s T) bool {
-	return IsTelNum(s) && s[0] == '+'
+func IsGlobalPhoneNumber[T ~string | ~[]byte](s T) bool {
+	return IsPhoneNumber(s) && s[0] == '+'
 }
 
-var telVisSepRpl = strings.NewReplacer(" ", "", "-", "", ".", "", "(", "", ")", "")
+var telSepReplacer = strings.NewReplacer(" ", "", "-", "", ".", "", "(", "", ")", "")
 
-// CleanTelNum removes all visual separators.
-func CleanTelNum[T ~string | ~[]byte](s T) T { return T(telVisSepRpl.Replace(string(s))) }
+// CleanPhoneNumber removes all visual separators.
+func CleanPhoneNumber[T ~string | ~[]byte](s T) T {
+	return T(telSepReplacer.Replace(string(s)))
+}
 
 func IsTelURIParamName[T ~string | ~[]byte](s T) bool {
 	if len(s) == 0 {

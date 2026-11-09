@@ -3,157 +3,63 @@ package netutil_test
 import (
 	"net"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/ghettovoice/gosip/internal/netutil"
 )
 
-type testListenerForDecorators struct {
+type testLisWrapper struct {
 	net.Listener
 	wrapped net.Listener
 }
 
-func (t *testListenerForDecorators) Unwrap() net.Listener {
+func (t *testLisWrapper) Unwrap() net.Listener {
 	return t.wrapped
 }
 
-type testConnForDecorators struct {
-	net.Conn
-	wrapped net.Conn
-}
-
-func (t *testConnForDecorators) Unwrap() net.Conn {
-	return t.wrapped
-}
-
-type testPacketConnForDecorators struct {
-	net.PacketConn
-	wrapped net.PacketConn
-}
-
-func (t *testPacketConnForDecorators) Unwrap() net.PacketConn {
-	return t.wrapped
-}
-
-type mockListenerForDecorators struct {
+type stubLis struct {
 	net.Listener
 	closed bool
 }
 
-func (m *mockListenerForDecorators) Close() error {
+func (m *stubLis) Close() error {
 	m.closed = true
 	return nil
 }
 
-func (*mockListenerForDecorators) Accept() (net.Conn, error) {
-	return &mockConnForDecorators{}, nil
+func (*stubLis) Accept() (net.Conn, error) {
+	return &stubConn{}, nil
 }
 
-func (*mockListenerForDecorators) Addr() net.Addr {
+func (*stubLis) Addr() net.Addr {
 	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}
-}
-
-type mockConnForDecorators struct {
-	net.Conn
-	closed bool
-}
-
-func (m *mockConnForDecorators) Close() error {
-	m.closed = true
-	return nil
-}
-
-func (*mockConnForDecorators) Read(b []byte) (n int, err error) {
-	return 0, nil
-}
-
-func (*mockConnForDecorators) Write(b []byte) (n int, err error) {
-	return len(b), nil
-}
-
-func (*mockConnForDecorators) LocalAddr() net.Addr {
-	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}
-}
-
-func (*mockConnForDecorators) RemoteAddr() net.Addr {
-	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8081}
-}
-
-func (*mockConnForDecorators) SetDeadline(t time.Time) error {
-	return nil
-}
-
-func (*mockConnForDecorators) SetReadDeadline(t time.Time) error {
-	return nil
-}
-
-func (*mockConnForDecorators) SetWriteDeadline(t time.Time) error {
-	return nil
-}
-
-type mockPacketConnForDecorators struct {
-	net.PacketConn
-	closed bool
-}
-
-func (m *mockPacketConnForDecorators) Close() error {
-	m.closed = true
-	return nil
-}
-
-func (*mockPacketConnForDecorators) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
-	return 0, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}, nil
-}
-
-func (*mockPacketConnForDecorators) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	return len(p), nil
-}
-
-func (*mockPacketConnForDecorators) LocalAddr() net.Addr {
-	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}
-}
-
-func (*mockPacketConnForDecorators) SetDeadline(t time.Time) error {
-	return nil
-}
-
-func (*mockPacketConnForDecorators) SetReadDeadline(t time.Time) error {
-	return nil
-}
-
-func (*mockPacketConnForDecorators) SetWriteDeadline(t time.Time) error {
-	return nil
 }
 
 func TestWrapListener(t *testing.T) {
 	t.Parallel()
 
-	original := &mockListenerForDecorators{}
+	orig := &stubLis{}
 
 	t.Run("empty chain", func(t *testing.T) {
 		t.Parallel()
 
 		chain := netutil.WrapListener()
-
-		got := chain(original)
-		if got != original {
-			t.Errorf("netutil.WrapListener() = %T, want %T", got, original)
+		got := chain(orig)
+		if got != orig {
+			t.Errorf("netutil.WrapListener() = %T, want %T", got, orig)
 		}
 	})
 
 	t.Run("single decorator", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(ls net.Listener) net.Listener {
-			return &testListenerForDecorators{Listener: ls, wrapped: ls}
-		}
-		chain := netutil.WrapListener(decorator)
-
-		got := chain(original)
-		if _, ok := got.(*testListenerForDecorators); !ok {
-			t.Errorf("netutil.WrapListener(decorator) = %T, want *testListenerForDecorators", got)
+		chain := netutil.WrapListener(func(ls net.Listener) net.Listener {
+			return &testLisWrapper{ls, ls}
+		})
+		got := chain(orig)
+		if _, ok := got.(*testLisWrapper); !ok {
+			t.Errorf("netutil.WrapListener(decorator) = %T, want *testListenerWrapper", got)
 		}
 	})
 
@@ -161,64 +67,61 @@ func TestWrapListener(t *testing.T) {
 		t.Parallel()
 
 		var callOrder []int
-
-		decorator1 := func(ls net.Listener) net.Listener {
-			callOrder = append(callOrder, 1)
-			return &testListenerForDecorators{Listener: ls, wrapped: ls}
-		}
-		decorator2 := func(ls net.Listener) net.Listener {
-			callOrder = append(callOrder, 2)
-			return &testListenerForDecorators{Listener: ls, wrapped: ls}
-		}
-
-		chain := netutil.WrapListener(decorator1, decorator2)
-		result := chain(original)
+		chain := netutil.WrapListener(
+			func(ls net.Listener) net.Listener {
+				callOrder = append(callOrder, 1)
+				return &testLisWrapper{ls, ls}
+			},
+			func(ls net.Listener) net.Listener {
+				callOrder = append(callOrder, 2)
+				return &testLisWrapper{ls, ls}
+			},
+		)
+		result := chain(orig)
 
 		wantOrder := []int{1, 2}
 		if diff := cmp.Diff(callOrder, wantOrder); diff != "" {
 			t.Errorf("decorator call order mismatch\ndiff (-got +want):\n%v", diff)
 		}
 
-		if tl, ok := result.(*testListenerForDecorators); ok {
+		if tl, ok := result.(*testLisWrapper); ok {
 			// The first decorator (decorator1) should be the innermost
 			// So tl.wrapped should be the result of decorator2, which wraps the result of decorator1
-			if innerTL, ok := tl.wrapped.(*testListenerForDecorators); ok {
-				if innerTL.wrapped != original {
+			if innerTL, ok := tl.wrapped.(*testLisWrapper); ok {
+				if innerTL.wrapped != orig {
 					t.Error("decorators not applied in correct order")
 				}
 			} else {
-				t.Error("expected inner testListenerForDecorators")
+				t.Error("expected inner testListenerWrapper")
 			}
 		} else {
-			t.Errorf("netutil.WrapListener() = %T, want *testListenerForDecorators", result)
+			t.Errorf("netutil.WrapListener() = %T, want *testListenerWrapper", result)
 		}
 	})
 
 	t.Run("nil decorators are skipped", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(ls net.Listener) net.Listener {
-			return &testListenerForDecorators{Listener: ls, wrapped: ls}
-		}
-		chain := netutil.WrapListener(nil, decorator, nil)
+		chain := netutil.WrapListener(nil, func(ls net.Listener) net.Listener {
+			return &testLisWrapper{ls, ls}
+		}, nil)
 
-		got := chain(original)
-		if _, ok := got.(*testListenerForDecorators); !ok {
-			t.Errorf("netutil.WrapListener(nil, decorator, nil) = %T, want *testListenerForDecorators", got)
+		got := chain(orig)
+		if _, ok := got.(*testLisWrapper); !ok {
+			t.Errorf("netutil.WrapListener(nil, decorator, nil) = %T, want *testListenerWrapper", got)
 		}
 	})
 
 	t.Run("nil decorators are skipped with multiple decorators", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(ls net.Listener) net.Listener {
-			return &testListenerForDecorators{Listener: ls, wrapped: ls}
-		}
-		chain := netutil.WrapListener(nil, decorator, nil)
+		chain := netutil.WrapListener(nil, func(ls net.Listener) net.Listener {
+			return &testLisWrapper{ls, ls}
+		}, nil)
 
-		got := chain(original)
-		if _, ok := got.(*testListenerForDecorators); !ok {
-			t.Errorf("netutil.WrapListener(nil, decorator, nil) = %T, want *testListenerForDecorators", got)
+		got := chain(orig)
+		if _, ok := got.(*testLisWrapper); !ok {
+			t.Errorf("netutil.WrapListener(nil, decorator, nil) = %T, want *testListenerWrapper", got)
 		}
 	})
 }
@@ -226,30 +129,27 @@ func TestWrapListener(t *testing.T) {
 func TestWrapConn(t *testing.T) {
 	t.Parallel()
 
-	original := &mockConnForDecorators{}
+	orig := &stubConn{}
 
 	t.Run("empty chain", func(t *testing.T) {
 		t.Parallel()
 
 		chain := netutil.WrapConn()
-
-		got := chain(original)
-		if got != net.Conn(original) {
-			t.Errorf("netutil.WrapConn() = %T, want %T", got, original)
+		got := chain(orig)
+		if got != net.Conn(orig) {
+			t.Errorf("netutil.WrapConn() = %T, want %T", got, orig)
 		}
 	})
 
 	t.Run("single decorator", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(conn net.Conn) net.Conn {
-			return &testConnForDecorators{Conn: conn, wrapped: conn}
-		}
-		chain := netutil.WrapConn(decorator)
-
-		got := chain(original)
-		if _, ok := got.(*testConnForDecorators); !ok {
-			t.Errorf("netutil.WrapConn(decorator) = %T, want *testConnForDecorators", got)
+		chain := netutil.WrapConn(func(conn net.Conn) net.Conn {
+			return &testConnWrapper{conn, conn}
+		})
+		got := chain(orig)
+		if _, ok := got.(*testConnWrapper); !ok {
+			t.Errorf("netutil.WrapConn(decorator) = %T, want *testConnWrapper", got)
 		}
 	})
 
@@ -257,78 +157,71 @@ func TestWrapConn(t *testing.T) {
 		t.Parallel()
 
 		var callOrder []int
-
-		decorator1 := func(conn net.Conn) net.Conn {
-			callOrder = append(callOrder, 1)
-			return &testConnForDecorators{Conn: conn, wrapped: conn}
-		}
-		decorator2 := func(conn net.Conn) net.Conn {
-			callOrder = append(callOrder, 2)
-			return &testConnForDecorators{Conn: conn, wrapped: conn}
-		}
-
-		chain := netutil.WrapConn(decorator1, decorator2)
-		result := chain(original)
+		chain := netutil.WrapConn(
+			func(conn net.Conn) net.Conn {
+				callOrder = append(callOrder, 1)
+				return &testConnWrapper{conn, conn}
+			},
+			func(conn net.Conn) net.Conn {
+				callOrder = append(callOrder, 2)
+				return &testConnWrapper{conn, conn}
+			},
+		)
+		result := chain(orig)
 
 		wantOrder := []int{1, 2}
 		if diff := cmp.Diff(callOrder, wantOrder); diff != "" {
 			t.Errorf("decorator call order mismatch\ndiff (-got +want):\n%v", diff)
 		}
 
-		if tc, ok := result.(*testConnForDecorators); ok {
+		if tc, ok := result.(*testConnWrapper); ok {
 			// decorator2 should be outermost, decorator1 should be inner
 			inner := tc.wrapped
-			if innerTC, ok := inner.(*testConnForDecorators); ok {
-				if innerTC.wrapped != net.Conn(original) {
+			if innerTC, ok := inner.(*testConnWrapper); ok {
+				if innerTC.wrapped != net.Conn(orig) {
 					t.Error("decorators not applied in correct reverse order")
 				}
 			} else {
-				t.Errorf("inner wrapper = %T, want *testConnForDecorators", inner)
+				t.Errorf("inner wrapper = %T, want *testConnWrapper", inner)
 			}
 		} else {
-			t.Errorf("netutil.WrapConn() = %T, want *testConnForDecorators", result)
+			t.Errorf("netutil.WrapConn() = %T, want *testConnWrapper", result)
 		}
 	})
 
 	t.Run("nil decorators are skipped", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(conn net.Conn) net.Conn {
-			return &testConnForDecorators{Conn: conn, wrapped: conn}
-		}
-		chain := netutil.WrapConn(nil, decorator, nil)
-
-		got := chain(original)
-		if _, ok := got.(*testConnForDecorators); !ok {
-			t.Errorf("netutil.WrapConn(nil, decorator, nil) = %T, want *testConnForDecorators", got)
+		chain := netutil.WrapConn(nil, func(conn net.Conn) net.Conn {
+			return &testConnWrapper{conn, conn}
+		}, nil)
+		got := chain(orig)
+		if _, ok := got.(*testConnWrapper); !ok {
+			t.Errorf("netutil.WrapConn(nil, decorator, nil) = %T, want *testConnWrapper", got)
 		}
 	})
 
 	t.Run("nil decorators are skipped with multiple decorators", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(conn net.Conn) net.Conn {
-			return &testConnForDecorators{Conn: conn, wrapped: conn}
-		}
-		chain := netutil.WrapConn(nil, decorator, nil)
-
-		got := chain(original)
-		if _, ok := got.(*testConnForDecorators); !ok {
-			t.Errorf("netutil.WrapConn(nil, decorator, nil) = %T, want *testConnForDecorators", got)
+		chain := netutil.WrapConn(nil, func(conn net.Conn) net.Conn {
+			return &testConnWrapper{conn, conn}
+		}, nil)
+		got := chain(orig)
+		if _, ok := got.(*testConnWrapper); !ok {
+			t.Errorf("netutil.WrapConn(nil, decorator, nil) = %T, want *testConnWrapper", got)
 		}
 	})
 
 	t.Run("nil decorators are skipped with multiple decorators", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(conn net.Conn) net.Conn {
-			return &testConnForDecorators{Conn: conn, wrapped: conn}
-		}
-		chain := netutil.WrapConn(nil, decorator, nil)
-
-		got := chain(original)
-		if _, ok := got.(*testConnForDecorators); !ok {
-			t.Errorf("netutil.WrapConn(nil, decorator, nil) = %T, want *testConnForDecorators", got)
+		chain := netutil.WrapConn(nil, func(conn net.Conn) net.Conn {
+			return &testConnWrapper{conn, conn}
+		}, nil)
+		got := chain(orig)
+		if _, ok := got.(*testConnWrapper); !ok {
+			t.Errorf("netutil.WrapConn(nil, decorator, nil) = %T, want *testConnWrapper", got)
 		}
 	})
 }
@@ -336,30 +229,27 @@ func TestWrapConn(t *testing.T) {
 func TestWrapPacketConn(t *testing.T) {
 	t.Parallel()
 
-	original := &mockPacketConnForDecorators{}
+	orig := &stubPktConn{}
 
 	t.Run("empty chain", func(t *testing.T) {
 		t.Parallel()
 
 		chain := netutil.WrapPacketConn()
-
-		got := chain(original)
-		if got != net.PacketConn(original) {
-			t.Errorf("netutil.WrapPacketConn() = %T, want %T", got, original)
+		got := chain(orig)
+		if got != net.PacketConn(orig) {
+			t.Errorf("netutil.WrapPacketConn() = %T, want %T", got, orig)
 		}
 	})
 
 	t.Run("single decorator", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(conn net.PacketConn) net.PacketConn {
-			return &testPacketConnForDecorators{PacketConn: conn, wrapped: conn}
-		}
-		chain := netutil.WrapPacketConn(decorator)
-
-		got := chain(original)
-		if _, ok := got.(*testPacketConnForDecorators); !ok {
-			t.Errorf("netutil.WrapPacketConn(decorator) = %T, want *testPacketConnForDecorators", got)
+		chain := netutil.WrapPacketConn(func(conn net.PacketConn) net.PacketConn {
+			return &testPktConnWrapper{conn, conn}
+		})
+		got := chain(orig)
+		if _, ok := got.(*testPktConnWrapper); !ok {
+			t.Errorf("netutil.WrapPacketConn(decorator) = %T, want *testPktConnWrapper", got)
 		}
 	})
 
@@ -367,78 +257,71 @@ func TestWrapPacketConn(t *testing.T) {
 		t.Parallel()
 
 		var callOrder []int
-
-		decorator1 := func(conn net.PacketConn) net.PacketConn {
-			callOrder = append(callOrder, 1)
-			return &testPacketConnForDecorators{PacketConn: conn, wrapped: conn}
-		}
-		decorator2 := func(conn net.PacketConn) net.PacketConn {
-			callOrder = append(callOrder, 2)
-			return &testPacketConnForDecorators{PacketConn: conn, wrapped: conn}
-		}
-
-		chain := netutil.WrapPacketConn(decorator1, decorator2)
-		result := chain(original)
+		chain := netutil.WrapPacketConn(
+			func(conn net.PacketConn) net.PacketConn {
+				callOrder = append(callOrder, 1)
+				return &testPktConnWrapper{conn, conn}
+			},
+			func(conn net.PacketConn) net.PacketConn {
+				callOrder = append(callOrder, 2)
+				return &testPktConnWrapper{conn, conn}
+			},
+		)
+		result := chain(orig)
 
 		wantOrder := []int{1, 2}
 		if diff := cmp.Diff(callOrder, wantOrder); diff != "" {
 			t.Errorf("decorator call order mismatch\ndiff (-got +want):\n%v", diff)
 		}
 
-		if tpc, ok := result.(*testPacketConnForDecorators); ok {
+		if tpc, ok := result.(*testPktConnWrapper); ok {
 			// decorator2 should be outermost, decorator1 should be inner
 			inner := tpc.wrapped
-			if innerTPC, ok := inner.(*testPacketConnForDecorators); ok {
-				if innerTPC.wrapped != net.PacketConn(original) {
+			if innerTPC, ok := inner.(*testPktConnWrapper); ok {
+				if innerTPC.wrapped != net.PacketConn(orig) {
 					t.Error("decorators not applied in correct reverse order")
 				}
 			} else {
-				t.Errorf("inner wrapper = %T, want *testPacketConnForDecorators", inner)
+				t.Errorf("inner wrapper = %T, want *testPktConnWrapper", inner)
 			}
 		} else {
-			t.Errorf("netutil.WrapPacketConn() = %T, want *testPacketConnForDecorators", result)
+			t.Errorf("netutil.WrapPacketConn() = %T, want *testPktConnWrapper", result)
 		}
 	})
 
 	t.Run("nil decorators are skipped", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(conn net.PacketConn) net.PacketConn {
-			return &testPacketConnForDecorators{PacketConn: conn, wrapped: conn}
-		}
-		chain := netutil.WrapPacketConn(nil, decorator, nil)
-
-		got := chain(original)
-		if _, ok := got.(*testPacketConnForDecorators); !ok {
-			t.Errorf("netutil.WrapPacketConn(nil, decorator, nil) = %T, want *testPacketConnForDecorators", got)
+		chain := netutil.WrapPacketConn(nil, func(conn net.PacketConn) net.PacketConn {
+			return &testPktConnWrapper{conn, conn}
+		}, nil)
+		got := chain(orig)
+		if _, ok := got.(*testPktConnWrapper); !ok {
+			t.Errorf("netutil.WrapPacketConn(nil, decorator, nil) = %T, want *testPktConnWrapper", got)
 		}
 	})
 
 	t.Run("nil decorators are skipped with multiple decorators", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(conn net.PacketConn) net.PacketConn {
-			return &testPacketConnForDecorators{PacketConn: conn, wrapped: conn}
-		}
-		chain := netutil.WrapPacketConn(nil, decorator, nil)
-
-		got := chain(original)
-		if _, ok := got.(*testPacketConnForDecorators); !ok {
-			t.Errorf("netutil.WrapPacketConn(nil, decorator, nil) = %T, want *testPacketConnForDecorators", got)
+		chain := netutil.WrapPacketConn(nil, func(conn net.PacketConn) net.PacketConn {
+			return &testPktConnWrapper{conn, conn}
+		}, nil)
+		got := chain(orig)
+		if _, ok := got.(*testPktConnWrapper); !ok {
+			t.Errorf("netutil.WrapPacketConn(nil, decorator, nil) = %T, want *testPktConnWrapper", got)
 		}
 	})
 
 	t.Run("nil decorators are skipped with multiple decorators", func(t *testing.T) {
 		t.Parallel()
 
-		decorator := func(conn net.PacketConn) net.PacketConn {
-			return &testPacketConnForDecorators{PacketConn: conn, wrapped: conn}
-		}
-		chain := netutil.WrapPacketConn(nil, decorator, nil)
-
-		got := chain(original)
-		if _, ok := got.(*testPacketConnForDecorators); !ok {
-			t.Errorf("netutil.WrapPacketConn(nil, decorator, nil) = %T, want *testPacketConnForDecorators", got)
+		chain := netutil.WrapPacketConn(nil, func(conn net.PacketConn) net.PacketConn {
+			return &testPktConnWrapper{conn, conn}
+		}, nil)
+		got := chain(orig)
+		if _, ok := got.(*testPktConnWrapper); !ok {
+			t.Errorf("netutil.WrapPacketConn(nil, decorator, nil) = %T, want *testPktConnWrapper", got)
 		}
 	})
 }

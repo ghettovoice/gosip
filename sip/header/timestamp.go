@@ -22,112 +22,54 @@ func (*Timestamp) CanonicName() Name { return "Timestamp" }
 
 func (*Timestamp) CompactName() Name { return "Timestamp" }
 
-func (hdr *Timestamp) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr *Timestamp) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr *Timestamp) renderValueTo(w io.Writer) (num int, err error) {
+func (hdr *Timestamp) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
 
 	if !hdr.RequestTime.IsZero() {
-		cw.Fprint(formatTimestampSecs(hdr.RequestTime.UnixNano()))
+		cw.Fprint(formatTstampSecs(hdr.RequestTime.UnixNano()))
 	} else {
 		cw.Fprint("0")
 	}
 
 	if hdr.ResponseDelay > 0 {
 		cw.Fprint(" ")
-		cw.Fprint(formatTimestampSecs(int64(hdr.ResponseDelay)))
+		cw.Fprint(formatTstampSecs(int64(hdr.ResponseDelay)))
 	}
-
 	return errors.Wrap2(cw.Result())
 }
 
-// formatTimestampSecs formats nanoseconds as a decimal seconds string with up to 9
-// fractional digits and no trailing zeros (e.g. 543_000_000 ns → "0.543").
-func formatTimestampSecs(ns int64) string {
-	sec := ns / int64(time.Second)
-	frac := ns % int64(time.Second)
-
-	if frac == 0 {
-		return strconv.FormatInt(sec, 10)
-	}
-
-	// Ensure fractional part is positive for negative timestamps.
-	if frac < 0 {
-		sec--
-		frac += int64(time.Second)
-	}
-
-	// Format 9-digit fractional part, then trim trailing zeros.
-	buf := fmt.Sprintf("%d.%09d", sec, frac)
-	i := len(buf)
-	for i > 0 && buf[i-1] == '0' {
-		i--
-	}
-	return buf[:i]
-}
-
 func (hdr *Timestamp) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 func (hdr *Timestamp) RenderValue() string {
 	if hdr == nil {
 		return ""
 	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrVal(hdr)
 }
 
-func (hdr *Timestamp) String() string { return hdr.RenderValue() }
+func (hdr *Timestamp) String() string {
+	return hdr.RenderValue()
+}
 
 func (hdr *Timestamp) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods Timestamp
-			Timestamp   hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*Timestamp)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods Timestamp
+		Timestamp   hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*Timestamp)(hdr))
 }
 
 func (hdr *Timestamp) Clone() Header {
@@ -135,32 +77,20 @@ func (hdr *Timestamp) Clone() Header {
 		return nil
 	}
 
-	hdr2 := *hdr
-	return &hdr2
+	clone := *hdr
+	return &clone
 }
 
 func (hdr *Timestamp) Equal(val any) bool {
-	var other *Timestamp
-	switch v := val.(type) {
-	case Timestamp:
-		other = &v
-	case *Timestamp:
-		other = v
-	default:
-		return false
-	}
-
-	if hdr == other {
-		return true
-	} else if hdr == nil || other == nil {
-		return false
-	}
-
-	return hdr.RequestTime.Equal(other.RequestTime) && hdr.ResponseDelay == other.ResponseDelay
+	return util.EqualPointer(hdr, val, func(other *Timestamp) bool {
+		return hdr.RequestTime.Equal(other.RequestTime) && hdr.ResponseDelay == other.ResponseDelay
+	})
 }
 
 func (hdr *Timestamp) IsValid() bool {
-	return hdr != nil && !hdr.RequestTime.IsZero() && hdr.ResponseDelay >= 0
+	return hdr != nil &&
+		!hdr.RequestTime.IsZero() &&
+		hdr.ResponseDelay >= 0
 }
 
 func (hdr *Timestamp) MarshalJSON() ([]byte, error) {
@@ -168,7 +98,7 @@ func (hdr *Timestamp) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Timestamp) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromTimestampNode(node *abnf.Node) *Timestamp {
@@ -190,7 +120,6 @@ func buildFromTimestampNode(node *abnf.Node) *Timestamp {
 
 		hdr.ResponseDelay = time.Duration(intNs*int64(time.Second) + fracNs)
 	}
-
 	return &hdr
 }
 
@@ -202,7 +131,7 @@ func parseSecsNodes(intBytes, fracBytes []byte) (wholeSecs, fracNanos int64, err
 	if len(intBytes) > 0 {
 		wholeSecs, err = strconv.ParseInt(string(intBytes), 10, 64)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, errors.Wrap(err)
 		}
 	}
 
@@ -230,8 +159,7 @@ func parseSecsNodes(intBytes, fracBytes []byte) (wholeSecs, fracNanos int64, err
 
 	fracNanos, err = strconv.ParseInt(string(buf[:]), 10, 64)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, errors.Wrap(err)
 	}
-
 	return wholeSecs, fracNanos, nil
 }

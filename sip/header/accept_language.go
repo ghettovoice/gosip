@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
@@ -20,92 +19,57 @@ func (AcceptLanguage) CanonicName() Name { return "Accept-Language" }
 
 func (AcceptLanguage) CompactName() Name { return "Accept-Language" }
 
-func (hdr AcceptLanguage) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr AcceptLanguage) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr AcceptLanguage) renderValueTo(w io.Writer) (num int, err error) {
-	return errors.Wrap2(renderHdrEntries(w, hdr))
+func (hdr AcceptLanguage) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrValsTo(w, hdr))
 }
 
 func (hdr AcceptLanguage) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 func (hdr AcceptLanguage) RenderValue() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrVal(hdr)
 }
 
-func (hdr AcceptLanguage) String() string { return hdr.RenderValue() }
+func (hdr AcceptLanguage) String() string {
+	return hdr.RenderValue()
+}
 
 func (hdr AcceptLanguage) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods    AcceptLanguage
-			AcceptLanguage hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), AcceptLanguage(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods    AcceptLanguage
+		AcceptLanguage hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), AcceptLanguage(hdr))
 }
 
-func (hdr AcceptLanguage) Clone() Header { return cloneHdrEntries(hdr) }
+func (hdr AcceptLanguage) Clone() Header {
+	return cloneHdrVals(hdr)
+}
 
 func (hdr AcceptLanguage) Equal(val any) bool {
-	var other AcceptLanguage
-	switch v := val.(type) {
-	case AcceptLanguage:
-		other = v
-	case *AcceptLanguage:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(rng1, rng2 LanguageRange) bool { return rng1.Equal(rng2) })
+	return util.EqualValue(val, func(other AcceptLanguage) bool {
+		return slices.EqualFunc(hdr, other, func(rng1, rng2 LanguageRange) bool {
+			return rng1.Equal(rng2)
+		})
+	})
 }
 
 func (hdr AcceptLanguage) IsValid() bool {
-	return hdr != nil && !slices.ContainsFunc(hdr, func(rng LanguageRange) bool { return !rng.IsValid() })
+	return hdr != nil &&
+		!slices.ContainsFunc(hdr, func(rng LanguageRange) bool {
+			return !rng.IsValid()
+		})
 }
 
 func (hdr AcceptLanguage) MarshalJSON() ([]byte, error) {
@@ -122,7 +86,7 @@ func buildFromAcceptLanguageNode(node *abnf.Node) AcceptLanguage {
 	for i, rngNode := range rngNodes {
 		hdr[i] = LanguageRange{
 			Lang:   Language(grammar.MustGetNode(rngNode, "language-range").String()),
-			Params: buildFromHeaderParamNodes(rngNode.GetNodes("accept-param"), nil),
+			Params: buildFromHdrParamNodes(rngNode.GetNodes("accept-param"), nil),
 		}
 	}
 	return hdr
@@ -134,59 +98,47 @@ type LanguageRange struct {
 }
 
 func (rng LanguageRange) String() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
+	return renderVal(rng)
+}
 
-	sb.WriteString(string(rng.Lang))
-	_, _ = renderHdrParams(sb, rng.Params, false)
-	return sb.String()
+func (rng LanguageRange) renderTo(w io.Writer) (num int, err error) {
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.WriteString(string(rng.Lang))
+	cw.Call(func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderHdrParamsTo(w, rng.Params, false))
+	})
+	return errors.Wrap2(cw.Result())
 }
 
 func (rng LanguageRange) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		fmt.Fprint(f, rng.String())
-		return
-	case 'q':
-		fmt.Fprint(f, strconv.Quote(rng.String()))
-		return
-	default:
-		if !f.Flag('+') && !f.Flag('#') {
-			fmt.Fprint(f, rng.String())
-			return
-		}
-
-		type (
-			hideMethods   LanguageRange
-			LanguageRange hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), LanguageRange(rng))
+	if formatVal(f, verb, rng) {
 		return
 	}
+	type (
+		hideMethods   LanguageRange
+		LanguageRange hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), LanguageRange(rng))
 }
 
 func (rng LanguageRange) Equal(val any) bool {
-	var other LanguageRange
-	switch v := val.(type) {
-	case LanguageRange:
-		other = v
-	case *LanguageRange:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return rng.Lang.Equal(other.Lang) && compareHdrParams(rng.Params, other.Params, map[string]bool{"q": true})
+	return util.EqualValue(val, func(other LanguageRange) bool {
+		return rng.Lang.Equal(other.Lang) &&
+			compareHdrParams(rng.Params, other.Params, map[string]bool{
+				"q": true,
+			})
+	})
 }
 
 func (rng LanguageRange) IsValid() bool {
 	return rng.Lang.IsValid() && validateHdrParams(rng.Params)
 }
 
-func (rng LanguageRange) IsZero() bool { return rng.Lang == "" && len(rng.Params) == 0 }
+func (rng LanguageRange) IsZero() bool {
+	return rng.Lang == "" && len(rng.Params) == 0
+}
 
 func (rng LanguageRange) Clone() LanguageRange {
 	rng.Params = rng.Params.Clone()
@@ -223,6 +175,6 @@ func (rng *LanguageRange) UnmarshalText(data []byte) (finErr error) {
 	}
 
 	rng.Lang = Language(grammar.MustGetNode(node, "language-range").String())
-	rng.Params = buildFromHeaderParamNodes(node.GetNodes("accept-param"), nil)
+	rng.Params = buildFromHdrParamNodes(node.GetNodes("accept-param"), nil)
 	return nil
 }

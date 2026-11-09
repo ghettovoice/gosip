@@ -15,7 +15,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	gdns "github.com/ghettovoice/gosip/pkg/dns"
+	"github.com/ghettovoice/gosip/pkg/dns"
 	"github.com/ghettovoice/gosip/sip"
 )
 
@@ -37,8 +37,8 @@ type lookupNAPTRCall struct {
 // stubLookup is a Lookup test double with per-method callbacks and call records.
 type stubLookup struct {
 	lookupIPFunc    func(ctx context.Context, network, host string) ([]net.IP, error)
-	lookupSRVFunc   func(ctx context.Context, service, proto, host string) ([]*gdns.SRV, error)
-	lookupNAPTRFunc func(ctx context.Context, host string) ([]*gdns.NAPTR, error)
+	lookupSRVFunc   func(ctx context.Context, service, proto, host string) ([]*dns.SRV, error)
+	lookupNAPTRFunc func(ctx context.Context, host string) ([]*dns.NAPTR, error)
 
 	mu         sync.Mutex
 	ipCalls    []lookupIPCall
@@ -47,10 +47,10 @@ type stubLookup struct {
 }
 
 var (
-	_ gdns.Lookup     = (*stubLookup)(nil)
-	_ gdns.Lookup     = (*gdns.Resolver)(nil)
-	_ gdns.Lookup     = (*gdns.CachedResolver)(nil)
-	_ sip.DNSResolver = (*gdns.CachedResolver)(nil)
+	_ dns.Lookup      = (*stubLookup)(nil)
+	_ dns.Lookup      = (*dns.Resolver)(nil)
+	_ dns.Lookup      = (*dns.CachedResolver)(nil)
+	_ sip.DNSResolver = (*dns.CachedResolver)(nil)
 )
 
 func (s *stubLookup) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
@@ -64,7 +64,7 @@ func (s *stubLookup) LookupIP(ctx context.Context, network, host string) ([]net.
 	return nil, nil
 }
 
-func (s *stubLookup) LookupSRV(ctx context.Context, service, proto, host string) ([]*gdns.SRV, error) {
+func (s *stubLookup) LookupSRV(ctx context.Context, service, proto, host string) ([]*dns.SRV, error) {
 	s.mu.Lock()
 	s.srvCalls = append(s.srvCalls, lookupSRVCall{service: service, proto: proto, host: host})
 	s.mu.Unlock()
@@ -75,7 +75,7 @@ func (s *stubLookup) LookupSRV(ctx context.Context, service, proto, host string)
 	return nil, nil
 }
 
-func (s *stubLookup) LookupNAPTR(ctx context.Context, host string) ([]*gdns.NAPTR, error) {
+func (s *stubLookup) LookupNAPTR(ctx context.Context, host string) ([]*dns.NAPTR, error) {
 	s.mu.Lock()
 	s.naptrCalls = append(s.naptrCalls, lookupNAPTRCall{host: host})
 	s.mu.Unlock()
@@ -122,19 +122,19 @@ func (s *stubLookup) lastNAPTRCall() lookupNAPTRCall {
 	return s.naptrCalls[len(s.naptrCalls)-1]
 }
 
-func newTestStubLookup() *stubLookup {
+func newStubLookup() *stubLookup {
 	return &stubLookup{
 		lookupIPFunc: func(_ context.Context, _, _ string) ([]net.IP, error) {
 			return []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::1")}, nil
 		},
-		lookupSRVFunc: func(_ context.Context, _, _, _ string) ([]*gdns.SRV, error) {
-			return []*gdns.SRV{
+		lookupSRVFunc: func(_ context.Context, _, _, _ string) ([]*dns.SRV, error) {
+			return []*dns.SRV{
 				{Target: "sip.example.com.", Port: 5060, Priority: 10, Weight: 100},
 				{Target: "sip2.example.com.", Port: 5060, Priority: 20, Weight: 50},
 			}, nil
 		},
-		lookupNAPTRFunc: func(_ context.Context, _ string) ([]*gdns.NAPTR, error) {
-			return []*gdns.NAPTR{
+		lookupNAPTRFunc: func(_ context.Context, _ string) ([]*dns.NAPTR, error) {
+			return []*dns.NAPTR{
 				{
 					Order:       10,
 					Preference:  20,
@@ -147,12 +147,12 @@ func newTestStubLookup() *stubLookup {
 	}
 }
 
-func mustCachedResolver(t *testing.T, backend gdns.Lookup, opts gdns.CacheOptions) *gdns.CachedResolver {
+func mustCachedResolver(t *testing.T, backend dns.Lookup, opts dns.CacheOptions) *dns.CachedResolver {
 	t.Helper()
 
-	rslvr, err := gdns.NewCachedResolver(backend, opts)
+	rslvr, err := dns.NewCachedResolver(backend, opts)
 	if err != nil {
-		t.Fatalf("gdns.NewCachedResolver() error = %v, want nil", err)
+		t.Fatalf("dns.NewCachedResolver() error = %v, want nil", err)
 	}
 	return rslvr
 }
@@ -164,57 +164,57 @@ type lookupOp struct {
 	name   string
 	sample any // a non-empty backend result for this operation
 	apply  func(b *stubLookup, fn func(ctx context.Context) (any, error))
-	call   func(r *gdns.CachedResolver, ctx context.Context) (any, error)
+	call   func(r *dns.CachedResolver, ctx context.Context) (any, error)
 	calls  func(b *stubLookup) int
 }
 
 var lookupOps = []lookupOp{
 	{
-		name:   "LookupIP",
-		sample: []net.IP{net.ParseIP("192.0.2.1")},
-		apply: func(b *stubLookup, fn func(context.Context) (any, error)) {
+		"LookupIP",
+		[]net.IP{net.ParseIP("192.0.2.1")},
+		func(b *stubLookup, fn func(context.Context) (any, error)) {
 			b.lookupIPFunc = func(ctx context.Context, _, _ string) ([]net.IP, error) {
 				v, err := fn(ctx)
 				ips, _ := v.([]net.IP)
 				return ips, err
 			}
 		},
-		call: func(r *gdns.CachedResolver, ctx context.Context) (any, error) {
+		func(r *dns.CachedResolver, ctx context.Context) (any, error) {
 			return r.LookupIP(ctx, "ip4", "host.example.com")
 		},
-		calls: func(b *stubLookup) int { return b.ipCallCount() },
+		func(b *stubLookup) int { return b.ipCallCount() },
 	},
 	{
-		name:   "LookupSRV",
-		sample: []*gdns.SRV{{Target: "sip.example.com.", Port: 5060, Priority: 10, Weight: 100}},
-		apply: func(b *stubLookup, fn func(context.Context) (any, error)) {
-			b.lookupSRVFunc = func(ctx context.Context, _, _, _ string) ([]*gdns.SRV, error) {
+		"LookupSRV",
+		[]*dns.SRV{{Target: "sip.example.com.", Port: 5060, Priority: 10, Weight: 100}},
+		func(b *stubLookup, fn func(context.Context) (any, error)) {
+			b.lookupSRVFunc = func(ctx context.Context, _, _, _ string) ([]*dns.SRV, error) {
 				v, err := fn(ctx)
-				recs, _ := v.([]*gdns.SRV)
+				recs, _ := v.([]*dns.SRV)
 				return recs, err
 			}
 		},
-		call: func(r *gdns.CachedResolver, ctx context.Context) (any, error) {
+		func(r *dns.CachedResolver, ctx context.Context) (any, error) {
 			return r.LookupSRV(ctx, "sip", "udp", "example.com")
 		},
-		calls: func(b *stubLookup) int { return b.srvCallCount() },
+		func(b *stubLookup) int { return b.srvCallCount() },
 	},
 	{
-		name: "LookupNAPTR",
-		sample: []*gdns.NAPTR{
+		"LookupNAPTR",
+		[]*dns.NAPTR{
 			{Order: 10, Preference: 20, Flags: "s", Service: "SIP+D2U", Replacement: "_sip._udp.example.com."},
 		},
-		apply: func(b *stubLookup, fn func(context.Context) (any, error)) {
-			b.lookupNAPTRFunc = func(ctx context.Context, _ string) ([]*gdns.NAPTR, error) {
+		func(b *stubLookup, fn func(context.Context) (any, error)) {
+			b.lookupNAPTRFunc = func(ctx context.Context, _ string) ([]*dns.NAPTR, error) {
 				v, err := fn(ctx)
-				recs, _ := v.([]*gdns.NAPTR)
+				recs, _ := v.([]*dns.NAPTR)
 				return recs, err
 			}
 		},
-		call: func(r *gdns.CachedResolver, ctx context.Context) (any, error) {
+		func(r *dns.CachedResolver, ctx context.Context) (any, error) {
 			return r.LookupNAPTR(ctx, "example.com")
 		},
-		calls: func(b *stubLookup) int { return b.naptrCallCount() },
+		func(b *stubLookup) int { return b.naptrCallCount() },
 	},
 }
 
@@ -232,22 +232,22 @@ func resultLen(v any) int {
 func TestNewCachedResolver_InvalidArgs(t *testing.T) {
 	t.Parallel()
 
-	validOpts := gdns.CacheOptions{TTL: time.Minute, Capacity: 1}
+	validOpts := dns.CacheOptions{TTL: time.Minute, Capacity: 1}
 
 	t.Run("nil interface backend", func(t *testing.T) {
 		t.Parallel()
 
-		if _, err := gdns.NewCachedResolver(nil, validOpts); err == nil {
-			t.Error("gdns.NewCachedResolver(nil, opts) error = nil, want error")
+		if _, err := dns.NewCachedResolver(nil, validOpts); err == nil {
+			t.Error("dns.NewCachedResolver(nil, opts) error = nil, want error")
 		}
 	})
 
 	t.Run("typed nil resolver backend", func(t *testing.T) {
 		t.Parallel()
 
-		var backend *gdns.Resolver
-		if _, err := gdns.NewCachedResolver(backend, validOpts); err == nil {
-			t.Error("gdns.NewCachedResolver((*gdns.Resolver)(nil), opts) error = nil, want error")
+		var backend *dns.Resolver
+		if _, err := dns.NewCachedResolver(backend, validOpts); err == nil {
+			t.Error("dns.NewCachedResolver((*dns.Resolver)(nil), opts) error = nil, want error")
 		}
 	})
 
@@ -255,26 +255,26 @@ func TestNewCachedResolver_InvalidArgs(t *testing.T) {
 		t.Parallel()
 
 		var backend *stubLookup
-		if _, err := gdns.NewCachedResolver(backend, validOpts); err == nil {
-			t.Error("gdns.NewCachedResolver((*stubLookup)(nil), opts) error = nil, want error")
+		if _, err := dns.NewCachedResolver(backend, validOpts); err == nil {
+			t.Error("dns.NewCachedResolver((*stubLookup)(nil), opts) error = nil, want error")
 		}
 	})
 
 	t.Run("negative TTL", func(t *testing.T) {
 		t.Parallel()
 
-		opts := gdns.CacheOptions{TTL: -time.Second, Capacity: 1}
-		if _, err := gdns.NewCachedResolver(newTestStubLookup(), opts); err == nil {
-			t.Error("gdns.NewCachedResolver(backend, {TTL: -1s, Capacity: 1}) error = nil, want error")
+		opts := dns.CacheOptions{TTL: -time.Second, Capacity: 1}
+		if _, err := dns.NewCachedResolver(newStubLookup(), opts); err == nil {
+			t.Error("dns.NewCachedResolver(backend, {TTL: -1s, Capacity: 1}) error = nil, want error")
 		}
 	})
 
 	t.Run("enabled TTL with zero capacity", func(t *testing.T) {
 		t.Parallel()
 
-		opts := gdns.CacheOptions{TTL: time.Minute, Capacity: 0}
-		if _, err := gdns.NewCachedResolver(newTestStubLookup(), opts); err == nil {
-			t.Error("gdns.NewCachedResolver(backend, {TTL: 1m, Capacity: 0}) error = nil, want error")
+		opts := dns.CacheOptions{TTL: time.Minute, Capacity: 0}
+		if _, err := dns.NewCachedResolver(newStubLookup(), opts); err == nil {
+			t.Error("dns.NewCachedResolver(backend, {TTL: 1m, Capacity: 0}) error = nil, want error")
 		}
 	})
 }
@@ -286,8 +286,8 @@ func TestCachedResolver_DisabledDelegates(t *testing.T) {
 		t.Run(fmt.Sprintf("capacity %d", capacity), func(t *testing.T) {
 			t.Parallel()
 
-			backend := newTestStubLookup()
-			rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: 0, Capacity: capacity})
+			backend := newStubLookup()
+			rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: 0, Capacity: capacity})
 
 			for range 2 {
 				ips, err := rslvr.LookupIP(t.Context(), "ip4", "host.example.com")
@@ -333,8 +333,8 @@ func TestCachedResolver_DisabledDelegates(t *testing.T) {
 func TestCachedResolver_CacheHit(t *testing.T) {
 	t.Parallel()
 
-	backend := newTestStubLookup()
-	rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 32})
+	backend := newStubLookup()
+	rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 32})
 	ctx := t.Context()
 
 	for i := range 2 {
@@ -389,8 +389,8 @@ func TestCachedResolver_CacheHit(t *testing.T) {
 func TestCachedResolver_KeyIsolation(t *testing.T) {
 	t.Parallel()
 
-	backend := newTestStubLookup()
-	rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 32})
+	backend := newStubLookup()
+	rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 32})
 	ctx := t.Context()
 
 	// Warm the base keys.
@@ -439,7 +439,7 @@ func TestCachedResolver_KeyIsolation(t *testing.T) {
 	}
 
 	// Separate resolvers never share entries even over the same backend.
-	other := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 32})
+	other := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 32})
 	if _, err := other.LookupIP(ctx, "ip4", "host.example.com"); err != nil {
 		t.Fatalf("other.LookupIP() error = %v, want nil", err)
 	}
@@ -451,8 +451,8 @@ func TestCachedResolver_KeyIsolation(t *testing.T) {
 func TestCachedResolver_SharedCapacityLRU(t *testing.T) {
 	t.Parallel()
 
-	backend := newTestStubLookup()
-	rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 2})
+	backend := newStubLookup()
+	rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 2})
 	ctx := t.Context()
 
 	if _, err := rslvr.LookupIP(ctx, "ip4", "a.example.com"); err != nil {
@@ -491,8 +491,8 @@ func TestCachedResolver_TTLExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const ttl = time.Minute
 
-		backend := newTestStubLookup()
-		rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: ttl, Capacity: 16})
+		backend := newStubLookup()
+		rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: ttl, Capacity: 16})
 		ctx := t.Context()
 
 		tests := []struct {
@@ -501,28 +501,28 @@ func TestCachedResolver_TTLExpiry(t *testing.T) {
 			calls  func() int
 		}{
 			{
-				name: "LookupIP",
-				lookup: func() error {
+				"LookupIP",
+				func() error {
 					_, err := rslvr.LookupIP(ctx, "ip4", "host.example.com")
 					return err
 				},
-				calls: backend.ipCallCount,
+				backend.ipCallCount,
 			},
 			{
-				name: "LookupSRV",
-				lookup: func() error {
+				"LookupSRV",
+				func() error {
 					_, err := rslvr.LookupSRV(ctx, "sip", "udp", "example.com")
 					return err
 				},
-				calls: backend.srvCallCount,
+				backend.srvCallCount,
 			},
 			{
-				name: "LookupNAPTR",
-				lookup: func() error {
+				"LookupNAPTR",
+				func() error {
 					_, err := rslvr.LookupNAPTR(ctx, "example.com")
 					return err
 				},
-				calls: backend.naptrCallCount,
+				backend.naptrCallCount,
 			},
 		}
 
@@ -563,17 +563,17 @@ func TestCachedResolver_TTLExpiry(t *testing.T) {
 func TestCachedResolver_DeepCopyIsolation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("LookupIP", func(t *testing.T) {
+	t.Run("lookup IP", func(t *testing.T) {
 		t.Parallel()
 
 		backendIPs := []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::1")}
 		want := []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::1")}
 
-		backend := newTestStubLookup()
+		backend := newStubLookup()
 		backend.lookupIPFunc = func(_ context.Context, _, _ string) ([]net.IP, error) {
 			return backendIPs, nil
 		}
-		rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+		rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 		ctx := t.Context()
 
 		first, err := rslvr.LookupIP(ctx, "ip4", "host.example.com")
@@ -608,19 +608,19 @@ func TestCachedResolver_DeepCopyIsolation(t *testing.T) {
 		}
 	})
 
-	t.Run("LookupSRV", func(t *testing.T) {
+	t.Run("lookup SRV", func(t *testing.T) {
 		t.Parallel()
 
-		backendSRVs := []*gdns.SRV{
+		backendSRVs := []*dns.SRV{
 			{Target: "sip.example.com.", Port: 5060, Priority: 10, Weight: 100},
 			{Target: "sip2.example.com.", Port: 5061, Priority: 20, Weight: 50},
 		}
 
-		backend := newTestStubLookup()
-		backend.lookupSRVFunc = func(_ context.Context, _, _, _ string) ([]*gdns.SRV, error) {
+		backend := newStubLookup()
+		backend.lookupSRVFunc = func(_ context.Context, _, _, _ string) ([]*dns.SRV, error) {
 			return backendSRVs, nil
 		}
-		rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+		rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 		ctx := t.Context()
 
 		first, err := rslvr.LookupSRV(ctx, "sip", "udp", "example.com")
@@ -635,7 +635,7 @@ func TestCachedResolver_DeepCopyIsolation(t *testing.T) {
 		first[0].Port = 1
 		backendSRVs[0].Port = 2
 
-		want := []*gdns.SRV{
+		want := []*dns.SRV{
 			{Target: "sip.example.com.", Port: 5060, Priority: 10, Weight: 100},
 			{Target: "sip2.example.com.", Port: 5061, Priority: 20, Weight: 50},
 		}
@@ -663,21 +663,21 @@ func TestCachedResolver_DeepCopyIsolation(t *testing.T) {
 		}
 	})
 
-	t.Run("LookupNAPTR", func(t *testing.T) {
+	t.Run("lookup NAPTR", func(t *testing.T) {
 		t.Parallel()
 
-		backendNAPTRs := []*gdns.NAPTR{
+		backendNAPTRs := []*dns.NAPTR{
 			{Order: 10, Preference: 20, Flags: "s", Service: "SIP+D2U", Replacement: "_sip._udp.example.com."},
 		}
-		want := []*gdns.NAPTR{
+		want := []*dns.NAPTR{
 			{Order: 10, Preference: 20, Flags: "s", Service: "SIP+D2U", Replacement: "_sip._udp.example.com."},
 		}
 
-		backend := newTestStubLookup()
-		backend.lookupNAPTRFunc = func(_ context.Context, _ string) ([]*gdns.NAPTR, error) {
+		backend := newStubLookup()
+		backend.lookupNAPTRFunc = func(_ context.Context, _ string) ([]*dns.NAPTR, error) {
 			return backendNAPTRs, nil
 		}
-		rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+		rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 		ctx := t.Context()
 
 		first, err := rslvr.LookupNAPTR(ctx, "example.com")
@@ -715,17 +715,17 @@ func TestCachedResolver_DeepCopyIsolation(t *testing.T) {
 	t.Run("nil entries and slices", func(t *testing.T) {
 		t.Parallel()
 
-		backend := newTestStubLookup()
+		backend := newStubLookup()
 		backend.lookupIPFunc = func(_ context.Context, _, _ string) ([]net.IP, error) {
 			return []net.IP{nil, net.ParseIP("192.0.2.1")}, nil
 		}
-		backend.lookupSRVFunc = func(_ context.Context, _, _, _ string) ([]*gdns.SRV, error) {
-			return []*gdns.SRV{nil, {Target: "sip.example.com.", Port: 5060, Priority: 10, Weight: 1}}, nil
+		backend.lookupSRVFunc = func(_ context.Context, _, _, _ string) ([]*dns.SRV, error) {
+			return []*dns.SRV{nil, {Target: "sip.example.com.", Port: 5060, Priority: 10, Weight: 1}}, nil
 		}
-		backend.lookupNAPTRFunc = func(_ context.Context, _ string) ([]*gdns.NAPTR, error) {
-			return []*gdns.NAPTR{nil, {Order: 10, Preference: 20}}, nil
+		backend.lookupNAPTRFunc = func(_ context.Context, _ string) ([]*dns.NAPTR, error) {
+			return []*dns.NAPTR{nil, {Order: 10, Preference: 20}}, nil
 		}
-		rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+		rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 		ctx := t.Context()
 
 		for i := range 2 {
@@ -760,8 +760,8 @@ func TestCachedResolver_DeepCopyIsolation(t *testing.T) {
 func TestCachedResolver_Concurrent(t *testing.T) {
 	t.Parallel()
 
-	backend := newTestStubLookup()
-	rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+	backend := newStubLookup()
+	rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 	ctx := t.Context()
 
 	var wg sync.WaitGroup
@@ -821,7 +821,7 @@ func TestCachedResolver_Concurrent(t *testing.T) {
 				errs <- errors.Wrap(err)
 				return
 			}
-			want := []*gdns.NAPTR{
+			want := []*dns.NAPTR{
 				{Order: 10, Preference: 20, Flags: "s", Service: "SIP+D2U", Replacement: "_sip._udp.example.com."},
 			}
 			if diff := cmp.Diff(want, naptrs); diff != "" {
@@ -852,9 +852,9 @@ func TestCachedResolver_ErrorsNotCached(t *testing.T) {
 			t.Run("backend error", func(t *testing.T) {
 				t.Parallel()
 
-				backend := newTestStubLookup()
+				backend := newStubLookup()
 				op.apply(backend, func(context.Context) (any, error) { return nil, errBackend })
-				rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+				rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 
 				for i := range 2 {
 					got, err := op.call(rslvr, t.Context())
@@ -873,9 +873,9 @@ func TestCachedResolver_ErrorsNotCached(t *testing.T) {
 			t.Run("partial result with error", func(t *testing.T) {
 				t.Parallel()
 
-				backend := newTestStubLookup()
+				backend := newStubLookup()
 				op.apply(backend, func(context.Context) (any, error) { return op.sample, errBackend })
-				rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+				rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 
 				for i := range 2 {
 					got, err := op.call(rslvr, t.Context())
@@ -894,11 +894,11 @@ func TestCachedResolver_ErrorsNotCached(t *testing.T) {
 			t.Run("empty success", func(t *testing.T) {
 				t.Parallel()
 
-				backend := newTestStubLookup()
+				backend := newStubLookup()
 				// A non-nil empty slice of the operation's result type.
 				empty := reflect.MakeSlice(reflect.TypeOf(op.sample), 0, 0).Interface()
 				op.apply(backend, func(context.Context) (any, error) { return empty, nil })
-				rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+				rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 
 				for i := range 2 {
 					got, err := op.call(rslvr, t.Context())
@@ -918,9 +918,9 @@ func TestCachedResolver_ErrorsNotCached(t *testing.T) {
 			t.Run("nil success", func(t *testing.T) {
 				t.Parallel()
 
-				backend := newTestStubLookup()
+				backend := newStubLookup()
 				op.apply(backend, func(context.Context) (any, error) { return nil, nil })
-				rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+				rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 
 				for i := range 2 {
 					got, err := op.call(rslvr, t.Context())
@@ -948,26 +948,26 @@ func TestCachedResolver_RejectsDoneContext(t *testing.T) {
 		want error
 	}{
 		{
-			name: "canceled",
-			mk: func(t *testing.T) context.Context {
+			"canceled",
+			func(t *testing.T) context.Context {
 				t.Helper()
 
 				ctx, cancel := context.WithCancel(t.Context())
 				cancel()
 				return ctx
 			},
-			want: context.Canceled,
+			context.Canceled,
 		},
 		{
-			name: "deadline",
-			mk: func(t *testing.T) context.Context {
+			"deadline",
+			func(t *testing.T) context.Context {
 				t.Helper()
 
 				ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
 				t.Cleanup(cancel)
 				return ctx
 			},
-			want: context.DeadlineExceeded,
+			context.DeadlineExceeded,
 		},
 	}
 
@@ -980,9 +980,9 @@ func TestCachedResolver_RejectsDoneContext(t *testing.T) {
 					t.Run(fmt.Sprintf("%s/warm=%v", ck.name, warm), func(t *testing.T) {
 						t.Parallel()
 
-						backend := newTestStubLookup()
+						backend := newStubLookup()
 						op.apply(backend, func(context.Context) (any, error) { return op.sample, nil })
-						rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+						rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 
 						wantCalls := 0
 						if warm {
@@ -1028,8 +1028,8 @@ func TestCachedResolver_CanceledDuringBackendNotCached(t *testing.T) {
 		t.Run(op.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := newTestStubLookup()
-			rslvr := mustCachedResolver(t, backend, gdns.CacheOptions{TTL: time.Minute, Capacity: 8})
+			backend := newStubLookup()
+			rslvr := mustCachedResolver(t, backend, dns.CacheOptions{TTL: time.Minute, Capacity: 8})
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -1058,7 +1058,7 @@ func TestCachedResolver_CanceledDuringBackendNotCached(t *testing.T) {
 	}
 }
 
-func srvTargets(recs []*gdns.SRV) []string {
+func srvTargets(recs []*dns.SRV) []string {
 	targets := make([]string, 0, len(recs))
 	for _, rec := range recs {
 		if rec == nil {
@@ -1071,9 +1071,9 @@ func srvTargets(recs []*gdns.SRV) []string {
 
 // sortedSRVs returns a copy of recs sorted by target so results can be
 // compared independently of the RFC 2782 weighted ordering.
-func sortedSRVs(recs []*gdns.SRV) []*gdns.SRV {
+func sortedSRVs(recs []*dns.SRV) []*dns.SRV {
 	out := slices.Clone(recs)
-	slices.SortFunc(out, func(a, b *gdns.SRV) int {
+	slices.SortFunc(out, func(a, b *dns.SRV) int {
 		return strings.Compare(a.Target, b.Target)
 	})
 	return out
@@ -1087,7 +1087,7 @@ func ExampleNewCachedResolver() {
 	}
 
 	// Wrap any Lookup implementation to opt in to fixed-TTL caching.
-	rslvr, err := gdns.NewCachedResolver(backend, gdns.CacheOptions{
+	rslvr, err := dns.NewCachedResolver(backend, dns.CacheOptions{
 		TTL:      5 * time.Second,
 		Capacity: 128,
 	})

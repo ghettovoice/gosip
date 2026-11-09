@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 
-version: "3"
+version: '3'
 
 tasks:
   test:
@@ -9,26 +9,27 @@ tasks:
       PACKAGE: '{{.PACKAGE | default "..." }}'
       TIMEOUT: '{{.TIMEOUT | default "1m" }}'
       COVERAGE_FILE: '{{.COVERAGE_FILE | default "cover.out"}}'
-    # sources:
-    #   - "**/*.go"
+    sources:
+      - '**/*.go'
     cmd: go test -race -vet=all -timeout={{.TIMEOUT}} -covermode=atomic -coverprofile={{.COVERAGE_FILE}} {{.CLI_ARGS}} ./{{.PACKAGE}}
 
   lint:
     desc: Run golangci-lint
     vars:
       PACKAGE: '{{.PACKAGE | default "..." }}'
-    # sources:
-    #   - "**/*.go"
+    sources:
+      - '**/*.go'
+      - '.golangci.yml'
     cmd: golangci-lint run {{.CLI_ARGS}} ./{{.PACKAGE}}
 
   vuln:
     desc: Run govulncheck
     vars:
       PACKAGE: '{{.PACKAGE | default "..." }}'
-    # sources:
-    #   - "**/*.go"
-    #   - go.mod
-    #   - go.sum
+    sources:
+      - '**/*.go'
+      - go.mod
+      - go.sum
     cmd: govulncheck {{.CLI_ARGS}} ./{{.PACKAGE}}
 
   check:
@@ -41,7 +42,7 @@ tasks:
   bench:
     desc: Run benchmarks
     vars:
-      COUNT: "{{default 10 .COUNT}}"
+      COUNT: '{{default 10 .COUNT}}'
       PREFIX:
         sh: |
           if [ "{{.PACKAGE}}" = "..." ] || [ "{{.PACKAGE}}" = "." ] || [ "{{.PACKAGE}}" = "" ]; then \
@@ -76,6 +77,24 @@ tasks:
       PACKAGE: '{{.PACKAGE | default "..." }}'
     cmd: go generate ./{{.PACKAGE}}
 
+  agent-links:
+    desc: Restore .devin/rules and .devin/skills symlinks to .agents sources
+    cmd: |
+      set -e
+      mkdir -p .devin/rules .devin/skills
+      # .devin/rules/<name> -> ../../.agents/rules/<name>
+      find .devin/rules -mindepth 1 -maxdepth 1 ! -type l -exec rm -rf {} +
+      for f in .agents/rules/*; do
+        [ -e "$f" ] || continue
+        ln -sfn "../../$f" ".devin/rules/$(basename "$f")"
+      done
+      # .devin/skills/<name> -> ../../.agents/skills/<name>
+      find .devin/skills -mindepth 1 -maxdepth 1 ! -type l -exec rm -rf {} +
+      for d in .agents/skills/*; do
+        [ -d "$d" ] || continue
+        ln -sfn "../../$d" ".devin/skills/$(basename "$d")"
+      done
+
   release:
     desc: Release a new version
     cmds:
@@ -89,7 +108,7 @@ tasks:
           echo "Error: Invalid version format. Use semantic versioning (e.g., v1.2.3, v1.2.3-alpha.1, v1.2.3-beta.2, v1.2.3-rc.3)" >&2; \
           exit 1; \
         fi
-      - sed -i '' 's/^const VERSION = ".*"/const VERSION = "{{.VERSION}}"/' gosip.go
+      - sed -i '' 's/^const Version = ".*"/const Version = "{{.VERSION}}"/' gosip.go
       - git add gosip.go
       - git commit -m "Release {{.VERSION}}"
       - git tag -a {{.VERSION}} -m "Release {{.VERSION}}"

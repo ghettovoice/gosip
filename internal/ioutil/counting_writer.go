@@ -101,8 +101,8 @@ func (cw *CountingWriter) Result() (num int, err error) {
 	return cw.num, errors.Wrap(cw.err)
 }
 
-// Err returns any error that occurred during writing.
-func (cw *CountingWriter) Err() error {
+// Error returns any error that occurred during writing.
+func (cw *CountingWriter) Error() error {
 	return errors.Wrap(cw.err)
 }
 
@@ -111,12 +111,12 @@ func (cw *CountingWriter) Count() int {
 	return cw.num
 }
 
-var cntWrtPool = &sync.Pool{
+var countWrtPool = &sync.Pool{
 	New: func() any { return &CountingWriter{} },
 }
 
 func GetCountingWriter(w io.Writer) *CountingWriter {
-	cw := cntWrtPool.Get().(*CountingWriter) //nolint:forcetypeassert
+	cw := countWrtPool.Get().(*CountingWriter) //nolint:forcetypeassert // the pool only stores *CountingWriter
 	cw.Writer = w
 	return cw
 }
@@ -125,5 +125,5 @@ func FreeCountingWriter(cw *CountingWriter) {
 	cw.Writer = nil
 	cw.num = 0
 	cw.err = nil
-	cntWrtPool.Put(cw)
+	countWrtPool.Put(cw)
 }

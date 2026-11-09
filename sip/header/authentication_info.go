@@ -26,20 +26,14 @@ func (*AuthenticationInfo) CanonicName() Name { return "Authentication-Info" }
 
 func (*AuthenticationInfo) CompactName() Name { return "Authentication-Info" }
 
-func (hdr *AuthenticationInfo) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr *AuthenticationInfo) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr *AuthenticationInfo) renderValueTo(w io.Writer) (num int, err error) {
+func (hdr *AuthenticationInfo) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 	var kvs [][]string
 	for k, v := range map[string]string{
 		"nextnonce": hdr.NextNonce,
@@ -66,8 +60,7 @@ func (hdr *AuthenticationInfo) renderValueTo(w io.Writer) (num int, err error) {
 	defer ioutil.FreeCountingWriter(cw)
 
 	if len(kvs) > 0 {
-		slices.SortFunc(kvs, util.CmpKVs)
-
+		slices.SortFunc(kvs, util.CompareKeys)
 		for i, kv := range kvs {
 			if i > 0 {
 				cw.Fprint(", ")
@@ -75,60 +68,33 @@ func (hdr *AuthenticationInfo) renderValueTo(w io.Writer) (num int, err error) {
 			cw.Fprint(kv[0], "=", kv[1])
 		}
 	}
-
 	return errors.Wrap2(cw.Result())
 }
 
 func (hdr *AuthenticationInfo) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 func (hdr *AuthenticationInfo) RenderValue() string {
 	if hdr == nil {
 		return ""
 	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrVal(hdr)
 }
 
-func (hdr *AuthenticationInfo) String() string { return hdr.RenderValue() }
+func (hdr *AuthenticationInfo) String() string {
+	return hdr.RenderValue()
+}
 
 func (hdr *AuthenticationInfo) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods        AuthenticationInfo
-			AuthenticationInfo hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*AuthenticationInfo)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods        AuthenticationInfo
+		AuthenticationInfo hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*AuthenticationInfo)(hdr))
 }
 
 func (hdr *AuthenticationInfo) Clone() Header {
@@ -136,36 +102,24 @@ func (hdr *AuthenticationInfo) Clone() Header {
 		return nil
 	}
 
-	hdr2 := *hdr
-	return &hdr2
+	clone := *hdr
+	return &clone
 }
 
 func (hdr *AuthenticationInfo) Equal(val any) bool {
-	var other *AuthenticationInfo
-	switch v := val.(type) {
-	case AuthenticationInfo:
-		other = &v
-	case *AuthenticationInfo:
-		other = v
-	default:
-		return false
-	}
-
-	if hdr == other {
-		return true
-	} else if hdr == nil || other == nil {
-		return false
-	}
-
-	return hdr.NextNonce == other.NextNonce &&
-		util.EqFold(hdr.QOP, other.QOP) &&
-		hdr.RspAuth == other.RspAuth &&
-		hdr.CNonce == other.CNonce &&
-		hdr.NonceCount == other.NonceCount
+	return util.EqualPointer(hdr, val, func(other *AuthenticationInfo) bool {
+		return hdr.NextNonce == other.NextNonce &&
+			util.EqualFold(hdr.QOP, other.QOP) &&
+			hdr.RspAuth == other.RspAuth &&
+			hdr.CNonce == other.CNonce &&
+			hdr.NonceCount == other.NonceCount
+	})
 }
 
 func (hdr *AuthenticationInfo) IsValid() bool {
-	return hdr != nil && hdr.NextNonce != "" && (hdr.QOP == "" || grammar.IsToken(hdr.QOP))
+	return hdr != nil &&
+		hdr.NextNonce != "" &&
+		(hdr.QOP == "" || grammar.IsToken(hdr.QOP))
 }
 
 func (hdr *AuthenticationInfo) MarshalJSON() ([]byte, error) {
@@ -173,12 +127,11 @@ func (hdr *AuthenticationInfo) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *AuthenticationInfo) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromAuthenticationInfoNode(node *abnf.Node) *AuthenticationInfo {
 	var hdr AuthenticationInfo
-
 	paramNodes := node.GetNodes("ainfo")
 	for _, paramNode := range paramNodes {
 		paramNode = paramNode.Children[0]
@@ -197,6 +150,5 @@ func buildFromAuthenticationInfoNode(node *abnf.Node) *AuthenticationInfo {
 			}
 		}
 	}
-
 	return &hdr
 }

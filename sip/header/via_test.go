@@ -102,12 +102,10 @@ func TestVia_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.hdr.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -425,7 +423,6 @@ func TestVia_MarshalJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(string(got), tt.want); diff != "" {
 				t.Fatalf("json.Marshal(hdr) = %q, want %q\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
@@ -767,7 +764,6 @@ func TestViaHop_MarshalText(t *testing.T) {
 			if err != nil {
 				t.Fatalf("hop.MarshalText() error = %v, want nil", err)
 			}
-
 			if string(got) != tt.want {
 				t.Fatalf("hop.MarshalText() = %q, want %q", got, tt.want)
 			}

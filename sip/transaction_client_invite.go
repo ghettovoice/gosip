@@ -18,7 +18,7 @@ import (
 // It implements the client transaction FSM defined in RFC 3261 section 17.1.1
 // and patches from RFC 6026.
 type InviteClientTransaction struct {
-	*clientTransact
+	*baseClnTransact
 
 	tmrA atomic.Pointer[timeutil.Timer]
 	tmrB atomic.Pointer[timeutil.Timer]
@@ -50,14 +50,14 @@ func NewInviteClientTransaction(
 		return nil, errors.Wrap(NewRequestMethodNotAllowedError())
 	}
 
-	o := util.LastSliceElemOr(opts, ClientTransactionOptions{})
+	o := util.LastSliceElem(opts, ClientTransactionOptions{})
 
 	tx := new(InviteClientTransaction)
-	clnTx, err := newClientTransact(TransactionTypeClientInvite, tx, req, tp, o)
+	base, err := newBaseClnTransact(TransactionTypeClientInvite, tx, req, tp, o)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
-	tx.clientTransact = clnTx
+	tx.baseClnTransact = base
 	if err := tx.initFSM(TransactionStateCalling); err != nil {
 		return nil, errors.Wrap(err)
 	}
@@ -76,7 +76,6 @@ func (tx *InviteClientTransaction) Start(ctx context.Context) error {
 	if !tx.admitStart(ctx) {
 		return errors.Wrap(NewTransactionActionNotAllowedError())
 	}
-
 	defer tx.finishStart(ctx)
 
 	if tx.isTerminated() {
@@ -101,37 +100,46 @@ func (tx *InviteClientTransaction) Start(ctx context.Context) error {
 func (tx *InviteClientTransaction) activateRestored(ctx context.Context) {
 	tx.lcMu.Lock()
 
-	if tmr := tx.tmrB.Load(); tmr != nil && tmr.Expired() &&
-		tx.State() == TransactionStateCalling && !tx.isTerminated() {
+	if tmr := tx.tmrB.Load(); tmr != nil && tmr.Expired() && tx.State() == TransactionStateCalling && !tx.isTerminated() {
 		tx.lcMu.Unlock()
-		tx.onTimerB(ctx, tmr)
+		tx.onTmrB(ctx, tmr)
 		tx.activate(ctx)
 		return
 	}
-	if tmr := tx.tmrD.Load(); tmr != nil && tmr.Expired() &&
-		tx.State() == TransactionStateCompleted && !tx.isTerminated() {
+	if tmr := tx.tmrD.Load(); tmr != nil && tmr.Expired() && tx.State() == TransactionStateCompleted && !tx.isTerminated() {
 		tx.lcMu.Unlock()
-		tx.onTimerD(ctx, tmr)
+		tx.onTmrD(ctx, tmr)
 		tx.activate(ctx)
 		return
 	}
-	if tmr := tx.tmrM.Load(); tmr != nil && tmr.Expired() &&
-		tx.State() == TransactionStateAccepted && !tx.isTerminated() {
+	if tmr := tx.tmrM.Load(); tmr != nil && tmr.Expired() && tx.State() == TransactionStateAccepted && !tx.isTerminated() {
 		tx.lcMu.Unlock()
-		tx.onTimerM(ctx, tmr)
+		tx.onTmrM(ctx, tmr)
 		tx.activate(ctx)
 		return
 	}
 
 	if !tx.isTerminated() {
-		tx.armTmrLocked(&tx.tmrA, tx.tmrA.Load(), []TransactionState{TransactionStateCalling},
-			func(tmr *timeutil.Timer) { tx.onTimerA(ctx, tmr) })
-		tx.armTmrLocked(&tx.tmrB, tx.tmrB.Load(), []TransactionState{TransactionStateCalling},
-			func(tmr *timeutil.Timer) { tx.onTimerB(ctx, tmr) })
-		tx.armTmrLocked(&tx.tmrD, tx.tmrD.Load(), []TransactionState{TransactionStateCompleted},
-			func(tmr *timeutil.Timer) { tx.onTimerD(ctx, tmr) })
-		tx.armTmrLocked(&tx.tmrM, tx.tmrM.Load(), []TransactionState{TransactionStateAccepted},
-			func(tmr *timeutil.Timer) { tx.onTimerM(ctx, tmr) })
+		tx.armTmrLocked(
+			&tx.tmrA, tx.tmrA.Load(),
+			[]TransactionState{TransactionStateCalling},
+			func(tmr *timeutil.Timer) { tx.onTmrA(ctx, tmr) },
+		)
+		tx.armTmrLocked(
+			&tx.tmrB, tx.tmrB.Load(),
+			[]TransactionState{TransactionStateCalling},
+			func(tmr *timeutil.Timer) { tx.onTmrB(ctx, tmr) },
+		)
+		tx.armTmrLocked(
+			&tx.tmrD, tx.tmrD.Load(),
+			[]TransactionState{TransactionStateCompleted},
+			func(tmr *timeutil.Timer) { tx.onTmrD(ctx, tmr) },
+		)
+		tx.armTmrLocked(
+			&tx.tmrM, tx.tmrM.Load(),
+			[]TransactionState{TransactionStateAccepted},
+			func(tmr *timeutil.Timer) { tx.onTmrM(ctx, tmr) },
+		)
 	}
 	tx.activateLocked()
 	tx.lcMu.Unlock()
@@ -150,24 +158,24 @@ func (tx *InviteClientTransaction) LogValue() slog.Value {
 }
 
 const (
-	txEvtTimerA = "timer_a"
-	txEvtTimerB = "timer_b"
-	txEvtTimerD = "timer_d"
-	txEvtTimerM = "timer_m"
+	txEvtTmrA = "timer_a"
+	txEvtTmrB = "timer_b"
+	txEvtTmrD = "timer_d"
+	txEvtTmrM = "timer_m"
 )
 
 func (tx *InviteClientTransaction) initFSM(start TransactionState) error {
-	if err := tx.clientTransact.initFSM(start); err != nil {
+	if err := tx.baseClnTransact.initFSM(start); err != nil {
 		return errors.Wrap(err)
 	}
 
 	tx.fsm.Configure(TransactionStateCalling).
-		InternalTransition(txEvtTimerA, tx.actSendReq).
+		InternalTransition(txEvtTmrA, tx.actSendReq).
 		Permit(txEvtRecv1xx, TransactionStateProceeding).
 		Permit(txEvtRecv2xx, TransactionStateAccepted).
 		Permit(txEvtRecv300699, TransactionStateCompleted).
-		Permit(txEvtTimerB, TransactionStateTerminated).
-		Permit(txEvtTranspErr, TransactionStateTerminated).
+		Permit(txEvtTmrB, TransactionStateTerminated).
+		Permit(txEvtTpErr, TransactionStateTerminated).
 		Permit(txEvtTerminate, TransactionStateTerminated)
 
 	tx.fsm.Configure(TransactionStateProceeding).
@@ -182,21 +190,21 @@ func (tx *InviteClientTransaction) initFSM(start TransactionState) error {
 		OnEntry(tx.actCompleted).
 		OnEntryFrom(txEvtRecv300699, tx.actPassResSendAck).
 		InternalTransition(txEvtRecv300699, tx.actSendAck).
-		Permit(txEvtTimerD, TransactionStateTerminated).
-		Permit(txEvtTranspErr, TransactionStateTerminated).
+		Permit(txEvtTmrD, TransactionStateTerminated).
+		Permit(txEvtTpErr, TransactionStateTerminated).
 		Permit(txEvtTerminate, TransactionStateTerminated)
 
 	tx.fsm.Configure(TransactionStateAccepted).
 		OnEntry(tx.actAccepted).
 		OnEntryFrom(txEvtRecv2xx, tx.actPassRes).
 		InternalTransition(txEvtRecv2xx, tx.actPassRes).
-		Permit(txEvtTimerM, TransactionStateTerminated).
+		Permit(txEvtTmrM, TransactionStateTerminated).
 		Permit(txEvtTerminate, TransactionStateTerminated)
 
 	tx.fsm.Configure(TransactionStateTerminated).
 		OnEntry(tx.actTerminated).
-		OnEntryFrom(txEvtTimerB, tx.actTimedOut).
-		OnEntryFrom(txEvtTranspErr, tx.actTranspErr).
+		OnEntryFrom(txEvtTmrB, tx.actTimedOut).
+		OnEntryFrom(txEvtTpErr, tx.actTranspErr).
 		OnEntryFrom(txEvtTerminate, tx.actTermErr).
 		InternalTransition(txEvtTerminate, tx.actNoop)
 
@@ -251,7 +259,7 @@ func (tx *InviteClientTransaction) getAck() *RequestEnvelope {
 		msg.Headers.Set(cid.Clone())
 
 		cseq, _ := req.Headers.CSeq()
-		cseq = cseq.Clone().(*header.CSeq) //nolint:forcetypeassert
+		cseq = cseq.Clone().(*header.CSeq) //nolint:forcetypeassert // the concrete type is fixed by construction
 		cseq.Method = RequestMethodAck
 		msg.Headers.Set(cseq)
 
@@ -282,9 +290,8 @@ func (tx *InviteClientTransaction) actCalling(ctx context.Context, _ ...any) err
 	if !tx.tp.Metadata().Reliable() {
 		tmr := timeutil.NewTimer(tx.timing.TimeA())
 		if tx.armTmr(&tx.tmrA, tmr, []TransactionState{TransactionStateCalling},
-			func(tmr *timeutil.Timer) { tx.onTimerA(ctx, tmr) }) {
-			tx.log.DebugContext(
-				ctx, "timer A started",
+			func(tmr *timeutil.Timer) { tx.onTmrA(ctx, tmr) }) {
+			tx.log.DebugContext(ctx, "timer A started",
 				slog.Any("transaction", tx),
 				slog.Time("expires_at", time.Now().Add(tmr.Left())),
 			)
@@ -292,47 +299,47 @@ func (tx *InviteClientTransaction) actCalling(ctx context.Context, _ ...any) err
 	}
 
 	tmr := timeutil.NewTimer(tx.timing.TimeB())
-	if tx.armTmr(&tx.tmrB, tmr, []TransactionState{TransactionStateCalling},
-		func(tmr *timeutil.Timer) { tx.onTimerB(ctx, tmr) }) {
-		tx.log.DebugContext(
-			ctx, "timer B started",
+	if tx.armTmr(
+		&tx.tmrB, tmr,
+		[]TransactionState{TransactionStateCalling},
+		func(tmr *timeutil.Timer) { tx.onTmrB(ctx, tmr) },
+	) {
+		tx.log.DebugContext(ctx, "timer B started",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
 	}
-
 	return nil
 }
 
-func (tx *InviteClientTransaction) onTimerA(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *InviteClientTransaction) onTmrA(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "timer A expired", slog.Any("transaction", tx))
 
-	tx.fireTmrTrigger(ctx, txEvtTimerA)
+	tx.fireTmrTrigger(ctx, txEvtTmrA)
 
 	if tx.resetTmr(&tx.tmrA, tmr, 2*tmr.Duration(), TransactionStateCalling) {
-		tx.log.DebugContext(
-			ctx, "timer A reset",
+		tx.log.DebugContext(ctx, "timer A reset",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
 	}
 }
 
-func (tx *InviteClientTransaction) onTimerB(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *InviteClientTransaction) onTmrB(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "timer B expired", slog.Any("transaction", tx))
 
 	tx.clearTmr(&tx.tmrB, tmr)
-	tx.fireTmrTrigger(ctx, txEvtTimerB)
+	tx.fireTmrTrigger(ctx, txEvtTmrB)
 }
 
 func (tx *InviteClientTransaction) actProceeding(ctx context.Context, args ...any) error {
-	_ = tx.clientTransact.actProceeding(ctx, args...)
+	_ = tx.baseClnTransact.actProceeding(ctx, args...)
 
 	if tx.stopTmr(&tx.tmrA) {
 		tx.log.DebugContext(ctx, "timer A stopped", slog.Any("transaction", tx))
@@ -346,7 +353,7 @@ func (tx *InviteClientTransaction) actProceeding(ctx context.Context, args ...an
 }
 
 func (tx *InviteClientTransaction) actCompleted(ctx context.Context, args ...any) error {
-	_ = tx.clientTransact.actCompleted(ctx, args...)
+	_ = tx.baseClnTransact.actCompleted(ctx, args...)
 
 	if tx.stopTmr(&tx.tmrA) {
 		tx.log.DebugContext(ctx, "timer A stopped", slog.Any("transaction", tx))
@@ -361,26 +368,27 @@ func (tx *InviteClientTransaction) actCompleted(ctx context.Context, args ...any
 		timeD = tx.timing.timeD()
 	}
 	tmr := timeutil.NewTimer(timeD)
-	if tx.armTmr(&tx.tmrD, tmr, []TransactionState{TransactionStateCompleted},
-		func(tmr *timeutil.Timer) { tx.onTimerD(ctx, tmr) }) {
-		tx.log.DebugContext(
-			ctx, "timer D started",
+	if tx.armTmr(
+		&tx.tmrD, tmr,
+		[]TransactionState{TransactionStateCompleted},
+		func(tmr *timeutil.Timer) { tx.onTmrD(ctx, tmr) },
+	) {
+		tx.log.DebugContext(ctx, "timer D started",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
 	}
-
 	return nil
 }
 
-func (tx *InviteClientTransaction) onTimerD(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *InviteClientTransaction) onTmrD(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "timer D expired", slog.Any("transaction", tx))
 
 	tx.clearTmr(&tx.tmrD, tmr)
-	tx.fireTmrTrigger(ctx, txEvtTimerD)
+	tx.fireTmrTrigger(ctx, txEvtTmrD)
 }
 
 func (tx *InviteClientTransaction) actAccepted(ctx context.Context, _ ...any) error {
@@ -395,30 +403,31 @@ func (tx *InviteClientTransaction) actAccepted(ctx context.Context, _ ...any) er
 	}
 
 	tmr := timeutil.NewTimer(tx.timing.TimeM())
-	if tx.armTmr(&tx.tmrM, tmr, []TransactionState{TransactionStateAccepted},
-		func(tmr *timeutil.Timer) { tx.onTimerM(ctx, tmr) }) {
-		tx.log.DebugContext(
-			ctx, "timer M started",
+	if tx.armTmr(
+		&tx.tmrM, tmr,
+		[]TransactionState{TransactionStateAccepted},
+		func(tmr *timeutil.Timer) { tx.onTmrM(ctx, tmr) },
+	) {
+		tx.log.DebugContext(ctx, "timer M started",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
 	}
-
 	return nil
 }
 
-func (tx *InviteClientTransaction) onTimerM(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *InviteClientTransaction) onTmrM(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "timer M expired", slog.Any("transaction", tx))
 
 	tx.clearTmr(&tx.tmrM, tmr)
-	tx.fireTmrTrigger(ctx, txEvtTimerM)
+	tx.fireTmrTrigger(ctx, txEvtTmrM)
 }
 
 func (tx *InviteClientTransaction) actTerminated(ctx context.Context, args ...any) error {
-	_ = tx.clientTransact.actTerminated(ctx, args...)
+	_ = tx.baseClnTransact.actTerminated(ctx, args...)
 
 	if tx.stopTmr(&tx.tmrA) {
 		tx.log.DebugContext(ctx, "timer A stopped", slog.Any("transaction", tx))
@@ -441,18 +450,19 @@ func (tx *InviteClientTransaction) actTerminated(ctx context.Context, args ...an
 
 func (tx *InviteClientTransaction) takeSnapshot() *ClientTransactionSnapshot {
 	return &ClientTransactionSnapshot{
-		Time:         time.Now(),
-		Type:         tx.Type(),
-		State:        tx.State(),
-		Key:          tx.Key(),
-		Request:      tx.Request(),
-		LastResponse: tx.LastResponse(),
-		SendOptions:  tx.sendOpts,
-		Timing:       tx.timing,
-		TimerA:       tx.tmrA.Load().Snapshot(),
-		TimerB:       tx.tmrB.Load().Snapshot(),
-		TimerD:       tx.tmrD.Load().Snapshot(),
-		TimerM:       tx.tmrM.Load().Snapshot(),
+		Time:             time.Now(),
+		Type:             tx.Type(),
+		State:            tx.State(),
+		Key:              tx.Key(),
+		Request:          tx.Request(),
+		LastResponse:     tx.LastResponse(),
+		ForwardedRequest: reqForwarded(tx.req),
+		SendOptions:      tx.sendOpts,
+		Timing:           tx.timing,
+		TimerA:           tx.tmrA.Load().Snapshot(),
+		TimerB:           tx.tmrB.Load().Snapshot(),
+		TimerD:           tx.tmrD.Load().Snapshot(),
+		TimerM:           tx.tmrM.Load().Snapshot(),
 	}
 }
 
@@ -466,27 +476,31 @@ func RestoreInviteClientTransaction(
 		return nil, errors.Wrap(err)
 	}
 
-	o := util.LastSliceElemOr(opts, ClientTransactionOptions{})
+	o := util.LastSliceElem(opts, ClientTransactionOptions{})
 	o.SendOptions = snap.SendOptions
 	o.Timing = snap.Timing
 
-	req := snap.Request.Clone().(*RequestEnvelope) //nolint:forcetypeassert
+	req := snap.Request.Clone().(*RequestEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
+	// The forwarded marker is in-memory provenance that JSON rebuilds reset;
+	// the checkpoint carries it explicitly, so the owned clone gets it back
+	// before the transaction adopts the request.
+	setReqForwarded(req, snap.ForwardedRequest)
 
 	tx := new(InviteClientTransaction)
-	clnTx, err := newClientTransact(TransactionTypeClientInvite, tx, req, tp, o)
+	base, err := newBaseClnTransact(TransactionTypeClientInvite, tx, req, tp, o)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
-	tx.clientTransact = clnTx
+	tx.baseClnTransact = base
 	if snap.LastResponse != nil {
-		tx.lastRes.Store(snap.LastResponse.Clone().(*ResponseEnvelope)) //nolint:forcetypeassert
+		tx.lastRes.Store(snap.LastResponse.Clone().(*ResponseEnvelope)) //nolint:forcetypeassert // the concrete type is fixed by construction
 	}
 	if err := tx.initFSM(snap.State); err != nil {
 		return nil, errors.Wrap(err)
 	}
 	tx.restored = true
 
-	if err := tx.restoreTimers(snap); err != nil {
+	if err := tx.restoreTmrs(snap); err != nil {
 		return nil, errors.Wrap(err)
 	}
 	tx.saveSnapshot()
@@ -494,7 +508,7 @@ func RestoreInviteClientTransaction(
 	return tx, nil
 }
 
-func (tx *InviteClientTransaction) restoreTimers(snap *ClientTransactionSnapshot) error {
+func (tx *InviteClientTransaction) restoreTmrs(snap *ClientTransactionSnapshot) error {
 	for dst, tmrSnap := range map[*atomic.Pointer[timeutil.Timer]]*timeutil.TimerSnapshot{
 		&tx.tmrA: snap.TimerA,
 		&tx.tmrB: snap.TimerB,

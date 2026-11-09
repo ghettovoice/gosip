@@ -228,5 +228,7 @@ $RECYCLE.BIN/
 
 ### App ###
 **/.devin/config.local.json
-.task
-.codegraph
+.task/
+.codegraph/
+.superpowers/
+docs/superpowers/

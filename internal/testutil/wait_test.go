@@ -22,6 +22,7 @@ func TestWaitResult_Receive(t *testing.T) {
 
 func TestWaitResult_ClosedChannel(t *testing.T) {
 	t.Parallel()
+
 	synctest.Test(t, func(t *testing.T) {
 		ch := make(chan string)
 		close(ch)
@@ -34,6 +35,7 @@ func TestWaitResult_ClosedChannel(t *testing.T) {
 
 func TestWaitClosed_ClosedChannel(t *testing.T) {
 	t.Parallel()
+
 	synctest.Test(t, func(t *testing.T) {
 		ch := make(chan struct{})
 		go close(ch)

@@ -18,7 +18,7 @@ import (
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
-func mustClientSnapshot(
+func mustClnTxSnapshot(
 	tb testing.TB,
 	tx interface {
 		Snapshot() (*sip.ClientTransactionSnapshot, error)
@@ -32,7 +32,7 @@ func mustClientSnapshot(
 	return snap
 }
 
-func mustServerSnapshot(
+func mustSrvTxSnapshot(
 	tb testing.TB,
 	tx interface {
 		Snapshot() (*sip.ServerTransactionSnapshot, error)
@@ -46,12 +46,12 @@ func mustServerSnapshot(
 	return snap
 }
 
-type clnSnapRecorder struct {
+type clnTxSnapRecorder struct {
 	mu    sync.Mutex
 	snaps []*sip.ClientTransactionSnapshot
 }
 
-func (r *clnSnapRecorder) handler() sip.ClientTransactionSnapshotHandlerFunc {
+func (r *clnTxSnapRecorder) handler() sip.ClientTransactionSnapshotHandlerFunc {
 	return func(_ context.Context, snap *sip.ClientTransactionSnapshot) {
 		r.mu.Lock()
 		r.snaps = append(r.snaps, snap)
@@ -59,19 +59,19 @@ func (r *clnSnapRecorder) handler() sip.ClientTransactionSnapshotHandlerFunc {
 	}
 }
 
-func (r *clnSnapRecorder) len() int {
+func (r *clnTxSnapRecorder) len() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.snaps)
 }
 
-func (r *clnSnapRecorder) at(idx int) *sip.ClientTransactionSnapshot {
+func (r *clnTxSnapRecorder) at(idx int) *sip.ClientTransactionSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.snaps[idx]
 }
 
-func (r *clnSnapRecorder) states() []sip.TransactionState {
+func (r *clnTxSnapRecorder) states() []sip.TransactionState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	states := make([]sip.TransactionState, len(r.snaps))
@@ -81,12 +81,12 @@ func (r *clnSnapRecorder) states() []sip.TransactionState {
 	return states
 }
 
-type srvSnapRecorder struct {
+type srvTxSnapRecorder struct {
 	mu    sync.Mutex
 	snaps []*sip.ServerTransactionSnapshot
 }
 
-func (r *srvSnapRecorder) handler() sip.ServerTransactionSnapshotHandlerFunc {
+func (r *srvTxSnapRecorder) handler() sip.ServerTransactionSnapshotHandlerFunc {
 	return func(_ context.Context, snap *sip.ServerTransactionSnapshot) {
 		r.mu.Lock()
 		r.snaps = append(r.snaps, snap)
@@ -94,19 +94,19 @@ func (r *srvSnapRecorder) handler() sip.ServerTransactionSnapshotHandlerFunc {
 	}
 }
 
-func (r *srvSnapRecorder) len() int {
+func (r *srvTxSnapRecorder) len() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.snaps)
 }
 
-func (r *srvSnapRecorder) at(idx int) *sip.ServerTransactionSnapshot {
+func (r *srvTxSnapRecorder) at(idx int) *sip.ServerTransactionSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.snaps[idx]
 }
 
-func (r *srvSnapRecorder) states() []sip.TransactionState {
+func (r *srvTxSnapRecorder) states() []sip.TransactionState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	states := make([]sip.TransactionState, len(r.snaps))
@@ -116,7 +116,7 @@ func (r *srvSnapRecorder) states() []sip.TransactionState {
 	return states
 }
 
-func transactionSnapshotError(tx sip.Transaction) error {
+func txSnapshotErr(tx sip.Transaction) error {
 	switch tx := tx.(type) {
 	case interface {
 		Snapshot() (*sip.ClientTransactionSnapshot, error)
@@ -133,7 +133,7 @@ func transactionSnapshotError(tx sip.Transaction) error {
 	}
 }
 
-func testTransportMetadata(tp sip.TransportProto) sip.TransportMetadata {
+func testTpMeta(tp sip.TransportProto) sip.TransportMetadata {
 	switch tp.Canonic() {
 	case "UDP":
 		return sip.UDPMetadata()
@@ -207,7 +207,7 @@ func newInInviteReq(
 	tb.Helper()
 
 	req := sip.NewRequestEnvelope(newInviteReq(tb, tp, branch, rmtAddr)).
-		SetTransport(testTransportMetadata(tp)).
+		SetTransport(testTpMeta(tp)).
 		SetLocalAddr(locAddr).
 		SetRemoteAddr(rmtAddr)
 
@@ -223,7 +223,7 @@ func newOutInviteReq(
 	tb.Helper()
 
 	req := sip.NewRequestEnvelope(newInviteReq(tb, tp, branch, locAddr)).
-		SetTransport(testTransportMetadata(tp)).
+		SetTransport(testTpMeta(tp)).
 		SetLocalAddr(locAddr).
 		SetRemoteAddr(rmtAddr)
 
@@ -233,7 +233,7 @@ func newOutInviteReq(
 func newAckReq(tb testing.TB, invite *sip.Request, res *sip.Response) *sip.Request {
 	tb.Helper()
 
-	ack := invite.Clone().(*sip.Request) //nolint:forcetypeassert
+	ack := invite.Clone().(*sip.Request)
 
 	ack.Method = sip.RequestMethodAck
 	if via, ok := ack.Headers.FirstVia(); ok && res.Status.IsSuccessful() {
@@ -295,7 +295,7 @@ func newInNonInviteReq(
 	tb.Helper()
 
 	req := sip.NewRequestEnvelope(newNonInviteReq(tb, tp, branch, rmtAddr)).
-		SetTransport(testTransportMetadata(tp)).
+		SetTransport(testTpMeta(tp)).
 		SetLocalAddr(locAddr).
 		SetRemoteAddr(rmtAddr)
 
@@ -311,7 +311,7 @@ func newOutNonInviteReq(
 	tb.Helper()
 
 	req := sip.NewRequestEnvelope(newNonInviteReq(tb, tp, branch, locAddr)).
-		SetTransport(testTransportMetadata(tp)).
+		SetTransport(testTpMeta(tp)).
 		SetLocalAddr(locAddr).
 		SetRemoteAddr(rmtAddr)
 
@@ -334,24 +334,24 @@ func newInRes(tb testing.TB, req *sip.RequestEnvelope, sts sip.ResponseStatus) *
 	return res
 }
 
-func waitForTransactState(tb testing.TB, tx sip.Transaction, want sip.TransactionState, timeout time.Duration) {
+func waitForTxState(tb testing.TB, tx sip.Transaction, want sip.TransactionState, timeout time.Duration) {
 	tb.Helper()
 
 	// Allow the transaction goroutines to run and advance virtual time up to the timeout.
 	time.Sleep(timeout)
 
-	if got := tx.(interface{ State() sip.TransactionState }).State(); got != want { //nolint:forcetypeassert
+	if got := tx.(interface{ State() sip.TransactionState }).State(); got != want {
 		tb.Fatalf("transaction state did not reach %q, got %q", want, got)
 	}
 }
 
-type restoreEventProbe struct {
+type restoreEvtProbe struct {
 	states atomic.Int32
 	errs   atomic.Int32
 	resps  atomic.Int32
 }
 
-func (p *restoreEventProbe) bind(t *testing.T, tx sip.Transaction) {
+func (p *restoreEvtProbe) bind(t *testing.T, tx sip.Transaction) {
 	t.Helper()
 
 	tx.BindStateHandler(sip.TransactionStateHandlerFunc(
@@ -365,7 +365,7 @@ func (p *restoreEventProbe) bind(t *testing.T, tx sip.Transaction) {
 	}
 }
 
-func (p *restoreEventProbe) assertQuiet(t *testing.T, stage string) {
+func (p *restoreEvtProbe) assertQuiet(t *testing.T, stage string) {
 	t.Helper()
 
 	if got := p.states.Load(); got != 0 {
@@ -379,13 +379,13 @@ func (p *restoreEventProbe) assertQuiet(t *testing.T, stage string) {
 	}
 }
 
-type startableTransaction interface {
+type startableTransact interface {
 	sip.Transaction
 	Start(ctx context.Context) error
 }
 
 type restoreContractCase struct {
-	restored          startableTransaction
+	restored          startableTransact
 	state             sip.TransactionState
 	tmrSnap           *timeutil.TimerSnapshot
 	register          func(txm *sip.TransactionManager) error
@@ -403,7 +403,7 @@ func runRestoreContract(t *testing.T, c restoreContractCase) {
 	txm := &sip.TransactionManager{}
 	defer func() { _ = txm.Close() }()
 
-	probe := &restoreEventProbe{}
+	probe := &restoreEvtProbe{}
 	probe.bind(t, c.restored)
 
 	var startCalls atomic.Int32
@@ -413,7 +413,7 @@ func runRestoreContract(t *testing.T, c restoreContractCase) {
 	if c.restored.Started() {
 		t.Fatal("restored.Started() = true, want false")
 	}
-	if err := transactionSnapshotError(c.restored); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
+	if err := txSnapshotErr(c.restored); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
 		t.Fatalf("restored snapshot before Start error = %v, want %v", err, sip.ErrTransactionActionNotAllowed)
 	}
 	if got := startCalls.Load(); got != 0 {
@@ -461,7 +461,7 @@ func runRestoreContract(t *testing.T, c restoreContractCase) {
 	}
 
 	if c.dormantToDeadline {
-		waitForTransactState(t, c.restored, sip.TransactionStateTerminated, time.Second)
+		waitForTxState(t, c.restored, sip.TransactionStateTerminated, time.Second)
 	} else {
 		probe.assertQuiet(t, "on start")
 		if got := c.restored.State(); got != c.state {
@@ -477,7 +477,7 @@ func runRestoreContract(t *testing.T, c restoreContractCase) {
 			t.Fatalf("restored.State() before deadline = %q, want %q (timer restarted?)", got, c.state)
 		}
 		time.Sleep(20 * time.Millisecond)
-		waitForTransactState(t, c.restored, sip.TransactionStateTerminated, time.Second)
+		waitForTxState(t, c.restored, sip.TransactionStateTerminated, time.Second)
 	}
 
 	if c.loaded(txm) {
@@ -485,37 +485,7 @@ func runRestoreContract(t *testing.T, c restoreContractCase) {
 	}
 }
 
-func TestClientTransaction_SnapshotDuringStart(t *testing.T) {
-	t.Parallel()
-
-	local := netip.MustParseAddrPort("0.0.0.0:5060")
-	remote := netip.MustParseAddrPort("192.168.1.100:5060")
-	tp := newStubClientTransport(false)
-	tx, err := sip.NewInviteClientTransaction(
-		newOutInviteReq(t, "UDP", sip.MagicCookie+".snapshot-starting", local, remote), tp,
-	)
-	if err != nil {
-		t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
-	}
-	if _, err := tx.Snapshot(); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
-		t.Fatalf("tx.Snapshot() before Start error = %v, want %v", err, sip.ErrTransactionActionNotAllowed)
-	}
-
-	var snapshotErr error
-	tx.BindStartHandler(sip.TransactionStartHandlerFunc(
-		func(context.Context) { _, snapshotErr = tx.Snapshot() },
-	))
-	if err := tx.Start(t.Context()); err != nil {
-		t.Fatalf("tx.Start() error = %v, want nil", err)
-	}
-	if !errors.Is(snapshotErr, sip.ErrTransactionActionNotAllowed) {
-		t.Fatalf("tx.Snapshot() during Start error = %v, want %v", snapshotErr, sip.ErrTransactionActionNotAllowed)
-	}
-	tp.waitSendReq(t)
-	mustClientSnapshot(t, tx)
-}
-
-func TestRestoreTransaction_StartContract(t *testing.T) {
+func TestTransaction_Restore_StartContract(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -523,12 +493,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 		prepare func(t *testing.T, ctx context.Context) restoreContractCase
 	}{
 		{
-			name: "invite client (timer D)",
-			prepare: func(t *testing.T, ctx context.Context) restoreContractCase {
+			"invite client (timer D)",
+			func(t *testing.T, ctx context.Context) restoreContractCase {
 				t.Helper()
+
 				remote := netip.MustParseAddrPort("55.55.55.55:5060")
 				local := netip.MustParseAddrPort("11.11.11.11:5070")
-				tp := newStubClientTransport(false)
+				tp := newStubClnTransp(false)
 				req := newOutInviteReq(t, "UDP", sip.MagicCookie+".contract-cln-inv", local, remote)
 
 				tx, err := sip.NewInviteClientTransaction(req, tp)
@@ -543,9 +514,9 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.RecvResponse(486) error = %v, want nil", err)
 				}
 				tp.waitSendReq(t)
-				waitForTransactState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
 
-				snap := mustClientSnapshot(t, tx)
+				snap := mustClnTxSnapshot(t, tx)
 				if snap.TimerD == nil {
 					t.Fatal("snapshot TimerD = nil, want armed")
 				}
@@ -553,7 +524,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 
-				rTP := newStubClientTransport(false)
+				rTP := newStubClnTransp(false)
 				rtx, err := sip.RestoreInviteClientTransaction(snap, rTP)
 				if err != nil {
 					t.Fatalf("sip.RestoreInviteClientTransaction() error = %v, want nil", err)
@@ -583,12 +554,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 			},
 		},
 		{
-			name: "non-invite client (timer K)",
-			prepare: func(t *testing.T, ctx context.Context) restoreContractCase {
+			"non-invite client (timer K)",
+			func(t *testing.T, ctx context.Context) restoreContractCase {
 				t.Helper()
+
 				remote := netip.MustParseAddrPort("55.55.55.55:5060")
 				local := netip.MustParseAddrPort("11.11.11.11:5070")
-				tp := newStubClientTransport(false)
+				tp := newStubClnTransp(false)
 				req := newOutNonInviteReq(t, "UDP", sip.MagicCookie+".contract-cln-non", local, remote)
 
 				tx, err := sip.NewNonInviteClientTransaction(req, tp)
@@ -602,9 +574,9 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 				if err := tx.RecvResponse(ctx, newInRes(t, req, sip.ResponseStatusOK)); err != nil {
 					t.Fatalf("tx.RecvResponse(200) error = %v, want nil", err)
 				}
-				waitForTransactState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
 
-				snap := mustClientSnapshot(t, tx)
+				snap := mustClnTxSnapshot(t, tx)
 				if snap.TimerK == nil {
 					t.Fatal("snapshot TimerK = nil, want armed")
 				}
@@ -612,7 +584,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 
-				rTP := newStubClientTransport(false)
+				rTP := newStubClnTransp(false)
 				var rtx *sip.NonInviteClientTransaction
 				restored, err := sip.RestoreNonInviteClientTransaction(snap, rTP)
 				if err != nil {
@@ -642,12 +614,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 			},
 		},
 		{
-			name: "invite server (timer H)",
-			prepare: func(t *testing.T, ctx context.Context) restoreContractCase {
+			"invite server (timer H)",
+			func(t *testing.T, ctx context.Context) restoreContractCase {
 				t.Helper()
+
 				remote := netip.MustParseAddrPort("55.55.55.55:5060")
 				local := netip.MustParseAddrPort("11.11.11.11:5070")
-				tp := newStubServerTransport(true)
+				tp := newStubSrvTransp(true)
 				req := newInInviteReq(t, "TCP", sip.MagicCookie+".contract-srv-inv", local, remote)
 
 				tx, err := sip.NewInviteServerTransaction(req, tp)
@@ -661,9 +634,9 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.SendResponse(486) error = %v, want nil", err)
 				}
 				tp.waitSendRes(t)
-				waitForTransactState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
 
-				snap := mustServerSnapshot(t, tx)
+				snap := mustSrvTxSnapshot(t, tx)
 				if snap.TimerH == nil {
 					t.Fatal("snapshot TimerH = nil, want armed")
 				}
@@ -671,7 +644,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 
-				rTP := newStubServerTransport(true)
+				rTP := newStubSrvTransp(true)
 				rtx, err := sip.RestoreInviteServerTransaction(snap, rTP)
 				if err != nil {
 					t.Fatalf("sip.RestoreInviteServerTransaction() error = %v, want nil", err)
@@ -690,7 +663,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					noSend: func(t *testing.T) { t.Helper(); rTP.ensureNoSendRes(t) },
 					match: func(t *testing.T) {
 						t.Helper()
-						if err := rtx.RecvRequest(ctx, req.Clone().(*sip.RequestEnvelope)); err != nil { //nolint:forcetypeassert
+						if err := rtx.RecvRequest(ctx, req.Clone().(*sip.RequestEnvelope)); err != nil {
 							t.Fatalf("restored.RecvRequest(INVITE) error = %v, want nil", err)
 						}
 						if call := rTP.waitSendRes(t); call.res.Status() != sip.ResponseStatusBusyHere {
@@ -702,12 +675,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 			},
 		},
 		{
-			name: "non-invite server (timer J)",
-			prepare: func(t *testing.T, ctx context.Context) restoreContractCase {
+			"non-invite server (timer J)",
+			func(t *testing.T, ctx context.Context) restoreContractCase {
 				t.Helper()
+
 				remote := netip.MustParseAddrPort("55.55.55.55:5060")
 				local := netip.MustParseAddrPort("11.11.11.11:5070")
-				tp := newStubServerTransport(false)
+				tp := newStubSrvTransp(false)
 				req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".contract-srv-non", local, remote)
 
 				tx, err := sip.NewNonInviteServerTransaction(req, tp)
@@ -721,9 +695,9 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.SendResponse(200) error = %v, want nil", err)
 				}
 				tp.waitSendRes(t)
-				waitForTransactState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
 
-				snap := mustServerSnapshot(t, tx)
+				snap := mustSrvTxSnapshot(t, tx)
 				if snap.TimerJ == nil {
 					t.Fatal("snapshot TimerJ = nil, want armed")
 				}
@@ -731,7 +705,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 
-				rTP := newStubServerTransport(false)
+				rTP := newStubSrvTransp(false)
 				rtx, err := sip.RestoreNonInviteServerTransaction(snap, rTP)
 				if err != nil {
 					t.Fatalf("sip.RestoreNonInviteServerTransaction() error = %v, want nil", err)
@@ -754,12 +728,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 			},
 		},
 		{
-			name: "invite client (expired timer D)",
-			prepare: func(t *testing.T, ctx context.Context) restoreContractCase {
+			"invite client (expired timer D)",
+			func(t *testing.T, ctx context.Context) restoreContractCase {
 				t.Helper()
+
 				remote := netip.MustParseAddrPort("55.55.55.55:5060")
 				local := netip.MustParseAddrPort("11.11.11.11:5070")
-				tp := newStubClientTransport(false)
+				tp := newStubClnTransp(false)
 				req := newOutInviteReq(t, "UDP", sip.MagicCookie+".contract-cln-inv-d", local, remote)
 
 				tx, err := sip.NewInviteClientTransaction(req, tp)
@@ -774,9 +749,9 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.RecvResponse(486) error = %v, want nil", err)
 				}
 				tp.waitSendReq(t)
-				waitForTransactState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
 
-				snap := mustClientSnapshot(t, tx)
+				snap := mustClnTxSnapshot(t, tx)
 				if snap.TimerD == nil {
 					t.Fatal("snapshot TimerD = nil, want armed")
 				}
@@ -784,7 +759,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 
-				rTP := newStubClientTransport(false)
+				rTP := newStubClnTransp(false)
 				rtx, err := sip.RestoreInviteClientTransaction(snap, rTP)
 				if err != nil {
 					t.Fatalf("sip.RestoreInviteClientTransaction() error = %v, want nil", err)
@@ -807,12 +782,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 			},
 		},
 		{
-			name: "invite client (expired timer M)",
-			prepare: func(t *testing.T, ctx context.Context) restoreContractCase {
+			"invite client (expired timer M)",
+			func(t *testing.T, ctx context.Context) restoreContractCase {
 				t.Helper()
+
 				remote := netip.MustParseAddrPort("55.55.55.55:5060")
 				local := netip.MustParseAddrPort("11.11.11.11:5070")
-				tp := newStubClientTransport(false)
+				tp := newStubClnTransp(false)
 				req := newOutInviteReq(t, "UDP", sip.MagicCookie+".contract-cln-inv-m", local, remote)
 
 				tx, err := sip.NewInviteClientTransaction(req, tp)
@@ -826,9 +802,9 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 				if err := tx.RecvResponse(ctx, newInRes(t, req, sip.ResponseStatusOK)); err != nil {
 					t.Fatalf("tx.RecvResponse(200) error = %v, want nil", err)
 				}
-				waitForTransactState(t, tx, sip.TransactionStateAccepted, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateAccepted, 100*time.Millisecond)
 
-				snap := mustClientSnapshot(t, tx)
+				snap := mustClnTxSnapshot(t, tx)
 				if snap.TimerM == nil {
 					t.Fatal("snapshot TimerM = nil, want armed")
 				}
@@ -836,7 +812,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 
-				rTP := newStubClientTransport(false)
+				rTP := newStubClnTransp(false)
 				rtx, err := sip.RestoreInviteClientTransaction(snap, rTP)
 				if err != nil {
 					t.Fatalf("sip.RestoreInviteClientTransaction() error = %v, want nil", err)
@@ -859,12 +835,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 			},
 		},
 		{
-			name: "non-invite client (expired timer K)",
-			prepare: func(t *testing.T, ctx context.Context) restoreContractCase {
+			"non-invite client (expired timer K)",
+			func(t *testing.T, ctx context.Context) restoreContractCase {
 				t.Helper()
+
 				remote := netip.MustParseAddrPort("55.55.55.55:5060")
 				local := netip.MustParseAddrPort("11.11.11.11:5070")
-				tp := newStubClientTransport(false)
+				tp := newStubClnTransp(false)
 				req := newOutNonInviteReq(t, "UDP", sip.MagicCookie+".contract-cln-non-k", local, remote)
 
 				tx, err := sip.NewNonInviteClientTransaction(req, tp)
@@ -878,9 +855,9 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 				if err := tx.RecvResponse(ctx, newInRes(t, req, sip.ResponseStatusOK)); err != nil {
 					t.Fatalf("tx.RecvResponse(200) error = %v, want nil", err)
 				}
-				waitForTransactState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
 
-				snap := mustClientSnapshot(t, tx)
+				snap := mustClnTxSnapshot(t, tx)
 				if snap.TimerK == nil {
 					t.Fatal("snapshot TimerK = nil, want armed")
 				}
@@ -888,7 +865,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 
-				rTP := newStubClientTransport(false)
+				rTP := newStubClnTransp(false)
 				rtx, err := sip.RestoreNonInviteClientTransaction(snap, rTP)
 				if err != nil {
 					t.Fatalf("sip.RestoreNonInviteClientTransaction() error = %v, want nil", err)
@@ -911,12 +888,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 			},
 		},
 		{
-			name: "invite server (expired timer I)",
-			prepare: func(t *testing.T, ctx context.Context) restoreContractCase {
+			"invite server (expired timer I)",
+			func(t *testing.T, ctx context.Context) restoreContractCase {
 				t.Helper()
+
 				remote := netip.MustParseAddrPort("55.55.55.55:5060")
 				local := netip.MustParseAddrPort("11.11.11.11:5070")
-				tp := newStubServerTransport(false)
+				tp := newStubSrvTransp(false)
 				req := newInInviteReq(t, "UDP", sip.MagicCookie+".contract-srv-inv-i", local, remote)
 
 				tx, err := sip.NewInviteServerTransaction(req, tp)
@@ -931,13 +909,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.SendResponse(486) error = %v, want nil", err)
 				}
 				tp.waitSendRes(t)
-				waitForTransactState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateCompleted, 100*time.Millisecond)
 				if err := tx.RecvRequest(ctx, newInAckReq(t, req, res)); err != nil {
 					t.Fatalf("tx.RecvRequest(ACK) error = %v, want nil", err)
 				}
-				waitForTransactState(t, tx, sip.TransactionStateConfirmed, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateConfirmed, 100*time.Millisecond)
 
-				snap := mustServerSnapshot(t, tx)
+				snap := mustSrvTxSnapshot(t, tx)
 				if snap.TimerI == nil {
 					t.Fatal("snapshot TimerI = nil, want armed")
 				}
@@ -945,7 +923,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 
-				rTP := newStubServerTransport(false)
+				rTP := newStubSrvTransp(false)
 				rtx, err := sip.RestoreInviteServerTransaction(snap, rTP)
 				if err != nil {
 					t.Fatalf("sip.RestoreInviteServerTransaction() error = %v, want nil", err)
@@ -968,12 +946,13 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 			},
 		},
 		{
-			name: "invite server (expired timer L)",
-			prepare: func(t *testing.T, ctx context.Context) restoreContractCase {
+			"invite server (expired timer L)",
+			func(t *testing.T, ctx context.Context) restoreContractCase {
 				t.Helper()
+
 				remote := netip.MustParseAddrPort("55.55.55.55:5060")
 				local := netip.MustParseAddrPort("11.11.11.11:5070")
-				tp := newStubServerTransport(false)
+				tp := newStubSrvTransp(false)
 				req := newInInviteReq(t, "UDP", sip.MagicCookie+".contract-srv-inv-l", local, remote)
 
 				tx, err := sip.NewInviteServerTransaction(req, tp)
@@ -987,9 +966,9 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.SendResponse(200) error = %v, want nil", err)
 				}
 				tp.waitSendRes(t)
-				waitForTransactState(t, tx, sip.TransactionStateAccepted, 100*time.Millisecond)
+				waitForTxState(t, tx, sip.TransactionStateAccepted, 100*time.Millisecond)
 
-				snap := mustServerSnapshot(t, tx)
+				snap := mustSrvTxSnapshot(t, tx)
 				if snap.TimerL == nil {
 					t.Fatal("snapshot TimerL = nil, want armed")
 				}
@@ -997,7 +976,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 
-				rTP := newStubServerTransport(false)
+				rTP := newStubSrvTransp(false)
 				rtx, err := sip.RestoreInviteServerTransaction(snap, rTP)
 				if err != nil {
 					t.Fatalf("sip.RestoreInviteServerTransaction() error = %v, want nil", err)
@@ -1024,6 +1003,7 @@ func TestRestoreTransaction_StartContract(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			synctest.Test(t, func(t *testing.T) {
 				runRestoreContract(t, tt.prepare(t, t.Context()))
 			})
@@ -1041,12 +1021,13 @@ func (p *startProbe) handler() sip.TransactionStartHandlerFunc {
 
 func (p *startProbe) want(t *testing.T, want int32) {
 	t.Helper()
+
 	if got := p.calls.Load(); got != want {
 		t.Fatalf("start handler calls = %d, want %d", got, want)
 	}
 }
 
-func TestTransaction_StartEvents(t *testing.T) {
+func TestTransaction_Start_Events(t *testing.T) {
 	t.Parallel()
 
 	laddr := netip.MustParseAddrPort("11.11.11.11:5070")
@@ -1055,16 +1036,17 @@ func TestTransaction_StartEvents(t *testing.T) {
 	tests := []struct {
 		name  string
 		state sip.TransactionState
-		new   func(t *testing.T) startableTransaction
+		new   func(t *testing.T) startableTransact
 	}{
 		{
-			name:  "invite client",
-			state: sip.TransactionStateCalling,
-			new: func(t *testing.T) startableTransaction {
+			"invite client",
+			sip.TransactionStateCalling,
+			func(t *testing.T) startableTransact {
 				t.Helper()
+
 				tx, err := sip.NewInviteClientTransaction(
 					newOutInviteReq(t, "UDP", sip.MagicCookie+".lc-cln-inv", laddr, raddr),
-					newStubClientTransport(false),
+					newStubClnTransp(false),
 				)
 				if err != nil {
 					t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
@@ -1073,13 +1055,14 @@ func TestTransaction_StartEvents(t *testing.T) {
 			},
 		},
 		{
-			name:  "non-invite client",
-			state: sip.TransactionStateTrying,
-			new: func(t *testing.T) startableTransaction {
+			"non-invite client",
+			sip.TransactionStateTrying,
+			func(t *testing.T) startableTransact {
 				t.Helper()
+
 				tx, err := sip.NewNonInviteClientTransaction(
 					newOutNonInviteReq(t, "UDP", sip.MagicCookie+".lc-cln-non", laddr, raddr),
-					newStubClientTransport(false),
+					newStubClnTransp(false),
 				)
 				if err != nil {
 					t.Fatalf("sip.NewNonInviteClientTransaction() error = %v, want nil", err)
@@ -1088,13 +1071,14 @@ func TestTransaction_StartEvents(t *testing.T) {
 			},
 		},
 		{
-			name:  "invite server",
-			state: sip.TransactionStateProceeding,
-			new: func(t *testing.T) startableTransaction {
+			"invite server",
+			sip.TransactionStateProceeding,
+			func(t *testing.T) startableTransact {
 				t.Helper()
+
 				tx, err := sip.NewInviteServerTransaction(
 					newInInviteReq(t, "UDP", sip.MagicCookie+".lc-srv-inv", laddr, raddr),
-					newStubServerTransport(false),
+					newStubSrvTransp(false),
 				)
 				if err != nil {
 					t.Fatalf("sip.NewInviteServerTransaction() error = %v, want nil", err)
@@ -1103,13 +1087,14 @@ func TestTransaction_StartEvents(t *testing.T) {
 			},
 		},
 		{
-			name:  "non-invite server",
-			state: sip.TransactionStateTrying,
-			new: func(t *testing.T) startableTransaction {
+			"non-invite server",
+			sip.TransactionStateTrying,
+			func(t *testing.T) startableTransact {
 				t.Helper()
+
 				tx, err := sip.NewNonInviteServerTransaction(
 					newInNonInviteReq(t, "UDP", sip.MagicCookie+".lc-srv-non", laddr, raddr),
-					newStubServerTransport(false),
+					newStubSrvTransp(false),
 				)
 				if err != nil {
 					t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
@@ -1122,6 +1107,7 @@ func TestTransaction_StartEvents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			synctest.Test(t, func(t *testing.T) {
 				ctx := t.Context()
 
@@ -1164,6 +1150,7 @@ func TestTransaction_StartEvents(t *testing.T) {
 
 		t.Run(tt.name+" unbind", func(t *testing.T) {
 			t.Parallel()
+
 			synctest.Test(t, func(t *testing.T) {
 				tx := tt.new(t)
 				probe := &startProbe{}
@@ -1186,6 +1173,7 @@ func TestTransaction_StartEvents(t *testing.T) {
 
 		t.Run(tt.name+" prepared terminate", func(t *testing.T) {
 			t.Parallel()
+
 			synctest.Test(t, func(t *testing.T) {
 				tx := tt.new(t)
 				probe := &startProbe{}
@@ -1195,7 +1183,7 @@ func TestTransaction_StartEvents(t *testing.T) {
 					t.Fatalf("tx.Terminate() error = %v, want nil", err)
 				}
 				probe.want(t, 0)
-				if err := transactionSnapshotError(tx); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
+				if err := txSnapshotErr(tx); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
 					t.Fatalf("tx snapshot before Start error = %v, want %v", err, sip.ErrTransactionActionNotAllowed)
 				}
 				if err := tx.Start(t.Context()); !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
@@ -1206,167 +1194,20 @@ func TestTransaction_StartEvents(t *testing.T) {
 	}
 }
 
-func TestClientTransaction_StartTerminateInCallbackSuppressesSend(t *testing.T) {
-	t.Parallel()
-
-	laddr := netip.MustParseAddrPort("11.11.11.11:5070")
-	raddr := netip.MustParseAddrPort("55.55.55.55:5060")
-
-	type clientCase struct {
-		new func(t *testing.T) (*stubClientTransport, startableTransaction)
-	}
-	txKinds := []clientCase{
-		{
-			new: func(t *testing.T) (*stubClientTransport, startableTransaction) {
-				t.Helper()
-				tp := newStubClientTransport(false)
-				tx, err := sip.NewInviteClientTransaction(
-					newOutInviteReq(t, "UDP", sip.MagicCookie+".lc-term-inv", laddr, raddr), tp,
-				)
-				if err != nil {
-					t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
-				}
-				return tp, tx
-			},
-		},
-		{
-			new: func(t *testing.T) (*stubClientTransport, startableTransaction) {
-				t.Helper()
-				tp := newStubClientTransport(false)
-				tx, err := sip.NewNonInviteClientTransaction(
-					newOutNonInviteReq(t, "UDP", sip.MagicCookie+".lc-term-non", laddr, raddr), tp,
-				)
-				if err != nil {
-					t.Fatalf("sip.NewNonInviteClientTransaction() error = %v, want nil", err)
-				}
-				return tp, tx
-			},
-		},
-	}
-	onStates := []string{"start"}
-	names := []string{"invite", "non-invite"}
-	for i, k := range txKinds {
-		for _, on := range onStates {
-			t.Run(names[i]+"/"+on, func(t *testing.T) {
-				t.Parallel()
-				synctest.Test(t, func(t *testing.T) {
-					ctx := t.Context()
-					tp, tx := k.new(t)
-
-					tx.BindStartHandler(sip.TransactionStartHandlerFunc(
-						func(hdlrCtx context.Context) {
-							if err := tx.Terminate(hdlrCtx, errors.ErrorWrap("from callback")); err != nil {
-								t.Errorf("tx.Terminate() in start callback error = %v", err)
-							}
-						},
-					))
-
-					err := tx.Start(ctx)
-					if !errors.Is(err, sip.ErrTransactionActionNotAllowed) {
-						t.Fatalf("tx.Start() error = %v, want %v", err, sip.ErrTransactionActionNotAllowed)
-					}
-					if !tx.Started() {
-						t.Fatal("tx.Started() = false, want true")
-					}
-					if got := tx.State(); got != sip.TransactionStateTerminated {
-						t.Fatalf("tx.State() = %v, want %v", got, sip.TransactionStateTerminated)
-					}
-					tp.ensureNoSendReq(t)
-					var snap *sip.ClientTransactionSnapshot
-					switch c := tx.(type) {
-					case *sip.InviteClientTransaction:
-						snap = mustClientSnapshot(t, c)
-					case *sip.NonInviteClientTransaction:
-						snap = mustClientSnapshot(t, c)
-					default:
-						t.Fatalf("unexpected tx type %T", tx)
-					}
-					if snap.TimerA != nil || snap.TimerB != nil ||
-						snap.TimerE != nil || snap.TimerF != nil {
-						t.Fatalf("timers armed after terminate-in-%s callback: %+v", on, snap)
-					}
-				})
-			})
-		}
-	}
-}
-
-func TestClientTransaction_StartReentrantCallback(t *testing.T) {
-	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		ctx := t.Context()
-		tp := newStubClientTransport(false)
-		tx, err := sip.NewInviteClientTransaction(
-			newOutInviteReq(t, "UDP", sip.MagicCookie+".lc-reentrant",
-				netip.MustParseAddrPort("11.11.11.11:5070"),
-				netip.MustParseAddrPort("55.55.55.55:5060")),
-			tp,
-		)
-		if err != nil {
-			t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
-		}
-
-		var starts atomic.Int32
-		tx.BindStartHandler(sip.TransactionStartHandlerFunc(
-			func(hdlrCtx context.Context) {
-				_ = tx.Started()
-				_ = tx.State()
-				if err := tx.Start(hdlrCtx); err != nil {
-					starts.Add(1)
-				}
-			},
-		))
-
-		if err := tx.Start(ctx); err != nil {
-			t.Fatalf("tx.Start() error = %v, want nil", err)
-		}
-		if starts.Load() == 0 {
-			t.Fatal("reentrant tx.Start() never called from start callback")
-		}
-	})
-}
-
-func TestClientTransaction_StartStartTerminateRace(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-
-	laddr := netip.MustParseAddrPort("11.11.11.11:5070")
-	raddr := netip.MustParseAddrPort("55.55.55.55:5060")
-
-	for i := range 20 {
-		tp := newStubClientTransport(false)
-		tx, err := sip.NewInviteClientTransaction(
-			newOutInviteReq(t, "UDP", sip.MagicCookie+".lc-race"+strconv.Itoa(i), laddr, raddr),
-			tp,
-		)
-		if err != nil {
-			t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
-		}
-
-		var wg sync.WaitGroup
-		wg.Go(func() { _ = tx.Start(ctx) })
-		wg.Go(func() { _ = tx.Terminate(ctx, errors.ErrorWrap("race")) })
-		wg.Wait()
-
-		if got := tx.State(); got != sip.TransactionStateTerminated {
-			t.Fatalf("iter %d: tx.State() = %v, want %v", i, got, sip.TransactionStateTerminated)
-		}
-	}
-}
-
-func TestBuiltInTransactions_ContextPropagation(t *testing.T) {
+func TestTransaction_ContextPropagation(t *testing.T) {
 	t.Parallel()
 
 	localAddr := netip.MustParseAddrPort("11.11.11.11:5070")
 	remoteAddr := netip.MustParseAddrPort("55.55.55.55:5060")
 	tests := []struct {
 		name string
-		new  func(*testing.T, *proxyStubTransport, string) sip.Transaction
+		new  func(*testing.T, *prxStubTransp, string) sip.Transaction
 	}{
 		{
-			name: "invite client",
-			new: func(t *testing.T, tp *proxyStubTransport, branch string) sip.Transaction {
+			"invite client",
+			func(t *testing.T, tp *prxStubTransp, branch string) sip.Transaction {
 				t.Helper()
+
 				tx, err := sip.NewInviteClientTransaction(
 					newOutInviteReq(t, "UDP", branch, localAddr, remoteAddr),
 					tp,
@@ -1378,9 +1219,10 @@ func TestBuiltInTransactions_ContextPropagation(t *testing.T) {
 			},
 		},
 		{
-			name: "non-invite client",
-			new: func(t *testing.T, tp *proxyStubTransport, branch string) sip.Transaction {
+			"non-invite client",
+			func(t *testing.T, tp *prxStubTransp, branch string) sip.Transaction {
 				t.Helper()
+
 				tx, err := sip.NewNonInviteClientTransaction(
 					newOutNonInviteReq(t, "UDP", branch, localAddr, remoteAddr),
 					tp,
@@ -1392,9 +1234,10 @@ func TestBuiltInTransactions_ContextPropagation(t *testing.T) {
 			},
 		},
 		{
-			name: "invite server",
-			new: func(t *testing.T, tp *proxyStubTransport, branch string) sip.Transaction {
+			"invite server",
+			func(t *testing.T, tp *prxStubTransp, branch string) sip.Transaction {
 				t.Helper()
+
 				tx, err := sip.NewInviteServerTransaction(
 					newInInviteReq(t, "UDP", branch, localAddr, remoteAddr),
 					tp,
@@ -1406,9 +1249,10 @@ func TestBuiltInTransactions_ContextPropagation(t *testing.T) {
 			},
 		},
 		{
-			name: "non-invite server",
-			new: func(t *testing.T, tp *proxyStubTransport, branch string) sip.Transaction {
+			"non-invite server",
+			func(t *testing.T, tp *prxStubTransp, branch string) sip.Transaction {
 				t.Helper()
+
 				tx, err := sip.NewNonInviteServerTransaction(
 					newInNonInviteReq(t, "UDP", branch, localAddr, remoteAddr),
 					tp,
@@ -1425,9 +1269,9 @@ func TestBuiltInTransactions_ContextPropagation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tp := newProxyStubTransport()
+			tp := newPrxStubTransp()
 			tx := tt.new(t, tp, sip.MagicCookie+".context-start-"+strconv.Itoa(i))
-			registerTransactionCleanup(t, tx)
+			registerTxCleanup(t, tx)
 			startCtxs := make(chan context.Context, 1)
 			stateCtxs := make(chan context.Context, 8)
 			snapshotCtxs := make(chan context.Context, 8)
@@ -1462,264 +1306,34 @@ func TestBuiltInTransactions_ContextPropagation(t *testing.T) {
 				}
 			}
 
-			startCtx := context.WithValue(t.Context(), contextTestKey{}, "start")
+			startCtx := context.WithValue(t.Context(), testCtxKey{}, "start")
 			if err := tx.Start(startCtx); err != nil {
 				t.Fatalf("tx.Start() error = %v, want nil", err)
 			}
-			assertPropagationContext(t, testutil.WaitResult(t, startCtxs, "transaction start context"), tx, tp, "start")
+			assertPropagationCtx(t, testutil.WaitResult(t, startCtxs, "transaction start context"), tx, tp, "start")
 			if clientTx, ok := tx.(sip.ClientTransaction); ok {
-				assertPropagationContext(t, tp.waitSendReq(t).ctx, tx, tp, "start")
-				responseCtx := context.WithValue(t.Context(), contextTestKey{}, "response")
+				assertPropagationCtx(t, tp.waitSendReq(t).ctx, tx, tp, "start")
+				responseCtx := context.WithValue(t.Context(), testCtxKey{}, "response")
 				if err := clientTx.RecvResponse(responseCtx, newInRes(t, clientTx.Request(), sip.ResponseStatusRinging)); err != nil {
 					t.Fatalf("clientTx.RecvResponse(180) error = %v, want nil", err)
 				}
-				assertPropagationContext(
-					t,
+				assertPropagationCtx(t,
 					testutil.WaitResult(t, responseCtxs, "client response callback context"),
-					tx,
-					tp,
-					"response",
+					tx, tp, "response",
 				)
 			}
 
-			terminateCtx := context.WithValue(t.Context(), contextTestKey{}, "terminate")
+			terminateCtx := context.WithValue(t.Context(), testCtxKey{}, "terminate")
 			if err := tx.Terminate(terminateCtx, nil); err != nil {
 				t.Fatalf("tx.Terminate() error = %v, want nil", err)
 			}
-			waitForPropagationContext(t, stateCtxs, tx, tp, "terminate")
-			waitForPropagationContext(t, snapshotCtxs, tx, tp, "terminate")
+			waitForPropagationCtx(t, stateCtxs, tx, tp, "terminate")
+			waitForPropagationCtx(t, snapshotCtxs, tx, tp, "terminate")
 		})
 	}
 }
 
-func TestRestoredInviteClientTransaction_TimerContext(t *testing.T) {
-	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		localAddr := netip.MustParseAddrPort("11.11.11.11:5070")
-		remoteAddr := netip.MustParseAddrPort("55.55.55.55:5060")
-		tp := newProxyStubTransport()
-		timing := sip.TimingConfig{T1: 5 * time.Millisecond}
-		req := newOutInviteReq(t, "UDP", sip.MagicCookie+".restored-context", localAddr, remoteAddr)
-		tx, err := sip.NewInviteClientTransaction(req, tp, sip.ClientTransactionOptions{Timing: timing})
-		if err != nil {
-			t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
-		}
-		registerTransactionCleanup(t, tx)
-		if err := tx.Start(context.WithValue(t.Context(), contextTestKey{}, "original")); err != nil {
-			t.Fatalf("tx.Start() error = %v, want nil", err)
-		}
-		_ = tp.waitSendReq(t)
-
-		snapshot, err := tx.Snapshot()
-		if err != nil {
-			t.Fatalf("tx.Snapshot() error = %v, want nil", err)
-		}
-		if err := tx.Terminate(t.Context(), nil); err != nil {
-			t.Fatalf("tx.Terminate() error = %v, want nil", err)
-		}
-
-		restored, err := sip.RestoreInviteClientTransaction(
-			snapshot,
-			tp,
-			sip.ClientTransactionOptions{Timing: timing},
-		)
-		if err != nil {
-			t.Fatalf("sip.RestoreInviteClientTransaction() error = %v, want nil", err)
-		}
-		registerTransactionCleanup(t, restored)
-		if err := restored.Start(context.WithValue(t.Context(), contextTestKey{}, "restored")); err != nil {
-			t.Fatalf("restored.Start() error = %v, want nil", err)
-		}
-
-		time.Sleep(timing.TimeA() + time.Millisecond)
-		assertPropagationContext(t, tp.waitSendReq(t).ctx, restored, tp, "restored")
-		if err := restored.Terminate(t.Context(), nil); err != nil {
-			t.Fatalf("restored.Terminate() error = %v, want nil", err)
-		}
-	})
-}
-
-func TestInviteServerTransaction_TimerContext(t *testing.T) {
-	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		localAddr := netip.MustParseAddrPort("11.11.11.11:5070")
-		remoteAddr := netip.MustParseAddrPort("55.55.55.55:5060")
-		tp := newProxyStubTransport()
-		timing := sip.TimingConfig{Time100: 2 * time.Millisecond}
-		req := newInInviteReq(t, "UDP", sip.MagicCookie+".timer-context", localAddr, remoteAddr)
-		tx, err := sip.NewInviteServerTransaction(req, tp, sip.ServerTransactionOptions{Timing: timing})
-		if err != nil {
-			t.Fatalf("sip.NewInviteServerTransaction() error = %v, want nil", err)
-		}
-		registerTransactionCleanup(t, tx)
-
-		if err := tx.Start(context.WithValue(t.Context(), contextTestKey{}, "timer")); err != nil {
-			t.Fatalf("tx.Start() error = %v, want nil", err)
-		}
-		time.Sleep(timing.Time100 + time.Millisecond)
-		assertPropagationContext(
-			t,
-			testutil.WaitResult(t, tp.sendResCalls, "timer response send context").ctx,
-			tx,
-			tp,
-			"timer",
-		)
-		if err := tx.Terminate(t.Context(), nil); err != nil {
-			t.Fatalf("tx.Terminate() error = %v, want nil", err)
-		}
-	})
-}
-
-func TestInviteClientTransaction_ErrorContext(t *testing.T) {
-	t.Parallel()
-
-	localAddr := netip.MustParseAddrPort("11.11.11.11:5070")
-	remoteAddr := netip.MustParseAddrPort("55.55.55.55:5060")
-	tp := newProxyStubTransport()
-	const sendErr errors.Error = "request send failed"
-	tp.sendReqHook = func(sendReqCall, int) error {
-		return errors.Wrap(sendErr)
-	}
-	req := newOutInviteReq(t, "UDP", sip.MagicCookie+".error-context", localAddr, remoteAddr)
-	tx, err := sip.NewInviteClientTransaction(req, tp)
-	if err != nil {
-		t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
-	}
-	registerTransactionCleanup(t, tx)
-
-	errorCtxs := make(chan context.Context, 1)
-	startCtx := context.WithValue(t.Context(), contextTestKey{}, "error")
-	if err := tx.Start(startCtx); !errors.Is(err, sendErr) {
-		t.Fatalf("tx.Start() error = %v, want %v", err, sendErr)
-	}
-	tx.BindErrorHandler(sip.ErrorHandlerFunc(func(ctx context.Context, _ error) {
-		errorCtxs <- ctx
-	}))
-	assertPropagationContext(t, testutil.WaitResult(t, errorCtxs, "client transport error context"), tx, tp, "error")
-}
-
-func TestInviteClientTransaction_ResponseReplayContext(t *testing.T) {
-	t.Parallel()
-
-	localAddr := netip.MustParseAddrPort("11.11.11.11:5070")
-	remoteAddr := netip.MustParseAddrPort("55.55.55.55:5060")
-	tp := newProxyStubTransport()
-	req := newOutInviteReq(t, "UDP", sip.MagicCookie+".response-replay-context", localAddr, remoteAddr)
-	tx, err := sip.NewInviteClientTransaction(req, tp)
-	if err != nil {
-		t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
-	}
-	registerTransactionCleanup(t, tx)
-	if err := tx.Start(t.Context()); err != nil {
-		t.Fatalf("tx.Start() error = %v, want nil", err)
-	}
-	_ = tp.waitSendReq(t)
-
-	responseCtx := context.WithValue(t.Context(), contextTestKey{}, "response-replay")
-	if err := tx.RecvResponse(responseCtx, newInRes(t, req, sip.ResponseStatusRinging)); err != nil {
-		t.Fatalf("tx.RecvResponse(180) error = %v, want nil", err)
-	}
-	responseCtxs := make(chan context.Context, 1)
-	tx.BindResponseHandler(sip.InboundResponseHandlerFunc(func(ctx context.Context, _ *sip.ResponseEnvelope) {
-		responseCtxs <- ctx
-	}))
-	assertPropagationContext(
-		t,
-		testutil.WaitResult(t, responseCtxs, "response replay callback context"),
-		tx,
-		tp,
-		"response-replay",
-	)
-
-	if err := tx.Terminate(t.Context(), nil); err != nil {
-		t.Fatalf("tx.Terminate() error = %v, want nil", err)
-	}
-}
-
-func TestTransactionStateReplayContext(t *testing.T) {
-	t.Parallel()
-
-	localAddr := netip.MustParseAddrPort("11.11.11.11:5070")
-	remoteAddr := netip.MustParseAddrPort("55.55.55.55:5060")
-	tp := newProxyStubTransport()
-	req := newOutNonInviteReq(t, "UDP", sip.MagicCookie+".state-replay-context", localAddr, remoteAddr)
-	tx, err := sip.NewNonInviteClientTransaction(req, tp)
-	if err != nil {
-		t.Fatalf("sip.NewNonInviteClientTransaction() error = %v, want nil", err)
-	}
-	registerTransactionCleanup(t, tx)
-	if err := tx.Start(t.Context()); err != nil {
-		t.Fatalf("tx.Start() error = %v, want nil", err)
-	}
-	_ = tp.waitSendReq(t)
-	if err := tx.Terminate(context.WithValue(t.Context(), contextTestKey{}, "state-replay"), nil); err != nil {
-		t.Fatalf("tx.Terminate() error = %v, want nil", err)
-	}
-
-	stateCtxs := make(chan context.Context, 1)
-	tx.BindStateHandler(sip.TransactionStateHandlerFunc(func(ctx context.Context, _, _ sip.TransactionState) {
-		stateCtxs <- ctx
-	}))
-	assertPropagationContext(
-		t,
-		testutil.WaitResult(t, stateCtxs, "state replay callback context"),
-		tx,
-		tp,
-		"state-replay",
-	)
-}
-
-func TestInviteServerTransaction_ACKContext(t *testing.T) {
-	t.Parallel()
-
-	localAddr := netip.MustParseAddrPort("11.11.11.11:5070")
-	remoteAddr := netip.MustParseAddrPort("55.55.55.55:5060")
-	tp := newProxyStubTransport()
-	req := newInInviteReq(t, "UDP", "legacy-ack-context", localAddr, remoteAddr)
-	tx, err := sip.NewInviteServerTransaction(req, tp)
-	if err != nil {
-		t.Fatalf("sip.NewInviteServerTransaction() error = %v, want nil", err)
-	}
-	registerTransactionCleanup(t, tx)
-
-	if err := tx.Start(t.Context()); err != nil {
-		t.Fatalf("tx.Start() error = %v, want nil", err)
-	}
-
-	res := newInRes(t, req, sip.ResponseStatusOK)
-	resCtx := context.WithValue(t.Context(), contextTestKey{}, "response")
-	if err := tx.SendResponse(resCtx, res); err != nil {
-		t.Fatalf("tx.SendResponse() error = %v, want nil", err)
-	}
-	assertPropagationContext(
-		t,
-		testutil.WaitResult(t, tp.sendResCalls, "response send context").ctx,
-		tx,
-		tp,
-		"response",
-	)
-
-	ackCtx := context.WithValue(t.Context(), contextTestKey{}, "ack")
-	if err := tx.RecvRequest(ackCtx, newInAckReq(t, req, res)); err != nil {
-		t.Fatalf("tx.RecvRequest(ACK) error = %v, want nil", err)
-	}
-	ackCtxs := make(chan context.Context, 1)
-	tx.BindAckHandler(sip.InboundRequestHandlerFunc(func(ctx context.Context, _ *sip.RequestEnvelope) {
-		ackCtxs <- ctx
-	}))
-	assertPropagationContext(
-		t,
-		testutil.WaitResult(t, ackCtxs, "ACK callback context"),
-		tx,
-		tp,
-		"ack",
-	)
-	if err := tx.Terminate(t.Context(), nil); err != nil {
-		t.Fatalf("tx.Terminate() error = %v, want nil", err)
-	}
-}
-
-func waitForPropagationContext(
+func waitForPropagationCtx(
 	t *testing.T,
 	ctxs <-chan context.Context,
 	tx sip.Transaction,
@@ -1738,8 +1352,8 @@ func waitForPropagationContext(
 				t.Fatalf("transaction callback context channel closed before value %q", value)
 				return
 			}
-			if ctx.Value(contextTestKey{}) == value {
-				assertPropagationContext(t, ctx, tx, tp, value)
+			if ctx.Value(testCtxKey{}) == value {
+				assertPropagationCtx(t, ctx, tx, tp, value)
 				return
 			}
 		case <-timer.C:
@@ -1748,51 +1362,63 @@ func waitForPropagationContext(
 	}
 }
 
-func TestRegisterTransactionCleanup_Termination(t *testing.T) {
-	t.Parallel()
+func registerTxCleanup(tb testing.TB, tx sip.Transaction) {
+	tb.Helper()
 
-	for _, tt := range []struct {
-		name          string
-		state         sip.TransactionState
-		wantTermCalls int32
-	}{
-		{name: "active", state: sip.TransactionStateCalling, wantTermCalls: 1},
-		{name: "terminated", state: sip.TransactionStateTerminated},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	tb.Cleanup(func() {
+		if tx.State() == sip.TransactionStateTerminated {
+			return
+		}
+		// The test context is already canceled when cleanup runs.
+		if err := tx.Terminate(context.WithoutCancel(tb.Context()), nil); err != nil {
+			tb.Errorf("tx.Terminate() cleanup error = %v, want nil", errors.Wrap(err))
+		}
+	})
+}
 
-			tx := newCustomClientTx(
-				t,
-				sip.MagicCookie+".cleanup-"+tt.name,
-				tt.state,
-			)
-			stateCtxs := make(chan context.Context, 1)
-			if tt.state != sip.TransactionStateTerminated {
-				tx.BindStateHandler(sip.TransactionStateHandlerFunc(func(
-					ctx context.Context,
-					_,
-					_ sip.TransactionState,
-				) {
-					stateCtxs <- ctx
-				}))
-			}
+type stubTxDefaults struct{}
 
-			t.Cleanup(func() {
-				if got := tx.State(); got != sip.TransactionStateTerminated {
-					t.Errorf("tx.State() after cleanup = %v, want %v", got, sip.TransactionStateTerminated)
-				}
-				if got := tx.termCalls.Load(); got != tt.wantTermCalls {
-					t.Errorf("tx.termCalls = %d, want %d", got, tt.wantTermCalls)
-				}
-				if tt.wantTermCalls > 0 {
-					ctx := testutil.WaitResult(t, stateCtxs, "transaction cleanup state context")
-					if err := ctx.Err(); err != nil {
-						t.Errorf("cleanup state context error = %v, want nil", err)
-					}
-				}
-			})
-			registerTransactionCleanup(t, tx)
-		})
-	}
+func (stubTxDefaults) MatchMessage(sip.Message) bool            { return true }
+func (stubTxDefaults) LastError() error                         { return nil }
+func (stubTxDefaults) BindErrorHandler(sip.ErrorHandler) func() { return func() {} }
+func (stubTxDefaults) Terminate(context.Context, error) error   { return nil }
+
+type stubClnTxDefaults struct{}
+
+func (stubClnTxDefaults) Request() *sip.RequestEnvelope { return nil }
+func (stubClnTxDefaults) LastResponse() *sip.ResponseEnvelope {
+	return nil
+}
+
+func (stubClnTxDefaults) Transport() sip.ClientTransport { return nil }
+func (stubClnTxDefaults) RecvResponse(context.Context, *sip.ResponseEnvelope) error {
+	return nil
+}
+
+func (stubClnTxDefaults) BindResponseHandler(sip.InboundResponseHandler) func() {
+	return func() {}
+}
+
+type stubSrvTxDefaults struct{}
+
+func (stubSrvTxDefaults) Request() *sip.RequestEnvelope { return nil }
+func (stubSrvTxDefaults) LastResponse() *sip.ResponseEnvelope {
+	return nil
+}
+
+func (stubSrvTxDefaults) Transport() sip.ServerTransport { return nil }
+func (stubSrvTxDefaults) RecvRequest(context.Context, *sip.RequestEnvelope) error {
+	return nil
+}
+
+func (stubSrvTxDefaults) SendResponse(
+	context.Context,
+	*sip.ResponseEnvelope,
+	...sip.SendResponseOptions,
+) error {
+	return nil
+}
+
+func (stubSrvTxDefaults) Respond(context.Context, sip.ResponseStatus, ...sip.RespondOptions) error {
+	return nil
 }

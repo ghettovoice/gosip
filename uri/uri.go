@@ -7,43 +7,43 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // Addr represents a network address consisting of a host and optional port.
-type Addr = types.Addr
+type Addr = shared.Addr
 
 // MakeHostAddr creates an Addr from a hostname without a port.
-func MakeHostAddr(host string) Addr { return types.MakeHostAddr(host) }
+func MakeHostAddr(host string) Addr { return shared.MakeHostAddr(host) }
 
 // MakeHostPortAddr creates an Addr from a hostname and port.
-func MakeHostPortAddr(host string, port uint16) Addr { return types.MakeHostPortAddr(host, port) }
+func MakeHostPortAddr(host string, port uint16) Addr { return shared.MakeHostPortAddr(host, port) }
 
-func MakeIPAddr(ip net.IP) Addr { return types.MakeIPAddr(ip) }
+func MakeIPAddr(ip net.IP) Addr { return shared.MakeIPAddr(ip) }
 
-func MakeIPPortAddr(ip net.IP, port uint16) Addr { return types.MakeIPPortAddr(ip, port) }
+func MakeIPPortAddr(ip net.IP, port uint16) Addr { return shared.MakeIPPortAddr(ip, port) }
 
 // ParseAddr parses a network address from the given input s (string or []byte).
-func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }
+func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) { return errors.Wrap2(shared.ParseAddr(s)) }
 
 // Values represents URI parameters or headers as a multi-value map.
-type Values = types.Values
+type Values = shared.Values
 
 // RenderOptions contains options for rendering URIs and headers.
-type RenderOptions = types.RenderOptions
+type RenderOptions = shared.RenderOptions
 
-type TransportProto = types.TransportProto
+type TransportProto = shared.TransportProto
 
-type RequestMethod = types.RequestMethod
+type RequestMethod = shared.RequestMethod
 
 // URI represents generic URI (SIP, SIPS, Tel, ...etc).
 type URI interface {
 	Scheme() string
-	types.Renderer
-	types.Cloneable[URI]
-	types.ValidFlag
-	types.Equalable
+	shared.Renderer
+	shared.Cloneable[URI]
+	shared.ValidFlag
+	shared.Equalable
 }
 
 // Parse parses any URI (sip, sips, tel, ...etc.) from a given input s (string or []byte).
@@ -55,8 +55,8 @@ type URI interface {
 //
 // See [ParseSIP], [ParseTel], [ParseAny].
 func Parse[T ~string | ~[]byte](s T) (URI, error) {
-	if len(s) >= 3 {
-		switch util.LCase(string(s[:3])) {
+	if len(s) >= 3 { //nolint:mnd // length of the "sip"/"tel" scheme names probed below
+		switch util.ToLower(string(s[:3])) {
 		case "sip":
 			return errors.Wrap2(ParseSIP(s))
 		case "tel":
@@ -93,7 +93,7 @@ func FromABNF(node *abnf.Node) (u URI, err error) {
 	case "telephone-uri":
 		return buildFromTelURINode(node), nil
 	case "absoluteURI":
-		switch util.LCase(grammar.MustGetNode(node, "scheme").String()) {
+		switch util.ToLower(grammar.MustGetNode(node, "scheme").String()) {
 		case "sip", "sips":
 			return errors.Wrap2(Parse(node.Value))
 		case "tel":

@@ -29,6 +29,15 @@ func TestMIMEType_String(t *testing.T) {
 			},
 			`TEXT/PLAIN;bar="QwertY";charset=UTF-8;foo=123`,
 		},
+		{
+			"sorted parameters retain empty values",
+			header.MIMEType{
+				Type:    "text",
+				Subtype: "plain",
+				Params:  header.Values{"z": {""}, "a": {"1"}},
+			},
+			"text/plain;a=1;z=",
+		},
 	}
 
 	for _, tt := range tests {
@@ -269,7 +278,6 @@ func TestMIMEType_MarshalText(t *testing.T) {
 			if err != nil {
 				t.Fatalf("mt.MarshalText() error = %v, want nil", err)
 			}
-
 			if string(got) != tt.want {
 				t.Fatalf("mt.MarshalText() = %q, want %q", got, tt.want)
 			}
@@ -380,7 +388,6 @@ func TestMIMEType_RoundTripText(t *testing.T) {
 			if err := got.UnmarshalText(data); err != nil {
 				t.Fatalf("mt.UnmarshalText(data) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(got, tt.mt); diff != "" {
 				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.mt, diff)
 			}

@@ -3,10 +3,13 @@ package sip_test
 import (
 	"context"
 	"net/netip"
+	"reflect"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/testutil"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/sip"
@@ -19,7 +22,7 @@ type sendResCall struct {
 	opts sip.SendResponseOptions
 }
 
-type stubServerTransport struct {
+type stubSrvTransp struct {
 	reliable bool
 
 	sendResCalls chan sendResCall
@@ -29,14 +32,14 @@ type stubServerTransport struct {
 	sendResCnt  int
 }
 
-func newStubServerTransport(reliable bool) *stubServerTransport {
-	return &stubServerTransport{
+func newStubSrvTransp(reliable bool) *stubSrvTransp {
+	return &stubSrvTransp{
 		reliable:     reliable,
 		sendResCalls: make(chan sendResCall, 64),
 	}
 }
 
-func (tp *stubServerTransport) Metadata() sip.TransportMetadata {
+func (tp *stubSrvTransp) Metadata() sip.TransportMetadata {
 	if tp == nil {
 		return sip.TransportMetadata{}
 	}
@@ -48,7 +51,7 @@ func (tp *stubServerTransport) Metadata() sip.TransportMetadata {
 	return sip.TransportMetadata{Flags: flags}
 }
 
-func (tp *stubServerTransport) SendResponse(
+func (tp *stubSrvTransp) SendResponse(
 	ctx context.Context,
 	res *sip.ResponseEnvelope,
 	opts ...sip.SendResponseOptions,
@@ -56,7 +59,7 @@ func (tp *stubServerTransport) SendResponse(
 	call := sendResCall{
 		ctx:  ctx,
 		res:  res,
-		opts: util.LastSliceElemOr(opts, sip.SendResponseOptions{}),
+		opts: util.LastSliceElem(opts, sip.SendResponseOptions{}),
 	}
 
 	tp.mu.Lock()
@@ -76,18 +79,18 @@ func (tp *stubServerTransport) SendResponse(
 	return nil
 }
 
-func (tp *stubServerTransport) setSendResHook(hook func(sendResCall, int) error) {
+func (tp *stubSrvTransp) setSendResHook(hook func(sendResCall, int) error) {
 	tp.mu.Lock()
 	tp.sendResHook = hook
 	tp.mu.Unlock()
 }
 
-func (tp *stubServerTransport) waitSendRes(tb testing.TB) sendResCall {
+func (tp *stubSrvTransp) waitSendRes(tb testing.TB) sendResCall {
 	tb.Helper()
 	return testutil.WaitResult(tb, tp.sendResCalls, "response send call")
 }
 
-func (tp *stubServerTransport) ensureNoSendRes(tb testing.TB) {
+func (tp *stubSrvTransp) ensureNoSendRes(tb testing.TB) {
 	tb.Helper()
 
 	tmr := time.NewTimer(1 * time.Second)
@@ -100,7 +103,7 @@ func (tp *stubServerTransport) ensureNoSendRes(tb testing.TB) {
 	}
 }
 
-func startServerTransaction(tb testing.TB, tx sip.ServerTransaction) {
+func startSrvTx(tb testing.TB, tx sip.ServerTransaction) {
 	tb.Helper()
 
 	if err := tx.Start(tb.Context()); err != nil {
@@ -108,17 +111,89 @@ func startServerTransaction(tb testing.TB, tx sip.ServerTransaction) {
 	}
 }
 
-func (tp *stubServerTransport) sendResChan() <-chan sendResCall {
+func (tp *stubSrvTransp) sendResChan() <-chan sendResCall {
 	return tp.sendResCalls
 }
 
-func (tp *stubServerTransport) drainSendRess() {
+func (tp *stubSrvTransp) drainSendRess() {
 	for {
 		select {
 		case <-tp.sendResCalls:
 		default:
 			return
 		}
+	}
+}
+
+func TestRestoreServerTransaction_Dispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		typ     sip.TransactionType
+		want    sip.ServerTransaction
+		wantErr bool
+	}{
+		{name: "invite", typ: sip.TransactionTypeServerInvite, want: (*sip.InviteServerTransaction)(nil)},
+		{name: "non-invite", typ: sip.TransactionTypeServerNonInvite, want: (*sip.NonInviteServerTransaction)(nil)},
+		{name: "nil snapshot", wantErr: true},
+		{name: "client invite", typ: sip.TransactionTypeClientInvite, wantErr: true},
+		{name: "client non-invite", typ: sip.TransactionTypeClientNonInvite, wantErr: true},
+		{name: "unknown type", typ: sip.TransactionType(255), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				local := netip.MustParseAddrPort("11.11.11.11:5070")
+				remote := netip.MustParseAddrPort("55.55.55.55:5060")
+				var snap *sip.ServerTransactionSnapshot
+				switch tt.typ {
+				case sip.TransactionTypeServerInvite:
+					req := newInInviteReq(t, "UDP", sip.MagicCookie+".dispatch-inv", local, remote)
+					tx, err := sip.NewInviteServerTransaction(req, newStubSrvTransp(false))
+					if err != nil {
+						t.Fatalf("sip.NewInviteServerTransaction() error = %v, want nil", err)
+					}
+					registerTxCleanup(t, tx)
+					startSrvTx(t, tx)
+					snap = mustSrvTxSnapshot(t, tx)
+				case sip.TransactionTypeServerNonInvite:
+					req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".dispatch-ni", local, remote)
+					tx, err := sip.NewNonInviteServerTransaction(req, newStubSrvTransp(false))
+					if err != nil {
+						t.Fatalf("sip.NewNonInviteServerTransaction() error = %v, want nil", err)
+					}
+					registerTxCleanup(t, tx)
+					startSrvTx(t, tx)
+					snap = mustSrvTxSnapshot(t, tx)
+				default:
+					if tt.typ != 0 {
+						snap = &sip.ServerTransactionSnapshot{Type: tt.typ}
+					}
+				}
+
+				got, err := sip.RestoreServerTransaction(snap, newStubSrvTransp(false))
+				if tt.wantErr {
+					if !errors.Is(err, sip.ErrInvalidTransactionSnapshot) {
+						t.Fatalf("sip.RestoreServerTransaction() error = %v, want %v", err, sip.ErrInvalidTransactionSnapshot)
+					}
+					if got != nil {
+						t.Fatalf("sip.RestoreServerTransaction() = %T, want nil", got)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("sip.RestoreServerTransaction() error = %v, want nil", err)
+				}
+				registerTxCleanup(t, got)
+				if reflect.TypeOf(got) != reflect.TypeOf(tt.want) {
+					t.Fatalf("sip.RestoreServerTransaction() = %T, want %T", got, tt.want)
+				}
+			})
+		})
 	}
 }
 
@@ -156,12 +231,10 @@ func TestServerTransactionKey_RoundTripBinary(t *testing.T) {
 			t.Parallel()
 
 			original := tt.key
-
 			data, err := original.MarshalBinary()
 			if err != nil {
 				t.Fatalf("key.MarshalBinary() error = %v", err)
 			}
-
 			if len(data) == 0 {
 				t.Fatalf("key.MarshalBinary() = %v, want non-empty", data)
 			}
@@ -172,7 +245,6 @@ func TestServerTransactionKey_RoundTripBinary(t *testing.T) {
 			if err := restored.UnmarshalBinary(data); err != nil {
 				t.Fatalf("new.UnmarshalBinary(data) error = %v, want nil", err)
 			}
-
 			if !original.Equal(&restored) {
 				t.Fatalf("round-trip mismatch: got %+v, want %+v", restored, original)
 			}
@@ -200,12 +272,12 @@ func TestMakeServerTransactionKey_Method(t *testing.T) {
 		branch string
 		method sip.RequestMethod
 	}{
-		{name: "rfc3261 invite", branch: sip.MagicCookie + ".key-invite", method: sip.RequestMethodInvite},
-		{name: "rfc3261 ack", branch: sip.MagicCookie + ".key-ack", method: sip.RequestMethodAck},
-		{name: "rfc3261 cancel", branch: sip.MagicCookie + ".key-cancel", method: sip.RequestMethodCancel},
-		{name: "rfc2543 invite", branch: "legacy.key-invite", method: sip.RequestMethodInvite},
-		{name: "rfc2543 ack", branch: "legacy.key-ack", method: sip.RequestMethodAck},
-		{name: "rfc2543 cancel", branch: "legacy.key-cancel", method: sip.RequestMethodCancel},
+		{"rfc3261 invite", sip.MagicCookie + ".key-invite", sip.RequestMethodInvite},
+		{"rfc3261 ack", sip.MagicCookie + ".key-ack", sip.RequestMethodAck},
+		{"rfc3261 cancel", sip.MagicCookie + ".key-cancel", sip.RequestMethodCancel},
+		{"rfc2543 invite", "legacy.key-invite", sip.RequestMethodInvite},
+		{"rfc2543 ack", "legacy.key-ack", sip.RequestMethodAck},
+		{"rfc2543 cancel", "legacy.key-cancel", sip.RequestMethodCancel},
 	}
 
 	for _, tt := range tests {

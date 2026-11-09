@@ -11,37 +11,37 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
 // RequestMethod represents a SIP request method.
-// See [types.RequestMethod].
-type RequestMethod = types.RequestMethod
+// See [shared.RequestMethod].
+type RequestMethod = shared.RequestMethod
 
 // Request method constants.
-// See [types.RequestMethod].
+// See [shared.RequestMethod].
 const (
-	RequestMethodAck       = types.RequestMethodAck
-	RequestMethodBye       = types.RequestMethodBye
-	RequestMethodCancel    = types.RequestMethodCancel
-	RequestMethodInfo      = types.RequestMethodInfo
-	RequestMethodInvite    = types.RequestMethodInvite
-	RequestMethodMessage   = types.RequestMethodMessage
-	RequestMethodNotify    = types.RequestMethodNotify
-	RequestMethodOptions   = types.RequestMethodOptions
-	RequestMethodPrack     = types.RequestMethodPrack
-	RequestMethodPublish   = types.RequestMethodPublish
-	RequestMethodRefer     = types.RequestMethodRefer
-	RequestMethodRegister  = types.RequestMethodRegister
-	RequestMethodSubscribe = types.RequestMethodSubscribe
-	RequestMethodUpdate    = types.RequestMethodUpdate
+	RequestMethodAck       = shared.RequestMethodAck
+	RequestMethodBye       = shared.RequestMethodBye
+	RequestMethodCancel    = shared.RequestMethodCancel
+	RequestMethodInfo      = shared.RequestMethodInfo
+	RequestMethodInvite    = shared.RequestMethodInvite
+	RequestMethodMessage   = shared.RequestMethodMessage
+	RequestMethodNotify    = shared.RequestMethodNotify
+	RequestMethodOptions   = shared.RequestMethodOptions
+	RequestMethodPrack     = shared.RequestMethodPrack
+	RequestMethodPublish   = shared.RequestMethodPublish
+	RequestMethodRefer     = shared.RequestMethodRefer
+	RequestMethodRegister  = shared.RequestMethodRegister
+	RequestMethodSubscribe = shared.RequestMethodSubscribe
+	RequestMethodUpdate    = shared.RequestMethodUpdate
 )
 
 // IsKnownRequestMethod returns whether the method is defined in RFC 3261 or one it's extensions.
 func IsKnownRequestMethod(method RequestMethod) bool {
-	return types.IsKnownRequestMethod(method)
+	return shared.IsKnownRequestMethod(method)
 }
 
 // Request represents a SIP request message.
@@ -51,6 +51,13 @@ type Request struct {
 	Proto   ProtoInfo     `json:"proto"`
 	Headers Headers       `json:"headers,omitempty"`
 	Body    []byte        `json:"body,omitempty"`
+
+	// forwarded marks an owned proxy branch copy of a forwarded request.
+	// Endpoint conveniences that would corrupt a forwarded message (such as
+	// inventing a From tag) honor it. It is trusted in-memory provenance only:
+	// clones keep it, JSON rebuilds reset it, and it is never a wire header or
+	// a serialized user-controlled field.
+	forwarded bool
 }
 
 var _ Message = (*Request)(nil)
@@ -179,7 +186,7 @@ func (req *Request) Clone() Message {
 	}
 
 	clone := *req
-	clone.URI = types.Clone[AnyURI](req.URI)
+	clone.URI = shared.Clone[AnyURI](req.URI)
 	clone.Headers = req.Headers.Clone()
 	clone.Body = slices.Clone(req.Body)
 	return &clone
@@ -205,7 +212,7 @@ func (req *Request) Equal(val any) bool {
 
 	return req.Method.Equal(other.Method) &&
 		req.Proto.Equal(other.Proto) &&
-		types.IsEqual(req.URI, other.URI) &&
+		shared.IsEqual(req.URI, other.URI) &&
 		compareHdrs(req.Headers, other.Headers) &&
 		slices.Equal(req.Body, other.Body)
 }
@@ -231,7 +238,7 @@ func (req *Request) Validate() error {
 	if !req.Method.IsValid() {
 		errs = append(errs, errors.Errorf("invalid method %q", req.Method))
 	}
-	if !types.IsValid(req.URI) {
+	if !shared.IsValid(req.URI) {
 		errs = append(errs, errors.Errorf("invalid URI %q", req.URI))
 	}
 	if !req.Proto.IsValid() {
@@ -272,6 +279,8 @@ func (req *Request) UnmarshalJSON(data []byte) error {
 	req.Proto = reqData.Proto
 	req.Headers = reqData.Headers
 	req.Body = reqData.Body
+	// The forwarded marker is in-memory provenance, never a serialized field.
+	req.forwarded = false
 	if u, err := ParseAnyURI(reqData.URI); err == nil {
 		req.URI = u
 	} else {
@@ -365,7 +374,7 @@ func NewRequest(mtd RequestMethod, ruri, furi, turi AnyURI, opts ...RequestOptio
 		return nil, errors.ErrorfWrap("invalid to URI %q", turi)
 	}
 
-	reqOpts := util.LastSliceElemOr(opts, RequestOptions{})
+	reqOpts := util.LastSliceElem(opts, RequestOptions{})
 
 	if u, ok := ruri.(*URI); ok {
 		ruri = cleanReqURI(u)
@@ -415,8 +424,29 @@ func NewRequest(mtd RequestMethod, ruri, furi, turi AnyURI, opts ...RequestOptio
 func EnsureRequestVia(req *Request, tp TransportProto, addr Addr) {
 	via, ok := req.Headers.FirstVia()
 	if !ok {
+		if req.forwarded {
+			// A forwarded request never gains an invented endpoint Via; the
+			// proxy inserts its own hop explicitly before the send.
+			return
+		}
 		req.Headers.PrependVia(header.ViaHop{Proto: protoVer20})
 		via, _ = req.Headers.FirstVia()
+	}
+
+	if req.forwarded {
+		// Only a proxy-owned top hop may be updated with the selected
+		// transport and sent-by. The forwarded peer's top Via is never
+		// rewritten, and a proxy branch is never regenerated here.
+		if b, ok := via.Branch(); !ok || !isPrxBranch(b) {
+			return
+		}
+		if tp.IsValid() {
+			via.Transport = tp
+		}
+		if addr.IsValid() {
+			via.Addr = addr
+		}
+		return
 	}
 
 	if tp.IsValid() {
@@ -457,6 +487,12 @@ func EnsureRequestViaMulticast(req *Request, addr netip.Addr) {
 }
 
 func EnsureRequestFromTag(req *Request) {
+	if req.forwarded {
+		// A forwarded request keeps its dialog identity verbatim; a proxy
+		// must not manufacture a From tag for it.
+		return
+	}
+
 	from, ok := req.Headers.From()
 	if !ok || from == nil {
 		return
@@ -471,8 +507,30 @@ func EnsureRequestFromTag(req *Request) {
 	from.Params.Set("tag", GenerateTag(0))
 }
 
+// reqForwarded reports whether the envelope's request carries the forwarded
+// branch-copy marker.
+func reqForwarded(req *RequestEnvelope) bool {
+	var forwarded bool
+	if req != nil {
+		req.WithMessage(func(r *Request) { forwarded = r.forwarded })
+	}
+	return forwarded
+}
+
+// setReqForwarded marks or unmarks an owned request copy as a forwarded
+// branch copy.
+func setReqForwarded(req *RequestEnvelope, forwarded bool) {
+	if req == nil {
+		return
+	}
+	req.WithMessage(func(r *Request) { r.forwarded = forwarded })
+}
+
+// EnsureRequestMaxForwards fills an absent Max-Forwards header field with
+// the default value. An existing value is never overwritten: a zero left by
+// a proxy decrement is a legitimate outgoing hop count.
 func EnsureRequestMaxForwards(req *Request) {
-	if h, ok := req.Headers.MaxForwards(); ok && h > 0 {
+	if _, ok := req.Headers.MaxForwards(); ok {
 		return
 	}
 	req.Headers.Set(DefaultMaxForwards)
@@ -506,7 +564,7 @@ func NewCancelRequest(inv *Request) (*Request, error) {
 	cnc.Headers.Set(cid.Clone())
 
 	cseq, _ := inv.Headers.CSeq()
-	cseq = cseq.Clone().(*header.CSeq) //nolint:forcetypeassert
+	cseq = cseq.Clone().(*header.CSeq) //nolint:forcetypeassert // the concrete type is fixed by construction
 	cseq.Method = RequestMethodCancel
 	cnc.Headers.Set(cseq)
 
@@ -621,7 +679,7 @@ func (r *RequestEnvelope) Clone() Message {
 		return nil
 	}
 	return &RequestEnvelope{
-		cloned.(*MessageEnvelope[*Request]), //nolint:forcetypeassert
+		cloned.(*MessageEnvelope[*Request]), //nolint:forcetypeassert // the concrete type is fixed by construction
 	}
 }
 
@@ -629,7 +687,7 @@ func cloneReqEnvelope(req *RequestEnvelope) *RequestEnvelope {
 	if req == nil {
 		return nil
 	}
-	return req.Clone().(*RequestEnvelope) //nolint:forcetypeassert
+	return req.Clone().(*RequestEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
 }
 
 func (r *RequestEnvelope) Equal(val any) bool {

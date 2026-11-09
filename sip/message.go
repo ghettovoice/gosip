@@ -23,8 +23,8 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/netutil"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/syncutil"
-	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/uri"
@@ -36,11 +36,11 @@ const (
 
 // Message represents a SIP message.
 type Message interface {
-	types.Renderer
-	types.Cloneable[Message]
-	types.Validatable
-	types.ValidFlag
-	types.Equalable
+	shared.Renderer
+	shared.Cloneable[Message]
+	shared.Validatable
+	shared.ValidFlag
+	shared.Equalable
 }
 
 // ParseMessage parses a SIP message from a byte sequence.
@@ -406,7 +406,7 @@ func (m *MessageEnvelope[T]) Message() T {
 }
 
 func (m *MessageEnvelope[T]) cloneMsg() T {
-	return m.msg.Clone().(T) //nolint:forcetypeassert
+	return m.msg.Clone().(T) //nolint:forcetypeassert // the concrete type is fixed by construction
 }
 
 func (m *MessageEnvelope[T]) WithMessage(fn func(T)) *MessageEnvelope[T] {
@@ -498,9 +498,10 @@ func (m *MessageEnvelope[T]) RenderTo(w io.Writer, opts ...RenderOptions) (int, 
 }
 
 func (m *MessageEnvelope[T]) renderTo(w io.Writer, opts ...RenderOptions) (int, error) {
-	if m.rendCache == nil || m.rendCache.Len() == 0 || !types.IsEqual(m.rendOpts, opts) {
+	rendOpts := util.LastSliceElem(opts, RenderOptions{})
+	if m.rendCache == nil || m.rendCache.Len() == 0 || !shared.IsEqual(m.rendOpts, rendOpts) {
 		m.resetRendCache()
-		m.rendOpts = util.LastSliceElemOr(opts, RenderOptions{})
+		m.rendOpts = rendOpts
 		if n, err := m.msg.RenderTo(m.rendCache, m.rendOpts); err != nil {
 			return n, errors.Wrap(err)
 		}
@@ -617,7 +618,7 @@ func (m *MessageEnvelope[T]) Validate() error {
 	return errors.Wrap(m.msg.Validate())
 }
 
-type messageEnvelopeData[T Message] struct {
+type msgEnvelopeData[T Message] struct {
 	Message     T                 `json:"message"`
 	MessageTime time.Time         `json:"message_time"`
 	Transport   TransportMetadata `json:"transport,omitzero"`
@@ -634,7 +635,7 @@ func (m *MessageEnvelope[T]) MarshalJSON() ([]byte, error) {
 	m.msgMu.RLock()
 	defer m.msgMu.RUnlock()
 
-	return errors.Wrap2(json.Marshal(messageEnvelopeData[T]{
+	return errors.Wrap2(json.Marshal(msgEnvelopeData[T]{
 		Message:     m.msg,
 		MessageTime: m.msgTime,
 		Transport:   m.transp(),
@@ -645,7 +646,7 @@ func (m *MessageEnvelope[T]) MarshalJSON() ([]byte, error) {
 }
 
 func (m *MessageEnvelope[T]) UnmarshalJSON(data []byte) error {
-	var dto messageEnvelopeData[T]
+	var dto msgEnvelopeData[T]
 	if err := json.Unmarshal(data, &dto); err != nil {
 		return errors.Wrap(err)
 	}
@@ -718,7 +719,7 @@ func GenerateTag(length uint) string {
 	if length > 0 {
 		l = int(length)
 	}
-	return util.RandStringLC(l)
+	return util.RandStringLower(l)
 }
 
 func GenerateStableToTag(msg Message, salt []byte) string {
@@ -744,7 +745,7 @@ func GenerateStableToTag(msg Message, salt []byte) string {
 	}
 
 	if via, ok := hdrs.FirstVia(); ok && via != nil {
-		buf = append(buf, util.LCase(via.String())...)
+		buf = append(buf, util.ToLower(via.String())...)
 	}
 
 	buf = append(buf, salt...)
@@ -761,9 +762,9 @@ func GenerateCallID(length uint, host string) string {
 		l = int(length)
 	}
 	if len(host) > 0 {
-		return util.RandStringLC(l) + "@" + host
+		return util.RandStringLower(l) + "@" + host
 	}
-	return util.RandStringLC(l)
+	return util.RandStringLower(l)
 }
 
 // MagicCookie is a constant string defined in RFC 3261.
@@ -782,5 +783,5 @@ func GenerateBranch(length uint) string {
 	if length > 0 {
 		l = int(length)
 	}
-	return MagicCookie + "." + util.RandStringLC(l)
+	return MagicCookie + "." + util.RandStringLower(l)
 }

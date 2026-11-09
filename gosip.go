@@ -1,4 +1,4 @@
 package gosip
 
-// VERSION holds module version.
-const VERSION = "v0.1.0"
+// Version holds module version.
+const Version = "v0.1.0"

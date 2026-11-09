@@ -15,14 +15,24 @@ import (
 
 // NonInviteServerTransaction represents a non-invite server transaction.
 type NonInviteServerTransaction struct {
-	*serverTransact
+	*baseSrvTransact
 
-	tmrJ atomic.Pointer[timeutil.Timer]
+	tmrJ      atomic.Pointer[timeutil.Timer]
+	tmrTrying atomic.Pointer[timeutil.Timer]
+
+	// behavior is the response-policy profile frozen at
+	// construction, see [ServerTransactionOptions.NonInviteServerTransactionBehavior].
+	behavior NonInviteServerTransactionBehavior
+	// tryingDeadline is the absolute RFC 4320 delayed-Trying eligibility
+	// deadline shared by response validation and the delayed Trying timer.
+	// It is assigned at Start before activation and read-only afterwards.
+	tryingDeadline time.Time
 }
 
 var (
-	_ ServerTransaction            = (*NonInviteServerTransaction)(nil)
-	_ ServerTransactionSnapshotter = (*NonInviteServerTransaction)(nil)
+	_ ServerTransaction                          = (*NonInviteServerTransaction)(nil)
+	_ ServerTransactionSnapshotter               = (*NonInviteServerTransaction)(nil)
+	_ NonInviteServerTransactionBehaviorProvider = (*NonInviteServerTransaction)(nil)
 )
 
 // NewNonInviteServerTransaction creates an initialized non-INVITE server transaction.
@@ -44,19 +54,33 @@ func NewNonInviteServerTransaction(
 		return nil, errors.Wrap(NewRequestMethodNotAllowedError())
 	}
 
-	o := util.LastSliceElemOr(opts, ServerTransactionOptions{})
+	o := util.LastSliceElem(opts, ServerTransactionOptions{})
+	if !o.NonInviteServerTransactionBehavior.supported() {
+		return nil, errors.ErrorfWrap("invalid non-INVITE server transaction behavior %d", o.NonInviteServerTransactionBehavior)
+	}
 
 	tx := new(NonInviteServerTransaction)
-	srvTx, err := newServerTransact(TransactionTypeServerNonInvite, tx, req, tp, o)
+	tx.behavior = o.NonInviteServerTransactionBehavior
+	base, err := newBaseSrvTransact(TransactionTypeServerNonInvite, tx, req, tp, o)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
-	tx.serverTransact = srvTx
+	tx.baseSrvTransact = base
 	if err := tx.initFSM(TransactionStateTrying); err != nil {
 		return nil, errors.Wrap(err)
 	}
 
 	return tx, nil
+}
+
+// NonInviteServerTransactionBehavior returns the behavior profile selected at construction.
+// The value is frozen before Start and stays readable while the transaction
+// is dormant, including a pre-Start transaction restored from a snapshot.
+func (tx *NonInviteServerTransaction) NonInviteServerTransactionBehavior() NonInviteServerTransactionBehavior {
+	if tx == nil {
+		return NonInviteServerTransactionBehaviorLegacy
+	}
+	return tx.behavior
 }
 
 // Start activates the non-INVITE server transaction.
@@ -77,12 +101,30 @@ func (tx *NonInviteServerTransaction) Start(ctx context.Context) error {
 		return errors.Wrap(NewTransactionActionNotAllowedError())
 	}
 
+	if tx.behavior == NonInviteServerTransactionBehaviorRFC4320 && tx.tryingDeadline.IsZero() {
+		delay, derr := tx.timing.nonInviteTryingDelay()
+		if derr != nil {
+			return errors.Wrap(derr)
+		}
+		// The deadline is assigned before activation so serialized response
+		// validation observes it; it stays read-only afterwards. A restored
+		// transaction already carries the absolute deadline preserved by its
+		// snapshot, so only a new transaction computes a fresh delay.
+		tx.tryingDeadline = time.Now().Add(delay)
+	}
+
 	var err error
 	if tx.restored {
 		tx.activateRestored(ctx)
 	} else {
 		err = tx.actTrying(ctx)
 		tx.activate(ctx)
+	}
+	if err == nil {
+		// The timer is armed after activation so an immediately eligible
+		// deadline (T1 >= T2) cannot dispatch a 100 before the transaction
+		// is active.
+		tx.armTmrTrying(ctx)
 	}
 
 	return errors.Wrap(err)
@@ -94,14 +136,17 @@ func (tx *NonInviteServerTransaction) activateRestored(ctx context.Context) {
 	if tmr := tx.tmrJ.Load(); tmr != nil && tmr.Expired() &&
 		tx.State() == TransactionStateCompleted && !tx.isTerminated() {
 		tx.lcMu.Unlock()
-		tx.onTimerJ(ctx, tmr)
+		tx.onTmrJ(ctx, tmr)
 		tx.activate(ctx)
 		return
 	}
 
 	if !tx.isTerminated() {
-		tx.armTmrLocked(&tx.tmrJ, tx.tmrJ.Load(), []TransactionState{TransactionStateCompleted},
-			func(tmr *timeutil.Timer) { tx.onTimerJ(ctx, tmr) })
+		tx.armTmrLocked(
+			&tx.tmrJ, tx.tmrJ.Load(),
+			[]TransactionState{TransactionStateCompleted},
+			func(tmr *timeutil.Timer) { tx.onTmrJ(ctx, tmr) },
+		)
 	}
 	tx.activateLocked()
 	tx.lcMu.Unlock()
@@ -119,10 +164,10 @@ func (tx *NonInviteServerTransaction) LogValue() slog.Value {
 	)
 }
 
-const txEvtTimerJ = "timer_J"
+const txEvtTmrJ = "timer_J"
 
 func (tx *NonInviteServerTransaction) initFSM(start TransactionState) error {
-	if err := tx.serverTransact.initFSM(start); err != nil {
+	if err := tx.baseSrvTransact.initFSM(start); err != nil {
 		return errors.Wrap(err)
 	}
 
@@ -144,7 +189,7 @@ func (tx *NonInviteServerTransaction) initFSM(start TransactionState) error {
 		OnEntryFrom(txEvtSend1xx, tx.actSendRes).
 		InternalTransition(txEvtRecvReq, tx.actResendRes).
 		InternalTransition(txEvtSend1xx, tx.actSendRes).
-		InternalTransition(txEvtTranspErr, tx.actTranspErr).
+		InternalTransition(txEvtTpErr, tx.actTranspErr).
 		Permit(txEvtSend2xx, TransactionStateCompleted).
 		Permit(txEvtSend300699, TransactionStateCompleted).
 		Permit(txEvtTerminate, TransactionStateTerminated)
@@ -156,8 +201,8 @@ func (tx *NonInviteServerTransaction) initFSM(start TransactionState) error {
 		InternalTransition(txEvtRecvReq, tx.actResendRes).
 		InternalTransition(txEvtSend2xx, tx.actNoop).
 		InternalTransition(txEvtSend300699, tx.actNoop).
-		InternalTransition(txEvtTranspErr, tx.actTranspErr).
-		Permit(txEvtTimerJ, TransactionStateTerminated).
+		InternalTransition(txEvtTpErr, tx.actTranspErr).
+		Permit(txEvtTmrJ, TransactionStateTerminated).
 		Permit(txEvtTerminate, TransactionStateTerminated)
 
 	tx.fsm.Configure(TransactionStateTerminated).
@@ -168,7 +213,7 @@ func (tx *NonInviteServerTransaction) initFSM(start TransactionState) error {
 	return nil
 }
 
-//nolint:unparam
+//nolint:unparam // uniform signature with the other FSM actions
 func (tx *NonInviteServerTransaction) actTrying(ctx context.Context, _ ...any) error {
 	tx.log.DebugContext(ctx, "transaction trying", slog.Any("transaction", tx))
 
@@ -176,17 +221,19 @@ func (tx *NonInviteServerTransaction) actTrying(ctx context.Context, _ ...any) e
 }
 
 func (tx *NonInviteServerTransaction) actCompleted(ctx context.Context, args ...any) error {
-	_ = tx.serverTransact.actCompleted(ctx, args...)
+	_ = tx.baseSrvTransact.actCompleted(ctx, args...)
 
 	var timeJ time.Duration
 	if !tx.tp.Metadata().Reliable() {
 		timeJ = tx.timing.TimeJ()
 	}
 	tmr := timeutil.NewTimer(timeJ)
-	if tx.armTmr(&tx.tmrJ, tmr, []TransactionState{TransactionStateCompleted},
-		func(tmr *timeutil.Timer) { tx.onTimerJ(ctx, tmr) }) {
-		tx.log.DebugContext(
-			ctx, "timer J started",
+	if tx.armTmr(
+		&tx.tmrJ, tmr,
+		[]TransactionState{TransactionStateCompleted},
+		func(tmr *timeutil.Timer) { tx.onTmrJ(ctx, tmr) },
+	) {
+		tx.log.DebugContext(ctx, "timer J started",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
@@ -195,18 +242,32 @@ func (tx *NonInviteServerTransaction) actCompleted(ctx context.Context, args ...
 	return nil
 }
 
-func (tx *NonInviteServerTransaction) onTimerJ(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *NonInviteServerTransaction) onTmrJ(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "timer J expired", slog.Any("transaction", tx))
 
 	tx.clearTmr(&tx.tmrJ, tmr)
-	tx.fireTmrTrigger(ctx, txEvtTimerJ)
+	tx.fireTmrTrigger(ctx, txEvtTmrJ)
+}
+
+// actSendRes stops the pending delayed Trying timer: any sent response, an
+// explicit earlier 100 on reliable transport or a final response, cancels
+// the pending automatic Trying.
+func (tx *NonInviteServerTransaction) actSendRes(ctx context.Context, args ...any) error {
+	if tx.stopTmr(&tx.tmrTrying) {
+		tx.log.DebugContext(ctx, "delayed trying timer stopped", slog.Any("transaction", tx))
+	}
+	return errors.Wrap(tx.baseSrvTransact.actSendRes(ctx, args...))
 }
 
 func (tx *NonInviteServerTransaction) actTerminated(ctx context.Context, args ...any) error {
-	_ = tx.serverTransact.actTerminated(ctx, args...)
+	_ = tx.baseSrvTransact.actTerminated(ctx, args...)
+
+	if tx.stopTmr(&tx.tmrTrying) {
+		tx.log.DebugContext(ctx, "delayed trying timer stopped", slog.Any("transaction", tx))
+	}
 
 	if tx.stopTmr(&tx.tmrJ) {
 		tx.log.DebugContext(ctx, "timer J stopped", slog.Any("transaction", tx))
@@ -216,16 +277,20 @@ func (tx *NonInviteServerTransaction) actTerminated(ctx context.Context, args ..
 }
 
 func (tx *NonInviteServerTransaction) takeSnapshot() *ServerTransactionSnapshot {
+	lastRes := tx.LastResponse()
 	return &ServerTransactionSnapshot{
-		Time:         time.Now(),
-		Type:         tx.Type(),
-		State:        tx.State(),
-		Key:          tx.Key(),
-		Request:      tx.Request(),
-		LastResponse: tx.LastResponse(),
-		SendOptions:  tx.sendOpts.Load().(SendResponseOptions), //nolint:forcetypeassert
-		Timing:       tx.timing,
-		TimerJ:       tx.tmrJ.Load().Snapshot(),
+		Time:                               time.Now(),
+		Type:                               tx.Type(),
+		State:                              tx.State(),
+		Key:                                tx.Key(),
+		Request:                            tx.Request(),
+		LastResponse:                       lastRes,
+		SendOptions:                        tx.sendOpts.Load().(SendResponseOptions), //nolint:forcetypeassert // the concrete type is fixed by construction
+		PreserveResponseToTag:              resPreservesToTag(lastRes),
+		Timing:                             tx.timing,
+		NonInviteServerTransactionBehavior: tx.behavior,
+		TimerJ:                             tx.tmrJ.Load().Snapshot(),
+		TimerTrying:                        tx.tmrTrying.Load().Snapshot(),
 	}
 }
 
@@ -253,19 +318,26 @@ func RestoreNonInviteServerTransaction(
 		return nil, errors.Wrap(err)
 	}
 
-	o := util.LastSliceElemOr(opts, ServerTransactionOptions{})
+	o := util.LastSliceElem(opts, ServerTransactionOptions{})
 	o.Timing = snap.Timing
 
-	req := snap.Request.Clone().(*RequestEnvelope) //nolint:forcetypeassert
+	req := snap.Request.Clone().(*RequestEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
 
 	tx := new(NonInviteServerTransaction)
-	srvTx, err := newServerTransact(TransactionTypeServerNonInvite, tx, req, tp, o)
+	// The saved mode wins over the creation options, like Timing: a snapshot
+	// without the field restores as Legacy.
+	tx.behavior = snap.NonInviteServerTransactionBehavior
+	base, err := newBaseSrvTransact(TransactionTypeServerNonInvite, tx, req, tp, o)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
-	tx.serverTransact = srvTx
+	tx.baseSrvTransact = base
 	if snap.LastResponse != nil {
-		tx.lastRes.Store(snap.LastResponse.Clone().(*ResponseEnvelope)) //nolint:forcetypeassert
+		lastRes := snap.LastResponse.Clone().(*ResponseEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
+		// Reapply the forwarded-response provenance from trusted checkpoint
+		// state before Start can resend the cached response.
+		setResPreserveToTag(lastRes, snap.PreserveResponseToTag)
+		tx.lastRes.Store(lastRes)
 	}
 	tx.sendOpts.Store(snap.SendOptions)
 	if err := tx.initFSM(snap.State); err != nil {
@@ -273,7 +345,7 @@ func RestoreNonInviteServerTransaction(
 	}
 	tx.restored = true
 
-	if err := tx.restoreTimers(snap); err != nil {
+	if err := tx.restoreTmrs(snap); err != nil {
 		return nil, errors.Wrap(err)
 	}
 	tx.saveSnapshot()
@@ -281,16 +353,158 @@ func RestoreNonInviteServerTransaction(
 	return tx, nil
 }
 
-func (tx *NonInviteServerTransaction) restoreTimers(snap *ServerTransactionSnapshot) error {
-	if snap.TimerJ == nil {
+func (tx *NonInviteServerTransaction) restoreTmrs(snap *ServerTransactionSnapshot) error {
+	for dst, tmrSnap := range map[*atomic.Pointer[timeutil.Timer]]*timeutil.TimerSnapshot{
+		&tx.tmrJ:      snap.TimerJ,
+		&tx.tmrTrying: snap.TimerTrying,
+	} {
+		if tmrSnap == nil {
+			continue
+		}
+
+		restored, err := timeutil.RestoreTimer(tmrSnap)
+		if err != nil {
+			return errors.Wrap(err)
+		}
+		dst.Store(restored)
+	}
+
+	if snap.TimerTrying != nil {
+		// Preserve the absolute delayed-Trying deadline so Start does not
+		// restart a fresh delay for the restored transaction.
+		tx.tryingDeadline = snap.TimerTrying.StartTime.Add(snap.TimerTrying.Duration)
+	}
+
+	return nil
+}
+
+// validateNonInviteRes enforces the RFC 4320 response restrictions when
+// the RFC 4320 behavior profile is selected: no provisional responses other
+// than 100 Trying, no 408 Request Timeout, and no early 100 Trying over
+// unreliable transport (reliable transport permits an explicit earlier 100).
+// Final responses are unaffected.
+//
+// It runs inside the transaction lifecycle serialization before the response
+// reaches the FSM transition, so a rejected response is neither sent nor
+// mutates transaction state. It is a no-op for INVITE transactions and for
+// the Legacy profile.
+func (tx *baseSrvTransact) validateNonInviteRes(sts ResponseStatus, reliable bool, now time.Time) error {
+	ntx, ok := tx.impl.(*NonInviteServerTransaction)
+	if !ok || ntx.behavior != NonInviteServerTransactionBehaviorRFC4320 {
 		return nil
 	}
 
-	restored, err := timeutil.RestoreTimer(snap.TimerJ)
-	if err != nil {
-		return errors.Wrap(err)
+	switch {
+	case sts == ResponseStatusTrying && !reliable && now.Before(ntx.tryingDeadline):
+		// RFC 4320 section 2: over unreliable transport a 100 Trying is
+		// suppressed until client Timer E backoff would reach T2.
+		return errors.Wrap(NewTransactionActionNotAllowedError("early %q response over unreliable transport", sts))
+	case sts != ResponseStatusTrying && sts.IsProvisional():
+		// RFC 4320 section 2: a non-INVITE UAS must not send provisional
+		// responses other than 100 Trying.
+		return errors.Wrap(NewTransactionActionNotAllowedError("%q provisional response not allowed", sts))
+	case sts == ResponseStatusRequestTimeout:
+		// RFC 4320 section 2: a non-INVITE UAS must not send a 408 Request
+		// Timeout response.
+		return errors.Wrap(NewTransactionActionNotAllowedError("%q response not allowed", sts))
 	}
-	tx.tmrJ.Store(restored)
-
 	return nil
+}
+
+// armTmrTrying arms the pending RFC 4320 delayed Trying timer at the
+// eligibility deadline computed by [NonInviteServerTransaction.Start]. It is
+// a no-op in the Legacy behavior profile and once a response has been sent:
+// an explicit earlier 100 on reliable transport or any sent response cancels
+// the pending automatic Trying.
+func (tx *NonInviteServerTransaction) armTmrTrying(ctx context.Context) {
+	if tx.behavior != NonInviteServerTransactionBehaviorRFC4320 || tx.lastRes.Load() != nil {
+		return
+	}
+
+	// A restored transaction reuses the timer preserved by its snapshot,
+	// including an already-expired one that fires immediately. A new
+	// transaction is armed from the shared absolute deadline rather than
+	// recomputing the delay; time.Until saturates at the maximum Duration,
+	// so a far-future deadline cannot wrap into an immediate fire.
+	tmr := tx.tmrTrying.Load()
+	if tmr == nil {
+		tmr = timeutil.NewTimer(time.Until(tx.tryingDeadline))
+	}
+	if tx.armTmr(
+		&tx.tmrTrying, tmr,
+		[]TransactionState{TransactionStateTrying},
+		func(tmr *timeutil.Timer) { tx.onTmrTrying(ctx, tmr) },
+	) {
+		tx.log.DebugContext(ctx, "delayed trying timer started",
+			slog.Any("transaction", tx),
+			slog.Time("expires_at", time.Now().Add(tmr.Left())),
+		)
+	}
+}
+
+func (tx *NonInviteServerTransaction) onTmrTrying(ctx context.Context, tmr *timeutil.Timer) {
+	tx.beginSnapshotUpdate()
+	defer tx.finishSnapshotUpdate(ctx)
+
+	tx.log.DebugContext(ctx, "delayed trying timer expired", slog.Any("transaction", tx))
+
+	tx.clearTmr(&tx.tmrTrying, tmr)
+
+	res, err := tx.req.NewResponse(ResponseStatusTrying)
+	if err != nil {
+		// Request is always valid, so this should never happen.
+		panic(errors.ErrorfWrap("create auto %q response: %w", ResponseStatusTrying, err))
+	}
+
+	// The 100 is dispatched through the same serialized lifecycle as
+	// application sends, so validation and the FSM transition make a queued
+	// Trying unhandled after a racing final response instead of emitting a
+	// post-final 100. A not-allowed rejection means the response is simply
+	// no longer eligible and is skipped.
+	if err := tx.SendResponse(ctx, res); err != nil && !errors.Is(err, ErrTransactionActionNotAllowed) {
+		panic(errors.Wrap(err))
+	}
+}
+
+// NonInviteServerTransactionBehaviorProvider is an optional interface implemented by the
+// built-in non-INVITE server transaction to expose its selected behavior
+// profile, see [ServerTransactionOptions.NonInviteServerTransactionBehavior].
+//
+// The reported mode is frozen before the transaction starts and stays
+// readable while the transaction is dormant, including a transaction restored
+// from a snapshot that [ServerTransactionSnapshotter.Snapshot] cannot inspect
+// yet because it refuses nonterminal dormant transactions.
+//
+// It is intentionally not a part of [ServerTransaction], so custom
+// transaction implementations are not required to support it; use a type
+// assertion to detect it. Custom bindings without the provider cannot recover
+// a non-INVITE mode and fail explicitly unsupported; ordinary custom
+// forwarding is unaffected.
+type NonInviteServerTransactionBehaviorProvider interface {
+	// NonInviteServerTransactionBehavior returns the frozen non-INVITE behavior profile.
+	NonInviteServerTransactionBehavior() NonInviteServerTransactionBehavior
+}
+
+// NonInviteServerTransactionBehavior selects the behavior profile of a non-INVITE server
+// transaction.
+type NonInviteServerTransactionBehavior int
+
+const (
+	// NonInviteServerTransactionBehaviorLegacy preserves the existing non-INVITE transaction
+	// validation, response, and timer behavior. It is the zero/default profile.
+	NonInviteServerTransactionBehaviorLegacy NonInviteServerTransactionBehavior = iota
+	// NonInviteServerTransactionBehaviorRFC4320 explicitly enables the RFC 4320 actions for
+	// non-INVITE server transactions: the restricted provisional/408 response
+	// policy and the automatic delayed Trying response.
+	NonInviteServerTransactionBehaviorRFC4320
+)
+
+// supported reports whether the value names a selectable behavior profile.
+func (b NonInviteServerTransactionBehavior) supported() bool {
+	switch b {
+	case NonInviteServerTransactionBehaviorLegacy, NonInviteServerTransactionBehaviorRFC4320:
+		return true
+	default:
+		return false
+	}
 }

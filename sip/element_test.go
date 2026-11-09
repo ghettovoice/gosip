@@ -28,9 +28,9 @@ import (
 	"github.com/ghettovoice/gosip/uri"
 )
 
-const asyncEventTimeout = 5 * time.Second
+const asyncEvtTimeout = 5 * time.Second
 
-func newElementTestRequest(tb testing.TB, laddr netip.AddrPort) *sip.Request {
+func newElemTestReq(tb testing.TB, laddr netip.AddrPort) *sip.Request {
 	tb.Helper()
 
 	req, err := sip.NewRequest(
@@ -54,10 +54,10 @@ func newElementTestRequest(tb testing.TB, laddr netip.AddrPort) *sip.Request {
 	return req
 }
 
-func newElementTestResponse(tb testing.TB, laddr netip.AddrPort) *sip.Response {
+func newElemTestRes(tb testing.TB, laddr netip.AddrPort) *sip.Response {
 	tb.Helper()
 
-	req := newElementTestRequest(tb, laddr)
+	req := newElemTestReq(tb, laddr)
 
 	res, err := req.NewResponse(sip.ResponseStatusOK, sip.ResponseOptions{LocalTag: "to-tag"})
 	if err != nil {
@@ -81,9 +81,9 @@ func TestElement_ReceiveRequestResponse(t *testing.T) {
 	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
 	// Create transport and add it to transport manager
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
-		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 	}
 
 	elm := &sip.Element{}
@@ -120,7 +120,7 @@ func TestElement_ReceiveRequestResponse(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
 	go func() { done <- tp.ServeListener(ctx, lis) }()
@@ -134,7 +134,7 @@ func TestElement_ReceiveRequestResponse(t *testing.T) {
 	})
 
 	if _, err := peer.WriteTo(
-		[]byte(newElementTestRequest(t, lisAddr).Render()),
+		[]byte(newElemTestReq(t, lisAddr).Render()),
 		net.UDPAddrFromAddrPort(lisAddr),
 	); err != nil {
 		t.Fatalf("peer.WriteTo(request) error = %v, want nil", err)
@@ -143,7 +143,7 @@ func TestElement_ReceiveRequestResponse(t *testing.T) {
 	var gotReq *sip.RequestEnvelope
 	select {
 	case gotReq = <-reqCh:
-	case <-time.After(asyncEventTimeout):
+	case <-time.After(asyncEvtTimeout):
 		t.Fatalf("inbound request not received")
 	}
 
@@ -168,7 +168,7 @@ func TestElement_ReceiveRequestResponse(t *testing.T) {
 	}
 
 	if _, err := peer.WriteTo(
-		[]byte(newElementTestResponse(t, lisAddr).Render()),
+		[]byte(newElemTestRes(t, lisAddr).Render()),
 		net.UDPAddrFromAddrPort(lisAddr),
 	); err != nil {
 		t.Fatalf("peer.WriteTo(response) error = %v, want nil", err)
@@ -177,7 +177,7 @@ func TestElement_ReceiveRequestResponse(t *testing.T) {
 	var gotRes *sip.ResponseEnvelope
 	select {
 	case gotRes = <-resCh:
-	case <-time.After(asyncEventTimeout):
+	case <-time.After(asyncEvtTimeout):
 		t.Fatalf("inbound response not received")
 	}
 
@@ -215,9 +215,9 @@ func TestElement_SendRequest(t *testing.T) {
 
 	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
-		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 	}
 
 	elm := &sip.Element{}
@@ -236,7 +236,7 @@ func TestElement_SendRequest(t *testing.T) {
 			name: "with transport and address",
 			prepareReq: func(t *testing.T, peerAddr netip.AddrPort) *sip.RequestEnvelope {
 				t.Helper()
-				req := newElementTestRequest(t, lisAddr)
+				req := newElemTestReq(t, lisAddr)
 				return sip.NewRequestEnvelope(req).
 					SetTransport(sip.UDPMetadata()).
 					SetRemoteAddr(peerAddr)
@@ -329,7 +329,7 @@ func TestElement_SendRequest(t *testing.T) {
 				recvCh <- buf[:n]
 			}()
 
-			ctx, cancel := context.WithTimeout(t.Context(), asyncEventTimeout)
+			ctx, cancel := context.WithTimeout(t.Context(), asyncEvtTimeout)
 			defer cancel()
 
 			err = elm.SendRequest(ctx, outReq)
@@ -356,7 +356,7 @@ func TestElement_SendRequest(t *testing.T) {
 				if tt.checkReq != nil {
 					tt.checkReq(t, reqMsg)
 				}
-			case <-time.After(asyncEventTimeout):
+			case <-time.After(asyncEvtTimeout):
 				t.Fatal("request not received by peer")
 			}
 		})
@@ -367,7 +367,7 @@ func TestElement_SendRequest_NoDestAddressResolved(t *testing.T) {
 	t.Parallel()
 
 	elm := &sip.Element{}
-	defer elm.Close()
+	t.Cleanup(func() { elm.Close() })
 
 	// Create outbound request with URI that cannot be resolved to a transport.
 	ruri := &sip.URI{
@@ -396,8 +396,8 @@ func TestElement_SendRequest_NoDestAddressResolved(t *testing.T) {
 	}})
 	req.Headers.Set(header.ContentLength(0))
 
-	ctx, cancel := context.WithTimeout(t.Context(), asyncEventTimeout)
-	defer cancel()
+	ctx, cancel := context.WithTimeout(t.Context(), asyncEvtTimeout)
+	t.Cleanup(cancel)
 
 	err = elm.SendRequest(ctx, sip.NewRequestEnvelope(req))
 	if err == nil {
@@ -418,9 +418,9 @@ func TestElement_SendRequestStateful(t *testing.T) {
 
 	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
-		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 	}
 
 	elm := &sip.Element{}
@@ -449,7 +449,7 @@ func TestElement_SendRequestStateful(t *testing.T) {
 			name: "with transport and address",
 			prepareReq: func(t *testing.T, lisAddr, peerAddr netip.AddrPort) *sip.RequestEnvelope {
 				t.Helper()
-				req := newElementTestRequest(t, lisAddr)
+				req := newElemTestReq(t, lisAddr)
 				return sip.NewRequestEnvelope(req).
 					SetTransport(sip.UDPMetadata()).
 					SetRemoteAddr(peerAddr)
@@ -517,7 +517,7 @@ func TestElement_SendRequestStateful(t *testing.T) {
 				recvCh <- buf[:n]
 			}()
 
-			ctx, cancel := context.WithTimeout(t.Context(), asyncEventTimeout)
+			ctx, cancel := context.WithTimeout(t.Context(), asyncEvtTimeout)
 			defer cancel()
 
 			_, err = elm.SendRequestStateful(ctx, outReq)
@@ -541,19 +541,19 @@ func TestElement_SendRequestStateful(t *testing.T) {
 				if reqMsg.Method != sip.RequestMethodInvite {
 					t.Errorf("request method = %v, want %v", reqMsg.Method, sip.RequestMethodInvite)
 				}
-			case <-time.After(asyncEventTimeout):
+			case <-time.After(asyncEvtTimeout):
 				t.Fatal("request not received by peer")
 			}
 		})
 	}
 }
 
-// mockRemoteServerLocator is a test double for RemoteServerLocator.
-type mockRemoteServerLocator struct {
+// mockSrvLocator is a test double for RemoteServerLocator.
+type mockSrvLocator struct {
 	addrs []sip.ResolvedAddr
 }
 
-func (m *mockRemoteServerLocator) LookupRequestAddrs(
+func (m *mockSrvLocator) LookupRequestAddrs(
 	ctx context.Context,
 	reqURI *sip.URI,
 	opts ...sip.LookupMessageAddrsOptions,
@@ -575,10 +575,10 @@ func TestElement_ProduceRequestAttempts(t *testing.T) {
 		{Transport: sip.UDPMetadata().Proto, Addr: netip.MustParseAddrPort("192.168.1.2:5060"), FromDNS: true},
 	}
 
-	elm := &sip.Element{ServerLocator: &mockRemoteServerLocator{addrs: addrs}}
-	defer elm.Close()
+	elm := &sip.Element{ServerLocator: &mockSrvLocator{addrs: addrs}}
+	t.Cleanup(func() { elm.Close() })
 
-	req := newElementTestRequest(t, netip.MustParseAddrPort("127.0.0.1:0"))
+	req := newElemTestReq(t, netip.MustParseAddrPort("127.0.0.1:0"))
 	outReq := sip.NewRequestEnvelope(req)
 
 	attempts, err := elm.ProduceRequestAttempts(t.Context(), outReq)
@@ -614,10 +614,10 @@ func TestElement_ProduceRequestAttempts(t *testing.T) {
 func TestElement_ProduceRequestAttempts_Empty(t *testing.T) {
 	t.Parallel()
 
-	elm := &sip.Element{ServerLocator: &mockRemoteServerLocator{}}
-	defer elm.Close()
+	elm := &sip.Element{ServerLocator: &mockSrvLocator{}}
+	t.Cleanup(func() { elm.Close() })
 
-	req := newElementTestRequest(t, netip.MustParseAddrPort("127.0.0.1:0"))
+	req := newElemTestReq(t, netip.MustParseAddrPort("127.0.0.1:0"))
 
 	attempts, err := elm.ProduceRequestAttempts(t.Context(), sip.NewRequestEnvelope(req))
 	if err != nil {
@@ -641,7 +641,7 @@ func TestElement_ProduceRequestAttempts_Fallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("net.ListenPacket(peer) error = %v, want nil", err)
 	}
-	defer peer.Close()
+	t.Cleanup(func() { peer.Close() })
 
 	peerAddr := netip.MustParseAddrPort(peer.LocalAddr().String())
 	udpAddr := sip.ResolvedAddr{
@@ -650,13 +650,13 @@ func TestElement_ProduceRequestAttempts_Fallback(t *testing.T) {
 		FromDNS:   true,
 	}
 
-	elm := &sip.Element{ServerLocator: &mockRemoteServerLocator{addrs: []sip.ResolvedAddr{udpAddr}}}
+	elm := &sip.Element{ServerLocator: &mockSrvLocator{addrs: []sip.ResolvedAddr{udpAddr}}}
 	t.Cleanup(func() { elm.Close() })
 
 	// The element needs a UDP transport so that the primary attempt can resolve the transport.
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", 5060)})
+	tp, err := transport.NewConnLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", 5060)})
 	if err != nil {
-		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 	}
 
 	if err := elm.TrackTransport(tp); err != nil {
@@ -757,7 +757,7 @@ func TestElement_ProduceRequestAttempts_Fallback(t *testing.T) {
 		if reqMsg.Method != sip.RequestMethodInvite {
 			t.Errorf("request method = %v, want %v", reqMsg.Method, sip.RequestMethodInvite)
 		}
-	case <-time.After(asyncEventTimeout):
+	case <-time.After(asyncEvtTimeout):
 		t.Fatal("fallback request not received by peer")
 	}
 }
@@ -770,25 +770,25 @@ func TestRequestAttempt_DoStateless(t *testing.T) {
 	if err != nil {
 		t.Fatalf("net.ListenPacket(listener) error = %v, want nil", err)
 	}
-	defer lis.Close()
+	t.Cleanup(func() { lis.Close() })
 
 	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket(peer) error = %v, want nil", err)
 	}
-	defer peer.Close()
+	t.Cleanup(func() { peer.Close() })
 
 	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 	peerAddr := netip.MustParseAddrPort(peer.LocalAddr().String())
 
 	// Create transport bound to the listener.
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
-		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 	}
 
 	elm := &sip.Element{
-		ServerLocator: &mockRemoteServerLocator{
+		ServerLocator: &mockSrvLocator{
 			addrs: []sip.ResolvedAddr{{
 				Transport: sip.UDPMetadata().Proto,
 				Addr:      peerAddr,
@@ -803,7 +803,7 @@ func TestRequestAttempt_DoStateless(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
 	go func() { done <- tp.ServeListener(ctx, lis) }()
@@ -816,7 +816,7 @@ func TestRequestAttempt_DoStateless(t *testing.T) {
 		}
 	})
 
-	req := newElementTestRequest(t, lisAddr)
+	req := newElemTestReq(t, lisAddr)
 
 	recvCh := make(chan []byte, 1)
 	go func() {
@@ -864,7 +864,7 @@ func TestRequestAttempt_DoStateless(t *testing.T) {
 		} else {
 			t.Errorf("message type = %T, want *sip.Request", msg)
 		}
-	case <-time.After(asyncEventTimeout):
+	case <-time.After(asyncEvtTimeout):
 		t.Fatal("request not received by peer")
 	}
 }
@@ -877,25 +877,25 @@ func TestRequestAttempt_DoStateful(t *testing.T) {
 	if err != nil {
 		t.Fatalf("net.ListenPacket(listener) error = %v, want nil", err)
 	}
-	defer lis.Close()
+	t.Cleanup(func() { lis.Close() })
 
 	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket(peer) error = %v, want nil", err)
 	}
-	defer peer.Close()
+	t.Cleanup(func() { peer.Close() })
 
 	lisAddr := netip.MustParseAddrPort(lis.LocalAddr().String())
 	peerAddr := netip.MustParseAddrPort(peer.LocalAddr().String())
 
 	// Create transport bound to the listener.
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
-		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 	}
 
 	elm := &sip.Element{
-		ServerLocator: &mockRemoteServerLocator{
+		ServerLocator: &mockSrvLocator{
 			addrs: []sip.ResolvedAddr{{
 				Transport: sip.UDPMetadata().Proto,
 				Addr:      peerAddr,
@@ -910,7 +910,7 @@ func TestRequestAttempt_DoStateful(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
 	go func() { done <- tp.ServeListener(ctx, lis) }()
@@ -923,7 +923,7 @@ func TestRequestAttempt_DoStateful(t *testing.T) {
 		}
 	})
 
-	req := newElementTestRequest(t, lisAddr)
+	req := newElemTestReq(t, lisAddr)
 
 	recvCh := make(chan []byte, 1)
 	go func() {
@@ -972,7 +972,7 @@ func TestRequestAttempt_DoStateful(t *testing.T) {
 		} else {
 			t.Errorf("message type = %T, want *sip.Request", msg)
 		}
-	case <-time.After(asyncEventTimeout):
+	case <-time.After(asyncEvtTimeout):
 		t.Fatal("request not received by listener")
 	}
 }
@@ -984,7 +984,7 @@ func TestElement_SendResponseStateful_DormantExisting(t *testing.T) {
 	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	raddr := netip.MustParseAddrPort("10.0.0.5:5060")
 
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 	elm := &sip.Element{}
 	t.Cleanup(func() { elm.Close() })
 
@@ -1015,14 +1015,14 @@ func TestElement_SendResponseStateful_DormantExisting(t *testing.T) {
 	}
 }
 
-type elementSendResponseContextTransaction struct {
-	*customServerTransaction
+type elemSendResCtxTransact struct {
+	*customSrvTransact
 	sendCtxs chan context.Context
 	termCtxs chan context.Context
 	sendErr  error
 }
 
-func (tx *elementSendResponseContextTransaction) SendResponse(
+func (tx *elemSendResCtxTransact) SendResponse(
 	ctx context.Context,
 	_ *sip.ResponseEnvelope,
 	_ ...sip.SendResponseOptions,
@@ -1031,9 +1031,9 @@ func (tx *elementSendResponseContextTransaction) SendResponse(
 	return errors.Wrap(tx.sendErr)
 }
 
-func (tx *elementSendResponseContextTransaction) Terminate(ctx context.Context, cause error) error {
+func (tx *elemSendResCtxTransact) Terminate(ctx context.Context, cause error) error {
 	tx.termCtxs <- ctx
-	return errors.Wrap(tx.customServerTransaction.Terminate(ctx, errors.Wrap(cause)))
+	return errors.Wrap(tx.customSrvTransact.Terminate(ctx, errors.Wrap(cause)))
 }
 
 func TestElement_SendResponseStateful_Context(t *testing.T) {
@@ -1055,27 +1055,27 @@ func TestElement_SendResponseStateful_Context(t *testing.T) {
 			elm := &sip.Element{}
 			t.Cleanup(func() { _ = elm.Close() })
 
-			transport := newProxyStubTransport()
-			customTx := newCustomServerTx(
+			transport := newPrxStubTransp()
+			customTx := newCustomSrvTransact(
 				t,
 				sip.MagicCookie+".stateful-context-"+tt.branch,
 				sip.TransactionStateProceeding,
 			)
 			customTx.tp = transport
-			tx := &elementSendResponseContextTransaction{
-				customServerTransaction: customTx,
-				sendCtxs:                make(chan context.Context, 1),
-				termCtxs:                make(chan context.Context, 2),
-				sendErr:                 tt.sendErr,
+			tx := &elemSendResCtxTransact{
+				customSrvTransact: customTx,
+				sendCtxs:          make(chan context.Context, 1),
+				termCtxs:          make(chan context.Context, 2),
+				sendErr:           tt.sendErr,
 			}
 			if err := elm.RegisterServerTransaction(t.Context(), tx); err != nil {
 				t.Fatalf("elm.RegisterServerTransaction() error = %v, want nil", err)
 			}
 
-			parentTransport := newProxyStubTransport()
-			outerTx := &stubClientTransaction{}
+			parentTransport := newPrxStubTransp()
+			outerTx := &stubClnTransact{}
 			otherElement := &sip.Element{}
-			parentCtx := sip.ContextWithElement(context.WithValue(t.Context(), contextTestKey{}, "caller"), otherElement)
+			parentCtx := sip.ContextWithElement(context.WithValue(t.Context(), testCtxKey{}, "caller"), otherElement)
 			parentCtx = sip.ContextWithTransport(parentCtx, parentTransport)
 			parentCtx = sip.ContextWithTransaction(parentCtx, outerTx)
 			res := newInRes(t, customTx.req, sip.ResponseStatusRinging)
@@ -1093,33 +1093,33 @@ func TestElement_SendResponseStateful_Context(t *testing.T) {
 			}
 
 			sendCtx := testutil.WaitResult(t, tx.sendCtxs, "stateful response context")
-			assertPropagationContext(t, sendCtx, tx, transport, "caller")
-			assertElementOwner(t, sendCtx, elm)
+			assertPropagationCtx(t, sendCtx, tx, transport, "caller")
+			assertElemOwner(t, sendCtx, elm)
 			if tt.wantTerminate {
 				termCtx := testutil.WaitResult(t, tx.termCtxs, "stateful termination context")
-				assertPropagationContext(t, termCtx, tx, transport, "caller")
-				assertElementOwner(t, termCtx, elm)
+				assertPropagationCtx(t, termCtx, tx, transport, "caller")
+				assertElemOwner(t, termCtx, elm)
 			}
-			assertElementOwner(t, parentCtx, otherElement)
+			assertElemOwner(t, parentCtx, otherElement)
 			if got, ok := sip.TransactionFromContext(parentCtx); !ok || got != outerTx {
 				t.Fatalf("parent transaction = (%v, %t), want outer transaction %v", got, ok, outerTx)
 			}
 			if got, ok := sip.TransportFromContext(parentCtx); !ok || got != parentTransport {
 				t.Fatalf("parent transport = (%v, %t), want %v", got, ok, parentTransport)
 			}
-			if got := parentCtx.Value(contextTestKey{}); got != "caller" {
+			if got := parentCtx.Value(testCtxKey{}); got != "caller" {
 				t.Fatalf("parent context value = %v, want caller", got)
 			}
 		})
 	}
 }
 
-type countingClientTransport struct {
+type countingClnTransp struct {
 	sip.ClientTransport
 	sends atomic.Int32
 }
 
-func (tp *countingClientTransport) SendRequest(
+func (tp *countingClnTransp) SendRequest(
 	ctx context.Context,
 	req *sip.RequestEnvelope,
 	opts ...sip.SendRequestOptions,
@@ -1138,7 +1138,7 @@ func TestElement_SendRequestStateful_TerminateOnActive(t *testing.T) {
 	elm := &sip.Element{
 		ClientTransactionFactory: sip.ClientTransactionFactoryFunc(
 			func(req *sip.RequestEnvelope, tp sip.ClientTransport, opts ...sip.ClientTransactionOptions) (sip.ClientTransaction, error) {
-				ctp := &countingClientTransport{ClientTransport: tp}
+				ctp := &countingClnTransp{ClientTransport: tp}
 				tx, err := sip.NewClientTransaction(req, ctp, opts...)
 				if err != nil {
 					return nil, err
@@ -1155,15 +1155,15 @@ func TestElement_SendRequestStateful_TerminateOnActive(t *testing.T) {
 	}
 	t.Cleanup(func() { elm.Close() })
 
-	tp, err := transport.NewConnectionLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
+	tp, err := transport.NewConnLessTransport(sip.UDPMetadata(), transport.TransportOptions{PublicAddr: sip.MakeHostPortAddr("127.0.0.1", lisAddr.Port())})
 	if err != nil {
-		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 	}
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
 
-	req := newElementTestRequest(t, lisAddr)
+	req := newElemTestReq(t, lisAddr)
 	env := sip.NewRequestEnvelope(req).
 		SetTransport(sip.UDPMetadata()).
 		SetRemoteAddr(peerAddr)
@@ -1195,7 +1195,7 @@ func (c *stubURIConverter) ConvertURI(_ context.Context, _ sip.AnyURI) (*sip.URI
 	return c.uri, c.err
 }
 
-func TestElement_ZeroValueLazyInit(t *testing.T) {
+func TestElement_ZeroValueLazy_Init(t *testing.T) {
 	t.Parallel()
 
 	elm := &sip.Element{}
@@ -1266,7 +1266,7 @@ func TestElement_ZeroValueLazyInit(t *testing.T) {
 	}
 }
 
-func TestElement_ZeroValueClose(t *testing.T) {
+func TestElement_ZeroValue_Close(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -1274,7 +1274,7 @@ func TestElement_ZeroValueClose(t *testing.T) {
 	raddr := netip.MustParseAddrPort("10.0.0.5:5060")
 	req := newInInviteReq(t, "UDP", "", laddr, raddr)
 	res := newInRes(t, req, sip.ResponseStatusRinging)
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 
 	var elm sip.Element
 
@@ -1312,6 +1312,7 @@ func TestElement_ZeroValueClose(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if err := tt.call(); !errors.Is(err, sip.ErrElementClosed) {
 				t.Errorf("elm.%s() error = %v, want %v", tt.name, err, sip.ErrElementClosed)
 			}
@@ -1365,7 +1366,7 @@ func TestElement_ExplicitConfig(t *testing.T) {
 
 	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	raddr := netip.MustParseAddrPort("10.0.0.5:5060")
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 	req := newInInviteReq(t, "UDP", "", laddr, raddr)
 
 	if _, err := elm.NewClientTransaction(ctx, req, tp); err != nil {
@@ -1383,7 +1384,7 @@ func TestElement_ExplicitConfig(t *testing.T) {
 	}
 }
 
-func TestElement_LazyInitDefaultLocatorUsesDNSResolver(t *testing.T) {
+func TestElement_LazyInit_DefaultLocatorUsesDNSResolver(t *testing.T) {
 	t.Parallel()
 
 	var ipLookups atomic.Int32
@@ -1400,12 +1401,12 @@ func TestElement_LazyInitDefaultLocatorUsesDNSResolver(t *testing.T) {
 	elm := &sip.Element{DNSResolver: resolver}
 	t.Cleanup(func() { elm.Close() })
 
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
 
-	req := newElementTestRequest(t, netip.MustParseAddrPort("127.0.0.1:5060"))
+	req := newElemTestReq(t, netip.MustParseAddrPort("127.0.0.1:5060"))
 	attempts, err := elm.ProduceRequestAttempts(t.Context(), sip.NewRequestEnvelope(req))
 	if err != nil {
 		t.Fatalf("elm.ProduceRequestAttempts() error = %v, want nil", err)
@@ -1428,7 +1429,7 @@ func TestElement_LazyInitDefaultLocatorUsesDNSResolver(t *testing.T) {
 	}
 }
 
-func TestElement_LazyInitServerLocatorPrecedence(t *testing.T) {
+func TestElement_LazyInit_ServerLocatorPrecedence(t *testing.T) {
 	t.Parallel()
 
 	var resolverCalls atomic.Int32
@@ -1438,7 +1439,7 @@ func TestElement_LazyInitServerLocatorPrecedence(t *testing.T) {
 			return []net.IP{net.ParseIP("192.0.2.1")}, nil
 		},
 	}
-	lctr := &mockRemoteServerLocator{addrs: []sip.ResolvedAddr{{
+	lctr := &mockSrvLocator{addrs: []sip.ResolvedAddr{{
 		Transport: sip.UDPMetadata().Proto,
 		Addr:      netip.MustParseAddrPort("198.51.100.1:5060"),
 	}}}
@@ -1446,7 +1447,7 @@ func TestElement_LazyInitServerLocatorPrecedence(t *testing.T) {
 	elm := &sip.Element{ServerLocator: lctr, DNSResolver: resolver}
 	t.Cleanup(func() { elm.Close() })
 
-	req := newElementTestRequest(t, netip.MustParseAddrPort("127.0.0.1:5060"))
+	req := newElemTestReq(t, netip.MustParseAddrPort("127.0.0.1:5060"))
 	attempts, err := elm.ProduceRequestAttempts(t.Context(), sip.NewRequestEnvelope(req))
 	if err != nil {
 		t.Fatalf("elm.ProduceRequestAttempts() error = %v, want nil", err)
@@ -1465,7 +1466,7 @@ func TestElement_LazyInitServerLocatorPrecedence(t *testing.T) {
 	}
 }
 
-func TestElement_LazyInitURIConverter(t *testing.T) {
+func TestElement_LazyInit_URIConverter(t *testing.T) {
 	t.Parallel()
 
 	target := &sip.URI{Addr: sip.MakeHostPortAddr("converted.example.com", 5090)}
@@ -1539,7 +1540,7 @@ func TestElement_BaseCapabilitiesSnapshot(t *testing.T) {
 		t.Fatalf("elm.Capabilities() after input mutation mismatch (-want +got):\n%s", diff)
 	}
 
-	unbind := elm.UseMiddleware(elemCapabilsMiddleware{
+	unbind := elm.UseMiddleware(elemCapabilsMidware{
 		methods: []sip.RequestMethod{sip.RequestMethodCancel},
 	})
 
@@ -1565,7 +1566,7 @@ func TestElement_InterceptorsBoundBeforeUse(t *testing.T) {
 	elm := &sip.Element{}
 	t.Cleanup(func() { elm.Close() })
 
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
@@ -1593,7 +1594,7 @@ func TestElement_InterceptorsBoundBeforeUse(t *testing.T) {
 
 	// An outbound request passed through the bound chain is completed by the
 	// element interceptor: Via, From tag and Content-Length are ensured.
-	req := sip.NewRequestEnvelope(newElementTestRequest(t, laddr)).
+	req := sip.NewRequestEnvelope(newElemTestReq(t, laddr)).
 		SetTransport(sip.UDPMetadata()).
 		SetRemoteAddr(raddr)
 	req.WithMessage(func(r *sip.Request) {
@@ -1659,7 +1660,7 @@ func TestElement_InterceptOutboundResponseFirstUse(t *testing.T) {
 	t.Cleanup(func() { elm.Close() })
 
 	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
-	req := newElementTestRequest(t, laddr)
+	req := newElemTestReq(t, laddr)
 
 	res, err := req.NewResponse(sip.ResponseStatusOK)
 	if err != nil {
@@ -1844,7 +1845,7 @@ func TestElement_ConcurrentCloseFirstUse(t *testing.T) {
 	if wantID == uuid.Nil() {
 		t.Fatal("ID() = nil UUID after concurrent init/close, want generated ID")
 	}
-	if err := elm.TrackTransport(newProxyStubTransport()); !errors.Is(err, sip.ErrElementClosed) {
+	if err := elm.TrackTransport(newPrxStubTransp()); !errors.Is(err, sip.ErrElementClosed) {
 		t.Fatalf("elm.TrackTransport() after close error = %v, want %v", err, sip.ErrElementClosed)
 	}
 }
@@ -1931,9 +1932,9 @@ func (mw *lcCapsCloser) Close() error {
 	return nil
 }
 
-// lcTxHandlerMW records client/server transaction notifications, whether they
+// lcTxHandlerMidware records client/server transaction notifications, whether they
 // arrived after the middleware was closed, and the middleware Close itself.
-type lcTxHandlerMW struct {
+type lcTxHandlerMidware struct {
 	closed  atomic.Bool
 	closes  atomic.Int32
 	closeFn func()
@@ -1945,7 +1946,7 @@ type lcTxHandlerMW struct {
 	srvFn           func(ctx context.Context, tx sip.ServerTransaction)
 }
 
-func (mw *lcTxHandlerMW) HandleClientTransaction(ctx context.Context, tx sip.ClientTransaction) {
+func (mw *lcTxHandlerMidware) HandleClientTransaction(ctx context.Context, tx sip.ClientTransaction) {
 	if mw.closed.Load() {
 		mw.callsAfterClose.Add(1)
 	}
@@ -1955,7 +1956,7 @@ func (mw *lcTxHandlerMW) HandleClientTransaction(ctx context.Context, tx sip.Cli
 	}
 }
 
-func (mw *lcTxHandlerMW) HandleServerTransaction(ctx context.Context, tx sip.ServerTransaction) {
+func (mw *lcTxHandlerMidware) HandleServerTransaction(ctx context.Context, tx sip.ServerTransaction) {
 	if mw.closed.Load() {
 		mw.callsAfterClose.Add(1)
 	}
@@ -1965,7 +1966,7 @@ func (mw *lcTxHandlerMW) HandleServerTransaction(ctx context.Context, tx sip.Ser
 	}
 }
 
-func (mw *lcTxHandlerMW) Close() error {
+func (mw *lcTxHandlerMidware) Close() error {
 	mw.closed.Store(true)
 	mw.closes.Add(1)
 	if mw.closeFn != nil {
@@ -2010,9 +2011,9 @@ func (mw *lcOutReqObserver) Close() error {
 	return nil
 }
 
-// lcGatedOutReqInterceptor blocks its first outbound request interception until
+// lcGatedOutReqInceptor blocks its first outbound request interception until
 // released, exposing the callback drain window during Close.
-type lcGatedOutReqInterceptor struct {
+type lcGatedOutReqInceptor struct {
 	gate    *lcGate
 	doneFn  func()
 	closeFn func()
@@ -2022,7 +2023,7 @@ type lcGatedOutReqInterceptor struct {
 	calls  atomic.Int32
 }
 
-func (mw *lcGatedOutReqInterceptor) InterceptOutboundRequest(
+func (mw *lcGatedOutReqInceptor) InterceptOutboundRequest(
 	ctx context.Context,
 	next sip.RequestSender,
 	req *sip.RequestEnvelope,
@@ -2037,7 +2038,7 @@ func (mw *lcGatedOutReqInterceptor) InterceptOutboundRequest(
 	return errors.Wrap(next.SendRequest(ctx, req, opts...))
 }
 
-func (mw *lcGatedOutReqInterceptor) Close() error {
+func (mw *lcGatedOutReqInceptor) Close() error {
 	mw.closed.Store(true)
 	mw.closes.Add(1)
 	if mw.closeFn != nil {
@@ -2064,21 +2065,21 @@ func (l *lcGatedLocator) LookupRequestAddrs(
 	}
 }
 
-// lcRecordingTransport is a transport stub that runs its outbound request
+// lcRecordingTransp is a transport stub that runs its outbound request
 // interceptor chain like real transports and records the requests it sends.
-type lcRecordingTransport struct {
-	*proxyStubTransport
+type lcRecordingTransp struct {
+	*prxStubTransp
 	sendReqCalls chan *sip.RequestEnvelope
 }
 
-func newLcRecordingTransport() *lcRecordingTransport {
-	return &lcRecordingTransport{
-		proxyStubTransport: newProxyStubTransport(),
-		sendReqCalls:       make(chan *sip.RequestEnvelope, 8),
+func newLcRecordingTransp() *lcRecordingTransp {
+	return &lcRecordingTransp{
+		prxStubTransp: newPrxStubTransp(),
+		sendReqCalls:  make(chan *sip.RequestEnvelope, 8),
 	}
 }
 
-func (tp *lcRecordingTransport) SendRequest(
+func (tp *lcRecordingTransp) SendRequest(
 	ctx context.Context,
 	req *sip.RequestEnvelope,
 	opts ...sip.SendRequestOptions,
@@ -2093,13 +2094,13 @@ func (tp *lcRecordingTransport) SendRequest(
 	return errors.Wrap(sender.SendRequest(ctx, req, opts...))
 }
 
-// waitElementClosing spins until the element rejects a call, proving that
+// waitElemClosing spins until the element rejects a call, proving that
 // Close has sealed new-work admission. The closing state is monotonic, so the
 // wait converges deterministically.
-func waitElementClosing(tb testing.TB, elm *sip.Element) {
+func waitElemClosing(tb testing.TB, elm *sip.Element) {
 	tb.Helper()
 
-	tmr := time.NewTimer(asyncEventTimeout)
+	tmr := time.NewTimer(asyncEvtTimeout)
 	defer tmr.Stop()
 
 	for {
@@ -2118,7 +2119,7 @@ func waitElementClosing(tb testing.TB, elm *sip.Element) {
 	}
 }
 
-func assertElementMethods(tb testing.TB, elm *sip.Element, want ...sip.RequestMethod) {
+func assertElemMethods(tb testing.TB, elm *sip.Element, want ...sip.RequestMethod) {
 	tb.Helper()
 
 	if diff := cmp.Diff(want, elm.Capabilities().Methods); diff != "" {
@@ -2190,13 +2191,13 @@ func TestElement_Close_CallbacksBeforeMiddlewareClose(t *testing.T) {
 	ctx := t.Context()
 
 	elm := &sip.Element{}
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
 
 	events := &lcEventLog{}
-	mw := &lcTxHandlerMW{
+	mw := &lcTxHandlerMidware{
 		closeFn: func() { events.add("mw:closed") },
 	}
 	mw.clnFn = func(_ context.Context, tx sip.ClientTransaction) {
@@ -2223,7 +2224,7 @@ func TestElement_Close_CallbacksBeforeMiddlewareClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("elm.NewClientTransaction() error = %v, want nil", err)
 	}
-	startClientTransaction(t, tx)
+	startClnTx(t, tx)
 
 	if err := elm.Close(); err != nil {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
@@ -2254,11 +2255,10 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	raddr := netip.MustParseAddrPort("10.0.0.5:5060")
 
-	t.Run("ClientFactory", func(t *testing.T) {
+	t.Run("client factory", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-
 		gate := newLcGate()
 		events := &lcEventLog{}
 
@@ -2279,7 +2279,7 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 		t.Cleanup(func() { _ = elm.Close() })
 		t.Cleanup(gate.open)
 
-		mw := &lcTxHandlerMW{closeFn: func() { events.add("mw:closed") }}
+		mw := &lcTxHandlerMidware{closeFn: func() { events.add("mw:closed") }}
 		elm.UseMiddleware(mw)
 
 		type txResult struct {
@@ -2289,17 +2289,17 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 		txDone := make(chan txResult, 1)
 		req := newInInviteReq(t, "UDP", "", laddr, raddr)
 		go func() {
-			tx, err := elm.NewClientTransaction(ctx, req, newProxyStubTransport())
+			tx, err := elm.NewClientTransaction(ctx, req, newPrxStubTransp())
 			txDone <- txResult{tx: tx, err: err}
 		}()
 		gate.waitEnter(t)
 
 		closeDone := make(chan error, 1)
 		go func() { closeDone <- elm.Close() }()
-		waitElementClosing(t, elm)
+		waitElemClosing(t, elm)
 
 		// New work must reject while the admitted factory call is in flight.
-		if _, err := elm.NewClientTransaction(ctx, req, newProxyStubTransport()); !errors.Is(err, sip.ErrElementClosed) {
+		if _, err := elm.NewClientTransaction(ctx, req, newPrxStubTransp()); !errors.Is(err, sip.ErrElementClosed) {
 			t.Fatalf("elm.NewClientTransaction() during close error = %v, want %v", err, sip.ErrElementClosed)
 		}
 		if got := mw.closes.Load(); got != 0 {
@@ -2334,11 +2334,10 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 		}
 	})
 
-	t.Run("ServerFactory", func(t *testing.T) {
+	t.Run("server factory", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-
 		gate := newLcGate()
 		events := &lcEventLog{}
 
@@ -2359,7 +2358,7 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 		t.Cleanup(func() { _ = elm.Close() })
 		t.Cleanup(gate.open)
 
-		mw := &lcTxHandlerMW{closeFn: func() { events.add("mw:closed") }}
+		mw := &lcTxHandlerMidware{closeFn: func() { events.add("mw:closed") }}
 		elm.UseMiddleware(mw)
 
 		type txResult struct {
@@ -2369,16 +2368,16 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 		txDone := make(chan txResult, 1)
 		req := newInInviteReq(t, "UDP", "", laddr, raddr)
 		go func() {
-			tx, err := elm.NewServerTransaction(ctx, req, newProxyStubTransport())
+			tx, err := elm.NewServerTransaction(ctx, req, newPrxStubTransp())
 			txDone <- txResult{tx: tx, err: err}
 		}()
 		gate.waitEnter(t)
 
 		closeDone := make(chan error, 1)
 		go func() { closeDone <- elm.Close() }()
-		waitElementClosing(t, elm)
+		waitElemClosing(t, elm)
 
-		if _, err := elm.NewServerTransaction(ctx, req, newProxyStubTransport()); !errors.Is(err, sip.ErrElementClosed) {
+		if _, err := elm.NewServerTransaction(ctx, req, newPrxStubTransp()); !errors.Is(err, sip.ErrElementClosed) {
 			t.Fatalf("elm.NewServerTransaction() during close error = %v, want %v", err, sip.ErrElementClosed)
 		}
 		if got := mw.closes.Load(); got != 0 {
@@ -2421,21 +2420,22 @@ func TestElement_MiddlewareCallback_DrainedAndSealed(t *testing.T) {
 
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
-	if err := elm.TrackTransport(newProxyStubTransport()); err != nil {
+
+	if err := elm.TrackTransport(newPrxStubTransp()); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
 
 	gate := newLcGate()
 	t.Cleanup(gate.open)
-	events := &lcEventLog{}
 
-	mwA := &lcTxHandlerMW{closeFn: func() { events.add("mwA:closed") }}
+	events := &lcEventLog{}
+	mwA := &lcTxHandlerMidware{closeFn: func() { events.add("mwA:closed") }}
 	mwA.clnFn = func(context.Context, sip.ClientTransaction) {
 		gate.enter()
 		<-gate.release
 		events.add("cbA:done")
 	}
-	mwB := &lcTxHandlerMW{}
+	mwB := &lcTxHandlerMidware{}
 
 	elm.UseMiddleware(mwA)
 	elm.UseMiddleware(mwB)
@@ -2449,18 +2449,18 @@ func TestElement_MiddlewareCallback_DrainedAndSealed(t *testing.T) {
 	// captured handler snapshot [A, B] and blocks inside A.
 	txDone := make(chan error, 1)
 	go func() {
-		_, err := elm.NewClientTransaction(ctx, req, newProxyStubTransport())
+		_, err := elm.NewClientTransaction(ctx, req, newPrxStubTransp())
 		txDone <- err
 	}()
 	gate.waitEnter(t)
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- elm.Close() }()
-	waitElementClosing(t, elm)
+	waitElemClosing(t, elm)
 
 	// Close is underway but must not close middleware while A's notification
 	// is in flight.
-	if _, err := elm.NewClientTransaction(ctx, req, newProxyStubTransport()); !errors.Is(err, sip.ErrElementClosed) {
+	if _, err := elm.NewClientTransaction(ctx, req, newPrxStubTransp()); !errors.Is(err, sip.ErrElementClosed) {
 		t.Fatalf("elm.NewClientTransaction() during close error = %v, want %v", err, sip.ErrElementClosed)
 	}
 	if got := mwA.closes.Load(); got != 0 {
@@ -2482,7 +2482,7 @@ func TestElement_MiddlewareCallback_DrainedAndSealed(t *testing.T) {
 	// B's notification was captured in the same snapshot and may still be
 	// delivered while callback admission is open during closing; the invariant
 	// is that no notification reaches middleware after its own Close.
-	for _, mw := range []*lcTxHandlerMW{mwA, mwB} {
+	for _, mw := range []*lcTxHandlerMidware{mwA, mwB} {
 		if got := mw.closes.Load(); got != 1 {
 			t.Errorf("middleware closes = %d, want 1", got)
 		}
@@ -2503,6 +2503,7 @@ func TestElement_Capabilities_ConcurrentRecompute(t *testing.T) {
 
 	gateA := newLcGate()
 	t.Cleanup(gateA.open)
+
 	mwA := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodInvite}}
 	mwA.capFn = func(call int32) {
 		if call == 1 {
@@ -2534,13 +2535,13 @@ func TestElement_Capabilities_ConcurrentRecompute(t *testing.T) {
 
 	// The second recomputation snapshots [A,B]; A's second call does not block.
 	unbindB := elm.UseMiddleware(mwB)
-	assertElementMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
+	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
 
 	gateA.open()
 	testutil.WaitResult(t, useADone, "UseMiddleware(A)")
 
 	// The stale [A] result must not overwrite the [A,B] capabilities.
-	assertElementMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
+	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
 
 	// A removal committed while a recompute is in flight must not be
 	// resurrected by that recompute.
@@ -2554,11 +2555,11 @@ func TestElement_Capabilities_ConcurrentRecompute(t *testing.T) {
 	gateB.waitEnter(t)
 
 	unbindB()
-	assertElementMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodCancel)
+	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodCancel)
 
 	gateB.open()
 	testutil.WaitResult(t, useCDone, "UseMiddleware(C)")
-	assertElementMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodCancel)
+	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodCancel)
 
 	// Repeated and concurrent unbinds stay idempotent.
 	unbindB()
@@ -2567,7 +2568,7 @@ func TestElement_Capabilities_ConcurrentRecompute(t *testing.T) {
 		wg.Go(unbindB)
 	}
 	wg.Wait()
-	assertElementMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodCancel)
+	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodCancel)
 }
 
 func TestElement_Capabilities_ReentrantProvider(t *testing.T) {
@@ -2589,7 +2590,7 @@ func TestElement_Capabilities_ReentrantProvider(t *testing.T) {
 		}
 	}
 	elm.UseMiddleware(self)
-	assertElementMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodOptions)
+	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodOptions)
 
 	// A provider may also reenter an unbind: the removal is committed, the
 	// in-flight recompute is invalidated and retries without the removed entry.
@@ -2603,7 +2604,7 @@ func TestElement_Capabilities_ReentrantProvider(t *testing.T) {
 		}
 	}
 	elm.UseMiddleware(trigger)
-	assertElementMethods(
+	assertElemMethods(
 		t, elm,
 		sip.RequestMethodInvite,
 		sip.RequestMethodOptions,
@@ -2625,7 +2626,7 @@ func TestElement_PublicOperations_RejectedDuringClose(t *testing.T) {
 	closer := &lcGatedCloser{gate: gate}
 	elm.UseMiddleware(closer)
 
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
@@ -2667,7 +2668,7 @@ func TestElement_PublicOperations_RejectedDuringClose(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{"TrackTransport", func() error { return elm.TrackTransport(newProxyStubTransport()) }},
+		{"TrackTransport", func() error { return elm.TrackTransport(newPrxStubTransp()) }},
 		{"UntrackTransport", func() error { return elm.UntrackTransport(tp) }},
 		{"ListenManaged", func() error { return elm.ListenManaged(ctx, "UDP", "127.0.0.1:0") }},
 		{"Listen", func() error { _, err := elm.Listen(ctx, "UDP", "127.0.0.1:0"); return err }},
@@ -2706,7 +2707,7 @@ func TestElement_Close_CancelProceedingInviteThroughMiddleware(t *testing.T) {
 	ctx := t.Context()
 
 	elm := &sip.Element{}
-	tp := newLcRecordingTransport()
+	tp := newLcRecordingTransp()
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
@@ -2722,7 +2723,7 @@ func TestElement_Close_CancelProceedingInviteThroughMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("elm.NewClientTransaction() error = %v, want nil", err)
 	}
-	startClientTransaction(t, tx)
+	startClnTx(t, tx)
 
 	// Drive the INVITE transaction to proceeding so shutdown sends a CANCEL.
 	if err := tx.RecvResponse(ctx, newInRes(t, req, sip.ResponseStatusRinging)); err != nil {
@@ -2780,14 +2781,14 @@ func TestElement_MiddlewareInterceptor_DrainedBeforeClose(t *testing.T) {
 	t.Cleanup(gate.open)
 	events := &lcEventLog{}
 
-	mw := &lcGatedOutReqInterceptor{
+	mw := &lcGatedOutReqInceptor{
 		gate:    gate,
 		doneFn:  func() { events.add("intcptr:done") },
 		closeFn: func() { events.add("mw:closed") },
 	}
 	elm.UseMiddleware(mw)
 
-	tp := newLcRecordingTransport()
+	tp := newLcRecordingTransp()
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
@@ -2804,7 +2805,7 @@ func TestElement_MiddlewareInterceptor_DrainedBeforeClose(t *testing.T) {
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- elm.Close() }()
-	waitElementClosing(t, elm)
+	waitElemClosing(t, elm)
 
 	// Middleware must not be closed while its interceptor callback is in
 	// flight.
@@ -2854,16 +2855,16 @@ func TestElement_UseMiddleware_UnbindReentry(t *testing.T) {
 
 	elm.UseMiddleware(mwA)
 	unbindB = elm.UseMiddleware(&lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}})
-	assertElementMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
+	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
 
 	unbindB()
-	assertElementMethods(t, elm, sip.RequestMethodInvite)
+	assertElemMethods(t, elm, sip.RequestMethodInvite)
 	if !once.Load() {
 		t.Error("unbind was never reentered from the provider callback")
 	}
 
 	unbindB()
-	assertElementMethods(t, elm, sip.RequestMethodInvite)
+	assertElemMethods(t, elm, sip.RequestMethodInvite)
 }
 
 func TestElement_UseMiddleware_UnbindCompletesBeforeMiddlewareClose(t *testing.T) {
@@ -2886,7 +2887,7 @@ func TestElement_UseMiddleware_UnbindCompletesBeforeMiddlewareClose(t *testing.T
 
 	elm.UseMiddleware(mwA)
 	unbindB := elm.UseMiddleware(&lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}})
-	assertElementMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
+	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
 
 	// An admitted unbind recomputes capabilities through live providers; Close
 	// must wait for it before shutting down the remaining middleware.
@@ -2900,7 +2901,7 @@ func TestElement_UseMiddleware_UnbindCompletesBeforeMiddlewareClose(t *testing.T
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- elm.Close() }()
-	waitElementClosing(t, elm)
+	waitElemClosing(t, elm)
 
 	if got := mwA.closes.Load(); got != 0 {
 		t.Fatalf("mwA.closes = %d while an admitted unbind is in flight, want 0", got)
@@ -2915,7 +2916,7 @@ func TestElement_UseMiddleware_UnbindCompletesBeforeMiddlewareClose(t *testing.T
 	if got := mwA.closes.Load(); got != 1 {
 		t.Errorf("mwA.closes = %d, want 1", got)
 	}
-	assertElementMethods(t, elm, sip.RequestMethodInvite)
+	assertElemMethods(t, elm, sip.RequestMethodInvite)
 }
 
 func TestElement_SendRequest_LookupDoesNotBlockClose(t *testing.T) {
@@ -2935,7 +2936,7 @@ func TestElement_SendRequest_LookupDoesNotBlockClose(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = elm.Close() })
 
-	tp := newLcRecordingTransport()
+	tp := newLcRecordingTransp()
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
@@ -3010,13 +3011,13 @@ func (mw *lcEventCloser) Close() error {
 	return nil
 }
 
-// lcCloseErrTransport embeds the stub transport but fails its Close.
-type lcCloseErrTransport struct {
-	*proxyStubTransport
+// lcCloseErrTransp embeds the stub transport but fails its Close.
+type lcCloseErrTransp struct {
+	*prxStubTransp
 	err error
 }
 
-func (tp *lcCloseErrTransport) Close() error { return errors.Wrap(tp.err) }
+func (tp *lcCloseErrTransp) Close() error { return errors.Wrap(tp.err) }
 
 // lcShutdownCtxKey is a context value key for the shutdown hook probe.
 type lcShutdownCtxKey struct{}
@@ -3045,7 +3046,7 @@ func TestElement_Shutdown_MiddlewareBeforeClose(t *testing.T) {
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
 
-	tp := newLcRecordingTransport()
+	tp := newLcRecordingTransp()
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
@@ -3142,7 +3143,7 @@ func TestElement_Shutdown_CollectsErrors(t *testing.T) {
 	elm.UseMiddleware(mwA)
 	elm.UseMiddleware(mwB)
 
-	tp := &lcCloseErrTransport{proxyStubTransport: newProxyStubTransport(), err: errTransport}
+	tp := &lcCloseErrTransp{prxStubTransp: newPrxStubTransp(), err: errTransport}
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
@@ -3181,7 +3182,7 @@ func TestElement_Shutdown_Context(t *testing.T) {
 		name:   "a",
 		events: &lcEventLog{},
 		shutdownFn: func(hookCtx context.Context) error {
-			assertElementOwner(t, hookCtx, elm)
+			assertElemOwner(t, hookCtx, elm)
 			if hookCtx.Done() != ctx.Done() {
 				t.Error("hook context does not inherit caller cancellation")
 			}
@@ -3312,7 +3313,7 @@ func TestElement_Shutdown_ConcurrentClose(t *testing.T) {
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- elm.Close() }()
-	waitElementClosing(t, elm)
+	waitElemClosing(t, elm)
 
 	// The direct Close starts transport/transaction shutdown without waiting
 	// for the hooks, but still waits for the admitted hook operation before
@@ -3339,12 +3340,12 @@ func TestElement_Shutdown_ConcurrentClose(t *testing.T) {
 
 var errStubRun = errors.New("stub runtime failure")
 
-// startStubTx is a concurrency-safe transaction core for managed-start tests:
+// startStubTransact is a concurrency-safe transaction core for managed-start tests:
 // Start optionally blocks on a gate, records the received context, counts
 // invocations, and returns a configured error.
-type startStubTx struct {
-	stubTransactionDefaults
 
+type startStubTransact struct {
+	stubTxDefaults
 	typ   sip.TransactionType
 	state sip.TransactionState
 
@@ -3364,8 +3365,8 @@ type startStubTx struct {
 	onReturn func()
 }
 
-func newStartStubTx(typ sip.TransactionType, state sip.TransactionState) *startStubTx {
-	return &startStubTx{
+func newStartStubTransact(typ sip.TransactionType, state sip.TransactionState) *startStubTransact {
+	return &startStubTransact{
 		typ:       typ,
 		state:     state,
 		startCtxs: make(chan context.Context, 4),
@@ -3373,19 +3374,18 @@ func newStartStubTx(typ sip.TransactionType, state sip.TransactionState) *startS
 	}
 }
 
-func (tx *startStubTx) Type() sip.TransactionType   { return tx.typ }
-func (tx *startStubTx) State() sip.TransactionState { return tx.state }
-func (tx *startStubTx) Started() bool               { return tx.started.Load() }
-
-func (*startStubTx) BindStartHandler(sip.TransactionStartHandler) (unbind func()) {
+func (tx *startStubTransact) Type() sip.TransactionType   { return tx.typ }
+func (tx *startStubTransact) State() sip.TransactionState { return tx.state }
+func (tx *startStubTransact) Started() bool               { return tx.started.Load() }
+func (*startStubTransact) BindStartHandler(sip.TransactionStartHandler) (unbind func()) {
 	return func() {}
 }
 
-func (*startStubTx) BindStateHandler(sip.TransactionStateHandler) (unbind func()) {
+func (*startStubTransact) BindStateHandler(sip.TransactionStateHandler) (unbind func()) {
 	return func() {}
 }
 
-func (tx *startStubTx) Start(ctx context.Context) error {
+func (tx *startStubTransact) Start(ctx context.Context) error {
 	defer func() {
 		if tx.onReturn != nil {
 			tx.onReturn()
@@ -3423,40 +3423,40 @@ func (tx *startStubTx) Start(ctx context.Context) error {
 	return errors.Wrap(err)
 }
 
-// startStubClientTx adapts startStubTx to [sip.ClientTransaction].
-type startStubClientTx struct {
-	*startStubTx
-	stubClientTransactionDefaults
+// startStubClnTransact adapts startStubTransact to [sip.ClientTransaction].
+type startStubClnTransact struct {
+	*startStubTransact
+	stubClnTxDefaults
 
 	key sip.ClientTransactionKey
 }
 
-func newStartStubClientTx(branch string) *startStubClientTx {
-	return &startStubClientTx{
-		startStubTx: newStartStubTx(sip.TransactionTypeClientInvite, sip.TransactionStateCalling),
-		key:         sip.ClientTransactionKey{Branch: branch, Method: string(sip.RequestMethodInvite)},
+func newStartStubClnTransact(branch string) *startStubClnTransact {
+	return &startStubClnTransact{
+		startStubTransact: newStartStubTransact(sip.TransactionTypeClientInvite, sip.TransactionStateCalling),
+		key:               sip.ClientTransactionKey{Branch: branch, Method: string(sip.RequestMethodInvite)},
 	}
 }
 
-func (tx *startStubClientTx) Key() sip.ClientTransactionKey { return tx.key }
+func (tx *startStubClnTransact) Key() sip.ClientTransactionKey { return tx.key }
 
-// startStubServerTx adapts startStubTx to [sip.ServerTransaction].
-type startStubServerTx struct {
-	*startStubTx
-	stubServerTransactionDefaults
+// startStubSrvTransact adapts startStubTransact to [sip.ServerTransaction].
+type startStubSrvTransact struct {
+	*startStubTransact
+	stubSrvTxDefaults
 
 	key sip.ServerTransactionKey
 	req *sip.RequestEnvelope
 }
 
-func newStartStubServerTx(tb testing.TB, branch string) *startStubServerTx {
+func newStartStubSrvTransact(tb testing.TB, branch string) *startStubSrvTransact {
 	tb.Helper()
 
 	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	raddr := netip.MustParseAddrPort("10.0.0.5:5060")
 
-	return &startStubServerTx{
-		startStubTx: newStartStubTx(sip.TransactionTypeServerInvite, sip.TransactionStateProceeding),
+	return &startStubSrvTransact{
+		startStubTransact: newStartStubTransact(sip.TransactionTypeServerInvite, sip.TransactionStateProceeding),
 		key: sip.ServerTransactionKey{
 			Branch: branch,
 			SentBy: laddr.String(),
@@ -3466,8 +3466,8 @@ func newStartStubServerTx(tb testing.TB, branch string) *startStubServerTx {
 	}
 }
 
-func (tx *startStubServerTx) Key() sip.ServerTransactionKey { return tx.key }
-func (tx *startStubServerTx) Request() *sip.RequestEnvelope { return tx.req }
+func (tx *startStubSrvTransact) Key() sip.ServerTransactionKey { return tx.key }
+func (tx *startStubSrvTransact) Request() *sip.RequestEnvelope { return tx.req }
 
 // startStubListener is a listener stub whose Serve optionally blocks on a
 // gate and returns a configured error.
@@ -3481,7 +3481,7 @@ type startStubListener struct {
 	gate       *lcGate
 	serveErr   error
 	// waitDone and resume switch Serve into cancellation-watch mode, see
-	// startStubTx for the semantics.
+	// startStubTransact for the semantics.
 	waitDone chan struct{}
 	resume   chan struct{}
 	// onReturn, when set, runs as Serve returns and lets a test author
@@ -3541,20 +3541,20 @@ func (lis *startStubListener) Close() error {
 	return errors.Wrap(lis.closeErr)
 }
 
-// startStubTransport is a transport stub that delegates Listen to a hook so
+// startStubTransp is a transport stub that delegates Listen to a hook so
 // tests can block inside binds and capture the created listeners.
-type startStubTransport struct {
-	*proxyStubTransport
+type startStubTransp struct {
+	*prxStubTransp
 
 	listenCalls atomic.Int32
 	listenFn    func(ctx context.Context, addr string) (sip.TransportListener, error)
 }
 
-func newStartStubTransport() *startStubTransport {
-	return &startStubTransport{proxyStubTransport: newProxyStubTransport()}
+func newStartStubTransp() *startStubTransp {
+	return &startStubTransp{prxStubTransp: newPrxStubTransp()}
 }
 
-func (tp *startStubTransport) Listen(ctx context.Context, addr string) (sip.TransportListener, error) {
+func (tp *startStubTransp) Listen(ctx context.Context, addr string) (sip.TransportListener, error) {
 	tp.listenCalls.Add(1)
 	return tp.listenFn(ctx, addr)
 }
@@ -3583,9 +3583,9 @@ func TestElement_Start_StartsDormantTransactions(t *testing.T) {
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
 
-	cln := newStartStubClientTx(sip.MagicCookie + ".cln-dormant")
-	srv := newStartStubServerTx(t, sip.MagicCookie+".srv-dormant")
-	preStarted := newStartStubClientTx(sip.MagicCookie + ".cln-prestarted")
+	cln := newStartStubClnTransact(sip.MagicCookie + ".cln-dormant")
+	srv := newStartStubSrvTransact(t, sip.MagicCookie+".srv-dormant")
+	preStarted := newStartStubClnTransact(sip.MagicCookie + ".cln-prestarted")
 
 	if err := elm.RegisterClientTransaction(ctx, cln); err != nil {
 		t.Fatalf("elm.RegisterClientTransaction() error = %v, want nil", err)
@@ -3610,9 +3610,9 @@ func TestElement_Start_StartsDormantTransactions(t *testing.T) {
 		t.Fatalf("elm.Start() error = %v, want nil", err)
 	}
 
-	for name, tx := range map[string]*startStubTx{"client": cln.startStubTx, "server": srv.startStubTx} {
+	for name, tx := range map[string]*startStubTransact{"client": cln.startStubTransact, "server": srv.startStubTransact} {
 		startCtx := testutil.WaitResult(t, tx.startCtxs, name+" tx Start")
-		assertElementOwner(t, startCtx, elm)
+		assertElemOwner(t, startCtx, elm)
 		if got := startCtx.Value(ctxKey{}); got != "start-ctx" {
 			t.Errorf("%s tx Start ctx value = %v, want derived from Start ctx", name, got)
 		}
@@ -3627,7 +3627,7 @@ func TestElement_Start_StartsDormantTransactions(t *testing.T) {
 	if err := elm.Close(); err != nil {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
 	}
-	for name, tx := range map[string]*startStubTx{"client": cln.startStubTx, "server": srv.startStubTx} {
+	for name, tx := range map[string]*startStubTransact{"client": cln.startStubTransact, "server": srv.startStubTransact} {
 		if got := tx.startCalls.Load(); got != 1 {
 			t.Errorf("%s tx start calls = %d, want 1", name, got)
 		}
@@ -3655,7 +3655,7 @@ func TestElement_Start_ServesRetainedListeners(t *testing.T) {
 
 	liss := []*startStubListener{lisBlocked, lisFailed}
 	var lisIdx atomic.Int32
-	tp := newStartStubTransport()
+	tp := newStartStubTransp()
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return liss[lisIdx.Add(1)-1], nil
 	}
@@ -3740,7 +3740,7 @@ func TestElement_BindErrorHandler(t *testing.T) {
 
 	liss := []*startStubListener{lis, lis2}
 	var lisIdx atomic.Int32
-	tp := newStartStubTransport()
+	tp := newStartStubTransp()
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return liss[lisIdx.Add(1)-1], nil
 	}
@@ -3754,7 +3754,7 @@ func TestElement_BindErrorHandler(t *testing.T) {
 		t.Fatalf("elm.ListenManaged() error = %v, want nil", err)
 	}
 
-	failingTx := newStartStubClientTx(sip.MagicCookie + ".cln-failing")
+	failingTx := newStartStubClnTransact(sip.MagicCookie + ".cln-failing")
 	failingTx.startErr = errStubRun
 	if err := elm.RegisterClientTransaction(ctx, failingTx); err != nil {
 		t.Fatalf("elm.RegisterClientTransaction() error = %v, want nil", err)
@@ -3893,7 +3893,7 @@ func TestElement_ListenManaged_RejectedAfterStart(t *testing.T) {
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
 
-	tp := newStartStubTransport()
+	tp := newStartStubTransp()
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return newStartStubListener(), nil
 	}
@@ -3921,7 +3921,7 @@ func TestElement_Start_PreCanceledContextDoesNotConsume(t *testing.T) {
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
 
-	tx := newStartStubClientTx(sip.MagicCookie + ".cln-canceled")
+	tx := newStartStubClnTransact(sip.MagicCookie + ".cln-canceled")
 	if err := elm.RegisterClientTransaction(ctx, tx); err != nil {
 		t.Fatalf("elm.RegisterClientTransaction() error = %v, want nil", err)
 	}
@@ -3965,9 +3965,7 @@ func TestElement_Start_StartupCancellationDoesNotStopRuntime(t *testing.T) {
 	// The startup context carries a value and a deadline and is canceled
 	// explicitly below: it only gates Start admission, never the runtime.
 	type ctxKey struct{}
-	startupCtx, cancel := context.WithTimeout(
-		context.WithValue(ctx, ctxKey{}, "startup-ctx"), time.Hour,
-	)
+	startupCtx, cancel := context.WithTimeout(context.WithValue(ctx, ctxKey{}, "startup-ctx"), time.Hour)
 	t.Cleanup(cancel)
 
 	elm := &sip.Element{}
@@ -3979,7 +3977,7 @@ func TestElement_Start_StartupCancellationDoesNotStopRuntime(t *testing.T) {
 	lis := newStartStubListener()
 	lis.gate = gate
 	lis.serveErr = errStubRun
-	tp := newStartStubTransport()
+	tp := newStartStubTransp()
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return lis, nil
 	}
@@ -3990,7 +3988,7 @@ func TestElement_Start_StartupCancellationDoesNotStopRuntime(t *testing.T) {
 		t.Fatalf("elm.ListenManaged() error = %v, want nil", err)
 	}
 
-	tx := newStartStubClientTx(sip.MagicCookie + ".cln-detached")
+	tx := newStartStubClnTransact(sip.MagicCookie + ".cln-detached")
 	tx.gate = gate
 	tx.startErr = errStubRun
 	if err := elm.RegisterClientTransaction(ctx, tx); err != nil {
@@ -4093,7 +4091,7 @@ func TestElement_Start_CloseCancelsAndDrainsManagedWork(t *testing.T) {
 	lis.waitDone = make(chan struct{})
 	lis.resume = make(chan struct{})
 	lis.onReturn = func() { events.add("lis:done") }
-	tp := newStartStubTransport()
+	tp := newStartStubTransp()
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return lis, nil
 	}
@@ -4104,7 +4102,7 @@ func TestElement_Start_CloseCancelsAndDrainsManagedWork(t *testing.T) {
 		t.Fatalf("elm.ListenManaged() error = %v, want nil", err)
 	}
 
-	tx := newStartStubClientTx(sip.MagicCookie + ".cln-managed")
+	tx := newStartStubClnTransact(sip.MagicCookie + ".cln-managed")
 	tx.waitDone = make(chan struct{})
 	tx.resume = make(chan struct{})
 	tx.onReturn = func() { events.add("tx:done") }
@@ -4190,7 +4188,7 @@ func TestElement_Close_DrainsErrorCallbacksBeforeMiddlewareClose(t *testing.T) {
 
 	lis := newStartStubListener()
 	lis.serveErr = errStubRun
-	tp := newStartStubTransport()
+	tp := newStartStubTransp()
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return lis, nil
 	}
@@ -4216,7 +4214,7 @@ func TestElement_Close_DrainsErrorCallbacksBeforeMiddlewareClose(t *testing.T) {
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- elm.Close() }()
-	waitElementClosing(t, elm)
+	waitElemClosing(t, elm)
 
 	// The blocked error callback holds a callback lease, so Close cannot
 	// reach middleware shutdown until it returns.
@@ -4249,7 +4247,7 @@ func TestElement_ListenManaged_LateBoundListenerClosedOnStartRace(t *testing.T) 
 	t.Cleanup(bindGate.open)
 
 	var bound atomic.Pointer[startStubListener]
-	tp := newStartStubTransport()
+	tp := newStartStubTransp()
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		bindGate.enter()
 		<-bindGate.release
@@ -4300,7 +4298,7 @@ func TestElement_ListenManaged_LateBoundListenerClosedOnCloseRace(t *testing.T) 
 	t.Cleanup(bindGate.open)
 
 	var bound atomic.Pointer[startStubListener]
-	tp := newStartStubTransport()
+	tp := newStartStubTransp()
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		bindGate.enter()
 		<-bindGate.release
@@ -4318,7 +4316,7 @@ func TestElement_ListenManaged_LateBoundListenerClosedOnCloseRace(t *testing.T) 
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- elm.Close() }()
-	waitElementClosing(t, elm)
+	waitElemClosing(t, elm)
 
 	bindGate.open()
 	if err := testutil.WaitResult(t, bindDone, "elm.ListenManaged()"); !errors.Is(err, sip.ErrElementClosed) {
@@ -4348,7 +4346,7 @@ func TestElement_Start_LateRegistrationsNotStarted(t *testing.T) {
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
 
-	tp := newStartStubTransport()
+	tp := newStartStubTransp()
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return newStartStubListener(), nil
 	}
@@ -4361,7 +4359,7 @@ func TestElement_Start_LateRegistrationsNotStarted(t *testing.T) {
 	}
 
 	// Transactions registered after Start are not auto-started.
-	tx := newStartStubClientTx(sip.MagicCookie + ".cln-late")
+	tx := newStartStubClnTransact(sip.MagicCookie + ".cln-late")
 	if err := elm.RegisterClientTransaction(ctx, tx); err != nil {
 		t.Fatalf("elm.RegisterClientTransaction() after Start error = %v, want nil", err)
 	}
@@ -4391,7 +4389,7 @@ func TestElement_Start_LateRegistrationsNotStarted(t *testing.T) {
 	}
 }
 
-func TestListenerServeError_ValueSemantics(t *testing.T) {
+func TestListener_ServeError_ValueSemantics(t *testing.T) {
 	t.Parallel()
 
 	addr := netip.MustParseAddrPort("127.0.0.1:5060")
@@ -4402,13 +4400,13 @@ func TestListenerServeError_ValueSemantics(t *testing.T) {
 
 	var lisErr *sip.ListenerServeError
 	if !errors.As(err, &lisErr) {
-		t.Fatalf("NewListenerServeError() = %v, want *sip.ListenerServeError", err)
+		t.Fatalf("sip.NewListenerServeError() = %v, want *sip.ListenerServeError", err)
 	}
 	if !errors.Is(err, cause) {
-		t.Errorf("NewListenerServeError() unwrap = %v, want cause %v", err, cause)
+		t.Errorf("sip.NewListenerServeError() unwrap = %v, want cause %v", err, cause)
 	}
 	if !errors.Is(err, sip.ErrClassTransport) || !errors.Is(err, sip.ErrClassElement) {
-		t.Errorf("NewListenerServeError() = %v, want transport and element classes", err)
+		t.Errorf("sip.NewListenerServeError() = %v, want transport and element classes", err)
 	}
 
 	// The constructor copies its arguments: later mutations of the source
@@ -4455,16 +4453,16 @@ func TestListenerServeError_ValueSemantics(t *testing.T) {
 	}
 }
 
-// elemLateBindTransport gates Listen of a real UDP transport after the
+// elemLateBindTransp gates Listen of a real UDP transport after the
 // underlying bind, so a test can interleave lifecycle calls mid-bind.
-type elemLateBindTransport struct {
-	*transport.ConnectionLessTransport
+type elemLateBindTransp struct {
+	*transport.ConnLessTransport
 	bound   chan sip.TransportListener
 	release <-chan struct{}
 }
 
-func (tp *elemLateBindTransport) Listen(ctx context.Context, addr string) (sip.TransportListener, error) {
-	lis, err := tp.ConnectionLessTransport.Listen(ctx, addr)
+func (tp *elemLateBindTransp) Listen(ctx context.Context, addr string) (sip.TransportListener, error) {
+	lis, err := tp.ConnLessTransport.Listen(ctx, addr)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
@@ -4480,16 +4478,16 @@ func TestElement_ListenManaged_LateBoundListenerDiscarded(t *testing.T) {
 
 	ctx := t.Context()
 
-	udp, err := transport.NewConnectionLessTransport(sip.UDPMetadata())
+	udp, err := transport.NewConnLessTransport(sip.UDPMetadata())
 	if err != nil {
-		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 	}
 	release := make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
-	tp := &elemLateBindTransport{
-		ConnectionLessTransport: udp,
-		bound:                   make(chan sip.TransportListener, 1),
-		release:                 release,
+	tp := &elemLateBindTransp{
+		ConnLessTransport: udp,
+		bound:             make(chan sip.TransportListener, 1),
+		release:           release,
 	}
 
 	elm := &sip.Element{}
@@ -4515,30 +4513,30 @@ func TestElement_ListenManaged_LateBoundListenerDiscarded(t *testing.T) {
 
 	// The rolled-back listener was closed and dropped from the registry, so
 	// an exact local-address lookup must not resolve it anymore.
-	conn, err := udp.AcquireConnection(
+	conn, err := udp.AcquireConn(
 		ctx,
 		netip.MustParseAddrPort("127.0.0.1:50999"),
-		transport.AcquireConnectionOptions{LocalAddr: lis.LocalAddr()},
+		transport.AcquireConnOptions{LocalAddr: lis.LocalAddr()},
 	)
-	if !errors.Is(err, transport.ErrConnectionNotFound) {
-		t.Fatalf("udp.AcquireConnection() = (%v, %v), want %v", conn, err, transport.ErrConnectionNotFound)
+	if !errors.Is(err, transport.ErrConnNotFound) {
+		t.Fatalf("udp.AcquireConn() = (%v, %v), want %v", conn, err, transport.ErrConnNotFound)
 	}
 }
 
-// elemLisObserveTransport serves a gated listener via Listen and records
+// elemLisObserveTransp serves a gated listener via Listen and records
 // the error state of a watched context at the CANCEL send boundary.
-type elemLisObserveTransport struct {
-	*lcRecordingTransport
+type elemLisObserveTransp struct {
+	*lcRecordingTransp
 	lis     *startStubListener
 	watched context.Context
 	ctxErrs chan error
 }
 
-func (tp *elemLisObserveTransport) Listen(context.Context, string) (sip.TransportListener, error) {
+func (tp *elemLisObserveTransp) Listen(context.Context, string) (sip.TransportListener, error) {
 	return tp.lis, nil
 }
 
-func (tp *elemLisObserveTransport) SendRequest(
+func (tp *elemLisObserveTransp) SendRequest(
 	ctx context.Context,
 	req *sip.RequestEnvelope,
 	opts ...sip.SendRequestOptions,
@@ -4546,7 +4544,7 @@ func (tp *elemLisObserveTransport) SendRequest(
 	if req.Method().Equal(sip.RequestMethodCancel) && tp.watched != nil {
 		tp.ctxErrs <- errors.Wrap(tp.watched.Err())
 	}
-	return errors.Wrap(tp.lcRecordingTransport.SendRequest(ctx, req, opts...))
+	return errors.Wrap(tp.lcRecordingTransp.SendRequest(ctx, req, opts...))
 }
 
 // The best-effort CANCEL must be sent while the detached runtime context is
@@ -4560,10 +4558,10 @@ func TestElement_Close_CancelsRuntimeAfterProceedingInviteCancel(t *testing.T) {
 	stubLis.gate = newLcGate()
 	t.Cleanup(stubLis.gate.open)
 
-	tp := &elemLisObserveTransport{
-		lcRecordingTransport: newLcRecordingTransport(),
-		lis:                  stubLis,
-		ctxErrs:              make(chan error, 2),
+	tp := &elemLisObserveTransp{
+		lcRecordingTransp: newLcRecordingTransp(),
+		lis:               stubLis,
+		ctxErrs:           make(chan error, 2),
 	}
 
 	elm := &sip.Element{}
@@ -4583,7 +4581,7 @@ func TestElement_Close_CancelsRuntimeAfterProceedingInviteCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("elm.NewClientTransaction() error = %v, want nil", err)
 	}
-	startClientTransaction(t, tx)
+	startClnTx(t, tx)
 
 	// Drive the INVITE transaction to proceeding so shutdown sends a CANCEL.
 	if err := tx.RecvResponse(ctx, newInRes(t, req, sip.ResponseStatusRinging)); err != nil {
@@ -4627,7 +4625,7 @@ func TestElement_UntrackTransport_ReadyPrunesPreparedListeners(t *testing.T) {
 	ctx := t.Context()
 
 	stubLis := newStartStubListener()
-	stubTp := newStartStubTransport()
+	stubTp := newStartStubTransp()
 	stubTp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return stubLis, nil
 	}
@@ -4674,7 +4672,7 @@ func TestElement_UntrackTransport_RejectedAfterStartAndClose(t *testing.T) {
 
 	ctx := t.Context()
 
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
 	if err := elm.TrackTransport(tp); err != nil {
@@ -4711,7 +4709,7 @@ func TestElement_UntrackTransport_InFlightBindDiscarded(t *testing.T) {
 	release := make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 
-	stubTp := newStartStubTransport()
+	stubTp := newStartStubTransp()
 	stubTp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		lis := newStartStubListener()
 		bound <- lis
@@ -4739,7 +4737,7 @@ func TestElement_UntrackTransport_InFlightBindDiscarded(t *testing.T) {
 		t.Fatalf("elm.UntrackTransport() error = %v, want nil", err)
 	}
 	stubLis2 := newStartStubListener()
-	newTp := newStartStubTransport()
+	newTp := newStartStubTransp()
 	newTp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return stubLis2, nil
 	}
@@ -4774,17 +4772,17 @@ func TestElement_UntrackTransport_InFlightBindDiscarded(t *testing.T) {
 	}
 }
 
-// elemGatedMetadataTransport gates Metadata calls once armed: the second
+// elemGatedMetaTransp gates Metadata calls once armed: the second
 // counted call blocks until the gate opens, which is the lookup the
 // transport manager makes inside its own lock during UntrackTransport.
-type elemGatedMetadataTransport struct {
-	*startStubTransport
+type elemGatedMetaTransp struct {
+	*startStubTransp
 	gate  *lcGate
 	armed atomic.Bool
 	calls atomic.Int32
 }
 
-func (tp *elemGatedMetadataTransport) Metadata() sip.TransportMetadata {
+func (tp *elemGatedMetaTransp) Metadata() sip.TransportMetadata {
 	if tp.armed.Load() && tp.calls.Add(1) == 2 {
 		tp.gate.enter()
 		<-tp.gate.release
@@ -4799,9 +4797,9 @@ func TestElement_UntrackTransport_RejectsListenDuringDetachment(t *testing.T) {
 
 	ctx := t.Context()
 
-	tp := &elemGatedMetadataTransport{
-		startStubTransport: newStartStubTransport(),
-		gate:               newLcGate(),
+	tp := &elemGatedMetaTransp{
+		startStubTransp: newStartStubTransp(),
+		gate:            newLcGate(),
 	}
 	tp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return newStartStubListener(), nil
@@ -4841,7 +4839,7 @@ func TestElement_UntrackTransport_RejectsListenDuringDetachment(t *testing.T) {
 	// After the detachment finished, a replacement on the same protocol
 	// binds and retains listeners normally.
 	stubLis := newStartStubListener()
-	newTp := newStartStubTransport()
+	newTp := newStartStubTransp()
 	newTp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return stubLis, nil
 	}
@@ -4865,7 +4863,7 @@ func TestElement_Listen_NotManagedByStart(t *testing.T) {
 
 	bindCtxs := make(chan context.Context, 1)
 	bindAddrs := make(chan string, 1)
-	stubTp := newStartStubTransport()
+	stubTp := newStartStubTransp()
 	stubTp.listenFn = func(c context.Context, addr string) (sip.TransportListener, error) {
 		bindCtxs <- c
 		bindAddrs <- addr
@@ -4882,7 +4880,7 @@ func TestElement_Listen_NotManagedByStart(t *testing.T) {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
 
-	bindPar, cancelBind := context.WithCancel(context.Background())
+	bindPar, cancelBind := context.WithCancel(t.Context())
 	lis, err := elm.Listen(bindPar, "UDP", "127.0.0.1:5060")
 	if err != nil {
 		t.Fatalf("elm.Listen() error = %v, want nil", err)
@@ -4893,7 +4891,7 @@ func TestElement_Listen_NotManagedByStart(t *testing.T) {
 		t.Fatalf("elm.Listen() = %p, want the transport's listener %p", lis, stubLis)
 	}
 	if got := testutil.WaitResult(t, bindCtxs, "transport listen context"); got != nil {
-		assertElementOwner(t, got, elm)
+		assertElemOwner(t, got, elm)
 		if got.Done() != bindPar.Done() || !errors.Is(got.Err(), bindPar.Err()) {
 			t.Errorf("transport Listen ctx cancellation = (%v, %v), want caller cancellation", got.Done(), got.Err())
 		}
@@ -4965,7 +4963,7 @@ func TestElement_Listen_BindErrors(t *testing.T) {
 			}))
 
 			if tt.track {
-				stubTp := newStartStubTransport()
+				stubTp := newStartStubTransp()
 				stubTp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 					return nil, errors.Wrap(tt.err)
 				}
@@ -4996,7 +4994,7 @@ func TestElement_GranularStartup(t *testing.T) {
 	ctx := t.Context()
 
 	stubLis := newStartStubListener()
-	stubTp := newStartStubTransport()
+	stubTp := newStartStubTransp()
 	stubTp.listenFn = func(context.Context, string) (sip.TransportListener, error) {
 		return stubLis, nil
 	}
@@ -5007,8 +5005,8 @@ func TestElement_GranularStartup(t *testing.T) {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
 
-	cln := newStartStubClientTx(sip.MagicCookie + ".cln-granular")
-	srv := newStartStubServerTx(t, sip.MagicCookie+".srv-granular")
+	cln := newStartStubClnTransact(sip.MagicCookie + ".cln-granular")
+	srv := newStartStubSrvTransact(t, sip.MagicCookie+".srv-granular")
 	if err := elm.RegisterClientTransaction(ctx, cln); err != nil {
 		t.Fatalf("elm.RegisterClientTransaction() error = %v, want nil", err)
 	}
@@ -5073,9 +5071,9 @@ func TestElement_Listen_TransportOwned(t *testing.T) {
 
 	ctx := t.Context()
 
-	udp, err := transport.NewConnectionLessTransport(sip.UDPMetadata())
+	udp, err := transport.NewConnLessTransport(sip.UDPMetadata())
 	if err != nil {
-		t.Fatalf("transport.NewConnectionLessTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 	}
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
@@ -5104,19 +5102,19 @@ func TestElement_Listen_TransportOwned(t *testing.T) {
 	}
 }
 
-type elementOwnerMiddleware struct {
+type elemOwnerMidware struct {
 	sip.NoopMessageInterceptor
 
 	inReqCtx  context.Context
 	inResCtx  context.Context
 	outReqCtx context.Context
 	outResCtx context.Context
-	clientCtx context.Context
-	serverCtx context.Context
+	clnCtx    context.Context
+	srvCtx    context.Context
 	closeCtx  context.Context
 }
 
-func (mw *elementOwnerMiddleware) InterceptInboundRequest(
+func (mw *elemOwnerMidware) InterceptInboundRequest(
 	ctx context.Context,
 	next sip.RequestReceiver,
 	req *sip.RequestEnvelope,
@@ -5125,7 +5123,7 @@ func (mw *elementOwnerMiddleware) InterceptInboundRequest(
 	return errors.Wrap(next.RecvRequest(ctx, req))
 }
 
-func (mw *elementOwnerMiddleware) InterceptInboundResponse(
+func (mw *elemOwnerMidware) InterceptInboundResponse(
 	ctx context.Context,
 	next sip.ResponseReceiver,
 	res *sip.ResponseEnvelope,
@@ -5134,7 +5132,7 @@ func (mw *elementOwnerMiddleware) InterceptInboundResponse(
 	return errors.Wrap(next.RecvResponse(ctx, res))
 }
 
-func (mw *elementOwnerMiddleware) InterceptOutboundRequest(
+func (mw *elemOwnerMidware) InterceptOutboundRequest(
 	ctx context.Context,
 	next sip.RequestSender,
 	req *sip.RequestEnvelope,
@@ -5144,7 +5142,7 @@ func (mw *elementOwnerMiddleware) InterceptOutboundRequest(
 	return errors.Wrap(next.SendRequest(ctx, req, opts...))
 }
 
-func (mw *elementOwnerMiddleware) InterceptOutboundResponse(
+func (mw *elemOwnerMidware) InterceptOutboundResponse(
 	ctx context.Context,
 	next sip.ResponseSender,
 	res *sip.ResponseEnvelope,
@@ -5154,20 +5152,20 @@ func (mw *elementOwnerMiddleware) InterceptOutboundResponse(
 	return errors.Wrap(next.SendResponse(ctx, res, opts...))
 }
 
-func (mw *elementOwnerMiddleware) HandleClientTransaction(ctx context.Context, _ sip.ClientTransaction) {
-	mw.clientCtx = ctx
+func (mw *elemOwnerMidware) HandleClientTransaction(ctx context.Context, _ sip.ClientTransaction) {
+	mw.clnCtx = ctx
 }
 
-func (mw *elementOwnerMiddleware) HandleServerTransaction(ctx context.Context, _ sip.ServerTransaction) {
-	mw.serverCtx = ctx
+func (mw *elemOwnerMidware) HandleServerTransaction(ctx context.Context, _ sip.ServerTransaction) {
+	mw.srvCtx = ctx
 }
 
-func (mw *elementOwnerMiddleware) Shutdown(ctx context.Context) error {
+func (mw *elemOwnerMidware) Shutdown(ctx context.Context) error {
 	mw.closeCtx = ctx
 	return nil
 }
 
-func assertElementOwner(t *testing.T, ctx context.Context, want *sip.Element) {
+func assertElemOwner(t *testing.T, ctx context.Context, want *sip.Element) {
 	t.Helper()
 	if ctx == nil {
 		t.Fatal("callback context = nil, want element context")
@@ -5178,10 +5176,10 @@ func assertElementOwner(t *testing.T, ctx context.Context, want *sip.Element) {
 	}
 }
 
-func TestElementMiddleware_ContextOwnerIsScopedPerElement(t *testing.T) {
+func TestElement_UseMiddleware_ContextOwnerIsScopedPerElement(t *testing.T) {
 	t.Parallel()
 
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 	first, second, unrelated := &sip.Element{}, &sip.Element{}, &sip.Element{}
 	t.Cleanup(func() { _ = first.Close() })
 	t.Cleanup(func() { _ = second.Close() })
@@ -5191,103 +5189,103 @@ func TestElementMiddleware_ContextOwnerIsScopedPerElement(t *testing.T) {
 		}
 	}
 
-	mwFirst, mwSecond := &elementOwnerMiddleware{}, &elementOwnerMiddleware{}
+	mwFirst, mwSecond := &elemOwnerMidware{}, &elemOwnerMidware{}
 	first.UseMiddleware(mwFirst)
 	second.UseMiddleware(mwSecond)
 
-	localAddr := netip.MustParseAddrPort("11.11.11.11:5070")
-	remoteAddr := netip.MustParseAddrPort("55.55.55.55:5060")
-	req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".element-ctx", localAddr, remoteAddr)
+	locAddr := netip.MustParseAddrPort("11.11.11.11:5070")
+	rmtAddr := netip.MustParseAddrPort("55.55.55.55:5060")
+	req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".element-ctx", locAddr, rmtAddr)
 	res := newInRes(t, req, sip.ResponseStatusOK)
-	ctx := sip.ContextWithElement(context.WithValue(t.Context(), contextTestKey{}, "caller"), unrelated)
+	ctx := sip.ContextWithElement(context.WithValue(t.Context(), testCtxKey{}, "caller"), unrelated)
 
-	receiver := sip.InterceptInboundRequest(
+	recvr := sip.InterceptInboundRequest(
 		slices.Collect(tp.InboundRequestInterceptors.All()),
 		sip.RequestReceiverFunc(func(context.Context, *sip.RequestEnvelope) error { return nil }),
 	)
-	if err := receiver.RecvRequest(ctx, req); err != nil {
+	if err := recvr.RecvRequest(ctx, req); err != nil {
 		t.Fatalf("receiver.RecvRequest() error = %v, want nil", err)
 	}
-	responseReceiver := sip.InterceptInboundResponse(
+	resRecvr := sip.InterceptInboundResponse(
 		slices.Collect(tp.InboundResponseInterceptors.All()),
 		sip.ResponseReceiverFunc(func(context.Context, *sip.ResponseEnvelope) error { return nil }),
 	)
-	if err := responseReceiver.RecvResponse(ctx, res); err != nil {
+	if err := resRecvr.RecvResponse(ctx, res); err != nil {
 		t.Fatalf("responseReceiver.RecvResponse() error = %v, want nil", err)
 	}
 
-	outReq := newOutInviteReq(t, "UDP", sip.MagicCookie+".element-out", localAddr, remoteAddr)
-	requestSender := sip.InterceptOutboundRequest(
+	outReq := newOutInviteReq(t, "UDP", sip.MagicCookie+".element-out", locAddr, rmtAddr)
+	reqSendr := sip.InterceptOutboundRequest(
 		slices.Collect(tp.OutboundRequestInterceptors.All()),
 		sip.RequestSenderFunc(func(context.Context, *sip.RequestEnvelope, ...sip.SendRequestOptions) error { return nil }),
 	)
-	if err := requestSender.SendRequest(ctx, outReq); err != nil {
+	if err := reqSendr.SendRequest(ctx, outReq); err != nil {
 		t.Fatalf("requestSender.SendRequest() error = %v, want nil", err)
 	}
-	responseSender := sip.InterceptOutboundResponse(
+	resSendr := sip.InterceptOutboundResponse(
 		slices.Collect(tp.OutboundResponseInterceptors.All()),
 		sip.ResponseSenderFunc(func(context.Context, *sip.ResponseEnvelope, ...sip.SendResponseOptions) error { return nil }),
 	)
-	if err := responseSender.SendResponse(ctx, res); err != nil {
+	if err := resSendr.SendResponse(ctx, res); err != nil {
 		t.Fatalf("responseSender.SendResponse() error = %v, want nil", err)
 	}
 
 	for _, tt := range []struct {
 		name string
-		mw   *elementOwnerMiddleware
+		mw   *elemOwnerMidware
 		elm  *sip.Element
 	}{
-		{name: "first", mw: mwFirst, elm: first},
-		{name: "second", mw: mwSecond, elm: second},
+		{"first", mwFirst, first},
+		{"second", mwSecond, second},
 	} {
-		assertElementOwner(t, tt.mw.inReqCtx, tt.elm)
-		assertElementOwner(t, tt.mw.inResCtx, tt.elm)
-		assertElementOwner(t, tt.mw.outReqCtx, tt.elm)
-		assertElementOwner(t, tt.mw.outResCtx, tt.elm)
-		if got := tt.mw.inReqCtx.Value(contextTestKey{}); got != "caller" {
+		assertElemOwner(t, tt.mw.inReqCtx, tt.elm)
+		assertElemOwner(t, tt.mw.inResCtx, tt.elm)
+		assertElemOwner(t, tt.mw.outReqCtx, tt.elm)
+		assertElemOwner(t, tt.mw.outResCtx, tt.elm)
+		if got := tt.mw.inReqCtx.Value(testCtxKey{}); got != "caller" {
 			t.Errorf("%s inbound callback context value = %v, want caller", tt.name, got)
 		}
 	}
-	assertElementOwner(t, ctx, unrelated)
+	assertElemOwner(t, ctx, unrelated)
 
 	if err := first.SendResponse(ctx, res); err != nil {
 		t.Fatalf("first.SendResponse() error = %v, want nil", err)
 	}
-	assertElementOwner(
+	assertElemOwner(
 		t,
 		testutil.WaitResult(t, tp.sendResCalls, "Element response send context").ctx,
 		first,
 	)
 
-	serverTx := newCustomServerTx(t, sip.MagicCookie+".element-server", sip.TransactionStateProceeding)
+	serverTx := newCustomSrvTransact(t, sip.MagicCookie+".element-server", sip.TransactionStateProceeding)
 	if err := first.RegisterServerTransaction(ctx, serverTx); err != nil {
 		t.Fatalf("first.RegisterServerTransaction() error = %v, want nil", err)
 	}
-	assertElementOwner(t, mwFirst.serverCtx, first)
-	if got, ok := sip.ServerTransactionFromContext(mwFirst.serverCtx); !ok || got != serverTx {
+	assertElemOwner(t, mwFirst.srvCtx, first)
+	if got, ok := sip.ServerTransactionFromContext(mwFirst.srvCtx); !ok || got != serverTx {
 		t.Fatalf("server callback transaction = (%v, %t), want %v", got, ok, serverTx)
 	}
-	clientTx := newStartStubClientTx(sip.MagicCookie + ".element-client")
+	clientTx := newStartStubClnTransact(sip.MagicCookie + ".element-client")
 	if err := second.RegisterClientTransaction(ctx, clientTx); err != nil {
 		t.Fatalf("second.RegisterClientTransaction() error = %v, want nil", err)
 	}
-	assertElementOwner(t, mwSecond.clientCtx, second)
-	if got, ok := sip.ClientTransactionFromContext(mwSecond.clientCtx); !ok || got != clientTx {
+	assertElemOwner(t, mwSecond.clnCtx, second)
+	if got, ok := sip.ClientTransactionFromContext(mwSecond.clnCtx); !ok || got != clientTx {
 		t.Fatalf("client callback transaction = (%v, %t), want %v", got, ok, clientTx)
 	}
 
 	if err := first.Shutdown(ctx); err != nil {
 		t.Fatalf("first.Shutdown() error = %v, want nil", err)
 	}
-	assertElementOwner(t, mwFirst.closeCtx, first)
+	assertElemOwner(t, mwFirst.closeCtx, first)
 }
 
-func TestElementRequestAttempt_ContextOwner(t *testing.T) {
+func TestElement_ProduceRequestAttempts_ContextOwner(t *testing.T) {
 	t.Parallel()
 
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
-	tp := newProxyStubTransport()
+	tp := newPrxStubTransp()
 	if err := elm.TrackTransport(tp); err != nil {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
@@ -5304,13 +5302,13 @@ func TestElementRequestAttempt_ContextOwner(t *testing.T) {
 		if err := attempt.DoStateless(t.Context()); err != nil {
 			t.Fatalf("attempt.DoStateless() error = %v, want nil", err)
 		}
-		assertElementOwner(t, tp.waitSendReq(t).ctx, elm)
+		assertElemOwner(t, tp.waitSendReq(t).ctx, elm)
 
 		tx, err := attempt.DoStateful(t.Context())
 		if err != nil {
 			t.Fatalf("attempt.DoStateful() error = %v, want nil", err)
 		}
-		assertElementOwner(t, tp.waitSendReq(t).ctx, elm)
+		assertElemOwner(t, tp.waitSendReq(t).ctx, elm)
 		if err := tx.Terminate(t.Context(), nil); err != nil {
 			t.Fatalf("tx.Terminate() error = %v, want nil", err)
 		}
@@ -5319,7 +5317,7 @@ func TestElementRequestAttempt_ContextOwner(t *testing.T) {
 	t.Fatal("elm.ProduceRequestAttempts() produced no attempts")
 }
 
-func TestElementStart_ErrorHandlerContextTransaction(t *testing.T) {
+func TestElement_Start_ErrorHandler_ContextTransaction(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -5327,18 +5325,18 @@ func TestElementStart_ErrorHandlerContextTransaction(t *testing.T) {
 		new  func(*testing.T, string) sip.Transaction
 	}{
 		{
-			name: "client",
-			new: func(_ *testing.T, branch string) sip.Transaction {
-				tx := newStartStubClientTx(branch)
+			"client",
+			func(_ *testing.T, branch string) sip.Transaction {
+				tx := newStartStubClnTransact(branch)
 				tx.startErr = errStubRun
 				return tx
 			},
 		},
 		{
-			name: "server",
-			new: func(t *testing.T, branch string) sip.Transaction {
+			"server",
+			func(t *testing.T, branch string) sip.Transaction {
 				t.Helper()
-				tx := newStartStubServerTx(t, branch)
+				tx := newStartStubSrvTransact(t, branch)
 				tx.startErr = errStubRun
 				return tx
 			},
@@ -5355,15 +5353,15 @@ func TestElementStart_ErrorHandlerContextTransaction(t *testing.T) {
 			t.Cleanup(func() { _ = unrelatedElm.Close() })
 
 			failedTx := tt.new(t, sip.MagicCookie+".element-start-error-"+tt.name)
-			outerTx := newStartStubClientTx(sip.MagicCookie + ".element-start-outer-" + tt.name)
+			outerTx := newStartStubClnTransact(sip.MagicCookie + ".element-start-outer-" + tt.name)
 			var startCtxs <-chan context.Context
 			switch tx := failedTx.(type) {
-			case *startStubClientTx:
+			case *startStubClnTransact:
 				startCtxs = tx.startCtxs
 				if err := elm.RegisterClientTransaction(t.Context(), tx); err != nil {
 					t.Fatalf("elm.RegisterClientTransaction() error = %v, want nil", err)
 				}
-			case *startStubServerTx:
+			case *startStubSrvTransact:
 				startCtxs = tx.startCtxs
 				if err := elm.RegisterServerTransaction(t.Context(), tx); err != nil {
 					t.Fatalf("elm.RegisterServerTransaction() error = %v, want nil", err)
@@ -5382,7 +5380,7 @@ func TestElementStart_ErrorHandlerContextTransaction(t *testing.T) {
 				notifications <- errorNotification{ctx: ctx, err: errors.Wrap(err)}
 			}))
 
-			parentCtx := context.WithValue(t.Context(), contextTestKey{}, "caller")
+			parentCtx := context.WithValue(t.Context(), testCtxKey{}, "caller")
 			parentCtx = sip.ContextWithElement(parentCtx, unrelatedElm)
 			parentCtx = sip.ContextWithTransaction(parentCtx, outerTx)
 			if err := elm.Start(parentCtx); err != nil {
@@ -5395,21 +5393,21 @@ func TestElementStart_ErrorHandlerContextTransaction(t *testing.T) {
 			if !errors.Is(notification.err, errStubRun) {
 				t.Errorf("Element error handler error = %v, want cause %v", notification.err, errStubRun)
 			}
-			assertManagedStartContext(t, startCtx, failedTx, tt.name, elm)
-			assertManagedStartContext(t, notification.ctx, failedTx, tt.name, elm)
+			assertManagedStartCtx(t, startCtx, failedTx, tt.name, elm)
+			assertManagedStartCtx(t, notification.ctx, failedTx, tt.name, elm)
 
 			if got, ok := sip.TransactionFromContext(parentCtx); !ok || got != outerTx {
 				t.Errorf("parent transaction = (%v, %t), want %v", got, ok, outerTx)
 			}
-			assertElementOwner(t, parentCtx, unrelatedElm)
-			if got := parentCtx.Value(contextTestKey{}); got != "caller" {
+			assertElemOwner(t, parentCtx, unrelatedElm)
+			if got := parentCtx.Value(testCtxKey{}); got != "caller" {
 				t.Errorf("parent context value = %v, want caller", got)
 			}
 		})
 	}
 }
 
-func assertManagedStartContext(
+func assertManagedStartCtx(
 	t *testing.T,
 	ctx context.Context,
 	tx sip.Transaction,
@@ -5433,8 +5431,8 @@ func assertManagedStartContext(
 		}
 	}
 
-	assertElementOwner(t, ctx, elm)
-	if got := ctx.Value(contextTestKey{}); got != "caller" {
+	assertElemOwner(t, ctx, elm)
+	if got := ctx.Value(testCtxKey{}); got != "caller" {
 		t.Errorf("context value = %v, want caller", got)
 	}
 }

@@ -6,15 +6,15 @@ import (
 	"sync"
 )
 
-func UCase[T ~string](s T) T { return T(strings.ToUpper(string(s))) }
+func ToUpper[T ~string](s T) T { return T(strings.ToUpper(string(s))) }
 
-func LCase[T ~string](s T) T { return T(strings.ToLower(string(s))) }
+func ToLower[T ~string](s T) T { return T(strings.ToLower(string(s))) }
 
-func TrimSP[T ~string](s T) T { return T(strings.TrimSpace(string(s))) }
+func TrimSpace[T ~string](s T) T { return T(strings.TrimSpace(string(s))) }
 
-func CmpKVs[T ~string](kv1, kv2 []T) int { return cmp.Compare(kv1[0], kv2[0]) }
+func CompareKeys[T ~string](kv1, kv2 []T) int { return cmp.Compare(kv1[0], kv2[0]) }
 
-func EqFold[T1, T2 ~string](s1 T1, s2 T2) bool {
+func EqualFold[T1, T2 ~string](s1 T1, s2 T2) bool {
 	return strings.EqualFold(string(s1), string(s2))
 }
 
@@ -36,7 +36,7 @@ var strBldrPool = &sync.Pool{
 }
 
 func GetStringBuilder() *strings.Builder {
-	return strBldrPool.Get().(*strings.Builder) //nolint:forcetypeassert
+	return strBldrPool.Get().(*strings.Builder) //nolint:forcetypeassert // the pool only stores *strings.Builder
 }
 
 func FreeStringBuilder(sb *strings.Builder) {

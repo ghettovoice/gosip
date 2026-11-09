@@ -8,7 +8,7 @@ import (
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // Route represents the Route header field.
@@ -22,27 +22,31 @@ func (Route) CanonicName() Name { return "Route" }
 func (Route) CompactName() Name { return "Route" }
 
 // RenderTo writes the header to the provided writer.
-func (hdr Route) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr Route) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderHdrEntries(w, hdr))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr Route) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrValsTo(w, hdr))
 }
 
 // Render returns the string representation of the header.
 func (hdr Route) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
 func (hdr Route) RenderValue() string {
-	return renderHdrEntriesString(hdr)
+	return renderHdrVal(hdr)
 }
 
 // String returns the string representation of the header value.
-func (hdr Route) String() string { return hdr.RenderValue() }
+func (hdr Route) String() string {
+	return hdr.RenderValue()
+}
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr Route) Format(f fmt.State, verb rune) {
@@ -57,29 +61,25 @@ func (hdr Route) Format(f fmt.State, verb rune) {
 }
 
 // Clone returns a copy of the header.
-func (hdr Route) Clone() Header { return cloneHdrEntries(hdr) }
+func (hdr Route) Clone() Header {
+	return cloneHdrVals(hdr)
+}
 
 // Equal compares this header with another for equality.
 func (hdr Route) Equal(val any) bool {
-	var other Route
-	switch v := val.(type) {
-	case Route:
-		other = v
-	case *Route:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(addr1, addr2 RouteHop) bool { return addr1.Equal(addr2) })
+	return util.EqualValue(val, func(other Route) bool {
+		return slices.EqualFunc(hdr, other, func(addr1, addr2 RouteHop) bool {
+			return addr1.Equal(addr2)
+		})
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
 func (hdr Route) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(addr NameAddr) bool { return !addr.IsValid() })
+	return len(hdr) > 0 &&
+		!slices.ContainsFunc(hdr, func(addr NameAddr) bool {
+			return !addr.IsValid()
+		})
 }
 
 func (hdr Route) MarshalJSON() ([]byte, error) {
@@ -87,7 +87,7 @@ func (hdr Route) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Route) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromRouteNode(node *abnf.Node) Route {

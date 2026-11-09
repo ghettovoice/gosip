@@ -110,7 +110,7 @@ func applyNAPTRRegexp(expr, replacement, input string) string {
 	}
 
 	delim := string(expr[0])
-	parts := strings.SplitN(expr[1:], delim, 3)
+	parts := strings.SplitN(expr[1:], delim, 3) //nolint:mnd // "s" delim ere delim repl delim flags sections
 
 	if len(parts) < 2 {
 		return replacement
@@ -125,13 +125,13 @@ func applyNAPTRRegexp(expr, replacement, input string) string {
 	return re.ReplaceAllString(input, repl)
 }
 
-// selectTranspMeta selects transport metadata for a URI's security scheme.
+// selectTpMeta selects transport metadata for a URI's security scheme.
 //
 // An explicitly requested transport is used only when it exists and has the
 // required security properties.
 // Otherwise, the first registered transport matching the scheme is selected.
 // In particular, a SIPS target must not be silently downgraded to an unsecured transport.
-func selectTranspMeta(metaPrvd TransportMetadataProvider, tp TransportProto, secured bool) TransportMetadata {
+func selectTpMeta(metaPrvd TransportMetadataProvider, tp TransportProto, secured bool) TransportMetadata {
 	if tp.IsValid() {
 		if m, ok := metaPrvd.TransportMetadataByProto(tp); ok && m.IsValid() && m.Secured() == secured {
 			return m
@@ -268,13 +268,13 @@ func yieldFromNAPTRs(
 	return found, false
 }
 
-// yieldAllTranspSRVs performs the RFC 3263 fallback SRV lookups when NAPTR
+// yieldAllTpSRVs performs the RFC 3263 fallback SRV lookups when NAPTR
 // did not select a service.
 //
 // Only transports with the same security level as the URI are considered.
 // found prevents the later default A/AAAA fallback; stopped preserves early
 // termination requested by the consumer.
-func yieldAllTranspSRVs(
+func yieldAllTpSRVs(
 	ctx context.Context,
 	yield func(ResolvedAddr) bool,
 	dnsRslvr DNSResolver,
@@ -335,7 +335,7 @@ func yieldFromMAddr(
 	return true // maddr present and processed, no fallback
 }
 
-func resolveTranspPort(uri *URI, tp TransportMetadata) uint16 {
+func resolveTpPort(uri *URI, tp TransportMetadata) uint16 {
 	if p, ok := uri.Addr.Port(); ok {
 		return p
 	}
@@ -371,14 +371,14 @@ type LookupMessageAddrsOptions struct {
 // response routing.
 type ResolvedAddr struct {
 	// Transport is the SIP transport to use for Addr.
-	Transport TransportProto
+	Transport TransportProto `json:"transport"`
 	// Addr is the resolved IP address and port.
-	Addr netip.AddrPort
+	Addr netip.AddrPort `json:"addr,omitzero"`
 	// FromDNS reports that the candidate came from an SRV/NAPTR service record.
 	// It is false for numeric URI targets and A/AAAA fallback candidates.
 	// The request sender uses this distinction when deciding whether a large UDP
 	// request may switch transport immediately or must try another candidate.
-	FromDNS bool
+	FromDNS bool `json:"from_dns,omitempty"`
 }
 
 func (a ResolvedAddr) IsZero() bool { return a == ResolvedAddr{} }
@@ -455,7 +455,7 @@ func (lctr *RemoteElementLocator) metaPrvdr() TransportMetadataProvider {
 // Numeric targets and A/AAAA fallback candidates leave it unset and may be eligible
 // for size-driven transport switching.
 //
-//nolint:gocognit
+//nolint:gocognit // RFC 3263 resolution branches per lookup outcome
 func (lctr *RemoteElementLocator) LookupRequestAddrs(
 	ctx context.Context,
 	uri *URI,
@@ -485,12 +485,12 @@ func (lctr *RemoteElementLocator) LookupRequestAddrs(
 
 		// Case 1: IP address is directly available in URI
 		if trgtIP != nil {
-			tpMeta := selectTranspMeta(metaPrvdr, tpProto, uri.Secured)
+			tpMeta := selectTpMeta(metaPrvdr, tpProto, uri.Secured)
 			if !tpMeta.IsValid() {
 				return
 			}
 
-			port := resolveTranspPort(uri, tpMeta)
+			port := resolveTpPort(uri, tpMeta)
 
 			if addr, ok := netip.AddrFromSlice(trgtIP); ok {
 				yieldAddrPort(yield, tpMeta.Proto, addr, port, false)
@@ -500,7 +500,7 @@ func (lctr *RemoteElementLocator) LookupRequestAddrs(
 
 		// Case 2: Port is specified, need to lookup IP
 		if port, ok := uri.Addr.Port(); ok {
-			tpMeta := selectTranspMeta(metaPrvdr, tpProto, uri.Secured)
+			tpMeta := selectTpMeta(metaPrvdr, tpProto, uri.Secured)
 			if !tpMeta.IsValid() {
 				return
 			}
@@ -509,7 +509,7 @@ func (lctr *RemoteElementLocator) LookupRequestAddrs(
 			return
 		}
 
-		lookupOpts := util.LastSliceElemOr(opts, LookupMessageAddrsOptions{})
+		lookupOpts := util.LastSliceElem(opts, LookupMessageAddrsOptions{})
 
 		// Case 3: Transport protocol is specified
 		if tpProto.IsValid() {
@@ -534,13 +534,13 @@ func (lctr *RemoteElementLocator) LookupRequestAddrs(
 		}
 
 		// Case 5: Try SRV for all matching transports
-		found, stopped = yieldAllTranspSRVs(ctx, yield, dnsRslvr, metaPrvdr, uri, trgtHst, lookupOpts)
+		found, stopped = yieldAllTpSRVs(ctx, yield, dnsRslvr, metaPrvdr, uri, trgtHst, lookupOpts)
 		if found || stopped {
 			return
 		}
 
 		// Case 6: Fallback to default transport with A/AAAA lookup
-		tpMeta := selectTranspMeta(metaPrvdr, "", uri.Secured)
+		tpMeta := selectTpMeta(metaPrvdr, "", uri.Secured)
 		if !tpMeta.IsValid() {
 			return
 		}
@@ -599,7 +599,7 @@ func (lctr *RemoteElementLocator) LookupResponseAddrs(
 			return
 		}
 
-		lookupOpts := util.LastSliceElemOr(opts, LookupMessageAddrsOptions{})
+		lookupOpts := util.LastSliceElem(opts, LookupMessageAddrsOptions{})
 
 		// RFC 3263 Section 5: SRV lookup fallback
 		yieldFromSRVs(ctx, yield, dnsRslvr, tpMeta, via.Addr.Host(), lookupOpts)

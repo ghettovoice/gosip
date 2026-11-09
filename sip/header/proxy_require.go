@@ -8,7 +8,7 @@ import (
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // ProxyRequire represents the Proxy-Require header field.
@@ -22,27 +22,31 @@ func (ProxyRequire) CanonicName() Name { return "Proxy-Require" }
 func (ProxyRequire) CompactName() Name { return "Proxy-Require" }
 
 // RenderTo writes the header to the provided writer.
-func (hdr ProxyRequire) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr ProxyRequire) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderHdrEntries(w, hdr))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr ProxyRequire) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrTokensTo(w, hdr))
 }
 
 // Render returns the string representation of the header.
 func (hdr ProxyRequire) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
 func (hdr ProxyRequire) RenderValue() string {
-	return renderHdrEntriesString(hdr)
+	return renderHdrVal(hdr)
 }
 
 // String returns the string representation of the header value.
-func (hdr ProxyRequire) String() string { return hdr.RenderValue() }
+func (hdr ProxyRequire) String() string {
+	return hdr.RenderValue()
+}
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr ProxyRequire) Format(f fmt.State, verb rune) {
@@ -63,24 +67,17 @@ func (hdr ProxyRequire) Clone() Header {
 
 // Equal compares this header with another for equality.
 func (hdr ProxyRequire) Equal(val any) bool {
-	var other ProxyRequire
-	switch v := val.(type) {
-	case ProxyRequire:
-		other = v
-	case *ProxyRequire:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(tag1, tag2 OptionTag) bool { return tag1.Equal(tag2) })
+	return util.EqualValue(val, func(other ProxyRequire) bool {
+		return slices.EqualFunc(hdr, other, func(tag1, tag2 OptionTag) bool {
+			return tag1.Equal(tag2)
+		})
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
-func (hdr ProxyRequire) IsValid() bool { return len(hdr) > 0 && validOptionTags(hdr) }
+func (hdr ProxyRequire) IsValid() bool {
+	return len(hdr) > 0 && validOptionTags(hdr)
+}
 
 func (hdr ProxyRequire) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))

@@ -3,13 +3,14 @@ package header
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"slices"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -21,75 +22,59 @@ type MIMEType struct {
 }
 
 func (mt MIMEType) String() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
+	return renderVal(mt)
+}
 
-	fmt.Fprint(sb, mt.Type, "/", mt.Subtype)
+func (mt MIMEType) renderTo(w io.Writer) (num int, err error) {
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
 
+	cw.Fprint(mt.Type, "/", mt.Subtype)
 	if len(mt.Params) > 0 {
 		kvs := make([][]string, 0, len(mt.Params))
 		for k := range mt.Params {
 			v, _ := mt.Params.Last(k)
-			kvs = append(kvs, []string{util.LCase(k), v})
+			kvs = append(kvs, []string{util.ToLower(k), v})
 		}
-
-		slices.SortFunc(kvs, util.CmpKVs)
-
+		slices.SortFunc(kvs, util.CompareKeys)
 		for _, kv := range kvs {
-			fmt.Fprint(sb, ";", kv[0], "=", kv[1])
+			cw.Fprint(";", kv[0], "=", kv[1])
 		}
 	}
-
-	return sb.String()
+	return errors.Wrap2(cw.Result())
 }
 
 func (mt MIMEType) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		fmt.Fprint(f, mt.String())
-		return
-	case 'q':
-		fmt.Fprint(f, strconv.Quote(mt.String()))
-		return
-	default:
-		if !f.Flag('+') && !f.Flag('#') {
-			fmt.Fprint(f, mt.String())
-			return
-		}
-
-		type (
-			hideMethods MIMEType
-			MIMEType    hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), MIMEType(mt))
+	if formatVal(f, verb, mt) {
 		return
 	}
+	type (
+		hideMethods MIMEType
+		MIMEType    hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), MIMEType(mt))
 }
 
 func (mt MIMEType) Equal(val any) bool {
-	var other MIMEType
-	switch v := val.(type) {
-	case MIMEType:
-		other = v
-	case *MIMEType:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return util.EqFold(mt.Type, other.Type) && util.EqFold(mt.Subtype, other.Subtype) &&
-		compareHdrParams(mt.Params, other.Params, map[string]bool{"charset": true})
+	return util.EqualValue(val, func(other MIMEType) bool {
+		return util.EqualFold(mt.Type, other.Type) &&
+			util.EqualFold(mt.Subtype, other.Subtype) &&
+			compareHdrParams(mt.Params, other.Params, map[string]bool{
+				"charset": true,
+			})
+	})
 }
 
 func (mt MIMEType) IsValid() bool {
-	return grammar.IsToken(mt.Type) && grammar.IsToken(mt.Subtype) && validateHdrParams(mt.Params)
+	return grammar.IsToken(mt.Type) &&
+		grammar.IsToken(mt.Subtype) &&
+		validateHdrParams(mt.Params)
 }
 
 func (mt MIMEType) IsZero() bool {
-	return mt.Type == "" && mt.Subtype == "" && len(mt.Params) == 0
+	return mt.Type == "" &&
+		mt.Subtype == "" &&
+		len(mt.Params) == 0
 }
 
 func (mt MIMEType) Clone() MIMEType {
@@ -136,7 +121,6 @@ func (mt *MIMEType) UnmarshalText(data []byte) (finErr error) {
 			mt.Params.Append(kv[0], kv[1])
 		}
 	}
-
 	return nil
 }
 
@@ -163,7 +147,7 @@ func buildFromMIMETypeNode(node *abnf.Node) (MIMEType, [][2]string) {
 			valNode := grammar.MustGetNode(paramNode, "m-value")
 			kv := [2]string{paramNode.Children[0].String(), valNode.String()}
 
-			if otherParamsStarted || util.LCase(kv[0]) == "q" {
+			if otherParamsStarted || util.ToLower(kv[0]) == "q" {
 				// media-range usually used as part of accept-range
 				// we interpret 'q' param as a separator between media-range and accept-range params
 				// RFC 2616 Section 14.1.
@@ -178,6 +162,5 @@ func buildFromMIMETypeNode(node *abnf.Node) (MIMEType, [][2]string) {
 			mt.Params.Append(kv[0], kv[1])
 		}
 	}
-
 	return mt, otherParams
 }

@@ -27,7 +27,7 @@ func TestIsNil(t *testing.T) {
 			t.Parallel()
 
 			if got := util.IsNil(tt.val); got != tt.want {
-				t.Fatalf("IsNil(%T) = %v, want %v", tt.val, got, tt.want)
+				t.Fatalf("util.IsNil(%T) = %v, want %v", tt.val, got, tt.want)
 			}
 		})
 	}

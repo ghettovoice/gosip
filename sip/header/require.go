@@ -9,7 +9,6 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -24,27 +23,31 @@ func (Require) CanonicName() Name { return "Require" }
 func (Require) CompactName() Name { return "Require" }
 
 // RenderTo writes the header to the provided writer.
-func (hdr Require) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr Require) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderHdrEntries(w, hdr))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr Require) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrTokensTo(w, hdr))
 }
 
 // Render returns the string representation of the header.
 func (hdr Require) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
 func (hdr Require) RenderValue() string {
-	return renderHdrEntriesString(hdr)
+	return renderHdrVal(hdr)
 }
 
 // String returns the string representation of the header value.
-func (hdr Require) String() string { return hdr.RenderValue() }
+func (hdr Require) String() string {
+	return hdr.RenderValue()
+}
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr Require) Format(f fmt.State, verb rune) {
@@ -59,24 +62,17 @@ func (hdr Require) Format(f fmt.State, verb rune) {
 }
 
 // Clone returns a copy of the header.
-func (hdr Require) Clone() Header { return slices.Clone(hdr) }
+func (hdr Require) Clone() Header {
+	return slices.Clone(hdr)
+}
 
 // Equal compares this header with another for equality.
 func (hdr Require) Equal(val any) bool {
-	var other Require
-	switch v := val.(type) {
-	case Require:
-		other = v
-	case *Require:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(o1, o2 OptionTag) bool { return o1.Equal(o2) })
+	return util.EqualValue(val, func(other Require) bool {
+		return slices.EqualFunc(hdr, other, func(o1, o2 OptionTag) bool {
+			return o1.Equal(o2)
+		})
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
@@ -118,21 +114,12 @@ func validOptionTags(tags []OptionTag) bool {
 	return true
 }
 
-func (lng OptionTag) IsValid() bool { return grammar.IsToken(lng) }
+func (o OptionTag) IsValid() bool {
+	return grammar.IsToken(o)
+}
 
-func (lng OptionTag) Equal(val any) bool {
-	var other OptionTag
-	switch v := val.(type) {
-	case OptionTag:
-		other = v
-	case *OptionTag:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return util.EqFold(lng, other)
+func (o OptionTag) Equal(val any) bool {
+	return util.EqualValue(val, func(other OptionTag) bool {
+		return util.EqualFold(o, other)
+	})
 }

@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-func traverseError(err error, predicate func(error) bool) bool {
+func traverseErr(err error, predicate func(error) bool) bool {
 	if err == nil {
 		return false
 	}
@@ -20,12 +20,12 @@ func traverseError(err error, predicate func(error) bool) bool {
 	switch err := err.(type) {
 	case interface{ Unwrap() []error }:
 		for _, nested := range err.Unwrap() {
-			if traverseError(nested, predicate) {
+			if traverseErr(nested, predicate) {
 				return true
 			}
 		}
 	case interface{ Unwrap() error }:
-		return traverseError(err.Unwrap(), predicate)
+		return traverseErr(err.Unwrap(), predicate)
 	}
 	return false
 }
@@ -33,7 +33,7 @@ func traverseError(err error, predicate func(error) bool) bool {
 // IsTemporary returns true if the error is temporary.
 func IsTemporary(err error) bool {
 	return errors.Is(err, ClassTemporary) ||
-		traverseError(err, func(err error) bool {
+		traverseErr(err, func(err error) bool {
 			e, ok := err.(interface{ Temporary() bool })
 			return ok && e.Temporary()
 		})
@@ -42,7 +42,7 @@ func IsTemporary(err error) bool {
 // IsTimeout returns true if the error is a timeout error.
 func IsTimeout(err error) bool {
 	return errors.Is(err, ClassTimeout) ||
-		traverseError(err, func(err error) bool {
+		traverseErr(err, func(err error) bool {
 			e, ok := err.(interface{ Timeout() bool })
 			return ok && e.Timeout()
 		})
@@ -50,7 +50,7 @@ func IsTimeout(err error) bool {
 
 // IsGrammar returns true if the error is a grammar error.
 func IsGrammar(err error) bool {
-	return traverseError(err, func(err error) bool {
+	return traverseErr(err, func(err error) bool {
 		e, ok := err.(interface{ Grammar() bool })
 		return ok && e.Grammar()
 	})
@@ -69,7 +69,7 @@ func IsClosed(err error) bool {
 		errors.Is(err, io.ErrClosedPipe) ||
 		errors.Is(err, io.EOF) ||
 		errors.Is(err, os.ErrClosed) ||
-		traverseError(err, func(err error) bool {
+		traverseErr(err, func(err error) bool {
 			e, ok := err.(interface{ Closed() bool })
 			return ok && e.Closed()
 		})
@@ -79,7 +79,7 @@ func IsClosed(err error) bool {
 func IsCanceled(err error) bool {
 	return errors.Is(err, ClassCanceled) ||
 		errors.Is(err, context.Canceled) ||
-		traverseError(err, func(err error) bool {
+		traverseErr(err, func(err error) bool {
 			e, ok := err.(interface{ Canceled() bool })
 			return ok && e.Canceled()
 		})

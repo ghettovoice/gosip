@@ -159,7 +159,7 @@ func (s ParseState) String() string {
 //
 // TODO: return parsed message buffer
 //
-//nolint:gocognit
+//nolint:gocognit // parser state machine branches by message section
 func parseMsg(rdr *bufio.Reader, pktMode bool, maxMsgSize uint) (Message, error) {
 	var (
 		state   ParseState

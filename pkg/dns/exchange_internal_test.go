@@ -17,11 +17,10 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 )
 
-// stubExchConn is a net.Conn test double that records SetDeadline calls,
+// stubExchangeConn is a net.Conn test double that records SetDeadline calls,
 // captures written bytes and replays prepared read data.
-type stubExchConn struct {
-	resp []byte // bytes returned by Read calls
-
+type stubExchangeConn struct {
+	res      []byte // bytes returned by Read calls
 	readErr  error
 	writeErr error
 	setDLErr error
@@ -32,19 +31,19 @@ type stubExchConn struct {
 	closed    atomic.Int32
 }
 
-func (c *stubExchConn) Read(b []byte) (int, error) {
+func (c *stubExchangeConn) Read(b []byte) (int, error) {
 	if c.readErr != nil {
 		return 0, c.readErr
 	}
-	if len(c.resp) == 0 {
+	if len(c.res) == 0 {
 		return 0, io.EOF
 	}
-	n := copy(b, c.resp)
-	c.resp = c.resp[n:]
+	n := copy(b, c.res)
+	c.res = c.res[n:]
 	return n, nil
 }
 
-func (c *stubExchConn) Write(b []byte) (int, error) {
+func (c *stubExchangeConn) Write(b []byte) (int, error) {
 	c.writes = append(c.writes, slices.Clone(b))
 	if c.writeErr != nil {
 		return 0, c.writeErr
@@ -55,20 +54,20 @@ func (c *stubExchConn) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (c *stubExchConn) Close() error {
+func (c *stubExchangeConn) Close() error {
 	c.closed.Add(1)
 	return nil
 }
 
-func (*stubExchConn) LocalAddr() net.Addr {
+func (*stubExchangeConn) LocalAddr() net.Addr {
 	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 55000}
 }
 
-func (*stubExchConn) RemoteAddr() net.Addr {
+func (*stubExchangeConn) RemoteAddr() net.Addr {
 	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 53}
 }
 
-func (c *stubExchConn) SetDeadline(t time.Time) error {
+func (c *stubExchangeConn) SetDeadline(t time.Time) error {
 	if c.setDLErr != nil {
 		return c.setDLErr
 	}
@@ -76,8 +75,8 @@ func (c *stubExchConn) SetDeadline(t time.Time) error {
 	return nil
 }
 
-func (*stubExchConn) SetReadDeadline(time.Time) error  { return nil }
-func (*stubExchConn) SetWriteDeadline(time.Time) error { return nil }
+func (*stubExchangeConn) SetReadDeadline(time.Time) error  { return nil }
+func (*stubExchangeConn) SetWriteDeadline(time.Time) error { return nil }
 
 func newPackedNAPTRReq(tb testing.TB) *dns.Msg {
 	tb.Helper()
@@ -89,12 +88,12 @@ func newPackedNAPTRReq(tb testing.TB) *dns.Msg {
 	return req
 }
 
-// packTestNAPTRResp builds a valid NAPTR response for req, optionally mutated
+// packTestNAPTRRes builds a valid NAPTR response for req, optionally mutated
 // before packing.
-func packTestNAPTRResp(tb testing.TB, req *dns.Msg, mutate func(*dns.Msg)) []byte {
+func packTestNAPTRRes(tb testing.TB, req *dns.Msg, mutate func(*dns.Msg)) []byte {
 	tb.Helper()
 
-	resp := &dns.Msg{
+	res := &dns.Msg{
 		ID:       req.ID,
 		Response: true,
 		Question: req.Question,
@@ -110,12 +109,12 @@ func packTestNAPTRResp(tb testing.TB, req *dns.Msg, mutate func(*dns.Msg)) []byt
 		},
 	}
 	if mutate != nil {
-		mutate(resp)
+		mutate(res)
 	}
-	if err := resp.Pack(); err != nil {
+	if err := res.Pack(); err != nil {
 		tb.Fatalf("resp.Pack() error = %v, want nil", err)
 	}
-	return resp.Data
+	return res.Data
 }
 
 func TestExchangeDNS_Deadline(t *testing.T) {
@@ -134,8 +133,7 @@ func TestExchangeDNS_Deadline(t *testing.T) {
 			t.Parallel()
 
 			req := newPackedNAPTRReq(t)
-			conn := &stubExchConn{resp: packTestNAPTRResp(t, req, nil)}
-
+			conn := &stubExchangeConn{res: packTestNAPTRRes(t, req, nil)}
 			ctx := t.Context()
 			var dl time.Time
 			if tt.ctxDeadline > 0 {
@@ -145,7 +143,7 @@ func TestExchangeDNS_Deadline(t *testing.T) {
 				defer cancel()
 			}
 
-			resp, err := exchangeDNS(ctx, conn, req)
+			res, err := exchangeDNS(ctx, conn, req)
 			if err != nil {
 				t.Fatalf("exchangeDNS() error = %v, want nil", err)
 			}
@@ -156,7 +154,6 @@ func TestExchangeDNS_Deadline(t *testing.T) {
 			if tt.wantCalls > 0 && !conn.deadlines[0].Equal(dl) {
 				t.Errorf("conn.SetDeadline() deadline = %v, want exact context deadline %v", conn.deadlines[0], dl)
 			}
-
 			if len(conn.writes) != 1 {
 				t.Fatalf("conn.Write calls = %d, want 1", len(conn.writes))
 			}
@@ -165,8 +162,8 @@ func TestExchangeDNS_Deadline(t *testing.T) {
 					len(conn.writes[0]), len(req.Data))
 			}
 
-			if !resp.Response || resp.ID != req.ID || len(resp.Answer) != 1 {
-				t.Errorf("exchangeDNS() resp = %+v, want valid NAPTR response for ID %d", resp, req.ID)
+			if !res.Response || res.ID != req.ID || len(res.Answer) != 1 {
+				t.Errorf("exchangeDNS() resp = %+v, want valid NAPTR response for ID %d", res, req.ID)
 			}
 		})
 	}
@@ -179,51 +176,51 @@ func TestExchangeDNS_Errors(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		conn    func(testing.TB, *dns.Msg) *stubExchConn
+		conn    func(testing.TB, *dns.Msg) *stubExchangeConn
 		expired bool  // use an already expired context
 		dl      bool  // use a context with a deadline
 		wantErr error // expected sentinel via errors.Is; nil means any error
 	}{
 		{
 			name: "wrong response ID",
-			conn: func(tb testing.TB, req *dns.Msg) *stubExchConn {
+			conn: func(tb testing.TB, req *dns.Msg) *stubExchangeConn {
 				tb.Helper()
-				return &stubExchConn{resp: packTestNAPTRResp(tb, req, func(m *dns.Msg) { m.ID++ })}
+				return &stubExchangeConn{res: packTestNAPTRRes(tb, req, func(m *dns.Msg) { m.ID++ })}
 			},
 			wantErr: dns.ErrID,
 		},
 		{
 			name: "missing response bit",
-			conn: func(tb testing.TB, req *dns.Msg) *stubExchConn {
+			conn: func(tb testing.TB, req *dns.Msg) *stubExchangeConn {
 				tb.Helper()
-				return &stubExchConn{resp: packTestNAPTRResp(tb, req, func(m *dns.Msg) { m.Response = false })}
+				return &stubExchangeConn{res: packTestNAPTRRes(tb, req, func(m *dns.Msg) { m.Response = false })}
 			},
 		},
 		{
 			name: "malformed response",
-			conn: func(testing.TB, *dns.Msg) *stubExchConn {
-				return &stubExchConn{resp: []byte{0xde, 0xad}}
+			conn: func(testing.TB, *dns.Msg) *stubExchangeConn {
+				return &stubExchangeConn{res: []byte{0xde, 0xad}}
 			},
 		},
 		{
 			name:    "set deadline error",
-			conn:    func(testing.TB, *dns.Msg) *stubExchConn { return &stubExchConn{setDLErr: ioErr} },
+			conn:    func(testing.TB, *dns.Msg) *stubExchangeConn { return &stubExchangeConn{setDLErr: ioErr} },
 			dl:      true,
 			wantErr: ioErr,
 		},
 		{
 			name:    "write error",
-			conn:    func(testing.TB, *dns.Msg) *stubExchConn { return &stubExchConn{writeErr: ioErr} },
+			conn:    func(testing.TB, *dns.Msg) *stubExchangeConn { return &stubExchangeConn{writeErr: ioErr} },
 			wantErr: ioErr,
 		},
 		{
 			name:    "read error",
-			conn:    func(testing.TB, *dns.Msg) *stubExchConn { return &stubExchConn{readErr: ioErr} },
+			conn:    func(testing.TB, *dns.Msg) *stubExchangeConn { return &stubExchangeConn{readErr: ioErr} },
 			wantErr: ioErr,
 		},
 		{
 			name:    "short write",
-			conn:    func(testing.TB, *dns.Msg) *stubExchConn { return &stubExchConn{writeN: 1} },
+			conn:    func(testing.TB, *dns.Msg) *stubExchangeConn { return &stubExchangeConn{writeN: 1} },
 			wantErr: io.ErrShortWrite,
 		},
 		{
@@ -237,7 +234,7 @@ func TestExchangeDNS_Errors(t *testing.T) {
 			t.Parallel()
 
 			req := newPackedNAPTRReq(t)
-			conn := &stubExchConn{}
+			conn := &stubExchangeConn{}
 			if tt.conn != nil {
 				conn = tt.conn(t, req)
 			}
@@ -421,7 +418,7 @@ func TestExchangeDNS_SlowResponse(t *testing.T) {
 
 		req := newPackedNAPTRReq(t)
 		reqLen := len(req.Data)
-		respData := packTestNAPTRResp(t, req, nil)
+		resData := packTestNAPTRRes(t, req, nil)
 
 		peerErrs := make(chan error, 1)
 		go func() {
@@ -432,12 +429,12 @@ func TestExchangeDNS_SlowResponse(t *testing.T) {
 				return
 			}
 			time.Sleep(3 * time.Second)
-			_, err := srv.Write(respData)
+			_, err := srv.Write(resData)
 			peerErrs <- err
 		}()
 
 		start := time.Now()
-		resp, err := exchangeDNS(t.Context(), cln, req)
+		res, err := exchangeDNS(t.Context(), cln, req)
 		_ = cln.Close() // release a pending peer write if the exchange returned early
 		if err != nil {
 			t.Fatalf("exchangeDNS() error = %v, want nil", err)
@@ -445,8 +442,8 @@ func TestExchangeDNS_SlowResponse(t *testing.T) {
 		if d := time.Since(start); d < 3*time.Second {
 			t.Fatalf("exchangeDNS() returned after %v, want >= 3s wait for the response", d)
 		}
-		if resp.ID != req.ID || !resp.Response || len(resp.Answer) != 1 {
-			t.Errorf("exchangeDNS() resp = %+v, want valid NAPTR response for ID %d", resp, req.ID)
+		if res.ID != req.ID || !res.Response || len(res.Answer) != 1 {
+			t.Errorf("exchangeDNS() res = %+v, want valid NAPTR response for ID %d", res, req.ID)
 		}
 		if perr := <-peerErrs; perr != nil {
 			t.Fatalf("peer error = %v, want nil", perr)

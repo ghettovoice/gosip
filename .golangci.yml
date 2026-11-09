@@ -1,45 +1,54 @@
-version: "2"
+version: '2'
 
 linters:
-  default: standard
+  default: standard # errcheck, govet, inefassing, staticcheck, unused
   enable:
     - asasalint
     - asciicheck
     - bidichk
-    # - contextcheck
+    - containedctx
+    - contextcheck
     - copyloopvar
+    - dogsled
+    # - dupl
     - durationcheck
+    - err113
     - errchkjson
     - errname
     - errorlint
     - exhaustive
     - exptostd
     - fatcontext
+    - forcetypeassert
     - gocheckcompilerdirectives
     - gocognit
+    - goconst
     - gocritic
     - godoclint
     - godot
     - gomoddirectives
-    - gomodguard_v2
     - goprintffuncname
     - gosec
     - gosmopolitan
     - iface
     - inamedparam
     - interfacebloat
-    - intrange
     - iotamixing
+    - maintidx
     - makezero
     - mirror
     - misspell
+    - mnd
     - modernize
+    - musttag
     - nakedret
     - nilerr
     - nilnesserr
     - nilnil
+    - noctx
     - nolintlint
     - nosprintfhostport
+    - paralleltest
     - perfsprint
     - prealloc
     - predeclared
@@ -57,7 +66,10 @@ linters:
     - unparam
     - usestdlibvars
     - usetesting
+    - varnamelen
     - wastedassign
+    - wrapcheck
+    # - wsl_v5
   disable: []
   settings:
     errcheck:
@@ -72,9 +84,23 @@ linters:
         - (net.PacketConn).SetWriteDeadline
         - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).Write
         - (*github.com/ghettovoice/gosip/internal/ioutil.CountingWriter).WriteString
-        - (github.com/ghettovoice/gosip/internal/types.Renderer).RenderTo
+        - (github.com/ghettovoice/gosip/internal/shared.Renderer).RenderTo
     exhaustive:
       default-signifies-exhaustive: true
+    gocognit:
+      min-complexity: 25
+    goconst:
+      find-duplicates: true
+      eval-const-expressions: true
+      ignore-tests: true
+      ignore-map-keys: true
+      ignore-string-values:
+        - (sips?|tel|upd|tcp|tls|wss?)
+        - (ext|isub|phone-context)
+      exclude-types:
+        - Call
+        - Case
+        - Return
     godoclint:
       disable:
         - single-pkg-doc
@@ -85,154 +111,101 @@ linters:
       disable:
         - fieldalignment
       enable-all: true
+    mnd:
+      ignored-numbers:
+        - '2'
+        - '64'
+        - '100' # /100 для классов статусов + priority
+        - '200'
+        - '300' # transport priorities
+        - '400'
+        - '500'
+        - '600' # priorities + TimeC = 600*T1
+        - '1024' # buffer capacities
+        - '1500'
+        - '80'
+        - '443'
+        - '5060'
+        - '5061'
+        - '0x7f' # varint mask
+        - '0x80' # varint continuation bit
+      ignored-functions:
+        - make
+        - ^(min|max)$
+        - ^math\.
+        - ^context\.WithTimeout
+        - ^time\.
+        - RandString
+        - Grow
+        - EnableNodeCache
+        - ^util\.Ellipsis
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+    paralleltest:
+      check-cleanup: true
     recvcheck:
       exclusions:
-        - "*.UnmarshalJSON"
-        - "*.UnmarshalText"
+        - '*.UnmarshalJSON'
+        - '*.UnmarshalText'
     revive:
-      confidence: 0.8
       rules:
         - name: argument-limit
-          severity: warning
-          disabled: false
-        - name: bare-return
-          severity: warning
-          disabled: true
         - name: blank-imports
-          severity: warning
-          disabled: false
         - name: call-to-gc
-          severity: warning
-          disabled: false
         - name: comment-spacings
-          severity: warning
-          disabled: false
         - name: confusing-results
-          severity: warning
-          disabled: false
         - name: constant-logical-expr
-          severity: warning
-          disabled: false
         - name: context-as-argument
           arguments:
-            - allowTypesBefore: "*testing.T"
-          severity: warning
-          disabled: false
-        - name: context-keys-type
-          severity: warning
-          disabled: false
+            - allowTypesBefore: '*testing.T'
         - name: datarace
-          severity: warning
-          disabled: false
         - name: deep-exit
-          severity: warning
-          disabled: false
         - name: defer
-          severity: warning
-          disabled: false
-        - name: duplicated-imports
-          severity: warning
-          disabled: false
         - name: early-return
           arguments:
             - preserveScope
-          severity: warning
-          disabled: false
+        - name: empty-lines
+        - name: epoch-naming
+        - name: enforce-map-style
+          arguments: [any]
+        - name: enforce-slice-style
+          arguments: [any]
+        - name: enforce-switch-style
+          arguments: [allow-no-default]
+        - name: forbidden-call-in-wg-go
         - name: function-result-limit
-          arguments:
-            - 3
-          severity: warning
-          disabled: false
+          arguments: [3]
         - name: get-return
-          severity: warning
-          disabled: false
-        - name: identical-branches
-          severity: warning
-          disabled: false
         - name: if-return
-          severity: warning
-          disabled: false
-        - name: import-shadowing
-          severity: warning
-          disabled: false
+        - name: import-alias-naming
         - name: increment-decrement
-          severity: warning
-          disabled: false
         - name: indent-error-flow
-          arguments:
-            - preserveScope
-          severity: warning
-          disabled: false
+          arguments: [preserveScope]
+        - name: inefficient-map-lookup
         - name: max-control-nesting
-          severity: warning
-          disabled: false
+        - name: modifies-parameter
         - name: modifies-value-receiver
-          severity: warning
-          disabled: false
         - name: nested-structs
-          severity: warning
-          disabled: false
         - name: optimize-operands-order
-          severity: warning
-          disabled: false
-        - name: range-val-address
-          severity: warning
-          disabled: true
-        - name: range-val-in-closure
-          severity: warning
-          disabled: true
-        - name: redefines-builtin-id
-          severity: warning
-          disabled: true
-        - name: redundant-build-tag
-          severity: warning
-          disabled: false
+        - name: package-directory-mismatch
+        - name: range
         - name: redundant-import-alias
-          severity: warning
-          disabled: false
-        - name: redundant-test-main-exit
-          severity: warning
-          disabled: false
-        - name: string-of-int
-          severity: warning
-          disabled: false
-        - name: struct-tag
-          severity: warning
-          disabled: false
         - name: superfluous-else
-          arguments:
-            - preserveScope
-          severity: warning
-          disabled: false
+          arguments: [preserveScope]
+        - name: time-date
         - name: time-equal
-          severity: warning
-          disabled: false
         - name: time-naming
-          severity: warning
-          disabled: false
-        - name: unconditional-recursion
-          severity: warning
-          disabled: false
-        - name: unexported-naming
-          severity: warning
-          disabled: false
         - name: unexported-return
-          severity: warning
-          disabled: false
-        - name: unused-receiver
-          arguments:
-            - allowRegex: ^_
-          severity: warning
-          disabled: false
-        - name: use-any
-          severity: warning
-          disabled: false
+        - name: unsecure-url-scheme
+        - name: use-fmt-print
+        - name: use-slices-concat
+        - name: use-slices-sort
+        - name: useless-fallthrough
         - name: var-declaration
-          severity: warning
-          disabled: false
     sloglint:
       attr-only: true
-      context: "scope"
+      context: 'scope'
       static-msg: true
       msg-style: lowercased
       key-naming-case: snake
@@ -245,8 +218,31 @@ linters:
       check-exported: false
     unused:
       local-variables-are-used: false
+    usetesting:
+      os-temp-dir: true
+      context-background: true
+      context-todo: true
+    varnamelen:
+      min-name-length: 1
+      check-receiver: true
+      check-return: true
+      ignore-type-assert-ok: true
+      ignore-map-index-ok: true
+      ignore-chan-recv-ok: true
+      ignore-names:
+        - err
+      ignore-decls:
+        - t testing.T
+        - i int
+        - T any
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/ghettovoice/gosip/internal/errors
+        - github.com/ghettovoice/gosip/pkg/errclass
+        - braces.dev/errtrace
   exclusions:
     generated: lax
+    warn-unused: true
     presets:
       - comments
       - common-false-positives
@@ -257,16 +253,21 @@ linters:
           - govet
         text: 'shadow: declaration of "(err|ctx|ok)" shadows declaration at'
       - linters:
+          - containedctx
+          - contextcheck
+          - dupl
+          - err113
+          - forcetypeassert
           - gocognit
           - godoclint
+          - maintidx
+          - mnd
           - nilnil
+          - noctx
+          - varnamelen
+          - wrapcheck
         path: (.+)_(test|deep)\.go
-    paths: &exclude_paths
-      - internal/grammar/rfc3261/rules.go
-      - internal/grammar/rfc3966/rules.go
-      - third_party$
-      - builtin$
-      - examples$
+    paths: &exclude_paths []
 
 formatters:
   enable:

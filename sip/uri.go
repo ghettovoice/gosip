@@ -48,10 +48,8 @@ func DefaultURIConverter() *StdURIConverter { return defURIConverter }
 // It supports SIP, SIPS, and Tel URIs.
 // Converting from Tel URI doesn't use any external services, it just uses [uri.Tel.ToSIP] method.
 func (*StdURIConverter) ConvertURI(_ context.Context, anyURI AnyURI) (*URI, error) {
-	switch util.LCase(anyURI.Scheme()) {
-	case "sip":
-		fallthrough
-	case "sips":
+	switch util.ToLower(anyURI.Scheme()) {
+	case "sip", "sips":
 		u, ok := anyURI.(*URI)
 		if !ok {
 			return nil, errors.ErrorfWrap("unsupported URI type %q", anyURI)
@@ -73,7 +71,7 @@ func ConvertURI(ctx context.Context, anyURI AnyURI) (*URI, error) {
 }
 
 func cleanReqURI(u *URI) *URI {
-	u2 := u.Clone().(*URI) //nolint:forcetypeassert
+	u2 := u.Clone().(*URI) //nolint:forcetypeassert // the concrete type is fixed by construction
 	u2.Params.Delete("method")
 	u2.Headers.Clear()
 	return u2

@@ -9,7 +9,7 @@ import (
 
 func (elm *Element) Capabilities() ElementCapabilities {
 	elm.ensureInit()
-	return elm.curCpb.Load().(ElementCapabilities) //nolint:forcetypeassert
+	return elm.currCapabils.Load().(ElementCapabilities) //nolint:forcetypeassert // the concrete type is fixed by construction
 }
 
 // ElementCapabilities represents the capabilities of an element.
@@ -31,13 +31,12 @@ func (cpb ElementCapabilities) SupportsMethod(method RequestMethod) bool {
 
 func (cpb ElementCapabilities) SupportsMIMEType(mime header.MIMERange) bool {
 	if len(cpb.MIMETypes) == 0 {
-		return util.EqFold(mime.Type, "application") && util.EqFold(mime.Subtype, "sdp")
+		return util.EqualFold(mime.Type, "application") && util.EqualFold(mime.Subtype, "sdp")
 	}
 
 	return slices.ContainsFunc(cpb.MIMETypes, func(m header.MIMERange) bool {
-		return m.Type == "*" || mime.Type == "*" ||
-			util.EqFold(m.Type, mime.Type) &&
-				(m.Subtype == "*" || mime.Subtype == "*" || util.EqFold(m.Subtype, mime.Subtype))
+		return m.Type == "*" || mime.Type == "*" || util.EqualFold(m.Type, mime.Type) &&
+			(m.Subtype == "*" || mime.Subtype == "*" || util.EqualFold(m.Subtype, mime.Subtype))
 	})
 }
 

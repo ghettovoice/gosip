@@ -53,12 +53,10 @@ func TestCallID_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.hdr.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got, want := sb.String(), tt.wantRes; got != want {
 				t.Errorf("sb.String() = %q, want %q", got, want)
 			}
@@ -173,7 +171,6 @@ func TestCallID_MarshalJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
-
 			if got := string(got); got != tt.want {
 				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, tt.want)
 			}
@@ -233,11 +230,9 @@ func TestCallID_UnmarshalJSON(t *testing.T) {
 				}
 				return
 			}
-
 			if tt.wantErr {
 				t.Fatal("json.Unmarshal(data, got) error = nil, want error")
 			}
-
 			if diff := cmp.Diff(got, tt.want); diff != "" {
 				t.Fatalf("unmarshal mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
@@ -263,19 +258,15 @@ func TestCallID_RoundTripJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Marshal
 			data, err := json.Marshal(tt.hdr)
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
 
-			// Unmarshal
 			var got header.CallID
 			if err := json.Unmarshal(data, &got); err != nil {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
-
-			// Compare
 			if diff := cmp.Diff(got, tt.hdr); diff != "" {
 				t.Fatalf("Round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}

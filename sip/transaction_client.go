@@ -15,7 +15,7 @@ import (
 	"github.com/ghettovoice/timeutil"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/pkg/log"
 )
@@ -175,7 +175,7 @@ func (o ClientTransactionOptions) log() *slog.Logger {
 	return o.Logger
 }
 
-type clientTransact struct {
+type baseClnTransact struct {
 	*baseTransact
 	key      ClientTransactionKey
 	tp       ClientTransport
@@ -183,26 +183,26 @@ type clientTransact struct {
 	req      *RequestEnvelope
 	sendOpts SendRequestOptions
 
-	onRes       types.CallbackManager[InboundResponseHandler]
-	pendingRess types.Queue[pendingResponse]
+	onRes       shared.CallbackManager[InboundResponseHandler]
+	pendingRess shared.Queue[pendingTxRes]
 	lastRes     atomic.Pointer[ResponseEnvelope]
 
-	onSnap   types.CallbackManager[ClientTransactionSnapshotHandler]
+	onSnap   shared.CallbackManager[ClientTransactionSnapshotHandler]
 	snapshot atomic.Pointer[ClientTransactionSnapshot]
 }
 
-type pendingResponse struct {
-	ctx context.Context
+type pendingTxRes struct {
+	ctx context.Context //nolint:containedctx // the pending handler needs the originating ctx
 	res *ResponseEnvelope
 }
 
-func newClientTransact(
+func newBaseClnTransact(
 	typ TransactionType,
-	impl clientTransactImpl,
+	impl clnTransactImpl,
 	req *RequestEnvelope,
 	tp ClientTransport,
 	opts ClientTransactionOptions,
-) (*clientTransact, error) {
+) (*baseClnTransact, error) {
 	req.WithMessage(func(r *Request) { EnsureRequestVia(r, "", Addr{}) })
 
 	if err := req.Validate(); err != nil {
@@ -223,7 +223,7 @@ func newClientTransact(
 		return nil, errors.Wrap(err)
 	}
 
-	tx := &clientTransact{
+	tx := &baseClnTransact{
 		key:      key,
 		tp:       tp,
 		req:      req,
@@ -239,38 +239,39 @@ func newClientTransact(
 	return tx, nil
 }
 
-type clientTransactImpl interface {
+type clnTransactImpl interface {
 	transactImpl
 	ClientTransaction
 	takeSnapshot() *ClientTransactionSnapshot
 }
 
-func (tx *clientTransact) clnTxImpl() clientTransactImpl {
-	return tx.impl.(clientTransactImpl) //nolint:forcetypeassert
+func (tx *baseClnTransact) clnTransactImpl() clnTransactImpl {
+	return tx.impl.(clnTransactImpl) //nolint:forcetypeassert // the concrete type is fixed by construction
 }
 
 // Key returns the transaction key.
-func (tx *clientTransact) Key() ClientTransactionKey { return tx.key }
 
-func (tx *clientTransact) Request() *RequestEnvelope {
-	return tx.req.Clone().(*RequestEnvelope) //nolint:forcetypeassert
+func (tx *baseClnTransact) Key() ClientTransactionKey { return tx.key }
+
+func (tx *baseClnTransact) Request() *RequestEnvelope {
+	return tx.req.Clone().(*RequestEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
 }
 
 // LastResponse returns the last response received by the transaction.
-func (tx *clientTransact) LastResponse() *ResponseEnvelope {
+func (tx *baseClnTransact) LastResponse() *ResponseEnvelope {
 	res := tx.lastRes.Load()
 	if res == nil {
 		return nil
 	}
-	return res.Clone().(*ResponseEnvelope) //nolint:forcetypeassert
+	return res.Clone().(*ResponseEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
 }
 
 // Transport returns the transport used by the transaction.
-func (tx *clientTransact) Transport() ClientTransport { return tx.tp }
+func (tx *baseClnTransact) Transport() ClientTransport { return tx.tp }
 
 // MatchMessage checks whether the message matches the client transaction.
 // It implements the matching rules defined in RFC 3261 Section 17.1.3.
-func (tx *clientTransact) MatchMessage(msg Message) bool {
+func (tx *baseClnTransact) MatchMessage(msg Message) bool {
 	key, err := MakeClientTransactionKey(msg)
 	if err != nil {
 		return false
@@ -281,7 +282,7 @@ func (tx *clientTransact) MatchMessage(msg Message) bool {
 // RecvResponse is called on each inbound response received by the transport layer.
 // A matched response received while the transaction is still prepared waits for
 // activation, termination, or context cancellation.
-func (tx *clientTransact) RecvResponse(ctx context.Context, res *ResponseEnvelope) error {
+func (tx *baseClnTransact) RecvResponse(ctx context.Context, res *ResponseEnvelope) error {
 	ctx = ContextWithTransaction(ctx, tx.impl)
 
 	if !tx.MatchMessage(res) {
@@ -304,19 +305,18 @@ func (tx *clientTransact) RecvResponse(ctx context.Context, res *ResponseEnvelop
 	}
 }
 
-func (tx *clientTransact) sendReq(ctx context.Context, req *RequestEnvelope) error {
+func (tx *baseClnTransact) sendReq(ctx context.Context, req *RequestEnvelope) error {
 	if err := tx.tp.SendRequest(ctx, req, tx.sendOpts); err != nil {
 		err = errors.ErrorfWrap("send %q request: %w", req.Method(), err)
-		if ferr := tx.fsm.FireCtx(ctx, txEvtTranspErr, err); ferr != nil &&
-			!errors.Is(ferr, ErrTransactionActionNotAllowed) {
-			panic(errors.Wrap(newTxTriggerErr(txEvtTranspErr, tx.State(), ferr)))
+		if ferr := tx.fsm.FireCtx(ctx, txEvtTpErr, err); ferr != nil && !errors.Is(ferr, ErrTransactionActionNotAllowed) {
+			panic(errors.Wrap(newTxTriggerErr(txEvtTpErr, tx.State(), ferr)))
 		}
 		return errors.Wrap(err)
 	}
 	return nil
 }
 
-func (tx *clientTransact) Terminate(ctx context.Context, cause error) error {
+func (tx *baseClnTransact) Terminate(ctx context.Context, cause error) error {
 	return errors.Wrap(tx.baseTransact.Terminate(ctx, errors.Wrap(cause)))
 }
 
@@ -326,7 +326,7 @@ const (
 	txEvtRecv300699 = "recv_300-699"
 )
 
-func (tx *clientTransact) initFSM(start TransactionState) error {
+func (tx *baseClnTransact) initFSM(start TransactionState) error {
 	if err := tx.baseTransact.initFSM(start); err != nil {
 		return errors.Wrap(err)
 	}
@@ -337,9 +337,8 @@ func (tx *clientTransact) initFSM(start TransactionState) error {
 	return nil
 }
 
-func (tx *clientTransact) actSendReq(ctx context.Context, _ ...any) error {
-	tx.log.DebugContext(
-		ctx, "send request",
+func (tx *baseClnTransact) actSendReq(ctx context.Context, _ ...any) error {
+	tx.log.DebugContext(ctx, "send request",
 		slog.Any("transaction", tx.impl),
 		slog.Any("request", tx.req),
 	)
@@ -348,24 +347,23 @@ func (tx *clientTransact) actSendReq(ctx context.Context, _ ...any) error {
 	return nil
 }
 
-func (tx *clientTransact) actPassRes(ctx context.Context, args ...any) error {
-	res := args[0].(*ResponseEnvelope) //nolint:forcetypeassert
+func (tx *baseClnTransact) actPassRes(ctx context.Context, args ...any) error {
+	res := args[0].(*ResponseEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
 	tx.lastRes.Store(res)
 
-	tx.log.DebugContext(
-		ctx, "pass response",
+	tx.log.DebugContext(ctx, "pass response",
 		slog.Any("transaction", tx.impl),
 		slog.Any("response", res),
 	)
 
-	tx.pendingRess.Push(pendingResponse{ctx, res})
+	tx.pendingRess.Push(pendingTxRes{ctx, res})
 	if tx.onRes.Len() > 0 {
 		tx.deliverPendingRess()
 	}
 	return nil
 }
 
-func (tx *clientTransact) deliverPendingRess() {
+func (tx *baseClnTransact) deliverPendingRess() {
 	resps := tx.pendingRess.Drain()
 	if len(resps) == 0 {
 		return
@@ -378,14 +376,14 @@ func (tx *clientTransact) deliverPendingRess() {
 	}
 }
 
-func (tx *clientTransact) actProceeding(ctx context.Context, _ ...any) error {
+func (tx *baseClnTransact) actProceeding(ctx context.Context, _ ...any) error {
 	tx.log.DebugContext(ctx, "transaction proceeding", slog.Any("transaction", tx))
 
 	return nil
 }
 
-//nolint:unparam
-func (tx *clientTransact) actCompleted(ctx context.Context, _ ...any) error {
+//nolint:unparam // uniform signature with the other FSM actions
+func (tx *baseClnTransact) actCompleted(ctx context.Context, _ ...any) error {
 	tx.log.DebugContext(ctx, "transaction completed", slog.Any("transaction", tx))
 
 	return nil
@@ -396,7 +394,7 @@ func (tx *clientTransact) actCompleted(ctx context.Context, _ ...any) error {
 // The callback can be unbound by calling the returned cancel function.
 // Multiple callbacks can be registered, they will be called in the order they were registered.
 // Context passed to the callback is the context passed to [ClientTransport.RecvResponse].
-func (tx *clientTransact) BindResponseHandler(fn InboundResponseHandler) (unbind func()) {
+func (tx *baseClnTransact) BindResponseHandler(fn InboundResponseHandler) (unbind func()) {
 	defer tx.deliverPendingRess()
 	return tx.onRes.Add(fn)
 }
@@ -408,18 +406,18 @@ func (tx *clientTransact) BindResponseHandler(fn InboundResponseHandler) (unbind
 // Binding observes future publications only, the last published snapshot is
 // not replayed. The callback can be unbound by calling the returned function,
 // unbind is idempotent. A nil handler returns a noop unbind.
-func (tx *clientTransact) BindSnapshotHandler(fn ClientTransactionSnapshotHandler) (unbind func()) {
+func (tx *baseClnTransact) BindSnapshotHandler(fn ClientTransactionSnapshotHandler) (unbind func()) {
 	if fn == nil {
 		return noop
 	}
 	return tx.onSnap.Add(fn)
 }
 
-func (tx *clientTransact) saveSnapshotLocked() {
-	tx.snapshot.Store(tx.clnTxImpl().takeSnapshot())
+func (tx *baseClnTransact) saveSnapshotLocked() {
+	tx.snapshot.Store(tx.clnTransactImpl().takeSnapshot())
 }
 
-func (tx *clientTransact) snapshotNotificationLocked(ctx context.Context) func() {
+func (tx *baseClnTransact) snapshotNotificationLocked(ctx context.Context) func() {
 	snap := tx.snapshot.Load()
 	handlers := slices.Collect(tx.onSnap.All())
 	if snap == nil || len(handlers) == 0 {
@@ -435,14 +433,13 @@ func (tx *clientTransact) snapshotNotificationLocked(ctx context.Context) func()
 // Snapshot returns a snapshot of the transaction state that can be serialized.
 // The snapshot contains all the data needed to restore the transaction after a restart.
 // A transaction cannot be snapshotted before Start completes, except when restored as terminated.
-func (tx *clientTransact) Snapshot() (*ClientTransactionSnapshot, error) {
+func (tx *baseClnTransact) Snapshot() (*ClientTransactionSnapshot, error) {
 	tx.lcMu.Lock()
 	defer tx.lcMu.Unlock()
 
 	state := tx.State()
 	terminalRestore := tx.restored && state == TransactionStateTerminated
-	if tx.starting || (!tx.started && !terminalRestore) ||
-		(!tx.isActive() && state != TransactionStateTerminated) {
+	if tx.starting || (!tx.started && !terminalRestore) || (!tx.isActive() && state != TransactionStateTerminated) {
 		return nil, errors.Wrap(NewTransactionActionNotAllowedError())
 	}
 	snap := tx.snapshot.Load()
@@ -453,7 +450,7 @@ func (tx *clientTransact) Snapshot() (*ClientTransactionSnapshot, error) {
 }
 
 // MarshalJSON implements [json.Marshaler].
-func (tx *clientTransact) MarshalJSON() ([]byte, error) {
+func (tx *baseClnTransact) MarshalJSON() ([]byte, error) {
 	if tx == nil {
 		return jsonNull, nil
 	}
@@ -481,6 +478,12 @@ type ClientTransactionSnapshot struct {
 	SendOptions SendRequestOptions `json:"send_options,omitzero"`
 	// LastResponse is the last response received by the transaction.
 	LastResponse *ResponseEnvelope `json:"last_response,omitempty"`
+	// ForwardedRequest marks that the transaction request is an owned proxy
+	// branch copy of a forwarded request. The marker is in-memory message
+	// provenance that JSON rebuilds reset, so the checkpoint carries it
+	// explicitly: a restored transaction must keep its dialog identity
+	// verbatim instead of letting endpoint conveniences invent a From tag.
+	ForwardedRequest bool `json:"forwarded_request,omitempty"`
 	// Timing are the timing configuration used to create the transaction.
 	Timing TimingConfig `json:"timing,omitzero"`
 
@@ -592,7 +595,7 @@ func (snap *ClientTransactionSnapshot) validate(wantType TransactionType) error 
 		return errors.Wrap(err)
 	}
 
-	return errors.Wrap(snap.validateTimers())
+	return errors.Wrap(snap.validateTmrs())
 }
 
 func (snap *ClientTransactionSnapshot) validateLastRes() error {
@@ -624,7 +627,7 @@ func (snap *ClientTransactionSnapshot) validateLastRes() error {
 	return nil
 }
 
-func (snap *ClientTransactionSnapshot) validateTimers() error {
+func (snap *ClientTransactionSnapshot) validateTmrs() error {
 	type tmrSpec struct {
 		snap    *timeutil.TimerSnapshot
 		allowed []TransactionState
@@ -744,7 +747,7 @@ func (k ClientTransactionKey) Equal(val any) bool {
 		return false
 	}
 
-	return k.Branch == other.Branch && util.EqFold(k.Method, other.Method)
+	return k.Branch == other.Branch && util.EqualFold(k.Method, other.Method)
 }
 
 // IsValid checks whether the key is valid.
@@ -766,7 +769,7 @@ func (k ClientTransactionKey) LogValue() slog.Value {
 }
 
 func (k ClientTransactionKey) Canonic() ClientTransactionKey {
-	k.Method = util.UCase(k.Method)
+	k.Method = util.ToUpper(k.Method)
 	return k
 }
 
@@ -775,7 +778,7 @@ func (k ClientTransactionKey) MarshalBinary() ([]byte, error) {
 		return nil, errors.Wrap(NewInvalidTransactionKeyError())
 	}
 
-	k = k.Canonic() //nolint:revive
+	k = k.Canonic() //nolint:revive // canonicalizing the receiver copy is intentional
 
 	size := util.SizePrefixedString(k.Branch) +
 		util.SizePrefixedString(k.Method)

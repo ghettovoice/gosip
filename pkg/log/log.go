@@ -68,11 +68,11 @@ var noop = slog.New(slog.DiscardHandler)
 // Noop returns no-op logger that write nothing.
 func Noop() *slog.Logger { return noop }
 
-var _default atomic.Pointer[slog.Logger]
+var def atomic.Pointer[slog.Logger]
 
 // Default returns the default logger.
 // From the start it is set to [Noop] logger.
-func Default() *slog.Logger { return _default.Load() }
+func Default() *slog.Logger { return def.Load() }
 
 // SetDefault overwrites the default logger.
 func SetDefault(l *slog.Logger) {
@@ -80,18 +80,18 @@ func SetDefault(l *slog.Logger) {
 		l = noop
 	}
 
-	_default.Store(l)
+	def.Store(l)
 }
 
 func init() {
-	_default.Store(noop)
+	def.Store(noop)
 }
 
-type loggerKey struct{}
+type loggerCtxKey struct{}
 
 // ContextWithLogger returns a new context with the logger set.
 func ContextWithLogger(ctx context.Context, logger *slog.Logger) context.Context {
-	return context.WithValue(ctx, loggerKey{}, logger)
+	return context.WithValue(ctx, loggerCtxKey{}, logger)
 }
 
 // LoggerFromValues returns the logger from the values.
@@ -107,7 +107,7 @@ func LoggerFromValues(vals ...any) *slog.Logger {
 	for _, val := range vals {
 		switch v := val.(type) {
 		case context.Context:
-			if l, ok := v.Value(loggerKey{}).(*slog.Logger); ok && l != nil {
+			if l, ok := v.Value(loggerCtxKey{}).(*slog.Logger); ok && l != nil {
 				return l
 			}
 		case *slog.Logger:

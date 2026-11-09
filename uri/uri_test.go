@@ -172,12 +172,10 @@ func TestParse(t *testing.T) {
 			case []byte:
 				got, gotErr = uri.Parse(in)
 			}
-
 			if tt.wantErr == nil {
 				if gotErr != nil {
-					t.Fatalf("sip.Parse(%q) error = %v, want nil", fmt.Sprintf("%v", tt.input), gotErr)
+					t.Fatalf("uri.Parse(%q) error = %v, want nil", fmt.Sprintf("%v", tt.input), gotErr)
 				}
-
 				if diff := cmp.Diff(got, tt.wantURI); diff != "" {
 					t.Errorf(
 						"uri.Parse(%q) = %+v, want %+v\ndiff (-got +want):\n%v",

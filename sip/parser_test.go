@@ -18,6 +18,7 @@ import (
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
+//nolint:paralleltest // mutates the shared global parser registry
 func TestParsePacket(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -316,13 +317,11 @@ func TestParsePacket(t *testing.T) {
 	}
 
 	header.RegisterParser("p-custom-header", parseCustomHeader)
+	t.Cleanup(func() { header.UnregisterParser("p-custom-header") })
 
-	defer header.UnregisterParser("p-custom-header")
-
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:paralleltest // subtests mutate the shared global parser registry
 		t.Run(tt.name, func(t *testing.T) {
 			msg, err := sip.ParsePacket(tt.input)
-
 			input := util.Ellipsis(string(tt.input), 35)
 			if tt.wantErr == nil {
 				if diff := cmp.Diff(msg, tt.wantMsg); diff != "" {
@@ -331,12 +330,11 @@ func TestParsePacket(t *testing.T) {
 						input, msg, tt.wantMsg, diff,
 					)
 				}
-
 				if err != nil {
 					t.Errorf("sip.ParsePacket(%q) error = %v, want nil", input, err)
 				}
 			} else {
-				if got, want := err, tt.wantErr; !cmpParseError(got, want) {
+				if got, want := err, tt.wantErr; !compareParseErrs(got, want) {
 					t.Errorf(
 						"sip.ParsePacket(%q) error = %v, want %v\ndiff (-got +want):\n%v",
 						input, got, want,
@@ -384,7 +382,7 @@ func TestParsePacket_ContentLengthTooLarge(t *testing.T) {
 				Append(header.ContentLength(contentLen)),
 		},
 	}
-	if !cmpParseError(err, want) {
+	if !compareParseErrs(err, want) {
 		t.Fatalf(
 			"sip.ParsePacket(input) error = %v, want %v\ndiff (-got +want):\n%v",
 			err, want,
@@ -430,6 +428,8 @@ func TestStdParser_ParsePacket_MessageSizeTooLarge(t *testing.T) {
 }
 
 func TestParseStream(t *testing.T) {
+	t.Parallel()
+
 	inputs := [][]byte{
 		[]byte("INVITE "), []byte("qwerty 123"), []byte(" 321\r\n"),
 
@@ -561,11 +561,10 @@ func TestParseStream(t *testing.T) {
 				t.Errorf("pw.Write(buf) error = %v, want nil", err)
 			}
 		}
-
 		pw.Close()
 	})
 
-	gotResults := make([]result, 0)
+	var gotResults []result
 	for msg, err := range sip.ParseStream(pr) {
 		gotResults = append(gotResults, result{msg, err})
 		if errors.Is(err, io.EOF) {
@@ -577,7 +576,7 @@ func TestParseStream(t *testing.T) {
 
 	cmpOpts := []cmp.Option{
 		cmp.AllowUnexported(result{}),
-		cmp.Comparer(cmpParseError),
+		cmp.Comparer(compareParseErrs),
 	}
 	if diff := cmp.Diff(gotResults, wantResults, cmpOpts...); diff != "" {
 		t.Errorf("sip.ParseStream() = %+v, want %+v\ndiff (-got +want):\n%v", gotResults, wantResults, diff)
@@ -597,13 +596,11 @@ func TestParseStream_ContentLengthTooLarge(t *testing.T) {
 		msg sip.Message
 		err error
 	)
-
 	for m, e := range sip.ParseStream(bytes.NewReader(input)) {
 		msg = m
 		err = e
 		break
 	}
-
 	if msg != nil {
 		t.Fatalf("sip.ParseStream(input) first msg = %+v, want nil", msg)
 	}
@@ -630,7 +627,7 @@ func TestParseStream_ContentLengthTooLarge(t *testing.T) {
 				Append(header.ContentLength(contentLen)),
 		},
 	}
-	if !cmpParseError(err, want) {
+	if !compareParseErrs(err, want) {
 		t.Fatalf(
 			"sip.ParseStream(input) first error = %v, want %v\ndiff (-got +want):\n%v",
 			err, want,
@@ -639,8 +636,8 @@ func TestParseStream_ContentLengthTooLarge(t *testing.T) {
 	}
 }
 
-func cmpParseError(e1, e2 error) bool {
-	//nolint:errorlint
+func compareParseErrs(e1, e2 error) bool {
+	//nolint:errorlint // the identity check complements errors.Is here
 	if e1 == e2 || errors.Is(e1, e2) || errors.Is(e2, e1) {
 		return true
 	}

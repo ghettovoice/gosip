@@ -110,12 +110,10 @@ func TestWWWAuthenticate_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.hdr.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -432,12 +430,10 @@ func TestDigestChallenge_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.cln.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("cln.RenderTo(&sb) error = %v, want %q\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -859,12 +855,10 @@ func TestBearerChallenge_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.cln.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("cln.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -1108,12 +1102,10 @@ func TestAnyChallenge_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.cln.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("cln.RenderTo(&sb) error = %v, want %q\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}

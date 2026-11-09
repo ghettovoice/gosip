@@ -69,7 +69,7 @@ func TestShardMap_BasicMutations(t *testing.T) {
 	checkShardMap(t, m, map[string]int{"c": 8})
 
 	m.Clear()
-	checkShardMap(t, m, map[string]int{})
+	checkShardMap(t, m, make(map[string]int))
 }
 
 func TestShardMap_Predicates(t *testing.T) {
@@ -121,7 +121,7 @@ func TestShardMap_Predicates(t *testing.T) {
 	if !sm.CompareAndSwap("k", []int{3}, func(actual []int) bool {
 		return slices.Equal(actual, []int{1, 2})
 	}) {
-		t.Error("map.CompareAndSwap with slices.Equal check = false, want true")
+		t.Error("map.CompareAndSwap() with slices.Equal check = false, want true")
 	}
 	if got, _ := sm.Load("k"); !slices.Equal(got, []int{3}) {
 		t.Errorf("map.Load(k) = %v, want [3]", got)
@@ -267,7 +267,7 @@ func TestShardMap_Clear_SnapshotSemantics(t *testing.T) {
 		count++
 	}
 	if got := m.Len(); got != count {
-		t.Errorf("Len() = %d, but All() yielded %d items", got, count)
+		t.Errorf("map.Len() = %d, but All() yielded %d items", got, count)
 	}
 }
 
@@ -289,7 +289,7 @@ func TestShardMap_Clone(t *testing.T) {
 	if cloneEmpty == nil {
 		t.Fatal("empty map.Clone() = nil, want empty map")
 	}
-	checkShardMap(t, cloneEmpty, map[string]int{})
+	checkShardMap(t, cloneEmpty, make(map[string]int))
 }
 
 func TestShardMap_CustomShardsNum(t *testing.T) {

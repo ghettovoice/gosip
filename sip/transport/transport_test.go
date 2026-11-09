@@ -13,61 +13,43 @@ import (
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
-const asyncEventTimeout = 5 * time.Second
+const asyncEvtTimeout = 5 * time.Second
 
-type connectionDialerFunc func(context.Context, string, string) (net.Conn, error)
+type connDialerFunc func(context.Context, string, string) (net.Conn, error)
 
-func (f connectionDialerFunc) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
+func (f connDialerFunc) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
 	return f(ctx, network, addr)
 }
 
-type spyPacketListenConfig struct {
-	called  int
-	network string
-	addr    string
-	conn    net.PacketConn
-	err     error
+type spyLisConfig struct {
+	listenCalls    int
+	listenPktCalls int
+	network        string
+	addr           string
+	lis            net.Listener
+	pktConn        net.PacketConn
+	listenErr      error
+	listenPktErr   error
 }
 
-func newViaHop(tb testing.TB, proto sip.TransportProto, addr sip.Addr) header.ViaHop {
-	tb.Helper()
-
-	return header.ViaHop{
-		Proto:     sip.ProtoVer20(),
-		Transport: proto,
-		Addr:      addr,
-		Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
+func (s *spyLisConfig) Listen(_ context.Context, network, addr string) (net.Listener, error) {
+	s.listenCalls++
+	s.network = network
+	s.addr = addr
+	if s.lis == nil && s.listenErr == nil {
+		return nil, errors.ErrorWrap("stream listener not configured")
 	}
+	return s.lis, errors.Wrap(s.listenErr)
 }
 
-func (s *spyPacketListenConfig) ListenPacket(ctx context.Context, nt, addr string) (net.PacketConn, error) {
-	s.called++
-	s.network = nt
+func (s *spyLisConfig) ListenPacket(_ context.Context, network, addr string) (net.PacketConn, error) {
+	s.listenPktCalls++
+	s.network = network
 	s.addr = addr
-	return s.conn, s.err
-}
-
-func (*spyPacketListenConfig) Listen(context.Context, string, string) (net.Listener, error) {
-	return nil, errors.New("stream listener not supported in packet test")
-}
-
-type spyConnListenConfig struct {
-	called  int
-	network string
-	addr    string
-	lis     net.Listener
-	err     error
-}
-
-func (s *spyConnListenConfig) Listen(ctx context.Context, nt, addr string) (net.Listener, error) {
-	s.called++
-	s.network = nt
-	s.addr = addr
-	return s.lis, s.err
-}
-
-func (*spyConnListenConfig) ListenPacket(context.Context, string, string) (net.PacketConn, error) {
-	return nil, errors.New("packet listener not supported in stream test")
+	if s.pktConn == nil && s.listenPktErr == nil {
+		return nil, errors.ErrorWrap("packet listener not configured")
+	}
+	return s.pktConn, errors.Wrap(s.listenPktErr)
 }
 
 type signalListener struct {
@@ -116,6 +98,17 @@ func (l *tempErrListener) Accept() (net.Conn, error) {
 	return conn, err
 }
 
+func newViaHop(tb testing.TB, proto sip.TransportProto, addr sip.Addr) header.ViaHop {
+	tb.Helper()
+
+	return header.ViaHop{
+		Proto:     sip.ProtoVer20(),
+		Transport: proto,
+		Addr:      addr,
+		Params:    make(sip.Values).Set("branch", sip.GenerateBranch(0)),
+	}
+}
+
 func newMinReq(tb testing.TB) *sip.Request {
 	tb.Helper()
 
@@ -139,7 +132,7 @@ func newMinReq(tb testing.TB) *sip.Request {
 	}
 }
 
-func newMinResp(tb testing.TB, viaTp sip.TransportProto, viaAddr sip.Addr) *sip.Response {
+func newMinRes(tb testing.TB, viaTp sip.TransportProto, viaAddr sip.Addr) *sip.Response {
 	tb.Helper()
 
 	furi := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("example.com")}
@@ -228,7 +221,7 @@ func startTestAccept(tb testing.TB, lis net.Listener) func() net.Conn {
 
 	tb.Cleanup(func() {
 		_ = lis.Close()
-		testutil.WaitClosed(tb, done, "listener.Accept()")
+		testutil.WaitClosed(tb, done, "lis.Accept()")
 		if result.conn != nil {
 			_ = result.conn.Close()
 		}
@@ -236,15 +229,14 @@ func startTestAccept(tb testing.TB, lis net.Listener) func() net.Conn {
 
 	return func() net.Conn {
 		tb.Helper()
-		testutil.WaitClosed(tb, done, "listener.Accept()")
+
+		testutil.WaitClosed(tb, done, "lis.Accept()")
 		if result.err != nil {
-			tb.Fatalf("listener.Accept() error = %v, want nil", result.err)
+			tb.Fatalf("lis.Accept() error = %v, want nil", result.err)
 		}
 		if result.conn == nil {
-			tb.Fatal("listener.Accept() connection = nil, want non-nil")
+			tb.Fatal("lis.Accept() connection = nil, want non-nil")
 		}
 		return result.conn
 	}
 }
-
-// Connless transport tests.

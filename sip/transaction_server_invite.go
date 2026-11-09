@@ -11,7 +11,7 @@ import (
 	"github.com/ghettovoice/timeutil"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -19,7 +19,7 @@ import (
 // It implements the server transaction FSM defined in RFC 3261 section 17.2.1
 // and patches from RFC 6026.
 type InviteServerTransaction struct {
-	*serverTransact
+	*baseSrvTransact
 
 	tmr1xx atomic.Pointer[timeutil.Timer]
 	tmrG   atomic.Pointer[timeutil.Timer]
@@ -27,8 +27,8 @@ type InviteServerTransaction struct {
 	tmrI   atomic.Pointer[timeutil.Timer]
 	tmrL   atomic.Pointer[timeutil.Timer]
 
-	onAck       types.CallbackManager[InboundRequestHandler]
-	pendingAcks types.Queue[pendingAck]
+	onAck       shared.CallbackManager[InboundRequestHandler]
+	pendingAcks shared.Queue[pendingTxAck]
 }
 
 var (
@@ -46,8 +46,8 @@ func (f InboundRequestHandlerFunc) HandleInboundRequest(ctx context.Context, req
 	f(ctx, req)
 }
 
-type pendingAck struct {
-	ctx context.Context
+type pendingTxAck struct {
+	ctx context.Context //nolint:containedctx // the pending handler needs the originating ctx
 	ack *RequestEnvelope
 }
 
@@ -70,14 +70,14 @@ func NewInviteServerTransaction(
 		return nil, errors.Wrap(NewRequestMethodNotAllowedError())
 	}
 
-	o := util.LastSliceElemOr(opts, ServerTransactionOptions{})
+	o := util.LastSliceElem(opts, ServerTransactionOptions{})
 
 	tx := new(InviteServerTransaction)
-	srvTx, err := newServerTransact(TransactionTypeServerInvite, tx, req, tp, o)
+	base, err := newBaseSrvTransact(TransactionTypeServerInvite, tx, req, tp, o)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
-	tx.serverTransact = srvTx
+	tx.baseSrvTransact = base
 	if err := tx.initFSM(TransactionStateProceeding); err != nil {
 		return nil, errors.Wrap(err)
 	}
@@ -120,36 +120,51 @@ func (tx *InviteServerTransaction) activateRestored(ctx context.Context) {
 	if tmr := tx.tmrH.Load(); tmr != nil && tmr.Expired() &&
 		tx.State() == TransactionStateCompleted && !tx.isTerminated() {
 		tx.lcMu.Unlock()
-		tx.onTimerH(ctx, tmr)
+		tx.onTmrH(ctx, tmr)
 		tx.activate(ctx)
 		return
 	}
 	if tmr := tx.tmrI.Load(); tmr != nil && tmr.Expired() &&
 		tx.State() == TransactionStateConfirmed && !tx.isTerminated() {
 		tx.lcMu.Unlock()
-		tx.onTimerI(ctx, tmr)
+		tx.onTmrI(ctx, tmr)
 		tx.activate(ctx)
 		return
 	}
 	if tmr := tx.tmrL.Load(); tmr != nil && tmr.Expired() &&
 		tx.State() == TransactionStateAccepted && !tx.isTerminated() {
 		tx.lcMu.Unlock()
-		tx.onTimerL(ctx, tmr)
+		tx.onTmrL(ctx, tmr)
 		tx.activate(ctx)
 		return
 	}
 
 	if !tx.isTerminated() {
-		tx.armTmrLocked(&tx.tmr1xx, tx.tmr1xx.Load(), []TransactionState{TransactionStateProceeding},
-			func(tmr *timeutil.Timer) { tx.onTimer1xx(ctx, tmr) })
-		tx.armTmrLocked(&tx.tmrG, tx.tmrG.Load(), []TransactionState{TransactionStateCompleted},
-			func(tmr *timeutil.Timer) { tx.onTimerG(ctx, tmr) })
-		tx.armTmrLocked(&tx.tmrH, tx.tmrH.Load(), []TransactionState{TransactionStateCompleted},
-			func(tmr *timeutil.Timer) { tx.onTimerH(ctx, tmr) })
-		tx.armTmrLocked(&tx.tmrI, tx.tmrI.Load(), []TransactionState{TransactionStateConfirmed},
-			func(tmr *timeutil.Timer) { tx.onTimerI(ctx, tmr) })
-		tx.armTmrLocked(&tx.tmrL, tx.tmrL.Load(), []TransactionState{TransactionStateAccepted},
-			func(tmr *timeutil.Timer) { tx.onTimerL(ctx, tmr) })
+		tx.armTmrLocked(
+			&tx.tmr1xx, tx.tmr1xx.Load(),
+			[]TransactionState{TransactionStateProceeding},
+			func(tmr *timeutil.Timer) { tx.onTmr1xx(ctx, tmr) },
+		)
+		tx.armTmrLocked(
+			&tx.tmrG, tx.tmrG.Load(),
+			[]TransactionState{TransactionStateCompleted},
+			func(tmr *timeutil.Timer) { tx.onTmrG(ctx, tmr) },
+		)
+		tx.armTmrLocked(
+			&tx.tmrH, tx.tmrH.Load(),
+			[]TransactionState{TransactionStateCompleted},
+			func(tmr *timeutil.Timer) { tx.onTmrH(ctx, tmr) },
+		)
+		tx.armTmrLocked(
+			&tx.tmrI, tx.tmrI.Load(),
+			[]TransactionState{TransactionStateConfirmed},
+			func(tmr *timeutil.Timer) { tx.onTmrI(ctx, tmr) },
+		)
+		tx.armTmrLocked(
+			&tx.tmrL, tx.tmrL.Load(),
+			[]TransactionState{TransactionStateAccepted},
+			func(tmr *timeutil.Timer) { tx.onTmrL(ctx, tmr) },
+		)
 	}
 	tx.activateLocked()
 	tx.lcMu.Unlock()
@@ -168,16 +183,16 @@ func (tx *InviteServerTransaction) LogValue() slog.Value {
 }
 
 const (
-	txEvtRecvAck  = "recv_ack"
-	txEvtTimer1xx = "timer_1xx"
-	txEvtTimerG   = "timer_g"
-	txEvtTimerH   = "timer_h"
-	txEvtTimerI   = "timer_i"
-	txEvtTimerL   = "timer_l"
+	txEvtRecvAck = "recv_ack"
+	txEvtTmr1xx  = "timer_1xx"
+	txEvtTmrG    = "timer_g"
+	txEvtTmrH    = "timer_h"
+	txEvtTmrI    = "timer_i"
+	txEvtTmrL    = "timer_l"
 )
 
 func (tx *InviteServerTransaction) initFSM(start TransactionState) error {
-	if err := tx.serverTransact.initFSM(start); err != nil {
+	if err := tx.baseSrvTransact.initFSM(start); err != nil {
 		return errors.Wrap(err)
 	}
 
@@ -186,8 +201,8 @@ func (tx *InviteServerTransaction) initFSM(start TransactionState) error {
 	tx.fsm.Configure(TransactionStateProceeding).
 		InternalTransition(txEvtRecvReq, tx.actResendRes).
 		InternalTransition(txEvtSend1xx, tx.actSendRes).
-		InternalTransition(txEvtTimer1xx, tx.actSend100).
-		InternalTransition(txEvtTranspErr, tx.actTranspErr).
+		InternalTransition(txEvtTmr1xx, tx.actSend100).
+		InternalTransition(txEvtTpErr, tx.actTranspErr).
 		Permit(txEvtSend2xx, TransactionStateAccepted).
 		Permit(txEvtSend300699, TransactionStateCompleted).
 		Permit(txEvtTerminate, TransactionStateTerminated)
@@ -198,30 +213,30 @@ func (tx *InviteServerTransaction) initFSM(start TransactionState) error {
 		InternalTransition(txEvtRecvReq, tx.actNoop).
 		InternalTransition(txEvtRecvAck, tx.actPassAck).
 		InternalTransition(txEvtSend2xx, tx.actSendRes).
-		InternalTransition(txEvtTranspErr, tx.actTranspErr).
-		Permit(txEvtTimerL, TransactionStateTerminated).
+		InternalTransition(txEvtTpErr, tx.actTranspErr).
+		Permit(txEvtTmrL, TransactionStateTerminated).
 		Permit(txEvtTerminate, TransactionStateTerminated)
 
 	tx.fsm.Configure(TransactionStateCompleted).
 		OnEntry(tx.actCompleted).
 		OnEntryFrom(txEvtSend300699, tx.actSendRes).
 		InternalTransition(txEvtRecvReq, tx.actResendRes).
-		InternalTransition(txEvtTimerG, tx.actResendRes).
-		InternalTransition(txEvtTranspErr, tx.actTranspErr).
+		InternalTransition(txEvtTmrG, tx.actResendRes).
+		InternalTransition(txEvtTpErr, tx.actTranspErr).
 		Permit(txEvtRecvAck, TransactionStateConfirmed).
-		Permit(txEvtTimerH, TransactionStateTerminated).
+		Permit(txEvtTmrH, TransactionStateTerminated).
 		Permit(txEvtTerminate, TransactionStateTerminated)
 
 	tx.fsm.Configure(TransactionStateConfirmed).
 		OnEntry(tx.actConfirmed).
 		InternalTransition(txEvtRecvReq, tx.actNoop).
 		InternalTransition(txEvtRecvAck, tx.actNoop).
-		Permit(txEvtTimerI, TransactionStateTerminated).
+		Permit(txEvtTmrI, TransactionStateTerminated).
 		Permit(txEvtTerminate, TransactionStateTerminated)
 
 	tx.fsm.Configure(TransactionStateTerminated).
 		OnEntry(tx.actTerminated).
-		OnEntryFrom(txEvtTimerH, tx.actTimedOut).
+		OnEntryFrom(txEvtTmrH, tx.actTimedOut).
 		OnEntryFrom(txEvtTerminate, tx.actTermErr).
 		InternalTransition(txEvtTerminate, tx.actNoop)
 
@@ -249,19 +264,18 @@ func (tx *InviteServerTransaction) actSendRes(ctx context.Context, args ...any) 
 	if tx.stopTmr(&tx.tmr1xx) {
 		tx.log.DebugContext(ctx, "1xx timer stopped", slog.Any("transaction", tx))
 	}
-	return errors.Wrap(tx.serverTransact.actSendRes(ctx, args...))
+	return errors.Wrap(tx.baseSrvTransact.actSendRes(ctx, args...))
 }
 
 func (tx *InviteServerTransaction) actPassAck(ctx context.Context, args ...any) error {
-	ack := args[0].(*RequestEnvelope) //nolint:forcetypeassert
+	ack := args[0].(*RequestEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
 
-	tx.log.DebugContext(
-		ctx, "pass ACK",
+	tx.log.DebugContext(ctx, "pass ACK",
 		slog.Any("transaction", tx),
 		slog.Any("ack", ack),
 	)
 
-	tx.pendingAcks.Push(pendingAck{ctx, ack})
+	tx.pendingAcks.Push(pendingTxAck{ctx, ack})
 	if tx.onAck.Len() > 0 {
 		tx.deliverPendingAcks()
 	}
@@ -281,15 +295,17 @@ func (tx *InviteServerTransaction) deliverPendingAcks() {
 	}
 }
 
-//nolint:unparam
+//nolint:unparam // uniform signature with the other FSM actions
 func (tx *InviteServerTransaction) actProceeding(ctx context.Context, args ...any) error {
-	_ = tx.serverTransact.actProceeding(ctx, args...)
+	_ = tx.baseSrvTransact.actProceeding(ctx, args...)
 
 	tmr := timeutil.NewTimer(tx.timing.time100())
-	if tx.armTmr(&tx.tmr1xx, tmr, []TransactionState{TransactionStateProceeding},
-		func(tmr *timeutil.Timer) { tx.onTimer1xx(ctx, tmr) }) {
-		tx.log.DebugContext(
-			ctx, "1xx timer started",
+	if tx.armTmr(
+		&tx.tmr1xx, tmr,
+		[]TransactionState{TransactionStateProceeding},
+		func(tmr *timeutil.Timer) { tx.onTmr1xx(ctx, tmr) },
+	) {
+		tx.log.DebugContext(ctx, "1xx timer started",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
@@ -298,24 +314,26 @@ func (tx *InviteServerTransaction) actProceeding(ctx context.Context, args ...an
 	return nil
 }
 
-func (tx *InviteServerTransaction) onTimer1xx(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *InviteServerTransaction) onTmr1xx(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "1xx timer expired", slog.Any("transaction", tx))
 
 	tx.clearTmr(&tx.tmr1xx, tmr)
-	tx.fireTmrTrigger(ctx, txEvtTimer1xx)
+	tx.fireTmrTrigger(ctx, txEvtTmr1xx)
 }
 
 func (tx *InviteServerTransaction) actAccepted(ctx context.Context, _ ...any) error {
 	tx.log.DebugContext(ctx, "transaction accepted", slog.Any("transaction", tx))
 
 	tmr := timeutil.NewTimer(tx.timing.TimeL())
-	if tx.armTmr(&tx.tmrL, tmr, []TransactionState{TransactionStateAccepted},
-		func(tmr *timeutil.Timer) { tx.onTimerL(ctx, tmr) }) {
-		tx.log.DebugContext(
-			ctx, "timer L started",
+	if tx.armTmr(
+		&tx.tmrL, tmr,
+		[]TransactionState{TransactionStateAccepted},
+		func(tmr *timeutil.Timer) { tx.onTmrL(ctx, tmr) },
+	) {
+		tx.log.DebugContext(ctx, "timer L started",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
@@ -324,25 +342,27 @@ func (tx *InviteServerTransaction) actAccepted(ctx context.Context, _ ...any) er
 	return nil
 }
 
-func (tx *InviteServerTransaction) onTimerL(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *InviteServerTransaction) onTmrL(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "timer L expired", slog.Any("transaction", tx))
 
 	tx.clearTmr(&tx.tmrL, tmr)
-	tx.fireTmrTrigger(ctx, txEvtTimerL)
+	tx.fireTmrTrigger(ctx, txEvtTmrL)
 }
 
 func (tx *InviteServerTransaction) actCompleted(ctx context.Context, args ...any) error {
-	_ = tx.serverTransact.actCompleted(ctx, args...)
+	_ = tx.baseSrvTransact.actCompleted(ctx, args...)
 
 	if !tx.tp.Metadata().Reliable() {
 		tmr := timeutil.NewTimer(tx.timing.TimeG())
-		if tx.armTmr(&tx.tmrG, tmr, []TransactionState{TransactionStateCompleted},
-			func(tmr *timeutil.Timer) { tx.onTimerG(ctx, tmr) }) {
-			tx.log.DebugContext(
-				ctx, "timer G started",
+		if tx.armTmr(
+			&tx.tmrG, tmr,
+			[]TransactionState{TransactionStateCompleted},
+			func(tmr *timeutil.Timer) { tx.onTmrG(ctx, tmr) },
+		) {
+			tx.log.DebugContext(ctx, "timer G started",
 				slog.Any("transaction", tx),
 				slog.Time("expires_at", time.Now().Add(tmr.Left())),
 			)
@@ -350,10 +370,12 @@ func (tx *InviteServerTransaction) actCompleted(ctx context.Context, args ...any
 	}
 
 	tmr := timeutil.NewTimer(tx.timing.TimeH())
-	if tx.armTmr(&tx.tmrH, tmr, []TransactionState{TransactionStateCompleted},
-		func(tmr *timeutil.Timer) { tx.onTimerH(ctx, tmr) }) {
-		tx.log.DebugContext(
-			ctx, "timer H started",
+	if tx.armTmr(
+		&tx.tmrH, tmr,
+		[]TransactionState{TransactionStateCompleted},
+		func(tmr *timeutil.Timer) { tx.onTmrH(ctx, tmr) },
+	) {
+		tx.log.DebugContext(ctx, "timer H started",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
@@ -362,31 +384,30 @@ func (tx *InviteServerTransaction) actCompleted(ctx context.Context, args ...any
 	return nil
 }
 
-func (tx *InviteServerTransaction) onTimerG(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *InviteServerTransaction) onTmrG(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "timer G expired", slog.Any("transaction", tx))
 
-	tx.fireTmrTrigger(ctx, txEvtTimerG)
+	tx.fireTmrTrigger(ctx, txEvtTmrG)
 
 	if tx.resetTmr(&tx.tmrG, tmr, min(2*tmr.Duration(), tx.timing.t2()), TransactionStateCompleted) {
-		tx.log.DebugContext(
-			ctx, "timer G reset",
+		tx.log.DebugContext(ctx, "timer G reset",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
 	}
 }
 
-func (tx *InviteServerTransaction) onTimerH(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *InviteServerTransaction) onTmrH(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "timer H expired", slog.Any("transaction", tx))
 
 	tx.clearTmr(&tx.tmrH, tmr)
-	tx.fireTmrTrigger(ctx, txEvtTimerH)
+	tx.fireTmrTrigger(ctx, txEvtTmrH)
 }
 
 func (tx *InviteServerTransaction) actConfirmed(ctx context.Context, _ ...any) error {
@@ -405,10 +426,12 @@ func (tx *InviteServerTransaction) actConfirmed(ctx context.Context, _ ...any) e
 		timeI = tx.timing.TimeI()
 	}
 	tmr := timeutil.NewTimer(timeI)
-	if tx.armTmr(&tx.tmrI, tmr, []TransactionState{TransactionStateConfirmed},
-		func(tmr *timeutil.Timer) { tx.onTimerI(ctx, tmr) }) {
-		tx.log.DebugContext(
-			ctx, "timer I started",
+	if tx.armTmr(
+		&tx.tmrI, tmr,
+		[]TransactionState{TransactionStateConfirmed},
+		func(tmr *timeutil.Timer) { tx.onTmrI(ctx, tmr) },
+	) {
+		tx.log.DebugContext(ctx, "timer I started",
 			slog.Any("transaction", tx),
 			slog.Time("expires_at", time.Now().Add(tmr.Left())),
 		)
@@ -417,18 +440,18 @@ func (tx *InviteServerTransaction) actConfirmed(ctx context.Context, _ ...any) e
 	return nil
 }
 
-func (tx *InviteServerTransaction) onTimerI(ctx context.Context, tmr *timeutil.Timer) {
+func (tx *InviteServerTransaction) onTmrI(ctx context.Context, tmr *timeutil.Timer) {
 	tx.beginSnapshotUpdate()
 	defer tx.finishSnapshotUpdate(ctx)
 
 	tx.log.DebugContext(ctx, "timer I expired", slog.Any("transaction", tx))
 
 	tx.clearTmr(&tx.tmrI, tmr)
-	tx.fireTmrTrigger(ctx, txEvtTimerI)
+	tx.fireTmrTrigger(ctx, txEvtTmrI)
 }
 
 func (tx *InviteServerTransaction) actTerminated(ctx context.Context, args ...any) error {
-	_ = tx.serverTransact.actTerminated(ctx, args...)
+	_ = tx.baseSrvTransact.actTerminated(ctx, args...)
 
 	if tx.stopTmr(&tx.tmr1xx) {
 		tx.log.DebugContext(ctx, "1xx timer stopped", slog.Any("transaction", tx))
@@ -454,7 +477,7 @@ func (tx *InviteServerTransaction) actTerminated(ctx context.Context, args ...an
 	return nil
 }
 
-func (tx *InviteServerTransaction) adjustKeys(txKey, reqKey *ServerTransactionKey, reqMtd RequestMethod) {
+func (tx *InviteServerTransaction) adjustTxKeys(txKey, reqKey *ServerTransactionKey, reqMtd RequestMethod) {
 	if reqMtd.Equal(RequestMethodAck) {
 		reqKey.Method = string(RequestMethodInvite)
 	}
@@ -474,7 +497,7 @@ func (tx *InviteServerTransaction) recvReq(ctx context.Context, req *RequestEnve
 	if req.Method().Equal(RequestMethodAck) {
 		return errors.Wrap(tx.fsm.FireCtx(ctx, txEvtRecvAck, req))
 	}
-	return errors.Wrap(tx.serverTransact.recvReq(ctx, req))
+	return errors.Wrap(tx.baseSrvTransact.recvReq(ctx, req))
 }
 
 // BindAckHandler binds the callback to be called when the transaction receives an 2xx ACK.
@@ -492,20 +515,22 @@ func (tx *InviteServerTransaction) BindAckHandler(fn InboundRequestHandler) (unb
 }
 
 func (tx *InviteServerTransaction) takeSnapshot() *ServerTransactionSnapshot {
+	lastRes := tx.LastResponse()
 	return &ServerTransactionSnapshot{
-		Time:         time.Now(),
-		Type:         tx.Type(),
-		State:        tx.State(),
-		Key:          tx.Key(),
-		Request:      tx.Request(),
-		LastResponse: tx.LastResponse(),
-		SendOptions:  tx.sendOpts.Load().(SendResponseOptions), //nolint:forcetypeassert
-		Timing:       tx.timing,
-		Timer1xx:     tx.tmr1xx.Load().Snapshot(),
-		TimerG:       tx.tmrG.Load().Snapshot(),
-		TimerH:       tx.tmrH.Load().Snapshot(),
-		TimerI:       tx.tmrI.Load().Snapshot(),
-		TimerL:       tx.tmrL.Load().Snapshot(),
+		Time:                  time.Now(),
+		Type:                  tx.Type(),
+		State:                 tx.State(),
+		Key:                   tx.Key(),
+		Request:               tx.Request(),
+		LastResponse:          lastRes,
+		SendOptions:           tx.sendOpts.Load().(SendResponseOptions), //nolint:forcetypeassert // the concrete type is fixed by construction
+		PreserveResponseToTag: resPreservesToTag(lastRes),
+		Timing:                tx.timing,
+		Timer1xx:              tx.tmr1xx.Load().Snapshot(),
+		TimerG:                tx.tmrG.Load().Snapshot(),
+		TimerH:                tx.tmrH.Load().Snapshot(),
+		TimerI:                tx.tmrI.Load().Snapshot(),
+		TimerL:                tx.tmrL.Load().Snapshot(),
 	}
 }
 
@@ -533,19 +558,23 @@ func RestoreInviteServerTransaction(
 		return nil, errors.Wrap(err)
 	}
 
-	o := util.LastSliceElemOr(opts, ServerTransactionOptions{})
+	o := util.LastSliceElem(opts, ServerTransactionOptions{})
 	o.Timing = snap.Timing
 
-	req := snap.Request.Clone().(*RequestEnvelope) //nolint:forcetypeassert
+	req := snap.Request.Clone().(*RequestEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
 
 	tx := new(InviteServerTransaction)
-	srvTx, err := newServerTransact(TransactionTypeServerInvite, tx, req, tp, o)
+	base, err := newBaseSrvTransact(TransactionTypeServerInvite, tx, req, tp, o)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
-	tx.serverTransact = srvTx
+	tx.baseSrvTransact = base
 	if snap.LastResponse != nil {
-		tx.lastRes.Store(snap.LastResponse.Clone().(*ResponseEnvelope)) //nolint:forcetypeassert
+		lastRes := snap.LastResponse.Clone().(*ResponseEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
+		// Reapply the forwarded-response provenance from trusted checkpoint
+		// state before Start can resend the cached response.
+		setResPreserveToTag(lastRes, snap.PreserveResponseToTag)
+		tx.lastRes.Store(lastRes)
 	}
 	tx.sendOpts.Store(snap.SendOptions)
 	if err := tx.initFSM(snap.State); err != nil {
@@ -553,7 +582,7 @@ func RestoreInviteServerTransaction(
 	}
 	tx.restored = true
 
-	if err := tx.restoreTimers(snap); err != nil {
+	if err := tx.restoreTmrs(snap); err != nil {
 		return nil, errors.Wrap(err)
 	}
 	tx.saveSnapshot()
@@ -561,7 +590,7 @@ func RestoreInviteServerTransaction(
 	return tx, nil
 }
 
-func (tx *InviteServerTransaction) restoreTimers(snap *ServerTransactionSnapshot) error {
+func (tx *InviteServerTransaction) restoreTmrs(snap *ServerTransactionSnapshot) error {
 	for dst, tmrSnap := range map[*atomic.Pointer[timeutil.Timer]]*timeutil.TimerSnapshot{
 		&tx.tmr1xx: snap.Timer1xx,
 		&tx.tmrG:   snap.TimerG,

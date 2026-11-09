@@ -75,7 +75,7 @@ func (m *ShardMap[K, V]) decLen() {
 	}
 }
 
-var shardHasherPool = sync.Pool{
+var shardHashPool = sync.Pool{
 	New: func() any { return fnv.New32a() },
 }
 
@@ -84,10 +84,10 @@ func (m *ShardMap[K, V]) getShard(key K) *shard[K, V] {
 		return nil
 	}
 
-	h := shardHasherPool.Get().(hash.Hash32) //nolint:forcetypeassert
+	h := shardHashPool.Get().(hash.Hash32) //nolint:forcetypeassert // the pool only stores hash.Hash32
 	defer func() {
 		h.Reset()
-		shardHasherPool.Put(h)
+		shardHashPool.Put(h)
 	}()
 
 	fmt.Fprint(h, key)

@@ -7,25 +7,25 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 )
 
-// singleTranspMetaProvider is a [sip.TransportMetadataProvider] backed by a single TransportMetadata.
-type singleTranspMetaProvider struct {
+// singleTpMetaProvider is a [sip.TransportMetadataProvider] backed by a single TransportMetadata.
+type singleTpMetaProvider struct {
 	meta sip.TransportMetadata
 }
 
-func (p *singleTranspMetaProvider) TransportMetadataByProto(proto sip.TransportProto) (sip.TransportMetadata, bool) {
+func (p *singleTpMetaProvider) TransportMetadataByProto(proto sip.TransportProto) (sip.TransportMetadata, bool) {
 	if !p.meta.Proto.Equal(proto) {
 		return sip.TransportMetadata{}, false
 	}
 	return p.meta, true
 }
 
-func (p *singleTranspMetaProvider) TransportMetadataByNAPTRService(service string) (sip.TransportMetadata, bool) {
-	if !util.EqFold(p.meta.NAPTRService, service) {
+func (p *singleTpMetaProvider) TransportMetadataByNAPTRService(service string) (sip.TransportMetadata, bool) {
+	if !util.EqualFold(p.meta.NAPTRService, service) {
 		return sip.TransportMetadata{}, false
 	}
 	return p.meta, true
 }
 
-func (p *singleTranspMetaProvider) AllTransportMetadata() iter.Seq[sip.TransportMetadata] {
+func (p *singleTpMetaProvider) AllTransportMetadata() iter.Seq[sip.TransportMetadata] {
 	return func(yield func(sip.TransportMetadata) bool) { yield(p.meta) }
 }

@@ -13,10 +13,8 @@ import (
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
-//nolint:tparallel
+//nolint:paralleltest // mutates the shared global parser registry
 func TestParseMessage(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name    string
 		input   any
@@ -25,7 +23,7 @@ func TestParseMessage(t *testing.T) {
 		wantErr error
 	}{
 		{"empty string", "", nil, nil, grammar.ErrEmptyInput},
-		{"empty bytes", []byte{}, nil, nil, grammar.ErrEmptyInput},
+		{"empty bytes", []byte(nil), nil, nil, grammar.ErrEmptyInput},
 		{"trash", "qwerty", nil, nil, grammar.ErrMalformedInput},
 		{"trash bytes", []byte("qwerty"), nil, nil, grammar.ErrMalformedInput},
 
@@ -226,7 +224,7 @@ func TestParseMessage(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:paralleltest // subtests mutate the shared global parser registry
 		t.Run(tt.name, func(t *testing.T) {
 			for n, p := range tt.hdrPrs {
 				header.RegisterParser(n, p)
@@ -256,7 +254,6 @@ func TestParseMessage(t *testing.T) {
 						input, gotMsg, tt.wantMsg, diff,
 					)
 				}
-
 				if gotErr != nil {
 					t.Errorf("sip.ParseMessage(%q) error = %v, want nil", input, gotErr)
 				}

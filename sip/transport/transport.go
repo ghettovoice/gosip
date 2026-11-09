@@ -66,25 +66,25 @@ type TransportOptions struct {
 	// ListenConfig is used to setup network listener: [net.PacketConn] or [net.Listener].
 	// If nil, zero [NetListenConfig] is used.
 	ListenConfig ListenConfig
-	// ConnectionDialer is used to dial new [net.Conn] to a remote address.
-	// If nil, zero [NetConnectionDialer] is used.
-	ConnectionDialer ConnectionDialer
+	// ConnDialer is used to dial new [net.Conn] to a remote address.
+	// If nil, zero [NetConnDialer] is used.
+	ConnDialer ConnDialer
 	// MaxMessageReadSize is the maximum buffer size for reading messages from the connection.
-	// See [ConnectionOptions.MaxMessageReadSize].
+	// See [ConnOptions.MaxMessageReadSize].
 	MaxMessageReadSize uint
 	// MaxMessageWriteSize is the maximum size of the message to write to the connection.
-	// See [ConnectionOptions.MaxMessageWriteSize].
+	// See [ConnOptions.MaxMessageWriteSize].
 	MaxMessageWriteSize uint
-	// ConnectionReadTimeout is the timeout for reading from the connection.
-	// See [ConnectionOptions.ReadTimeout].
-	ConnectionReadTimeout time.Duration
-	// ConnectionWriteTimeout is the timeout for writing to the connection.
-	// See [ConnectionOptions.WriteTimeout].
-	ConnectionWriteTimeout time.Duration
-	// ConnectionIdleTimeout is the maximum duration a reliable connection may stay
+	// ConnReadTimeout is the timeout for reading from the connection.
+	// See [ConnOptions.ReadTimeout].
+	ConnReadTimeout time.Duration
+	// ConnWriteTimeout is the timeout for writing to the connection.
+	// See [ConnOptions.WriteTimeout].
+	ConnWriteTimeout time.Duration
+	// ConnIdleTimeout is the maximum duration a reliable connection may stay
 	// idle before it is closed.
-	// See [ConnectionOptions.IdleTimeout].
-	ConnectionIdleTimeout time.Duration
+	// See [ConnOptions.IdleTimeout].
+	ConnIdleTimeout time.Duration
 	// HandleCustomMessage is called when a custom message is received.
 	//
 	// Custom message is the message that implements [sip.Message] interface
@@ -130,27 +130,27 @@ func (o TransportOptions) pubAddr() sip.Addr {
 	return sip.MakeIPAddr(ip)
 }
 
-func (o TransportOptions) prsr() sip.Parser {
+func (o TransportOptions) parser() sip.Parser {
 	if o.Parser == nil {
 		return sip.DefaultParser()
 	}
 	return o.Parser
 }
 
-func (o TransportOptions) dnsRslvr() sip.DNSResolver {
+func (o TransportOptions) dnsResolver() sip.DNSResolver {
 	if o.DNSResolver == nil {
 		return dns.DefaultResolver()
 	}
 	return o.DNSResolver
 }
 
-func (o TransportOptions) clnLctr(meta sip.TransportMetadata) sip.RemoteClientLocator {
+func (o TransportOptions) clnLocator(meta sip.TransportMetadata) sip.RemoteClientLocator {
 	if o.ClientLocator != nil {
 		return o.ClientLocator
 	}
 	return &sip.RemoteElementLocator{
-		DNSResolver:      o.dnsRslvr(),
-		MetadataProvider: &singleTranspMetaProvider{meta},
+		DNSResolver:      o.dnsResolver(),
+		MetadataProvider: &singleTpMetaProvider{meta},
 	}
 }
 
@@ -161,18 +161,18 @@ func (o TransportOptions) log() *slog.Logger {
 	return o.Logger
 }
 
-func (o TransportOptions) lisConf() ListenConfig {
+func (o TransportOptions) lisCfg() ListenConfig {
 	if o.ListenConfig == nil {
-		return defNetLisConf
+		return defNetLisCfg
 	}
 	return o.ListenConfig
 }
 
-func (o TransportOptions) connDlr() ConnectionDialer {
-	if o.ConnectionDialer == nil {
+func (o TransportOptions) connDialer() ConnDialer {
+	if o.ConnDialer == nil {
 		return defConnDlr
 	}
-	return o.ConnectionDialer
+	return o.ConnDialer
 }
 
 type ListenConfig interface {
@@ -182,19 +182,19 @@ type ListenConfig interface {
 
 type NetListenConfig = net.ListenConfig
 
-var defNetLisConf = &NetListenConfig{}
+var defNetLisCfg = &NetListenConfig{}
 
-type ConnectionDialer interface {
+type ConnDialer interface {
 	Dial(ctx context.Context, network, address string) (net.Conn, error)
 }
 
-type NetConnectionDialer struct {
+type NetConnDialer struct {
 	net.Dialer
 }
 
-var defConnDlr = &NetConnectionDialer{}
+var defConnDlr = &NetConnDialer{}
 
-func (d *NetConnectionDialer) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+func (d *NetConnDialer) Dial(ctx context.Context, network, address string) (net.Conn, error) {
 	return errors.Wrap2(d.DialContext(ctx, network, address))
 }
 
@@ -206,8 +206,8 @@ type transpBase[L any] struct {
 	log     *slog.Logger
 
 	lisCfg   ListenConfig
-	connDlr  ConnectionDialer
-	connOpts ConnectionOptions
+	connDlr  ConnDialer
+	connOpts ConnOptions
 
 	lcMu      sync.Mutex
 	closeOnce sync.Once
@@ -225,11 +225,11 @@ type transpBase[L any] struct {
 
 type transpImpl[L any] interface {
 	sip.Transport
-	AcquireConnection(
+	AcquireConn(
 		ctx context.Context,
 		raddr netip.AddrPort,
-		opts ...AcquireConnectionOptions,
-	) (sip.TransportConnection, error)
+		opts ...AcquireConnOptions,
+	) (sip.TransportConn, error)
 	newListener(ctx context.Context, base L) (transpListener, error)
 }
 
@@ -263,7 +263,7 @@ func (ls *trackedListener) Close() error {
 }
 
 type trackedConn struct {
-	*Connection
+	*Conn
 	// borrowed means the underlying connection was supplied by the caller through
 	// ServeConn. Serve does not close it; Transport.Close does while it is tracked.
 	borrowed bool
@@ -279,20 +279,20 @@ func (tb *transpBase[L]) init(impl transpImpl[L], meta sip.TransportMetadata, op
 	tb.impl = impl
 	tb.meta = meta.Canonic()
 	tb.pubAddr = opts.pubAddr()
-	tb.clnLctr = opts.clnLctr(tb.meta)
-	tb.lisCfg = opts.lisConf()
-	tb.connDlr = opts.connDlr()
+	tb.clnLctr = opts.clnLocator(tb.meta)
+	tb.lisCfg = opts.lisCfg()
+	tb.connDlr = opts.connDialer()
 	tb.log = opts.log().With(slog.Any("transport", impl))
 	tb.handleCustomMsg = opts.HandleCustomMessage
 	tb.closing = make(chan struct{})
 
-	tb.connOpts.Parser = opts.prsr()
+	tb.connOpts.Parser = opts.parser()
 	tb.connOpts.Logger = tb.log
 	tb.connOpts.MaxMessageReadSize = opts.MaxMessageReadSize
 	tb.connOpts.MaxMessageWriteSize = opts.MaxMessageWriteSize
-	tb.connOpts.ReadTimeout = opts.ConnectionReadTimeout
-	tb.connOpts.WriteTimeout = opts.ConnectionWriteTimeout
-	tb.connOpts.IdleTimeout = opts.ConnectionIdleTimeout
+	tb.connOpts.ReadTimeout = opts.ConnReadTimeout
+	tb.connOpts.WriteTimeout = opts.ConnWriteTimeout
+	tb.connOpts.IdleTimeout = opts.ConnIdleTimeout
 }
 
 func (tb *transpBase[L]) Metadata() sip.TransportMetadata { return tb.meta }
@@ -495,7 +495,7 @@ func (tb *transpBase[L]) Listen(ctx context.Context, addr string) (ls sip.Transp
 		return nil, errors.Wrap(err)
 	}
 
-	ls, lisFound, err = tb.trackListener(ctx, netLis.(L), false) //nolint:forcetypeassert
+	ls, lisFound, err = tb.trackLis(ctx, netLis.(L), false) //nolint:forcetypeassert // the concrete type is fixed by construction
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
@@ -516,14 +516,14 @@ func (tb *transpBase[L]) ServeListener(ctx context.Context, netLis L) error {
 		return errors.ErrorWrap("nil listener")
 	}
 
-	ls, found, err := tb.trackListener(ctx, netLis, true)
+	ls, found, err := tb.trackLis(ctx, netLis, true)
 	if err != nil {
 		return errors.Wrap(err)
 	}
 	if found {
 		return errors.Wrap(NewListenerTrackedError())
 	}
-	defer tb.untrackListener(ctx, ls)
+	defer tb.untrackLis(ctx, ls)
 
 	err = ls.Serve(ctx)
 
@@ -552,7 +552,7 @@ func (tb *transpBase[L]) ServeListener(ctx context.Context, netLis L) error {
 	return errors.Wrap(err)
 }
 
-func (tb *transpBase[L]) trackListener(
+func (tb *transpBase[L]) trackLis(
 	ctx context.Context,
 	netLis L,
 	external bool,
@@ -598,7 +598,7 @@ func (tb *transpBase[L]) trackListener(
 			if tb.lisMap.CompareAndDelete(laddr, func(actual *trackedListener) bool {
 				return actual == trLs
 			}) {
-				tb.log.DebugContext(context.Background(), "listener removed", slog.Any("listener", trLs))
+				tb.log.DebugContext(ctx, "listener removed", slog.Any("listener", trLs))
 			}
 		}
 		return trLs, nil
@@ -614,7 +614,7 @@ func (tb *transpBase[L]) trackListener(
 	return ls, found, nil
 }
 
-func (tb *transpBase[L]) untrackListener(ctx context.Context, ls *trackedListener) {
+func (tb *transpBase[L]) untrackLis(ctx context.Context, ls *trackedListener) {
 	if !tb.lisMap.CompareAndDelete(ls.LocalAddr(), func(actual *trackedListener) bool {
 		return actual == ls
 	}) {
@@ -659,7 +659,7 @@ func (tb *transpBase[L]) ServeConn(ctx context.Context, netConn net.Conn) error 
 		return errors.Wrap(err)
 	}
 	if done == nil {
-		return errors.Wrap(NewConnectionTrackedError())
+		return errors.Wrap(NewConnTrackedError())
 	}
 
 	err = <-done
@@ -762,7 +762,7 @@ func (tb *transpBase[L]) trackConn(
 	}
 
 	conn, found, err = conns.LoadOrStoreFunc(laddr, func() (*trackedConn, error) {
-		c, err := NewConnection(netConn, tb.meta, tb.connOpts)
+		c, err := NewConn(netConn, tb.meta, tb.connOpts)
 		if err != nil {
 			return nil, errors.Wrap(err)
 		}
@@ -810,43 +810,52 @@ func (tb *transpBase[L]) untrackConn(ctx context.Context, conn *trackedConn) {
 }
 
 func (tb *transpBase[L]) findConn(raddr, laddr netip.AddrPort, host string) (*trackedConn, bool) {
-	if conns, ok := tb.connMap.Load(raddr); ok {
-		if laddr.IsValid() {
-			if c, ok := conns.Load(laddr); ok {
-				if !c.isClosed() && c.VerifyHost(host) == nil {
-					return c, true
-				}
-
-				if c.isClosed() {
-					conns.CompareAndDelete(laddr, func(actual *trackedConn) bool { return actual == c })
-				}
-			}
-		} else {
-			for a, c := range conns.All() {
-				if !c.isClosed() && c.VerifyHost(host) == nil {
-					return c, true
-				}
-
-				if c.isClosed() {
-					conns.CompareAndDelete(a, func(actual *trackedConn) bool { return actual == c })
-				}
-			}
-		}
+	conns, ok := tb.connMap.Load(raddr)
+	if !ok {
+		return nil, false
 	}
 
+	matched := func(c *trackedConn) bool {
+		return !c.isClosed() && c.VerifyHost(host) == nil
+	}
+
+	if laddr.IsValid() {
+		c, ok := conns.Load(laddr)
+		if !ok {
+			return nil, false
+		}
+		if matched(c) {
+			return c, true
+		}
+		if c.isClosed() {
+			conns.CompareAndDelete(laddr, func(actual *trackedConn) bool { return actual == c })
+		}
+		return nil, false
+	}
+
+	for a, c := range conns.All() {
+		if matched(c) {
+			return c, true
+		}
+		if c.isClosed() {
+			conns.CompareAndDelete(a, func(actual *trackedConn) bool { return actual == c })
+		}
+	}
 	return nil, false
 }
 
 func (tb *transpBase[L]) dialConn(
 	ctx context.Context,
 	raddr netip.AddrPort,
-	opts AcquireConnectionOptions,
+	opts AcquireConnOptions,
 ) (*trackedConn, error) {
 	netConn, err := tb.connDlr.Dial(ctx, tb.meta.Network, raddr.String())
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
+	// The inbound serve context must not inherit dial ctx values
+	// (operation marker, element), only opts.ServeContext may customize it.
 	serveCtx := context.Background()
 	if opts.ServeContext != nil {
 		serveCtx = opts.ServeContext()
@@ -856,6 +865,7 @@ func (tb *transpBase[L]) dialConn(
 		}
 	}
 
+	//nolint:contextcheck // intentional: inbound context is independent of the dial context
 	conn, _, err := tb.serveConn(serveCtx, netConn, false)
 	if err != nil {
 		netConn.Close()
@@ -880,37 +890,41 @@ func (tb *transpBase[L]) readMsgs(ctx context.Context, msgs iter.Seq2[sip.Messag
 			msg = perr.Msg
 		}
 
-		if msg != nil {
-			switch msg := msg.(type) {
-			case *sip.RequestEnvelope:
-				if err := tb.recvReqSafe(ctx, msg, errors.Wrap(err)); err != nil && stopOnPanic {
-					// stop on panics only if not listener connection
-					return errors.Wrap(err)
-				}
-			case *sip.ResponseEnvelope:
-				if err := tb.recvResSafe(ctx, msg, errors.Wrap(err)); err != nil && stopOnPanic {
-					// stop on panics only if not listener connection
-					return errors.Wrap(err)
-				}
-			default:
-				if tb.handleCustomMsg != nil {
-					tb.handleCustomMsg(msg)
-				} else {
-					tb.log.WarnContext(
-						ctx, "unsupported inbound message received",
-						slog.Any("message", msg),
-					)
-				}
-			}
+		if err := tb.dispatchMsg(ctx, msg, err); err != nil && stopOnPanic {
+			// stop on panics only if not listener connection
+			return errors.Wrap(err)
 		}
 
 		if perr != nil && tb.meta.Streamed() {
 			// stop on broken stream
-			return errors.Wrap(NewBrokenConnectionStreamError(err))
+			return errors.Wrap(NewBrokenConnStreamError(err))
 		}
 	}
 
 	return nil
+}
+
+func (tb *transpBase[L]) dispatchMsg(ctx context.Context, msg sip.Message, err error) error {
+	if msg == nil {
+		return nil
+	}
+
+	switch msg := msg.(type) {
+	case *sip.RequestEnvelope:
+		return tb.recvReqSafe(ctx, msg, errors.Wrap(err))
+	case *sip.ResponseEnvelope:
+		return tb.recvResSafe(ctx, msg, errors.Wrap(err))
+	default:
+		if tb.handleCustomMsg != nil {
+			tb.handleCustomMsg(msg)
+		} else {
+			tb.log.WarnContext(ctx,
+				"unsupported inbound message received",
+				slog.Any("message", msg),
+			)
+		}
+		return nil
+	}
 }
 
 func (tb *transpBase[L]) recvReqSafe(ctx context.Context, req *sip.RequestEnvelope, err error) (finErr error) {
@@ -1171,12 +1185,12 @@ func (tb *transpBase[L]) SendRequest(
 			tb.OutboundRequestInterceptors.All(),
 			func(i sip.OutboundRequestInterceptor) bool { return i != nil },
 		)),
-		sip.RequestSenderFunc(tb.sendRequest),
+		sip.RequestSenderFunc(tb.sendReq),
 	)
 	return errors.Wrap(sender.SendRequest(ctx, req, opts...))
 }
 
-func (tb *transpBase[L]) sendRequest(
+func (tb *transpBase[L]) sendReq(
 	ctx context.Context,
 	req *sip.RequestEnvelope,
 	opts ...sip.SendRequestOptions,
@@ -1193,14 +1207,14 @@ func (tb *transpBase[L]) sendRequest(
 	}
 	req.SetRemoteAddr(raddr)
 
-	acqOpts := AcquireConnectionOptions{
+	acqOpts := AcquireConnOptions{
 		LocalAddr: req.LocalAddr(),
 		Dial:      true,
 	}
 	if u, ok := req.URI().(*sip.URI); ok && u.Secured {
 		acqOpts.Host = u.Addr.Host()
 	}
-	conn, err := tb.impl.AcquireConnection(ctx, raddr, acqOpts)
+	conn, err := tb.impl.AcquireConn(ctx, raddr, acqOpts)
 	if err != nil {
 		return errors.Wrap(err)
 	}
@@ -1218,7 +1232,7 @@ func (tb *transpBase[L]) sendRequest(
 		return errors.Wrap(err)
 	}
 
-	sendOpts := util.LastSliceElemOr(opts, sip.SendRequestOptions{})
+	sendOpts := util.LastSliceElem(opts, sip.SendRequestOptions{})
 
 	return errors.Wrap(conn.WriteMessage(ctx, req, raddr, sendOpts.RenderOptions))
 }
@@ -1248,13 +1262,13 @@ func (tb *transpBase[L]) SendResponse(
 			tb.OutboundResponseInterceptors.All(),
 			func(i sip.OutboundResponseInterceptor) bool { return i != nil },
 		)),
-		sip.ResponseSenderFunc(tb.sendResponse),
+		sip.ResponseSenderFunc(tb.sendRes),
 	)
 	return errors.Wrap(sender.SendResponse(ctx, res, opts...))
 }
 
-//nolint:gocognit
-func (tb *transpBase[L]) sendResponse(
+//nolint:gocognit // response send orchestration branches per message and transport state
+func (tb *transpBase[L]) sendRes(
 	ctx context.Context,
 	res *sip.ResponseEnvelope,
 	opts ...sip.SendResponseOptions,
@@ -1283,9 +1297,9 @@ func (tb *transpBase[L]) sendResponse(
 		return errors.ErrorfWrap("unexpected Via transport %q", via.Transport)
 	}
 
-	sendOpts := util.LastSliceElemOr(opts, sip.SendResponseOptions{})
+	sendOpts := util.LastSliceElem(opts, sip.SendResponseOptions{})
 
-	conn, err := tb.impl.AcquireConnection(ctx, res.RemoteAddr(), AcquireConnectionOptions{
+	conn, err := tb.impl.AcquireConn(ctx, res.RemoteAddr(), AcquireConnOptions{
 		LocalAddr: res.LocalAddr(),
 		// TODO: how to verify host of response on secured transport?
 		// Host: ...,
@@ -1301,7 +1315,10 @@ func (tb *transpBase[L]) sendResponse(
 		}
 	}
 
-	if errors.Is(err, ErrTransportClosed) || errors.Is(err, ctx.Err()) {
+	// A nil error means the response connection fell through to the RFC
+	// 3261 Section 18.2.2 resolution: checking ctx.Err() here would compare
+	// nil to nil and return before any write is attempted.
+	if err != nil && (errors.Is(err, ErrTransportClosed) || errors.Is(err, ctx.Err())) {
 		return errors.Wrap(err)
 	}
 
@@ -1312,8 +1329,13 @@ func (tb *transpBase[L]) sendResponse(
 
 		res.SetRemoteAddr(raddr.Addr)
 
-		if conn == nil || conn.RemoteAddr().IsValid() && conn.RemoteAddr() != raddr.Addr {
-			if conn, err = tb.impl.AcquireConnection(ctx, raddr.Addr, AcquireConnectionOptions{
+		// Re-acquire whenever the current connection cannot carry the
+		// response to this candidate address: no connection, a connection
+		// without a valid remote (for example a conn-oriented listener
+		// pseudo-connection that cannot write), or a connection bound to
+		// a different remote.
+		if conn == nil || !conn.RemoteAddr().IsValid() || conn.RemoteAddr() != raddr.Addr {
+			if conn, err = tb.impl.AcquireConn(ctx, raddr.Addr, AcquireConnOptions{
 				LocalAddr: res.LocalAddr(),
 				Dial:      true,
 				// TODO: how to verify host of response on secured transport?
@@ -1356,7 +1378,7 @@ func (tb *transpBase[L]) Respond(
 		return errors.Wrap(NewTransportClosedError())
 	}
 
-	resOpts := util.LastSliceElemOr(opts, sip.RespondOptions{})
+	resOpts := util.LastSliceElem(opts, sip.RespondOptions{})
 	if resOpts.ResponseOptions.LocalTag == "" {
 		req.WithMessage(func(r *sip.Request) {
 			resOpts.ResponseOptions.LocalTag = sip.GenerateStableToTag(r, []byte(tb.pubAddr.String()))

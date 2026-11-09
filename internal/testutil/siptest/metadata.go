@@ -27,7 +27,7 @@ func (p MetadataProvider) TransportMetadataByProto(proto sip.TransportProto) (si
 // TransportMetadataByNAPTRService returns the first case-insensitive service match.
 func (p MetadataProvider) TransportMetadataByNAPTRService(service string) (sip.TransportMetadata, bool) {
 	for _, meta := range p.Metas {
-		if util.EqFold(meta.NAPTRService, service) {
+		if util.EqualFold(meta.NAPTRService, service) {
 			return meta, true
 		}
 	}

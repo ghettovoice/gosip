@@ -10,26 +10,24 @@ import (
 	"github.com/ghettovoice/gosip/internal/ioutil"
 )
 
-type errorWriter struct {
+type errWriter struct {
 	failAfter int
 	written   int
 }
 
-func (ew *errorWriter) Write(p []byte) (n int, err error) {
-	if ew.written >= ew.failAfter {
+func (w *errWriter) Write(p []byte) (n int, err error) {
+	if w.written >= w.failAfter {
 		return 0, errors.New("write failed")
 	}
 
 	n = len(p)
-	if ew.written+n > ew.failAfter {
-		n = ew.failAfter - ew.written
+	if w.written+n > w.failAfter {
+		n = w.failAfter - w.written
 	}
-
-	ew.written += n
+	w.written += n
 	if n < len(p) {
 		return n, errors.New("write failed")
 	}
-
 	return n, nil
 }
 
@@ -43,11 +41,9 @@ func TestCountingWriter_Write(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %+v", err)
 	}
-
 	if n != 5 {
 		t.Errorf("expected 5 bytes written, got %d", n)
 	}
-
 	if cw.Count() != 5 {
 		t.Errorf("expected count 5, got %d", cw.Count())
 	}
@@ -56,11 +52,9 @@ func TestCountingWriter_Write(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %+v", err)
 	}
-
 	if n != 6 {
 		t.Errorf("expected 6 bytes written, got %d", n)
 	}
-
 	if cw.Count() != 11 {
 		t.Errorf("expected count 11, got %d", cw.Count())
 	}
@@ -80,11 +74,9 @@ func TestCountingWriter_WriteString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %+v", err)
 	}
-
 	if n != 4 {
 		t.Errorf("expected 4 bytes written, got %d", n)
 	}
-
 	if cw.Count() != 4 {
 		t.Errorf("expected count 4, got %d", cw.Count())
 	}
@@ -100,11 +92,9 @@ func TestCountingWriter_Fprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %+v", err)
 	}
-
 	if n != 11 {
 		t.Errorf("expected 11 bytes written, got %d", n)
 	}
-
 	if cw.Count() != 11 {
 		t.Errorf("expected count 11, got %d", cw.Count())
 	}
@@ -124,11 +114,9 @@ func TestCountingWriter_Fprintf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %+v", err)
 	}
-
 	if n != 10 {
 		t.Errorf("expected 10 bytes written, got %d", n)
 	}
-
 	if cw.Count() != 10 {
 		t.Errorf("expected count 10, got %d", cw.Count())
 	}
@@ -140,21 +128,17 @@ func TestCountingWriter_Call(t *testing.T) {
 	buf := &bytes.Buffer{}
 	cw := &ioutil.CountingWriter{Writer: buf}
 
-	renderFunc := func(w io.Writer) (int, error) {
+	cw.Call(func(w io.Writer) (int, error) {
 		return fmt.Fprint(w, "test")
-	}
-
-	cw.Call(renderFunc)
+	})
 
 	num, err := cw.Result()
 	if err != nil {
 		t.Fatalf("unexpected error: %+v", err)
 	}
-
 	if num != 4 {
 		t.Errorf("expected 4 bytes written, got %d", num)
 	}
-
 	if buf.String() != "test" {
 		t.Errorf("expected 'test', got %q", buf.String())
 	}
@@ -163,7 +147,7 @@ func TestCountingWriter_Call(t *testing.T) {
 func TestCountingWriter_ErrorPropagation(t *testing.T) {
 	t.Parallel()
 
-	ew := &errorWriter{failAfter: 5}
+	ew := &errWriter{failAfter: 5}
 	cw := &ioutil.CountingWriter{Writer: ew}
 
 	// First write should succeed
@@ -171,7 +155,6 @@ func TestCountingWriter_ErrorPropagation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error on first write: %+v", err)
 	}
-
 	if n != 5 {
 		t.Errorf("expected 5 bytes written, got %d", n)
 	}
@@ -181,7 +164,6 @@ func TestCountingWriter_ErrorPropagation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on second write")
 	}
-
 	if n != 0 {
 		t.Errorf("expected 0 bytes written on error, got %d", n)
 	}
@@ -191,11 +173,9 @@ func TestCountingWriter_ErrorPropagation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected cached error")
 	}
-
 	if n != 0 {
 		t.Errorf("expected 0 bytes written on cached error, got %d", n)
 	}
-
 	if cw.Count() != 5 {
 		t.Errorf("expected count 5, got %d", cw.Count())
 	}
@@ -216,7 +196,6 @@ func TestCountingWriter_Chaining(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %+v", err)
 	}
-
 	if num != 3 {
 		t.Errorf("expected 3 bytes written, got %d", num)
 	}
@@ -226,26 +205,22 @@ func TestCountingWriter_Chaining(t *testing.T) {
 	}
 }
 
-func TestCountingWriter_CallChaining(t *testing.T) {
+func TestCountingWriter_Call_Chaining(t *testing.T) {
 	t.Parallel()
 
 	buf := &bytes.Buffer{}
 	cw := &ioutil.CountingWriter{Writer: buf}
 
-	render1 := func(w io.Writer) (int, error) {
+	cw.Call(func(w io.Writer) (int, error) {
 		return fmt.Fprint(w, "a")
-	}
-	render2 := func(w io.Writer) (int, error) {
+	}).Call(func(w io.Writer) (int, error) {
 		return fmt.Fprint(w, "b")
-	}
-
-	cw.Call(render1).Call(render2)
+	})
 
 	num, err := cw.Result()
 	if err != nil {
 		t.Fatalf("unexpected error: %+v", err)
 	}
-
 	if num != 2 {
 		t.Errorf("expected 2 bytes written, got %d", num)
 	}
@@ -255,29 +230,24 @@ func TestCountingWriter_CallChaining(t *testing.T) {
 	}
 }
 
-func TestCountingWriter_CallErrorStopsChain(t *testing.T) {
+func TestCountingWriter_Call_ErrorStopsChain(t *testing.T) {
 	t.Parallel()
 
 	buf := &bytes.Buffer{}
 	cw := &ioutil.CountingWriter{Writer: buf}
 
-	render1 := func(w io.Writer) (int, error) {
+	cw.Call(func(w io.Writer) (int, error) {
 		return fmt.Fprint(w, "a")
-	}
-	renderErr := func(w io.Writer) (int, error) {
+	}).Call(func(w io.Writer) (int, error) {
 		return 0, errors.New("render error")
-	}
-	render2 := func(w io.Writer) (int, error) {
+	}).Call(func(w io.Writer) (int, error) {
 		return fmt.Fprint(w, "b")
-	}
-
-	cw.Call(render1).Call(renderErr).Call(render2)
+	})
 
 	num, err := cw.Result()
 	if err == nil {
 		t.Fatal("expected error from chain")
 	}
-
 	if num != 1 {
 		t.Errorf("expected 1 byte written before error, got %d", num)
 	}

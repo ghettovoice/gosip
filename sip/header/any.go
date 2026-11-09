@@ -3,7 +3,6 @@ package header
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
@@ -23,26 +22,24 @@ func (hdr *Any) CanonicName() Name { return CanonicName(hdr.Name) }
 
 func (hdr *Any) CompactName() Name { return CanonicName(hdr.Name) }
 
-func (hdr *Any) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr *Any) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(fmt.Fprint(w, hdr.CanonicName(), ": ", hdr.RenderValue()))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr *Any) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(io.WriteString(w, hdr.Value))
 }
 
 func (hdr *Any) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
-func (hdr *Any) String() string { return hdr.RenderValue() }
+func (hdr *Any) String() string {
+	return hdr.RenderValue()
+}
 
 // RenderValue returns the header value without the name prefix.
 func (hdr *Any) RenderValue() string {
@@ -53,61 +50,33 @@ func (hdr *Any) RenderValue() string {
 }
 
 func (hdr *Any) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods Any
-			Any         hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*Any)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods Any
+		Any         hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*Any)(hdr))
 }
 
 func (hdr *Any) Clone() Header {
 	if hdr == nil {
 		return nil
 	}
-
-	hdr2 := *hdr
-	return &hdr2
+	clone := *hdr
+	return &clone
 }
 
 func (hdr *Any) Equal(val any) bool {
-	var other *Any
-	switch v := val.(type) {
-	case Any:
-		other = &v
-	case *Any:
-		other = v
-	default:
-		return false
-	}
-
-	if hdr == other {
-		return true
-	} else if hdr == nil || other == nil {
-		return false
-	}
-
-	return util.EqFold(hdr.Name, other.Name) && hdr.Value == other.Value
+	return util.EqualPointer(hdr, val, func(other *Any) bool {
+		return util.EqualFold(hdr.Name, other.Name) && hdr.Value == other.Value
+	})
 }
 
-func (hdr *Any) IsValid() bool { return hdr != nil && grammar.IsToken(hdr.Name) }
+func (hdr *Any) IsValid() bool {
+	return hdr != nil && grammar.IsToken(hdr.Name)
+}
 
 func (hdr *Any) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))
@@ -118,5 +87,8 @@ func (hdr *Any) UnmarshalJSON(data []byte) error {
 }
 
 func buildFromExtensionHeaderNode(node *abnf.Node) *Any {
-	return &Any{node.Children[0].String(), grammar.MustGetNode(node, "header-value").String()}
+	return &Any{
+		node.Children[0].String(),
+		grammar.MustGetNode(node, "header-value").String(),
+	}
 }

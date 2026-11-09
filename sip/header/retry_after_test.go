@@ -80,12 +80,10 @@ func TestRetryAfter_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.hdr.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", tt.hdr, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -282,7 +280,6 @@ func TestRetryAfter_MarshalJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(string(got), tt.want); diff != "" {
 				t.Fatalf("json.Marshal() = %q, want %q\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
@@ -376,7 +373,6 @@ func TestRetryAfter_RoundTripJSON(t *testing.T) {
 			if err := json.Unmarshal(data, &got); err != nil {
 				t.Fatalf("json.Unmarshal() error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(got, tt.hdr); diff != "" {
 				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}

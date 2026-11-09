@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
@@ -21,92 +20,57 @@ func (Accept) CanonicName() Name { return "Accept" }
 
 func (Accept) CompactName() Name { return "Accept" }
 
-func (hdr Accept) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr Accept) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr Accept) renderValueTo(w io.Writer) (num int, err error) {
-	return errors.Wrap2(renderHdrEntries(w, hdr))
+func (hdr Accept) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrValsTo(w, hdr))
 }
 
 func (hdr Accept) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 func (hdr Accept) RenderValue() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrVal(hdr)
 }
 
-func (hdr Accept) String() string { return hdr.RenderValue() }
+func (hdr Accept) String() string {
+	return hdr.RenderValue()
+}
 
 func (hdr Accept) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods Accept
-			Accept      hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), Accept(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods Accept
+		Accept      hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), Accept(hdr))
 }
 
-func (hdr Accept) Clone() Header { return cloneHdrEntries(hdr) }
+func (hdr Accept) Clone() Header {
+	return cloneHdrVals(hdr)
+}
 
 func (hdr Accept) Equal(val any) bool {
-	var other Accept
-	switch v := val.(type) {
-	case Accept:
-		other = v
-	case *Accept:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(rng1, rng2 MIMERange) bool { return rng1.Equal(rng2) })
+	return util.EqualValue(val, func(other Accept) bool {
+		return slices.EqualFunc(hdr, other, func(rng1, rng2 MIMERange) bool {
+			return rng1.Equal(rng2)
+		})
+	})
 }
 
 func (hdr Accept) IsValid() bool {
-	return hdr != nil && !slices.ContainsFunc(hdr, func(rng MIMERange) bool { return !rng.IsValid() })
+	return hdr != nil &&
+		!slices.ContainsFunc(hdr, func(rng MIMERange) bool {
+			return !rng.IsValid()
+		})
 }
 
 func (hdr Accept) MarshalJSON() ([]byte, error) {
@@ -132,57 +96,42 @@ type MIMERange struct {
 }
 
 func (rng MIMERange) String() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
+	return renderVal(rng)
+}
 
-	sb.WriteString(rng.MIMEType.String())
-	_, _ = renderHdrParams(sb, rng.Params, len(rng.MIMEType.Params) > 0)
-	return sb.String()
+func (rng MIMERange) renderTo(w io.Writer) (num int, err error) {
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Call(rng.MIMEType.renderTo)
+	cw.Call(func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderHdrParamsTo(w, rng.Params, len(rng.MIMEType.Params) > 0))
+	})
+	return errors.Wrap2(cw.Result())
 }
 
 func (rng MIMERange) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		fmt.Fprint(f, rng.String())
-		return
-	case 'q':
-		fmt.Fprint(f, strconv.Quote(rng.String()))
-		return
-	default:
-		if !f.Flag('+') && !f.Flag('#') {
-			fmt.Fprint(f, rng.String())
-			return
-		}
-
-		type (
-			hideMethods MIMERange
-			MIMERange   hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), MIMERange(rng))
+	if formatVal(f, verb, rng) {
 		return
 	}
+	type (
+		hideMethods MIMERange
+		MIMERange   hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), MIMERange(rng))
 }
 
 func (rng MIMERange) Equal(val any) bool {
-	var other MIMERange
-	switch v := val.(type) {
-	case MIMERange:
-		other = v
-	case *MIMERange:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return rng.MIMEType.Equal(other.MIMEType) && compareHdrParams(rng.Params, other.Params, map[string]bool{"q": true})
+	return util.EqualValue(val, func(other MIMERange) bool {
+		return rng.MIMEType.Equal(other.MIMEType) &&
+			compareHdrParams(rng.Params, other.Params, map[string]bool{
+				"q": true,
+			})
+	})
 }
 
 func (rng MIMERange) IsValid() bool {
-	return rng.MIMEType.IsValid() &&
-		validateHdrParams(rng.Params)
+	return rng.MIMEType.IsValid() && validateHdrParams(rng.Params)
 }
 
 func (rng MIMERange) IsZero() bool {
@@ -231,14 +180,12 @@ func (rng *MIMERange) UnmarshalText(data []byte) (finErr error) {
 func buildFromAcceptRangeNode(node *abnf.Node) MIMERange {
 	mt, ps := buildFromMIMETypeNode(grammar.MustGetNode(node, "media-range"))
 	rng := MIMERange{MIMEType: mt}
-
 	if len(ps) > 0 {
 		rng.Params = make(Values, len(ps))
 		for _, kv := range ps {
 			rng.Params.Append(kv[0], kv[1])
 		}
 	}
-	rng.Params = buildFromHeaderParamNodes(node.GetNodes("accept-param"), rng.Params)
-
+	rng.Params = buildFromHdrParamNodes(node.GetNodes("accept-param"), rng.Params)
 	return rng
 }

@@ -12,25 +12,25 @@ func TestResolver_Init_ResolvedDialer(t *testing.T) {
 	t.Run("nil dialer resolves default", func(t *testing.T) {
 		t.Parallel()
 
-		r := &Resolver{NameServer: "127.0.0.1:53"}
-		if err := r.initIfNeeded(); err != nil {
+		rslvr := &Resolver{NameServer: "127.0.0.1:53"}
+		if err := rslvr.initIfNeeded(); err != nil {
 			t.Fatalf("r.initIfNeeded() error = %v, want nil", err)
 		}
 
-		if r.dialer == nil {
+		if rslvr.netDlr == nil {
 			t.Fatal("r.dialer = nil, want non-nil default dialer")
 		}
-		if r.dialer.Timeout != 5*time.Second {
-			t.Errorf("r.dialer.Timeout = %v, want %v", r.dialer.Timeout, 5*time.Second)
+		if rslvr.netDlr.Timeout != 5*time.Second {
+			t.Errorf("r.dialer.Timeout = %v, want %v", rslvr.netDlr.Timeout, 5*time.Second)
 		}
-		if r.dialer.KeepAlive != 3*time.Second {
-			t.Errorf("r.dialer.KeepAlive = %v, want %v", r.dialer.KeepAlive, 3*time.Second)
+		if rslvr.netDlr.KeepAlive != 3*time.Second {
+			t.Errorf("r.dialer.KeepAlive = %v, want %v", rslvr.netDlr.KeepAlive, 3*time.Second)
 		}
-		if r.Dialer != nil {
-			t.Errorf("r.Dialer = %v, want unchanged nil", r.Dialer)
+		if rslvr.Dialer != nil {
+			t.Errorf("r.Dialer = %v, want unchanged nil", rslvr.Dialer)
 		}
-		if r.nameSrv != "127.0.0.1:53" || r.netRslvr == nil {
-			t.Errorf("r.nameSrv = %q, r.netRslvr = %v, want resolved values", r.nameSrv, r.netRslvr)
+		if rslvr.nameSrv != "127.0.0.1:53" || rslvr.netRslvr == nil {
+			t.Errorf("r.nameSrv = %q, r.netResolver = %v, want resolved values", rslvr.nameSrv, rslvr.netRslvr)
 		}
 	})
 
@@ -42,19 +42,19 @@ func TestResolver_Init_ResolvedDialer(t *testing.T) {
 			KeepAlive: -1,
 			LocalAddr: &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 55333},
 		}
-		r := &Resolver{NameServer: "127.0.0.1:53", Dialer: custom}
-		if err := r.initIfNeeded(); err != nil {
+		rslvr := &Resolver{NameServer: "127.0.0.1:53", Dialer: custom}
+		if err := rslvr.initIfNeeded(); err != nil {
 			t.Fatalf("r.initIfNeeded() error = %v, want nil", err)
 		}
 
-		if r.dialer != custom {
-			t.Fatalf("r.dialer = %p, want custom dialer %p", r.dialer, custom)
+		if rslvr.netDlr != custom {
+			t.Fatalf("r.dialer = %p, want custom dialer %p", rslvr.netDlr, custom)
 		}
-		if r.Dialer != custom {
-			t.Errorf("r.Dialer = %p, want unchanged %p", r.Dialer, custom)
+		if rslvr.Dialer != custom {
+			t.Errorf("r.Dialer = %p, want unchanged %p", rslvr.Dialer, custom)
 		}
-		if r.dialer.Timeout != time.Second || r.dialer.KeepAlive != -1 {
-			t.Errorf("r.dialer = %+v, want custom settings preserved", r.dialer)
+		if rslvr.netDlr.Timeout != time.Second || rslvr.netDlr.KeepAlive != -1 {
+			t.Errorf("r.dialer = %+v, want custom settings preserved", rslvr.netDlr)
 		}
 	})
 }

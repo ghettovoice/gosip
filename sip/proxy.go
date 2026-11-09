@@ -3,82 +3,149 @@ package sip
 import (
 	"context"
 	"fmt"
-	"iter"
 	"log/slog"
-	"net/netip"
 	"slices"
+	"sync"
+	"sync/atomic"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/netutil"
-	"github.com/ghettovoice/gosip/internal/syncutil"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
+	"github.com/ghettovoice/gosip/pkg/errclass"
 	"github.com/ghettovoice/gosip/pkg/log"
-	"github.com/ghettovoice/gosip/sip/header"
 )
 
+// Proxy is a SIP proxy middleware for an [Element].
+// It claims inbound requests matching its routes and forwards them according
+// to the route configuration.
 type Proxy struct {
 	elm         *Element
 	routes      []ProxyRoute
-	locAddrs    []Addr
-	fwdCtxStore ForwardContextStore
+	opts        ProxyOptions
+	selfAddrs   []Addr
+	domainAddrs []Addr
+	unbind      func()
+
+	// slFallbackKey is the instance-local random key reserved for the
+	// stateless sends a stateful-only proxy must still perform without a
+	// transaction: the mandatory unmatched-CANCEL path of RFC 3261
+	// Section 16.10 and the end-to-end ACK. It is generated only when no
+	// [ProxyOptions.StatelessKey] is configured and never authorizes an
+	// explicitly stateless route.
+	slFallbackKey []byte
+
+	// closed commits the lifecycle end: admission is sealed before any
+	// detach work runs, so no new request claim, request or restore
+	// registration, or observer bind can succeed afterwards.
+	closed atomic.Bool
+
+	// closeOnce runs the shared one-shot shutdown exactly once for both
+	// [Proxy.Shutdown] and [Proxy.Close].
+	closeOnce sync.Once
+
+	// subMu guards the observer and snapshot subscription unbinds tracked
+	// for lifecycle release. It is never held while an unbind or a
+	// dispatched callback runs.
+	subMu  sync.Mutex
+	subSeq uint64
+	subs   map[uint64]func()
+
+	// reqsMu guards srvRqs, the index of owned requests by their upstream
+	// server transaction key. It only protects index lookups and updates;
+	// request decisions stay serialized inside each request's own drain.
+	reqsMu sync.Mutex
+	srvRqs map[ServerTransactionKey]*ProxyRequest
+
+	// onSnap manages the request snapshot subscriptions of
+	// [Proxy.BindSnapshotHandler].
+	onSnap shared.CallbackManager[ProxyRequestSnapshotHandler]
+
+	// onEvent manages the observation event subscriptions of
+	// [Proxy.BindEventHandler].
+	onEvent shared.CallbackManager[ProxyEventHandler]
+
+	// rejSends correlates answered rejections of coordinator-less
+	// operations — an early matched rejection or a failed stateless
+	// traversal — with their pending upstream response sends, keyed by the
+	// normalized server transaction identity. It only bridges an
+	// interceptor return and the transport's answering send; the FIFO
+	// order bounds it to a few in-flight records, never history.
+	rejMu    sync.Mutex
+	rejSends map[ServerTransactionKey]*prxRejectionSend
+	rejOrd   []ServerTransactionKey
 }
 
 var (
-	_ InboundRequestInterceptor  = (*Proxy)(nil)
-	_ InboundResponseInterceptor = (*Proxy)(nil)
+	_ InboundRequestInterceptor   = (*Proxy)(nil)
+	_ InboundResponseInterceptor  = (*Proxy)(nil)
+	_ OutboundResponseInterceptor = (*Proxy)(nil)
 )
 
-type ProxyOptions struct {
-	LocalAddrs          []Addr
-	ForwardContextStore ForwardContextStore
-}
-
-func (o ProxyOptions) locAddrs() []Addr {
-	if len(o.LocalAddrs) > 0 {
-		return o.LocalAddrs
-	}
-
-	addrs := make([]Addr, 0, 2)
-
-	for ip := range netutil.AllHostIPs() {
-		addrs = append(addrs, MakeIPAddr(ip))
-	}
-
-	addrs = append(
-		addrs,
-		MakeHostAddr("localhost"),
-		MakeHostAddr("127.0.0.1"),
-	)
-
-	return addrs
-}
-
-func (o ProxyOptions) fwdCtxStore() ForwardContextStore {
-	if o.ForwardContextStore == nil {
-		return &MemoryForwardContextStore{}
-	}
-	return o.ForwardContextStore
-}
-
+// NewProxy creates a [Proxy] middleware bound to the element.
+//
+// Routes and options are validated and copied: later changes to the caller's
+// slices, maps, and URIs do not affect the running proxy, and a failed
+// construction installs no middleware. The constructor rejects a nil element,
+// duplicate route names, unsupported forward modes or non-INVITE server
+// transaction behaviors, and out-of-range Timer C values.
 func NewProxy(elm *Element, routes []ProxyRoute, opts ...ProxyOptions) (*Proxy, error) {
 	if elm == nil {
 		return nil, errors.ErrorWrap("nil element")
 	}
 
-	o := util.LastSliceElemOr(opts, ProxyOptions{})
-	prx := &Proxy{
-		elm:         elm,
-		routes:      routes,
-		locAddrs:    o.locAddrs(),
-		fwdCtxStore: o.fwdCtxStore(),
+	o := util.LastSliceElem(opts, ProxyOptions{}).clone()
+	if err := o.validate(); err != nil {
+		return nil, errors.Wrap(err)
+	}
+	o.TimerC = o.timeC()
+
+	ownedRoutes := slices.Clone(routes)
+	names := make(map[string]struct{}, len(ownedRoutes))
+	for i := range ownedRoutes {
+		r := &ownedRoutes[i]
+		if err := r.validate(); err != nil {
+			return nil, errors.Wrap(err)
+		}
+		if r.ForwardMode == ForwardModeStateless && len(o.StatelessKey) == 0 {
+			return nil, errors.ErrorfWrap(
+				"stateless proxy route %q requires a configured StatelessKey", r.Name,
+			)
+		}
+		if _, dup := names[r.Name]; dup {
+			return nil, errors.ErrorfWrap("duplicate proxy route name %q", r.Name)
+		}
+		names[r.Name] = struct{}{}
 	}
 
-	// TODO: restore/reload all forward contexts and related transactions to rebuild proxy state
-
-	elm.UseMiddleware(prx)
-
+	prx := &Proxy{
+		elm:         elm,
+		routes:      ownedRoutes,
+		opts:        o,
+		selfAddrs:   prxIdentityAddrs(o.LocalIdentities),
+		domainAddrs: prxDomainAddrs(o.ServedDomains),
+		srvRqs:      make(map[ServerTransactionKey]*ProxyRequest),
+	}
+	if len(o.StatelessKey) == 0 {
+		prx.slFallbackKey = []byte(util.RandString(32))
+	}
+	prx.unbind = elm.UseMiddleware(prx)
 	return prx, nil
+}
+
+func prxIdentityAddrs(ids []*URI) []Addr {
+	addrs := make([]Addr, 0, len(ids))
+	for _, u := range ids {
+		addrs = append(addrs, u.Addr)
+	}
+	return addrs
+}
+
+func prxDomainAddrs(domains []string) []Addr {
+	addrs := make([]Addr, 0, len(domains))
+	for _, d := range domains {
+		addrs = append(addrs, MakeHostAddr(d))
+	}
+	return addrs
 }
 
 func (prx *Proxy) LogValue() slog.Value {
@@ -91,32 +158,34 @@ func (prx *Proxy) LogValue() slog.Value {
 	)
 }
 
-const proxyRouteMetaKey = "sip.proxy_route"
+func (prx *Proxy) logger(ctx context.Context) *slog.Logger {
+	return log.LoggerFromValues(ctx, prx.elm)
+}
 
-type proxyProcessStep = func(context.Context, *ProxyRoute, *RequestEnvelope) error
+const prxRouteMetaKey = "sip.proxy_route"
 
 func (prx *Proxy) InterceptInboundRequest(
 	ctx context.Context,
 	next RequestReceiver,
 	req *RequestEnvelope,
 ) error {
+	if prx.closed.Load() {
+		// A sealed proxy claims nothing: the request continues down the
+		// receiver chain as if no route matched.
+		return errors.Wrap(next.RecvRequest(ctx, req))
+	}
+
 	route := prx.shouldForwardReq(ctx, req)
 	if route == nil {
 		return errors.Wrap(next.RecvRequest(ctx, req))
 	}
 
-	req.Metadata().Set(proxyRouteMetaKey, route.Name)
+	req.Metadata().Set(prxRouteMetaKey, route.Name)
 
-	if route.Logger == nil {
-		route.Logger = log.LoggerFromValues(ctx, prx.elm)
-	}
-
-	route.Logger = route.Logger.With(
+	prx.logger(ctx).With(
 		slog.Any("inbound_request", req),
 		slog.Any("proxy_route", route),
-	)
-
-	route.Logger.DebugContext(ctx, "proxy route resolved")
+	).DebugContext(ctx, "proxy route resolved")
 
 	// For all new inbound requests, including any with unknown methods,
 	// an element intending to proxy the request MUST:
@@ -128,42 +197,84 @@ func (prx *Proxy) InterceptInboundRequest(
 	// 	6. Forward the request to each target (Section 16.6);
 	// 	7. Process all responses (Section 16.7).
 
-	if err := prx.stepValidateReq(ctx, route, req); err != nil {
-		if errors.Is(err, errProxyRequestConsumed) {
-			return nil
-		}
-		return errors.Wrap(err)
+	if err := prx.validateReq(ctx, route, req); err != nil {
+		return prx.observedReqResult(ctx, route, req, err)
 	}
 
-	ctx, err := prx.stepInitReqSrvTx(ctx, route, req)
+	// A CANCEL is matched against the live response contexts before any
+	// location resolution: a matching CANCEL is acknowledged on its own
+	// transaction and cancels the pending branches of the related request,
+	// while an unmatched one takes the deterministic stateless forwarding
+	// of Section 16.10.
+	if req.Method().Equal(RequestMethodCancel) {
+		return prx.observedReqResult(ctx, route, req, prx.handleCancel(ctx, route, req))
+	}
+
+	// An ACK never gains a response context: a non-2xx ACK is dispatched
+	// to the matching INVITE server transaction and absorbed by its
+	// retransmission handling, while an end-to-end ACK is routed through
+	// the same prepared-target path without a transaction or a provisional
+	// generation.
+	if req.Method().Equal(RequestMethodAck) {
+		return prx.observedReqResult(ctx, route, req, prx.forwardAck(ctx, route, req))
+	}
+
+	// Stateful forwarding is driven by the per-request coordinator: the
+	// remaining pipeline stages run inside admission — server transaction
+	// admission and duplicate handling, authorization, routing preprocess
+	// and target resolution — and inside the coordinator drain: selection,
+	// outbound copy preparation, transport finalization and the attempt
+	// send.
+	if route.ForwardMode == ForwardModeStateful {
+		return prx.observedReqResult(ctx, route, req, prx.admitStatefulReq(ctx, route, req))
+	}
+
+	// Stateless forwarding prepares a deterministic destination and branch.
+	// Pre-send promotion to stateful admission continues from the accepted
+	// working request and complete target plan without repeating
+	// authorization, routing preprocessing, or target resolution.
+	if err := prx.authorizeReq(ctx, route, req); err != nil {
+		return prx.observedReqResult(ctx, route, req, err)
+	}
+
+	wReq, err := prx.preprocessRouting(ctx, route, req)
 	if err != nil {
-		if errors.Is(err, errProxyRequestConsumed) {
-			return nil
-		}
+		return prx.observedReqResult(ctx, route, req, err)
+	}
+
+	plan, err := prx.resolveTargets(ctx, route, wReq)
+	if err != nil {
+		return prx.observedReqResult(ctx, route, req, err)
+	}
+
+	return prx.observedReqResult(ctx, route, req, prx.forwardStatelessReq(ctx, route, req, wReq, plan))
+}
+
+// prxStepResult maps an internal request-consumption signal to a silent nil
+// result and wraps every other failure for the interceptor caller.
+func prxStepResult(err error) error {
+	switch {
+	case err == nil, errors.Is(err, errPrxReqConsumed):
+		return nil
+	default:
 		return errors.Wrap(err)
 	}
+}
 
-	for _, fn := range []proxyProcessStep{
-		prx.stepAuthorizeReq,
-		prx.stepPreprocessReqRouting,
-		prx.stepResolveReqTargets,
-		prx.stepForwardReq,
-	} {
-		if err := fn(ctx, route, req); err != nil {
-			if errors.Is(err, errProxyRequestConsumed) {
-				return nil
-			}
-			return errors.Wrap(err)
-		}
-	}
-
-	return nil
+// prxReqResult applies the method response rules at the pipeline exit for
+// every rejection source — an ACK is never answered and a CANCEL is never
+// authentication-challenged — then maps the internal request-consumption
+// signal and wraps every other failure for the interceptor caller.
+// RFC 3261 Sections 9.2 and 16.3.
+func prxReqResult(req *RequestEnvelope, err error) error {
+	return prxStepResult(adjustReqRejection(req, err))
 }
 
 func (prx *Proxy) shouldForwardReq(ctx context.Context, req *RequestEnvelope) *ProxyRoute {
-	for _, r := range prx.routes {
-		if r.MatchRequest(ctx, &r, req) {
-			return &r
+	for i := range prx.routes {
+		r := &prx.routes[i]
+		if r.MatchRequest == nil || r.MatchRequest(ctx, req) {
+			return r
 		}
 	}
 
@@ -171,237 +282,12 @@ func (prx *Proxy) shouldForwardReq(ctx context.Context, req *RequestEnvelope) *P
 }
 
 const (
-	errUnsupURIScheme       errors.Error = "unsupported URI scheme"
-	errToManyHops           errors.Error = "too many hops"
-	errUnsupOption          errors.Error = "unsupported option"
-	errAuthRequired         errors.Error = "authentication required"
-	errNoFwdTargets         errors.Error = "no forward targets"
-	errProxyRequestConsumed errors.Error = "proxy request consumed"
+	errUnsupURIScheme errors.Error = "unsupported URI scheme"
+	errTooManyHops    errors.Error = "too many hops"
+	errUnsupOption    errors.Error = "unsupported option"
+	errNoFwdTargets   errors.Error = "no forward targets"
+	errPrxReqConsumed errors.Error = "proxy request consumed"
 )
-
-// stepValidateReq validates the inbound request.
-// RFC 3261 Section 16.3.
-func (prx *Proxy) stepValidateReq(ctx context.Context, route *ProxyRoute, req *RequestEnvelope) error {
-	// 1. Reasonable syntax check
-	if err := req.Validate(); err != nil {
-		return errors.Wrap(&RequestRejectedError{
-			cause:  err,
-			resSts: ResponseStatusBadRequest,
-			logLvl: slog.LevelDebug,
-		})
-	}
-
-	// 2. URI scheme check
-	switch ruri := req.URI(); ruri.Scheme() {
-	case "sip", "sips":
-	default:
-		// TODO: maybe this callback should return *URI for further processing
-		if route.CheckRequestURI != nil {
-			if err := route.CheckRequestURI(ctx, route, req); err != nil {
-				return errors.Wrap(err)
-			}
-		}
-
-		return errors.Wrap(&RequestRejectedError{
-			cause:  errUnsupURIScheme,
-			resSts: ResponseStatusUnsupportedURIScheme,
-			logLvl: slog.LevelDebug,
-		})
-	}
-
-	if err := prx.validateReqHdrs(ctx, route, req); err != nil {
-		return errors.Wrap(err)
-	}
-
-	if route.ValidateRequest != nil {
-		if err := route.ValidateRequest(ctx, route, req); err != nil {
-			return errors.Wrap(err)
-		}
-	}
-
-	return nil
-}
-
-// validateReqHdrs executes validation checks on the request headers.
-// RFC 3261 Section 16.3.
-func (prx *Proxy) validateReqHdrs(ctx context.Context, route *ProxyRoute, req *RequestEnvelope) error {
-	var err error
-	req.WithMessage(func(r *Request) {
-		// 3. Max-Forwards check
-		if maxFwd, ok := r.Headers.MaxForwards(); ok && maxFwd == 0 {
-			err = errors.Wrap(&RequestRejectedError{
-				cause:  errToManyHops,
-				resSts: ResponseStatusTooManyHops,
-				logLvl: slog.LevelDebug,
-			})
-			return
-		}
-
-		// 4. Optional Loop Detection check
-		// if route.LoopDetection {
-		// 	for hop := range r.Headers.Vias() {
-		// 		if prx.elm.MatchViaHop(*hop) {
-		// 			// TODO: check branch Section 16.6 Step 8.
-		// 			_, _ = hop.Branch()
-		// 		}
-		// 	}
-		// }
-
-		// 5. Proxy-Require check
-		cpb := prx.elm.Capabilities()
-
-		var unsupOpts header.Unsupported
-		for opt := range r.Headers.ProxyRequireOptions() {
-			if !cpb.SupportsOption(opt) {
-				unsupOpts = append(unsupOpts, opt)
-			}
-		}
-
-		if len(unsupOpts) > 0 {
-			err = errors.Wrap(&RequestRejectedError{
-				cause:  errUnsupOption,
-				resSts: ResponseStatusBadExtension,
-				resOpts: RespondOptions{
-					ResponseOptions: ResponseOptions{
-						Headers: make(Headers).Set(unsupOpts),
-					},
-				},
-				logLvl: slog.LevelDebug,
-			})
-			return
-		}
-	})
-
-	if err == nil {
-		return nil
-	}
-
-	if errors.Is(err, errToManyHops) && req.Method().Equal(RequestMethodOptions) {
-		// TODO: make auto-response on OPTIONS optional?
-		cpb := prx.elm.Capabilities()
-
-		sendErr := prx.elm.Respond(ctx, req, ResponseStatusOK, RespondOptions{
-			ResponseOptions: ResponseOptions{
-				Headers: make(Headers).Set(
-					cpb.NewSupportedHeader(),
-					cpb.NewAcceptHeader(),
-					// cpb.NewAcceptEncodingHeader(),
-					// cpb.NewAcceptLanguageHeader(),
-				),
-			},
-		})
-		if sendErr == nil {
-			return nil
-		}
-
-		route.Logger.WarnContext(
-			ctx, "failed to auto respond '200 OK' on OPTIONS request",
-			slog.Any("error", sendErr),
-		)
-	}
-
-	return errors.Wrap(err)
-}
-
-// stepInitReqSrvTx setups new [ServerTransaction] for inbound request.
-// This step should be called right after validation step to prevent
-// occasional duplicate requests from being processed multiple times.
-func (prx *Proxy) stepInitReqSrvTx(
-	ctx context.Context,
-	route *ProxyRoute,
-	req *RequestEnvelope,
-) (context.Context, error) {
-	if route.ForwardMode != ForwardModeStateful {
-		return ctx, nil
-	}
-
-	tp, ok := prx.elm.TransportByProto(req.Transport().Proto)
-	if !ok {
-		for tp = range prx.elm.AllTransports() {
-			break
-		}
-	}
-
-	if tp == nil {
-		return nil, errors.Wrap(&RequestRejectedError{
-			cause:  NewNoTransportError(),
-			resSts: ResponseStatusServerInternalError,
-			logLvl: slog.LevelError,
-		})
-	}
-
-	srvTx, err := prx.elm.NewServerTransaction(ctx, req, tp, route.ServerTransactionOptions(ctx, route, req))
-	if errors.Is(err, ErrTransactionDuplicate) {
-		if key, keyErr := MakeServerTransactionKey(req); keyErr == nil {
-			if existTx, ok := prx.elm.LoadServerTransaction(key); ok {
-				if err := existTx.RecvRequest(ContextWithTransaction(ctx, existTx), req); err != nil {
-					return nil, errors.Wrap(err)
-				}
-				return ctx, errors.Wrap(errProxyRequestConsumed)
-			}
-		}
-		return nil, errors.Wrap(err)
-	}
-	if err != nil {
-		return nil, errors.Wrap(&RequestRejectedError{
-			cause:  err,
-			resSts: ResponseStatusServerInternalError,
-			logLvl: slog.LevelError,
-		})
-	}
-
-	ctx = ContextWithTransaction(ctx, srvTx)
-	if err := srvTx.Start(ctx); err != nil {
-		return nil, errors.Wrap(&RequestRejectedError{
-			cause:  err,
-			resSts: ResponseStatusServerInternalError,
-			logLvl: slog.LevelError,
-		})
-	}
-
-	// TODO: hold srv TX ref?
-
-	return ctx, nil
-}
-
-// stepAuthorizeReq authenticates and authorizes the inbound request.
-// RFC 3261 Section 16.3, step 6.
-func (*Proxy) stepAuthorizeReq(ctx context.Context, route *ProxyRoute, req *RequestEnvelope) error {
-	if route.AuthenticateRequest != nil {
-		if passed, challenge := route.AuthenticateRequest(ctx, route, req); !passed {
-			return errors.Wrap(&RequestRejectedError{
-				cause:  errAuthRequired,
-				resSts: ResponseStatusProxyAuthenticationRequired,
-				resOpts: RespondOptions{
-					ResponseOptions: ResponseOptions{
-						Headers: make(Headers).Set(&header.ProxyAuthenticate{AuthChallenge: challenge}),
-					},
-				},
-				logLvl: slog.LevelDebug,
-			})
-		}
-	}
-
-	if route.AuthorizeRequest != nil {
-		if err := route.AuthorizeRequest(ctx, route, req); err != nil {
-			return errors.Wrap(err)
-		}
-	}
-
-	return nil
-}
-
-// stepPreprocessReqRouting executes inbound request routing pre-process.
-// RFC 3261 Section 16.4.
-func (prx *Proxy) stepPreprocessReqRouting(_ context.Context, _ *ProxyRoute, req *RequestEnvelope) error {
-	req.WithMessage(func(r *Request) {
-		prx.processReqStrictRouting(req, r)
-		prx.processReqURIMAddr(req, r)
-		prx.processReqFirstRoute(req, r)
-	})
-
-	return nil
-}
 
 func (prx *Proxy) processReqStrictRouting(env *RequestEnvelope, req *Request) {
 	ru, ok := req.URI.(*URI)
@@ -414,7 +300,7 @@ func (prx *Proxy) processReqStrictRouting(env *RequestEnvelope, req *Request) {
 	// the proxy MUST replace the Request-URI in the request with the last
 	// value from the Route header field, and remove that value from the
 	// Route header field.
-	if !prx.isLocAddr(ru.Addr, env.Transport().DefaultPort) {
+	if !prx.isSelfAddr(ru.Addr, env.Transport().DefaultPort) {
 		return
 	}
 
@@ -428,7 +314,7 @@ func (prx *Proxy) processReqStrictRouting(env *RequestEnvelope, req *Request) {
 		return
 	}
 
-	req.URI = hu.Clone().(*URI) //nolint:forcetypeassert
+	req.URI = hu.Clone().(*URI) //nolint:forcetypeassert // the concrete type is fixed by construction
 	req.Headers.PopLastRoute()
 }
 
@@ -447,7 +333,7 @@ func (prx *Proxy) processReqURIMAddr(env *RequestEnvelope, req *Request) {
 	// non-default port or transport parameter and continue processing as if
 	// those values had not been present in the request.
 	maddr, ok := ru.MAddr()
-	if !ok || !maddr.IsValid() || !prx.isLocAddr(maddr, 0) {
+	if !ok || !maddr.IsValid() || !prx.isResponsibleAddr(maddr) {
 		return
 	}
 
@@ -484,21 +370,34 @@ func (prx *Proxy) processReqFirstRoute(env *RequestEnvelope, req *Request) {
 	}
 
 	hu, ok := hop.URI.(*URI)
-	if !ok || !prx.isLocAddr(hu.Addr, env.Transport().DefaultPort) {
+	if !ok || !prx.isSelfAddr(hu.Addr, env.Transport().DefaultPort) {
 		return
 	}
 
 	req.Headers.PopFirstRoute()
 }
 
-func (prx *Proxy) isLocAddr(addr Addr, defPort uint16) bool {
+// isSelfAddr reports whether the address names one of the proxy's own
+// advertised identities, for example a URI previously placed into a
+// Record-Route or Route header field value.
+func (prx *Proxy) isSelfAddr(addr Addr, defPort uint16) bool {
+	return matchPrxAddr(prx.selfAddrs, addr, defPort)
+}
+
+// isResponsibleAddr reports whether the address is one the proxy is
+// responsible for: either its own identity or a configured served domain.
+func (prx *Proxy) isResponsibleAddr(addr Addr) bool {
+	return prx.isSelfAddr(addr, 0) || prx.isServedAddr(addr)
+}
+
+func matchPrxAddr(addrs []Addr, addr Addr, defPort uint16) bool {
 	if defPort > 0 {
 		addr = addr.WithPortIfMissing(defPort)
 	} else {
 		addr = addr.WithoutPort()
 	}
 
-	for _, laddr := range prx.locAddrs {
+	for _, laddr := range addrs {
 		if defPort > 0 {
 			laddr = laddr.WithPortIfMissing(defPort)
 		} else {
@@ -513,448 +412,372 @@ func (prx *Proxy) isLocAddr(addr Addr, defPort uint16) bool {
 	return false
 }
 
-// stepResolveReqTargets resolves forward targets for inbound request.
-// RFC 3261 Section 16.5.
-func (prx *Proxy) stepResolveReqTargets(ctx context.Context, route *ProxyRoute, req *RequestEnvelope) error {
-	route.internalTargets = make(chan []*URI, 1)
-
-	var resolved bool
-	req.WithMessage(func(r *Request) {
-		ru, ok := r.URI.(*URI)
-		if !ok {
-			return
+// singlePrxTarget reports whether the plan contains exactly one logical
+// target across all groups. Target identity is independent of URI equality.
+func singlePrxTarget(plan ProxyTargetPlan) (ProxyTarget, bool) {
+	var target ProxyTarget
+	found := false
+	for _, group := range plan.Groups {
+		for _, trgt := range group {
+			if found {
+				return ProxyTarget{}, false
+			}
+			target, found = trgt, true
 		}
-
-		// If the Request-URI of the request contains an maddr parameter, the
-		// Request-URI MUST be placed into the target set as the only target
-		// URI, and the proxy MUST proceed to Section 16.6.
-		if addr, ok := ru.MAddr(); ok && addr.IsValid() {
-			route.internalTargets <- []*URI{ru}
-
-			close(route.internalTargets)
-
-			resolved = true
-
-			return
-		}
-
-		// If the domain of the Request-URI indicates a domain this element is
-		// not responsible for, the Request-URI MUST be placed into the target
-		// set as the only target, and the element MUST proceed to the task of
-		// Request Forwarding (Section 16.6).
-		if !prx.isLocAddr(ru.Addr, 0) {
-			route.internalTargets <- []*URI{ru}
-
-			close(route.internalTargets)
-
-			resolved = true
-
-			return
-		}
-	})
-
-	if resolved {
-		return nil
 	}
-
-	if route.ResolveRequestTargets == nil {
-		// If the target set remains empty after applying all of the above, the
-		// proxy MUST return an error response, which SHOULD be the 480 (Temporarily Unavailable) response.
-		return errors.Wrap(&RequestRejectedError{
-			cause:  errNoFwdTargets,
-			resSts: ResponseStatusTemporarilyUnavailable,
-			logLvl: slog.LevelDebug,
-		})
-	}
-
-	resolvedTargets, err := route.ResolveRequestTargets(ctx, route, req)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-
-	route.resolvedTargets = resolvedTargets
-
-	return nil
+	return target, found
 }
 
-// stepForwardReq forwards inbound request to resolved targets set.
+// forwardStatelessReq enforces one logical target and one bound destination.
 // RFC 3261 Section 16.6.
 //
-//nolint:gocognit
-func (prx *Proxy) stepForwardReq(ctx context.Context, route *ProxyRoute, inReq *RequestEnvelope) error {
-	if route.ForwardMode == ForwardModeStateful {
-		txKey, _ := inReq.Metadata().Get(txKeyMetaKey)
-		//nolint:forcetypeassert
-		route.fwdCtx = &ForwardContext{
-			ServerTransactionKey: txKey.(ServerTransactionKey),
+// Multi-target plans promote intact before any preparation or observation;
+// ACK and unmatched CANCEL fail routing instead. Single-target destination
+// failures may also require pre-send promotion. Once a send is attempted,
+// neither promotion nor alternate-destination retry is permitted.
+func (prx *Proxy) forwardStatelessReq(
+	ctx context.Context,
+	route *ProxyRoute,
+	req *RequestEnvelope,
+	work *RequestEnvelope,
+	plan ProxyTargetPlan,
+) error {
+	trgt, single := singlePrxTarget(plan)
+	if !single && plan.hasTargets() {
+		err := prx.statelessPromoteErr(req, errors.PrefixWrap(
+			errNoStatelessDest, "multiple logical targets",
+		))
+		if !errors.Is(err, errPrxStatelessPromote) {
+			return errors.Wrap(err)
 		}
-
-		if err := prx.fwdCtxStore.Store(ctx, route.fwdCtx); err != nil {
-			return errors.Wrap(&RequestRejectedError{
-				cause:  err,
-				resSts: ResponseStatusServerInternalError,
-				logLvl: slog.LevelWarn,
-			})
+		prepared, err := newPrxPreparedRouting(req, work, plan)
+		if err != nil {
+			return errors.Wrap(err)
 		}
+		return errors.Wrap(prx.promoteStatefulReq(ctx, route, prepared))
 	}
 
 	var (
-		trgtsNum int
-		trgtErrs []error
+		out        *RequestEnvelope
+		bound      ProxyBoundDelivery
+		err        error
+		trgtErrs   []error
+		failedAtts []ProxyEvent
 	)
-
-	for trgts := range route.targets() {
-		for _, trgt := range trgts {
-			trgtsNum++
-
-			// For each target, the proxy forwards the request following these steps:
-			// 1. Make a copy of the received request
-			outReq := inReq.Clone().(*RequestEnvelope) //nolint:forcetypeassert
-
-			outReq.Metadata().
-				Delete(txKeyMetaKey, txTypeMetaKey)
-
-			outReq.SetTransport(TransportMetadata{}).
-				SetLocalAddr(netip.AddrPort{}).
-				SetRemoteAddr(netip.AddrPort{}).
-				WithMessage(func(r *Request) {
-					// 2. Update the Request-URI
-					ru := trgt.Clone().(*URI) //nolint:forcetypeassert
-					ru.Params.Delete("method")
-					ru.Headers.Clear()
-					r.URI = ru
-
-					// 3. Update the Max-Forwards header field
-					if maxFwd, ok := r.Headers.MaxForwards(); ok {
-						maxFwd--
-						r.Headers.Set(maxFwd)
-					}
-
-					// 4. Optionally add a Record-route header field value
-					if route.RecordRoute {
-						// TODO: учесть SIPS URI, TLS, какой адрес из локальных использовать и т.д.
-						// пока простейшая реализация
-						r.Headers.PrependRecordRoute(header.RouteHop{
-							URI: &URI{
-								// TODO: уникальный идентификатор для отслеживания ответов
-								// User: User("TODO"),
-								Addr:   prx.locAddrs[0],
-								Params: new(Values).Set("lr", ""),
-							},
-						})
-					}
-				})
-
-			// 5. Optionally add additional header fields
-			// 6. Postprocess routing information
-			if route.ResolveRequestRoutes != nil {
-				hdrs, err := route.ResolveRequestRoutes(ctx, route, inReq)
-				if err != nil {
-					// TODO: probably implement a custom error struct with all context fields: route, target, in/out req
-					trgtErrs = append(trgtErrs, errors.ErrorfWrap("resolve routes for outbound request to %q target: %w", trgt, err))
-					continue
-				}
-
-				outReq.WithMessage(func(r *Request) {
-					for _, hdr := range slices.Backward(slices.Collect(hdrs)) {
-						r.Headers.Prepend(hdr)
-					}
-				})
+	if single {
+		out, bound, err = prx.prepareStatelessFwd(ctx, route, prxRequestInput{original: req, working: work}, trgt)
+		if errors.Is(err, errPrxStatelessPromote) {
+			// The winning stateful admission owns the operation's
+			// observations, so the stateless path emits nothing.
+			prepared, err := newPrxPreparedRouting(req, work, plan)
+			if err != nil {
+				return errors.Wrap(err)
 			}
-
-			if route.AdjustOutRequest != nil {
-				if err := route.AdjustOutRequest(ctx, route, inReq, outReq); err != nil {
-					// TODO: probably implement a custom error struct with all context fields: route, target, in/out req
-					trgtErrs = append(trgtErrs, errors.Errorf("adjust outbound request to %q target: %w", trgt, err))
-					continue
-				}
-			}
-
-			// If the copy contains a Route header field, the proxy MUST
-			// inspect the URI in its first value.  If that URI does not
-			// contain an lr parameter, the proxy MUST modify the copy as
-			// follows:
-			//  -  The proxy MUST place the Request-URI into the Route header
-			//     field as the last value.
-			//  -  The proxy MUST then place the first Route header field value
-			//     into the Request-URI and remove that value from the Route
-			//     header field.
-			// outReq.WithMessage(func(r *Request) {
-			// 	hop, ok := r.Headers.FirstRoute()
-			// 	if !ok {
-			// 		return
-			// 	}
-
-			// 	if u, ok := hop.URI.(*URI); !ok || !u.LR() {
-			// 		return
-			// 	}
-
-			// 	r.Headers.AppendRoute(header.RouteHop{URI: r.URI.Clone()})
-			// 	r.URI = hop.URI.Clone()
-			// 	r.Headers.PopFirstRoute()
-			// })
-
-			// 7. Determine the next-hop address, port, and transport
-			// 8. Add a Via header field value
-			// 9. Add a Content-Length header field if necessary
-			// 10. Forward the new request
-
-			// Prepend a dummy valid Via: transport and sent-by values will be overwritten
-			// by selected transport during send process.
-			outReq.WithMessage(func(r *Request) {
-				r.Headers.PrependVia(header.ViaHop{
-					Proto:     protoVer20,
-					Transport: udpMeta.Proto,
-					Addr:      MakeHostAddr(util.RandString(8) + ".invalid"),
-					Params:    make(types.Values).Set("branch", prx.genForwardBranch(ctx, route, inReq)),
-				})
+			return errors.Wrap(prx.promoteStatefulReq(ctx, route, prepared))
+		}
+		if err != nil {
+			trgtErrs = append(trgtErrs, err)
+			// Buffer a failed preparation until Handled owns sequence 1.
+			failedAtts = append(failedAtts, ProxyEvent{
+				Kind:      ProxyEventForwardAttemptFinished,
+				TargetID:  trgt.ID,
+				AttemptID: trgt.ID,
+				Error:     errors.Wrap(&RequestAttemptError{Cause: err}),
 			})
-
-			// TODO: step 7. здесь похоже не подойдёт реализованные elm.SendRequest/elm.SendRequestStateful
-			// in stateless mode, proxy should switch to stateful after first failure attempt
-			if route.ForwardMode == ForwardModeStateful {
-				txOpts := route.ClientTransactionOptions(ctx, route, inReq, outReq)
-
-				tx, err := prx.elm.SendRequestStateful(ctx, outReq, SendRequestStatefulOptions{
-					SendOptions: txOpts.SendOptions,
-					Timing:      txOpts.Timing,
-					Logger:      txOpts.Logger,
-				})
-				if err != nil {
-					trgtErrs = append(trgtErrs, errors.Errorf("send outbound request to %q target: %w", trgt, err))
-					continue
-				}
-
-				route.fwdCtx.ClientTransactionKeys = append(route.fwdCtx.ClientTransactionKeys, tx.Key())
-
-				if err := prx.fwdCtxStore.Store(ctx, route.fwdCtx); err != nil {
-					route.Logger.WarnContext(
-						ctx, "failed to update forward context",
-						slog.Any("error", err),
-						slog.Any("forward_context", route.fwdCtx),
-					)
-					// TODO: resolve what to do?
-					// If the context wasn't updated in the store, then it will be impossible to find
-					// origin server transaction for response forwarding.
-				}
-			}
-
-			// 11. Set timer C
 		}
 	}
 
-	if trgtsNum == 0 || trgtsNum == len(trgtErrs) {
-		// If the target set remains empty after applying all of the above, the
-		// proxy MUST return an error response, which SHOULD be the 480 (Temporarily Unavailable) response.
-		return errors.Wrap(&RequestRejectedError{
-			cause:  errNoFwdTargets,
+	op := newPrxOperation(route, req.Method())
+	prx.observeStatelessPrepared(ctx, op, failedAtts)
+
+	if !single || err != nil {
+		// If the target set remains empty after applying all of the above,
+		// the proxy MUST return an error response, which SHOULD be the 480
+		// (Temporarily Unavailable) response.
+		rej := &RequestRejectedError{
+			cause:  errors.JoinPrefixWrap("stateless forward errors:", append([]error{errNoFwdTargets}, trgtErrs...)...),
 			resSts: ResponseStatusTemporarilyUnavailable,
 			logLvl: slog.LevelDebug,
+		}
+		op.emit(ctx, prx, ProxyEvent{
+			Kind:       ProxyEventRequestCompleted,
+			Outcome:    ProxyOutcomeRejected,
+			StatusCode: int(ResponseStatusTemporarilyUnavailable),
+			Error:      errors.Wrap(rej),
 		})
+		if key, err := MakeServerTransactionKey(req); err == nil {
+			prx.trackRejectedSend(key, op, ResponseStatusTemporarilyUnavailable)
+		}
+		return errors.JoinWrap(errPrxObserved, errors.Wrap(rej))
 	}
 
-	return nil
+	err = bound.Transport.SendRequest(ctx, out)
+	op.emit(ctx, prx, ProxyEvent{
+		Kind:      ProxyEventForwardAttemptFinished,
+		TargetID:  trgt.ID,
+		AttemptID: trgt.ID,
+		Error:     err,
+	})
+	if err == nil {
+		op.emit(ctx, prx, ProxyEvent{
+			Kind:      ProxyEventRequestForwarded,
+			TargetID:  trgt.ID,
+			AttemptID: trgt.ID,
+		})
+		op.emit(ctx, prx, ProxyEvent{
+			Kind:    ProxyEventRequestCompleted,
+			Outcome: ProxyOutcomeSent,
+		})
+		return nil
+	}
+
+	err = errors.JoinPrefixWrap("stateless forward errors:", err)
+	op.emit(ctx, prx, ProxyEvent{
+		Kind:    ProxyEventRequestCompleted,
+		Outcome: ProxyOutcomeSendFailure,
+		Error:   err,
+	})
+	// The transport answers the failure with a generated 500: the pending
+	// record lets the answering send close the operation's event stream.
+	if key, keyErr := MakeServerTransactionKey(req); keyErr == nil {
+		prx.trackRejectedSend(key, op, ResponseStatusServerInternalError)
+	}
+	return errors.JoinWrap(errPrxObserved, err)
 }
 
-func (*Proxy) genForwardBranch(context.Context, *ProxyRoute, *RequestEnvelope) string {
-	// TODO: implement Section 16.6 Step 8
-	// Stateful mode - calculate random branch, based on request or RFC 3261 branch
-	// Stateless - always based on message
-	// + inbound request local addr
-	// надо как то кодировать в branch информацию для правльного forward ответа с нужного транспорта, порта и т.д.
-	// + loop detection
-	return ""
+// observeStatelessPrepared starts observations only after all pre-send
+// promotion decisions are past. Buffered failures retain target order and
+// follow Handled, before any completion or wire send.
+func (prx *Proxy) observeStatelessPrepared(ctx context.Context, op *prxOperation, failedAtts []ProxyEvent) {
+	op.emit(ctx, prx, ProxyEvent{Kind: ProxyEventRequestHandled})
+	for _, ev := range failedAtts {
+		op.emit(ctx, prx, ev)
+	}
 }
 
+// newSrvTx is the single factory seam for the route-owned
+// upstream server transaction: the route's ServerTransactionOptions pass
+// through unchanged — the proxy never overrides the application's
+// transaction behavior selection — and the transaction is never started
+// inside the factory. The matching-CANCEL admission path reuses the same
+// seam so a related CANCEL transaction inherits identical options.
+func (prx *Proxy) newSrvTx(
+	ctx context.Context,
+	route *ProxyRoute,
+	req *RequestEnvelope,
+	tp ServerTransport,
+) (ServerTransaction, error) {
+	return errors.Wrap2(prx.elm.NewServerTransaction(ctx, req, tp, route.ServerTransactionOptions))
+}
+
+// InterceptOutboundResponse intercepts outbound responses on the transport
+// send path.
+//
+// A proxy-initiated upstream send is correlated through a private one-shot
+// context token minted by [ProxyRequest.sendUpstream]: the interceptor calls
+// the next sender, settles the token with the real wire result, and enqueues
+// it for the owning request coordinator. No observer work is dispatched
+// inside the transaction action — the enqueue is the only coordinator touch,
+// and the real result is returned to the transport unchanged. Sends without
+// a token pass through.
+func (prx *Proxy) InterceptOutboundResponse(
+	ctx context.Context,
+	next ResponseSender,
+	res *ResponseEnvelope,
+	opts ...SendResponseOptions,
+) error {
+	send, tok := prxSendFromCtx(ctx)
+	switch {
+	case tok:
+		err := next.SendResponse(ctx, res, opts...)
+		send.settle(ctx, err)
+		return errors.Wrap(err)
+	default:
+		// A coordinator-less rejection answers through the transport
+		// respond path — never inside a transaction action: the pending
+		// record closes the operation's event stream with the real wire
+		// result.
+		rec, recOK := prx.takeRejectedSend(res)
+		err := next.SendResponse(ctx, res, opts...)
+		if recOK && err == nil {
+			rec.op.emit(ctx, prx, ProxyEvent{
+				Kind:       ProxyEventResponseForwarded,
+				StatusCode: int(res.Status()),
+			})
+		}
+		return errors.Wrap(err)
+	}
+}
+
+// InterceptInboundResponse intercepts inbound responses on the transport
+// receive path.
+//
+// Ownership is decided by the proxy-namespace mark embedded in the top
+// Via branch — never by a localhost Via guess. A response authentically
+// owned by this instance's stateless path ([Proxy.shouldForwardRes]) is
+// relayed to the prior hop recorded in the Via stack by
+// [Proxy.forwardStatelessRes]. A response carrying the stateful mark
+// belongs to a client transaction of the stateful path: the transaction
+// manager claims it ahead of this middleware while the transaction is
+// live, and a stray response that outlived its transaction is discarded
+// (RFC 4320, RFC 6026). A claimed Via that fails sent-by validation is
+// consumed rather than relayed. A response outside the proxy namespace
+// is foreign and continues down the receiver chain.
+//
+// No transaction is created and no locally generated provisional
+// response is emitted on this path.
 func (prx *Proxy) InterceptInboundResponse(
 	ctx context.Context,
 	next ResponseReceiver,
 	res *ResponseEnvelope,
 ) error {
-	if !prx.shouldForwardRes(ctx, res) {
+	if prx.closed.Load() {
 		return errors.Wrap(next.RecvResponse(ctx, res))
 	}
 
-	// TODO: forward response if needed and skip next receiver Section 16.7
-	return nil
-}
-
-func (*Proxy) shouldForwardRes(ctx context.Context, res *ResponseEnvelope) bool {
-	// TODO: implement proxy filter logic
-	return false
-}
-
-// ProxyRoute represents a routing rule for the proxy.
-//
-// TODO: implement default implementations for:
-//   - MatchRequest: methods list, all, etc.
-//   - AuthenticateRequest: digest, jwt
-type ProxyRoute struct {
-	Name          string
-	LoopDetection bool
-	ForwardMode   ForwardMode
-	RecordRoute   bool
-	Logger        *slog.Logger
-
-	MatchRequest func(ctx context.Context, route *ProxyRoute, inReq *RequestEnvelope) bool
-
-	ValidateRequest func(ctx context.Context, route *ProxyRoute, inReq *RequestEnvelope) error
-	CheckRequestURI func(ctx context.Context, route *ProxyRoute, inReq *RequestEnvelope) error
-
-	AuthenticateRequest func(ctx context.Context, route *ProxyRoute, inReq *RequestEnvelope) (bool, header.AuthChallenge)
-	AuthorizeRequest    func(ctx context.Context, route *ProxyRoute, inReq *RequestEnvelope) error
-
-	ServerTransactionOptions func(ctx context.Context, route *ProxyRoute, inReq *RequestEnvelope) ServerTransactionOptions
-	ClientTransactionOptions func(ctx context.Context, route *ProxyRoute, inReq, outReq *RequestEnvelope) ClientTransactionOptions
-
-	ResolveRequestTargets func(ctx context.Context, route *ProxyRoute, inReq *RequestEnvelope) (iter.Seq[[]*URI], error)
-
-	ResolveRequestRoutes func(ctx context.Context, route *ProxyRoute, inReq *RequestEnvelope) (iter.Seq[header.Route], error)
-	AdjustOutRequest     func(ctx context.Context, route *ProxyRoute, inReq, outReq *RequestEnvelope) error
-
-	internalTargets chan []*URI
-	resolvedTargets iter.Seq[[]*URI]
-
-	fwdCtx *ForwardContext
-}
-
-func (r *ProxyRoute) LogValue() slog.Value {
-	if r == nil {
-		return slog.Value{}
-	}
-	return slog.StringValue(r.Name)
-}
-
-func (r *ProxyRoute) targets() iter.Seq[[]*URI] {
-	return func(yield func([]*URI) bool) {
-		seen := make([]*URI, 0, 10)
-
-		for uris := range r.resolvedTargets {
-			uris = slices.DeleteFunc(uris, func(u1 *URI) bool {
-				return slices.ContainsFunc(seen, func(u2 *URI) bool {
-					return u1.Equal(u2)
-				})
-			})
-			seen = append(seen, uris...)
-
-			if !yield(uris) {
-				return
-			}
+	mark, _, owned := prxResMark(res)
+	switch {
+	case owned && mark == prxBranchStatelessMark:
+		if !prx.shouldForwardRes(ctx, res) {
+			// A stateless claim whose Via fails sent-by validation is
+			// consumed, never relayed.
+			return nil
 		}
-
-		for uris := range r.internalTargets {
-			uris = slices.DeleteFunc(uris, func(u1 *URI) bool {
-				return slices.ContainsFunc(seen, func(u2 *URI) bool {
-					return u1.Equal(u2)
-				})
-			})
-			seen = append(seen, uris...)
-
-			if !yield(uris) {
-				return
-			}
+		return errors.Wrap(prx.forwardStatelessRes(ctx, res))
+	case owned && mark == prxBranchStatefulMark:
+		if prx.hasLiveClnTx(res) {
+			// Owned by a live client transaction: the stateless relay
+			// never steals it, and the rest of the chain still observes
+			// it.
+			return errors.Wrap(next.RecvResponse(ctx, res))
 		}
-	}
-}
-
-type ForwardMode uint
-
-const (
-	ForwardModeStateless ForwardMode = iota
-	ForwardModeStateful
-)
-
-func ForwardModeFromString(s string) ForwardMode {
-	switch util.LCase(s) {
-	case "stateful":
-		return ForwardModeStateful
-	case "stateless":
-		fallthrough
+		// A stray stateful response that outlived its transaction is
+		// discarded (RFC 4320/6026).
+		return nil
 	default:
-		return ForwardModeStateless
+		return errors.Wrap(next.RecvResponse(ctx, res))
 	}
 }
 
-func (m ForwardMode) String() string {
-	switch m {
-	case ForwardModeStateful:
-		return "stateful"
-	case ForwardModeStateless:
-		fallthrough
-	default:
-		return "stateless"
-	}
-}
+// ErrProxyClosed reports an operation attempted on a proxy whose lifecycle
+// already ended: a new request claim, a restore install, or an observer
+// bind.
+const ErrProxyClosed errors.Error = "proxy closed"
 
-type ForwardContext struct {
-	ServerTransactionKey  ServerTransactionKey   `json:"server_transaction_key"`
-	ClientTransactionKeys []ClientTransactionKey `json:"client_transaction_keys"`
-	Responses             []*Response            `json:"responses"`
-}
-
-func (fc *ForwardContext) LogValue() slog.Value {
-	if fc == nil {
-		return slog.Value{}
-	}
-	return slog.GroupValue(
-		slog.Any("server_transaction_key", fc.ServerTransactionKey),
-		slog.Any("client_transaction_keys", fc.ClientTransactionKeys),
+// NewProxyClosedError creates an [ErrProxyClosed] error classified as a
+// closed proxy error.
+func NewProxyClosedError(args ...any) error {
+	return errclass.Classify(
+		errors.Prefix(ErrProxyClosed, args...),
+		ErrClassProxy,
+		errclass.ClassClosed,
 	)
 }
 
-type ForwardContextStore interface {
-	LoadByTransactionKey(ctx context.Context, txKey any) (*ForwardContext, error)
-	LoadAll(ctx context.Context) (iter.Seq[*ForwardContext], error)
-	Store(ctx context.Context, fwdCtx *ForwardContext) error
-	Delete(ctx context.Context, fwdCtx *ForwardContext) error
-}
-
-type MemoryForwardContextStore struct {
-	bySrvTxKey syncutil.RWMap[ServerTransactionKey, *ForwardContext]
-	byClnTxKey syncutil.RWMap[ClientTransactionKey, *ForwardContext]
-}
-
-func (s *MemoryForwardContextStore) LoadByTransactionKey(ctx context.Context, txKey any) (*ForwardContext, error) {
-	switch k := txKey.(type) {
-	case ServerTransactionKey:
-		if fc, ok := s.bySrvTxKey.Load(k); ok {
-			return fc, nil
-		}
-		return nil, errors.Wrap(NewForwardContextNotFoundError())
-	case ClientTransactionKey:
-		if fc, ok := s.byClnTxKey.Load(k); ok {
-			return fc, nil
-		}
-		return nil, errors.Wrap(NewForwardContextNotFoundError())
-	default:
-		return nil, errors.Wrap(NewInvalidTransactionKeyError("unexpected type"))
-	}
-}
-
-func (s *MemoryForwardContextStore) LoadAll(ctx context.Context) (iter.Seq[*ForwardContext], error) {
-	return func(yield func(*ForwardContext) bool) {
-		for _, fc := range s.bySrvTxKey.All() {
-			if !yield(fc) {
-				return
-			}
-		}
-	}, nil
-}
-
-func (s *MemoryForwardContextStore) Store(ctx context.Context, fc *ForwardContext) error {
-	if actual, loaded := s.bySrvTxKey.LoadOrStore(fc.ServerTransactionKey, fc); loaded && actual != fc {
-		return errors.Wrap(NewTransactionDuplicateError())
-	}
-	for _, key := range fc.ClientTransactionKeys {
-		s.byClnTxKey.Store(key, fc)
-	}
+// Shutdown gracefully shuts the proxy down.
+//
+// It is the optional element middleware shutdown hook: the owning element
+// invokes it before middleware and transport closure, and a direct call is
+// equivalent to [Proxy.Close]. Shutdown seals admission first — new inbound
+// requests pass through unclaimed and no new coordinator, restore, or
+// observer subscription can register — then detaches the middleware
+// registration and every tracked subscription, retires the owned request
+// coordinators, and releases the request indexes. Coordinator retirement
+// drops queued scheduling, disarms owned timers, detaches staged
+// transaction subscriptions, and terminates owned transactions; borrowed
+// transports, application storage, and transactions the proxy does not own
+// are never closed.
+//
+// No callback, application bind, or transaction effect runs under a lock,
+// and Shutdown never waits on an in-flight dispatch that already captured
+// an observer, so a reentrant unbind — or a reentrant Shutdown — inside a
+// callback is safe. Only the first call runs; concurrent and repeated
+// calls share its result.
+func (prx *Proxy) Shutdown(ctx context.Context) error {
+	prx.closeOnce.Do(func() {
+		// The lifecycle work must finish even on a canceled caller
+		// context: it keeps the context values but drops cancellation.
+		prx.shutdown(context.WithoutCancel(ctx))
+	})
 	return nil
 }
 
-func (s *MemoryForwardContextStore) Delete(ctx context.Context, fc *ForwardContext) error {
-	s.bySrvTxKey.Delete(fc.ServerTransactionKey)
-	for _, key := range fc.ClientTransactionKeys {
-		s.byClnTxKey.Delete(key)
+// Close releases every resource owned by the proxy. It is equivalent to
+// [Proxy.Shutdown] and idempotent: repeated calls share the first result.
+// Close also serves as the middleware close hook of the owning element.
+func (prx *Proxy) Close() error {
+	return prx.Shutdown(context.Background())
+}
+
+// shutdown is the shared one-shot lifecycle path of [Proxy.Shutdown] and
+// [Proxy.Close]. It runs every detach and termination outside the index
+// and subscription guards.
+func (prx *Proxy) shutdown(ctx context.Context) {
+	// Seal admission before any detach work: a request claim, a request
+	// or restore registration, or an observer bind that lost the race is
+	// refused rather than orphaned past the release snapshot.
+	prx.closed.Store(true)
+
+	prx.subMu.Lock()
+	subs := prx.subs
+	prx.subs = nil
+	prx.subMu.Unlock()
+
+	prx.reqsMu.Lock()
+	rqs := make([]*ProxyRequest, 0, len(prx.srvRqs))
+	for key, rq := range prx.srvRqs {
+		rqs = append(rqs, rq)
+		delete(prx.srvRqs, key)
 	}
-	return nil
+	prx.reqsMu.Unlock()
+
+	prx.rejMu.Lock()
+	prx.rejSends = nil
+	prx.rejOrd = nil
+	prx.rejMu.Unlock()
+
+	// The middleware registration detaches outside every lock, so no new
+	// inbound or transaction work reaches the proxy while its request
+	// coordinators retire.
+	if prx.unbind != nil {
+		prx.unbind()
+		prx.unbind = nil
+	}
+	for _, unbind := range subs {
+		unbind()
+	}
+	for _, rq := range rqs {
+		rq.shutdown(ctx)
+	}
+}
+
+// trackSub registers one observer subscription unbind for lifecycle
+// release and returns the public unbind. The callback registration runs
+// under the subscription guard, so a bind racing the seal either commits
+// before the release snapshot or is refused with a noop unbind. The
+// returned unbind is idempotent and never waits on an in-flight dispatch
+// that already captured the handler.
+func (prx *Proxy) trackSub(add func() (unbind func())) func() {
+	prx.subMu.Lock()
+	defer prx.subMu.Unlock()
+	if prx.closed.Load() {
+		return noop
+	}
+
+	inner := add()
+	id := prx.subSeq
+	prx.subSeq++
+	if prx.subs == nil {
+		prx.subs = make(map[uint64]func())
+	}
+	var once sync.Once
+	prx.subs[id] = func() {
+		once.Do(func() {
+			inner()
+			prx.subMu.Lock()
+			delete(prx.subs, id)
+			prx.subMu.Unlock()
+		})
+	}
+	return prx.subs[id]
 }

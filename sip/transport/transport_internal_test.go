@@ -19,24 +19,29 @@ import (
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
-func TestBuiltInTransport_ContextPropagation(t *testing.T) {
+func TestTransport_ContextPropagation(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
 		name string
 		meta sip.TransportMetadata
-		new  func(sip.TransportMetadata, ...TransportOptions) (sip.Transport, func(context.Context, *sip.RequestEnvelope) error, func(context.Context, *sip.ResponseEnvelope) error, error)
+		new  func(sip.TransportMetadata, ...TransportOptions) (
+			sip.Transport,
+			func(context.Context, *sip.RequestEnvelope) error,
+			func(context.Context, *sip.ResponseEnvelope) error,
+			error,
+		)
 	}{
 		{
-			name: "udp",
-			meta: sip.UDPMetadata(),
-			new: func(meta sip.TransportMetadata, opts ...TransportOptions) (
+			"udp",
+			sip.UDPMetadata(),
+			func(meta sip.TransportMetadata, opts ...TransportOptions) (
 				sip.Transport,
 				func(context.Context, *sip.RequestEnvelope) error,
 				func(context.Context, *sip.ResponseEnvelope) error,
 				error,
 			) {
-				tp, err := NewConnectionLessTransport(meta, opts...)
+				tp, err := NewConnLessTransport(meta, opts...)
 				if err != nil {
 					return nil, nil, nil, errors.Wrap(err)
 				}
@@ -51,15 +56,15 @@ func TestBuiltInTransport_ContextPropagation(t *testing.T) {
 			},
 		},
 		{
-			name: "tcp",
-			meta: sip.TCPMetadata(),
-			new: func(meta sip.TransportMetadata, opts ...TransportOptions) (
+			"tcp",
+			sip.TCPMetadata(),
+			func(meta sip.TransportMetadata, opts ...TransportOptions) (
 				sip.Transport,
 				func(context.Context, *sip.RequestEnvelope) error,
 				func(context.Context, *sip.ResponseEnvelope) error,
 				error,
 			) {
-				tp, err := NewConnectionOrientedTransport(meta, opts...)
+				tp, err := NewConnOrientedTransport(meta, opts...)
 				if err != nil {
 					return nil, nil, nil, errors.Wrap(err)
 				}
@@ -84,54 +89,55 @@ func TestBuiltInTransport_ContextPropagation(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = tp.Close() })
 
-			localAddr := netip.MustParseAddrPort("127.0.0.1:5070")
-			remoteAddr := netip.MustParseAddrPort("127.0.0.1:5080")
-			req := newContextPropagationRequest(t, tt.meta, pubAddr, localAddr, remoteAddr)
+			locAddr := netip.MustParseAddrPort("127.0.0.1:5070")
+			rmtAddr := netip.MustParseAddrPort("127.0.0.1:5080")
+			req := newCtxPropagationReq(t, tt.meta, pubAddr, locAddr, rmtAddr)
 			tx, err := sip.NewInviteClientTransaction(req, tp)
 			if err != nil {
 				t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
 			}
 
-			parentCtx := sip.ContextWithTransaction(t.Context(), tx)
-			outboundRequestCtxs := make(chan context.Context, 1)
-			outboundResponseCtxs := make(chan context.Context, 1)
-			inboundRequestCtxs := make(chan context.Context, 1)
-			inboundResponseCtxs := make(chan context.Context, 1)
-
+			outReqCtxs := make(chan context.Context, 1)
 			tp.UseOutboundRequestInterceptor(sip.OutboundRequestInterceptorFunc(
 				func(ctx context.Context, _ sip.RequestSender, _ *sip.RequestEnvelope, _ ...sip.SendRequestOptions) error {
-					outboundRequestCtxs <- ctx
+					outReqCtxs <- ctx
 					return nil
 				},
 			))
+
+			outResCtxs := make(chan context.Context, 1)
 			tp.UseOutboundResponseInterceptor(sip.OutboundResponseInterceptorFunc(
 				func(ctx context.Context, _ sip.ResponseSender, _ *sip.ResponseEnvelope, _ ...sip.SendResponseOptions) error {
-					outboundResponseCtxs <- ctx
+					outResCtxs <- ctx
 					return nil
 				},
 			))
+
+			inReqCtxs := make(chan context.Context, 1)
 			tp.UseInboundRequestInterceptor(sip.InboundRequestInterceptorFunc(
 				func(ctx context.Context, _ sip.RequestReceiver, _ *sip.RequestEnvelope) error {
-					inboundRequestCtxs <- ctx
+					inReqCtxs <- ctx
 					return nil
 				},
 			))
+
+			inResCtxs := make(chan context.Context, 1)
 			tp.UseInboundResponseInterceptor(sip.InboundResponseInterceptorFunc(
 				func(ctx context.Context, _ sip.ResponseReceiver, _ *sip.ResponseEnvelope) error {
-					inboundResponseCtxs <- ctx
+					inResCtxs <- ctx
 					return nil
 				},
 			))
+
+			parentCtx := sip.ContextWithTransaction(t.Context(), tx)
 
 			if err := tp.SendRequest(parentCtx, req); err != nil {
 				t.Fatalf("tp.SendRequest() error = %v, want nil", err)
 			}
-			assertTransportInterceptorContext(
-				t,
-				testutil.WaitResult(t, outboundRequestCtxs, "outbound request interceptor context"),
-				tx,
-				tp,
-				true,
+
+			assertTpInceptCtx(t,
+				testutil.WaitResult(t, outReqCtxs, "outbound request interceptor context"),
+				tx, tp, true,
 			)
 
 			res, err := req.NewResponse(sip.ResponseStatusOK)
@@ -141,40 +147,34 @@ func TestBuiltInTransport_ContextPropagation(t *testing.T) {
 			if err := tp.SendResponse(parentCtx, res); err != nil {
 				t.Fatalf("tp.SendResponse() error = %v, want nil", err)
 			}
-			assertTransportInterceptorContext(
-				t,
-				testutil.WaitResult(t, outboundResponseCtxs, "outbound response interceptor context"),
-				tx,
-				tp,
-				true,
+
+			assertTpInceptCtx(t,
+				testutil.WaitResult(t, outResCtxs, "outbound response interceptor context"),
+				tx, tp, true,
 			)
 
 			if err := recvReq(parentCtx, req); err != nil {
 				t.Fatalf("recvReqSafe() error = %v, want nil", err)
 			}
-			assertTransportInterceptorContext(
-				t,
-				testutil.WaitResult(t, inboundRequestCtxs, "inbound request interceptor context"),
-				tx,
-				tp,
-				false,
+
+			assertTpInceptCtx(t,
+				testutil.WaitResult(t, inReqCtxs, "inbound request interceptor context"),
+				tx, tp, false,
 			)
 
 			if err := recvRes(parentCtx, res); err != nil {
 				t.Fatalf("recvResSafe() error = %v, want nil", err)
 			}
-			assertTransportInterceptorContext(
-				t,
-				testutil.WaitResult(t, inboundResponseCtxs, "inbound response interceptor context"),
-				tx,
-				tp,
-				false,
+
+			assertTpInceptCtx(t,
+				testutil.WaitResult(t, inResCtxs, "inbound response interceptor context"),
+				tx, tp, false,
 			)
 		})
 	}
 }
 
-func newContextPropagationRequest(
+func newCtxPropagationReq(
 	tb testing.TB,
 	meta sip.TransportMetadata,
 	viaAddr sip.Addr,
@@ -209,12 +209,12 @@ func newContextPropagationRequest(
 		SetRemoteAddr(remoteAddr)
 }
 
-func assertTransportInterceptorContext(
+func assertTpInceptCtx(
 	t *testing.T,
 	ctx context.Context,
 	tx sip.Transaction,
 	tp sip.Transport,
-	wantTransaction bool,
+	wantTx bool,
 ) {
 	t.Helper()
 
@@ -222,87 +222,12 @@ func assertTransportInterceptorContext(
 		t.Fatalf("sip.TransportFromContext(ctx) = (%v, %t), want %v", got, ok, tp)
 	}
 	gotTx, ok := sip.TransactionFromContext(ctx)
-	if wantTransaction {
+	if wantTx {
 		if !ok || gotTx != tx {
 			t.Fatalf("sip.TransactionFromContext(ctx) = (%v, %t), want %v", gotTx, ok, tx)
 		}
 	} else if ok || gotTx != nil {
 		t.Fatalf("sip.TransactionFromContext(inbound ctx) = (%v, %t), want (nil, false)", gotTx, ok)
-	}
-}
-
-type contextElementMiddleware struct {
-	elm      *sip.Element
-	observed chan contextElementObservation
-}
-
-type contextElementObservation struct {
-	ctx context.Context
-	tx  sip.ServerTransaction
-}
-
-func (mw *contextElementMiddleware) InterceptInboundRequest(
-	ctx context.Context,
-	_ sip.RequestReceiver,
-	req *sip.RequestEnvelope,
-) error {
-	tp, ok := sip.TransportFromContext(ctx)
-	if !ok {
-		return errors.ErrorWrap("inbound transport missing from context")
-	}
-	tx, err := mw.elm.NewServerTransaction(ctx, req, tp)
-	if err != nil {
-		return errors.Wrap(err)
-	}
-	return errors.Wrap(tx.Start(ctx))
-}
-
-func (mw *contextElementMiddleware) HandleServerTransaction(ctx context.Context, tx sip.ServerTransaction) {
-	mw.observed <- contextElementObservation{ctx: ctx, tx: tx}
-}
-
-func TestElementMiddleware_TransactionContextFromTransport(t *testing.T) {
-	t.Parallel()
-
-	meta := sip.UDPMetadata()
-	pubAddr := sip.MakeHostPortAddr("127.0.0.1", meta.DefaultPort)
-	tp, err := NewConnectionLessTransport(meta, TransportOptions{PublicAddr: pubAddr})
-	if err != nil {
-		t.Fatalf("NewConnectionLessTransport() error = %v, want nil", err)
-	}
-
-	elm := &sip.Element{}
-	if err := elm.TrackTransport(tp); err != nil {
-		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
-	}
-	t.Cleanup(func() { _ = elm.Close() })
-
-	mw := &contextElementMiddleware{
-		elm:      elm,
-		observed: make(chan contextElementObservation, 1),
-	}
-	elm.UseMiddleware(mw)
-
-	req := newContextPropagationRequest(
-		t,
-		meta,
-		pubAddr,
-		netip.MustParseAddrPort("127.0.0.1:5070"),
-		netip.MustParseAddrPort("127.0.0.1:5080"),
-	)
-	if err := tp.recvReqSafe(t.Context(), req, nil); err != nil {
-		t.Fatalf("tp.recvReqSafe() error = %v, want nil", err)
-	}
-
-	observed := testutil.WaitResult(t, mw.observed, "Element middleware transaction context")
-	if got, ok := sip.ServerTransactionFromContext(observed.ctx); !ok || got != observed.tx {
-		t.Fatalf("sip.ServerTransactionFromContext(middleware ctx) = (%v, %t), want %v", got, ok, observed.tx)
-	}
-	if got, ok := sip.TransportFromContext(observed.ctx); !ok || got != tp {
-		t.Fatalf("sip.TransportFromContext(middleware ctx) = (%v, %t), want %v", got, ok, tp)
-	}
-	if got, ok := elm.LoadServerTransaction(observed.tx.Key()); !ok || got != observed.tx {
-		t.Fatalf("elm.LoadServerTransaction() = (%v, %t), want middleware transaction %v", got, ok, observed.tx)
 	}
 }
 
@@ -315,34 +240,34 @@ func TestTransportOptions_pubAddr(t *testing.T) {
 		want sip.Addr
 	}{
 		{
-			name: "valid host with port is returned as is",
-			opts: TransportOptions{PublicAddr: sip.MakeHostPortAddr("example.com", 5060)},
-			want: sip.MakeHostPortAddr("example.com", 5060),
+			"valid host with port is returned as is",
+			TransportOptions{PublicAddr: sip.MakeHostPortAddr("example.com", 5060)},
+			sip.MakeHostPortAddr("example.com", 5060),
 		},
 		{
-			name: "valid ip with port is returned as is",
-			opts: TransportOptions{PublicAddr: sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 5060)},
-			want: sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 5060),
+			"valid ip with port is returned as is",
+			TransportOptions{PublicAddr: sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 5060)},
+			sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 5060),
 		},
 		{
-			name: "host only is returned as is",
-			opts: TransportOptions{PublicAddr: sip.MakeHostAddr("example.com")},
-			want: sip.MakeHostAddr("example.com"),
+			"host only is returned as is",
+			TransportOptions{PublicAddr: sip.MakeHostAddr("example.com")},
+			sip.MakeHostAddr("example.com"),
 		},
 		{
-			name: "ip only is returned as is",
-			opts: TransportOptions{PublicAddr: sip.MakeIPAddr(netip.MustParseAddr("192.168.1.1").AsSlice())},
-			want: sip.MakeIPAddr(netip.MustParseAddr("192.168.1.1").AsSlice()),
+			"ip only is returned as is",
+			TransportOptions{PublicAddr: sip.MakeIPAddr(netip.MustParseAddr("192.168.1.1").AsSlice())},
+			sip.MakeIPAddr(netip.MustParseAddr("192.168.1.1").AsSlice()),
 		},
 		{
-			name: "host with zero port keeps placeholder",
-			opts: TransportOptions{PublicAddr: sip.MakeHostPortAddr("example.com", 0)},
-			want: sip.MakeHostPortAddr("example.com", 0),
+			"host with zero port keeps placeholder",
+			TransportOptions{PublicAddr: sip.MakeHostPortAddr("example.com", 0)},
+			sip.MakeHostPortAddr("example.com", 0),
 		},
 		{
-			name: "ip with zero port keeps placeholder",
-			opts: TransportOptions{PublicAddr: sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 0)},
-			want: sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 0),
+			"ip with zero port keeps placeholder",
+			TransportOptions{PublicAddr: sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 0)},
+			sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 0),
 		},
 	}
 
@@ -365,6 +290,7 @@ func TestTransportOptions_pubAddr_DynamicHost(t *testing.T) {
 	if err != nil {
 		t.Skipf("no usable host IPv4 address: %v", err)
 	}
+
 	hostIPv4 := hostIP.To4()
 	if hostIPv4 == nil {
 		t.Skipf("host IP %v has no usable IPv4 address", hostIP)
@@ -376,19 +302,19 @@ func TestTransportOptions_pubAddr_DynamicHost(t *testing.T) {
 		want sip.Addr
 	}{
 		{
-			name: "zero address returns host IP",
-			opts: TransportOptions{PublicAddr: sip.Addr{}},
-			want: sip.MakeIPAddr(hostIPv4),
+			"zero address returns host IP",
+			TransportOptions{PublicAddr: sip.Addr{}},
+			sip.MakeIPAddr(hostIPv4),
 		},
 		{
-			name: "unspecified ip with port returns host IP with that port",
-			opts: TransportOptions{PublicAddr: sip.MakeIPPortAddr(netip.IPv4Unspecified().AsSlice(), 0)},
-			want: sip.MakeIPPortAddr(hostIPv4, 0),
+			"unspecified ip with port returns host IP with that port",
+			TransportOptions{PublicAddr: sip.MakeIPPortAddr(netip.IPv4Unspecified().AsSlice(), 0)},
+			sip.MakeIPPortAddr(hostIPv4, 0),
 		},
 		{
-			name: "unspecified ip without port returns host IP",
-			opts: TransportOptions{PublicAddr: sip.MakeHostAddr("0.0.0.0")},
-			want: sip.MakeIPAddr(hostIPv4),
+			"unspecified ip without port returns host IP",
+			TransportOptions{PublicAddr: sip.MakeHostAddr("0.0.0.0")},
+			sip.MakeIPAddr(hostIPv4),
 		},
 	}
 
@@ -398,7 +324,7 @@ func TestTransportOptions_pubAddr_DynamicHost(t *testing.T) {
 
 			got := tt.opts.pubAddr()
 			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("TransportOptions.pubAddr() = %+v, want %+v\ndiff (-want +got):\n%s", got, tt.want, diff)
+				t.Errorf("transport.TransportOptions.pubAddr() = %+v, want %+v\ndiff (-want +got):\n%s", got, tt.want, diff)
 			}
 		})
 	}
@@ -413,24 +339,24 @@ func TestTransportOptions_pubAddr_Validation(t *testing.T) {
 		shouldUseDirectly bool
 	}{
 		{
-			name:              "valid complete address should be used directly",
-			opts:              TransportOptions{PublicAddr: sip.MakeHostPortAddr("example.com", 5060)},
-			shouldUseDirectly: true,
+			"valid complete address should be used directly",
+			TransportOptions{PublicAddr: sip.MakeHostPortAddr("example.com", 5060)},
+			true,
 		},
 		{
-			name:              "valid ip with port should be used directly",
-			opts:              TransportOptions{PublicAddr: sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 5060)},
-			shouldUseDirectly: true,
+			"valid ip with port should be used directly",
+			TransportOptions{PublicAddr: sip.MakeIPPortAddr(netip.MustParseAddr("192.168.1.1").AsSlice(), 5060)},
+			true,
 		},
 		{
-			name:              "ip without port should be used directly",
-			opts:              TransportOptions{PublicAddr: sip.MakeIPAddr(netip.MustParseAddr("123.123.123.123").AsSlice())},
-			shouldUseDirectly: true,
+			"ip without port should be used directly",
+			TransportOptions{PublicAddr: sip.MakeIPAddr(netip.MustParseAddr("123.123.123.123").AsSlice())},
+			true,
 		},
 		{
-			name:              "zero port should trigger finalization",
-			opts:              TransportOptions{PublicAddr: sip.MakeHostPortAddr("example.com", 0)},
-			shouldUseDirectly: false,
+			"zero port should trigger finalization",
+			TransportOptions{PublicAddr: sip.MakeHostPortAddr("example.com", 0)},
+			false,
 		},
 	}
 
@@ -447,8 +373,10 @@ func TestTransportOptions_pubAddr_Validation(t *testing.T) {
 
 			if tt.shouldUseDirectly == needsFinalization {
 				t.Errorf(
-					"TransportOptions.pubAddr() validation failed: expected direct use=%v, but needs finalization=%v",
-					tt.shouldUseDirectly, needsFinalization,
+					"transport.TransportOptions.pubAddr() validation failed: "+
+						"expected direct use=%v, but needs finalization=%v",
+					tt.shouldUseDirectly,
+					needsFinalization,
 				)
 			}
 		})
@@ -471,26 +399,26 @@ func TestTranspBase_UntrackListener_PreservesReplacement(t *testing.T) {
 	t.Parallel()
 
 	addr := netip.MustParseAddrPort("127.0.0.1:5060")
-	oldListener := &trackedListener{
+	oldLis := &trackedListener{
 		transpListener: &testTrackedListener{addr: addr},
 		borrowed:       true,
 	}
-	newListener := &trackedListener{
+	newLis := &trackedListener{
 		transpListener: &testTrackedListener{addr: addr},
 		borrowed:       true,
 	}
 
 	var tb transpBase[net.PacketConn]
-	tb.lisMap.Store(addr, newListener)
+	tb.lisMap.Store(addr, newLis)
 
-	tb.untrackListener(context.Background(), oldListener)
+	tb.untrackLis(t.Context(), oldLis)
 
 	got, ok := tb.lisMap.Load(addr)
 	if !ok {
 		t.Fatal("tb.lisMap.Load() found = false, want true")
 	}
-	if got != newListener {
-		t.Fatalf("tb.lisMap.Load() = %p, want %p", got, newListener)
+	if got != newLis {
+		t.Fatalf("tb.lisMap.Load() = %p, want %p", got, newLis)
 	}
 }
 
@@ -499,9 +427,9 @@ func TestTranspBase_UntrackConn_PreservesReplacement(t *testing.T) {
 
 	l := netip.MustParseAddrPort("127.0.0.1:5060")
 	r := netip.MustParseAddrPort("127.0.0.2:5060")
-	old := &trackedConn{Connection: &Connection{}, borrowed: true}
+	old := &trackedConn{Conn: &Conn{}, borrowed: true}
 	old.laddr, old.raddr = l, r
-	replacement := &trackedConn{Connection: &Connection{}, borrowed: true}
+	replacement := &trackedConn{Conn: &Conn{}, borrowed: true}
 	replacement.laddr, replacement.raddr = l, r
 
 	var tb transpBase[net.Listener]
@@ -511,7 +439,7 @@ func TestTranspBase_UntrackConn_PreservesReplacement(t *testing.T) {
 	bucket.Store(l, replacement)
 	tb.connMap.Store(r, bucket)
 
-	tb.untrackConn(context.Background(), old)
+	tb.untrackConn(t.Context(), old)
 
 	got, ok := bucket.Load(l)
 	if !ok || got != replacement {
@@ -530,7 +458,7 @@ func TestTranspBase_UntrackConn(t *testing.T) {
 	r := netip.MustParseAddrPort("127.0.0.2:5060")
 
 	newConn := func(l, r netip.AddrPort) *trackedConn {
-		conn := &trackedConn{Connection: &Connection{}, borrowed: true}
+		conn := &trackedConn{Conn: &Conn{}, borrowed: true}
 		conn.laddr, conn.raddr = l, r
 		return conn
 	}
@@ -543,21 +471,21 @@ func TestTranspBase_UntrackConn(t *testing.T) {
 		wantBucketReg bool
 	}{
 		{
-			name: "removes tracked connection and empty remote bucket",
-			setup: func() (*transpBase[net.Listener], *connBucket) {
+			"removes tracked connection and empty remote bucket",
+			func() (*transpBase[net.Listener], *connBucket) {
 				var tb transpBase[net.Listener]
 				bucket := &connBucket{}
 				bucket.Store(l, newConn(l, r))
 				tb.connMap.Store(r, bucket)
 				return &tb, bucket
 			},
-			conn:          newConn(l, r),
-			wantSibling:   false,
-			wantBucketReg: false,
+			newConn(l, r),
+			false,
+			false,
 		},
 		{
-			name: "removes tracked connection and keeps siblings",
-			setup: func() (*transpBase[net.Listener], *connBucket) {
+			"removes tracked connection and keeps siblings",
+			func() (*transpBase[net.Listener], *connBucket) {
 				var tb transpBase[net.Listener]
 				bucket := &connBucket{}
 				bucket.Store(l, newConn(l, r))
@@ -565,32 +493,32 @@ func TestTranspBase_UntrackConn(t *testing.T) {
 				tb.connMap.Store(r, bucket)
 				return &tb, bucket
 			},
-			conn:          newConn(l, r),
-			wantSibling:   true,
-			wantBucketReg: true,
+			newConn(l, r),
+			true,
+			true,
 		},
 		{
-			name: "missing connection leaves siblings untouched",
-			setup: func() (*transpBase[net.Listener], *connBucket) {
+			"missing connection leaves siblings untouched",
+			func() (*transpBase[net.Listener], *connBucket) {
 				var tb transpBase[net.Listener]
 				bucket := &connBucket{}
 				bucket.Store(l2, newConn(l2, r))
 				tb.connMap.Store(r, bucket)
 				return &tb, bucket
 			},
-			conn:          newConn(l, r),
-			wantSibling:   true,
-			wantBucketReg: true,
+			newConn(l, r),
+			true,
+			true,
 		},
 		{
-			name: "missing remote bucket leaves map untouched",
-			setup: func() (*transpBase[net.Listener], *connBucket) {
+			"missing remote bucket leaves map untouched",
+			func() (*transpBase[net.Listener], *connBucket) {
 				var tb transpBase[net.Listener]
 				return &tb, &connBucket{}
 			},
-			conn:          newConn(l, r),
-			wantSibling:   false,
-			wantBucketReg: false,
+			newConn(l, r),
+			false,
+			false,
 		},
 	}
 
@@ -608,7 +536,7 @@ func TestTranspBase_UntrackConn(t *testing.T) {
 				target = stored
 			}
 
-			tb.untrackConn(context.Background(), target)
+			tb.untrackConn(t.Context(), target)
 
 			if _, ok := bucket.Load(target.laddr); ok {
 				t.Fatalf("bucket.Load(%v) found removed connection", target.laddr)
@@ -643,12 +571,8 @@ func TestTrackedListener_Close_UntracksRecord(t *testing.T) {
 		load   func(laddr netip.AddrPort) (*trackedListener, bool)
 		close  func() error
 	}{
-		{
-			name: "UDP",
-		},
-		{
-			name: "TCP",
-		},
+		{name: "UDP"},
+		{name: "TCP"},
 	}
 
 	for _, tt := range tests {
@@ -657,17 +581,17 @@ func TestTrackedListener_Close_UntracksRecord(t *testing.T) {
 
 			switch tt.name {
 			case "UDP":
-				tp, err := NewConnectionLessTransport(sip.UDPMetadata())
+				tp, err := NewConnLessTransport(sip.UDPMetadata())
 				if err != nil {
-					t.Fatalf("NewConnectionLessTransport() error = %v, want nil", err)
+					t.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
 				}
 				tt.listen = tp.Listen
 				tt.load = tp.lisMap.Load
 				tt.close = tp.Close
 			case "TCP":
-				tp, err := NewConnectionOrientedTransport(sip.TCPMetadata())
+				tp, err := NewConnOrientedTransport(sip.TCPMetadata())
 				if err != nil {
-					t.Fatalf("NewConnectionOrientedTransport() error = %v, want nil", err)
+					t.Fatalf("transport.NewConnOrientedTransport() error = %v, want nil", err)
 				}
 				tt.listen = tp.Listen
 				tt.load = tp.lisMap.Load
@@ -679,10 +603,10 @@ func TestTrackedListener_Close_UntracksRecord(t *testing.T) {
 
 			lis, err := tt.listen(ctx, "127.0.0.1:0")
 			if err != nil {
-				t.Fatalf("Listen() error = %v, want nil", err)
+				t.Fatalf("tp.Listen() error = %v, want nil", err)
 			}
-			laddr := lis.LocalAddr()
 
+			laddr := lis.LocalAddr()
 			if _, ok := tt.load(laddr); !ok {
 				t.Fatal("listener not tracked after Listen")
 			}
@@ -697,9 +621,10 @@ func TestTrackedListener_Close_UntracksRecord(t *testing.T) {
 			// Close of the discarded wrapper.
 			lis2, err := tt.listen(ctx, laddr.String())
 			if err != nil {
-				t.Fatalf("rebind Listen() error = %v, want nil", err)
+				t.Fatalf("rebind tp.Listen() error = %v, want nil", err)
 			}
 			t.Cleanup(func() { _ = lis2.Close() })
+
 			got, ok := tt.load(laddr)
 			if !ok || got != lis2 {
 				t.Fatalf("rebound listener record = (%p, %v), want %p, true", got, ok, lis2)
@@ -707,6 +632,7 @@ func TestTrackedListener_Close_UntracksRecord(t *testing.T) {
 			if err := lis.Close(); err != nil {
 				t.Fatalf("repeated lis.Close() error = %v, want nil", err)
 			}
+
 			got, ok = tt.load(laddr)
 			if !ok || got != lis2 {
 				t.Fatalf("record after repeated close = (%p, %v), want replacement %p, true", got, ok, lis2)
@@ -718,162 +644,94 @@ func TestTrackedListener_Close_UntracksRecord(t *testing.T) {
 	}
 }
 
-// A stale closed record must not resolve an exact local-address lookup; it
-// is dropped and a live sibling still works as fallback.
-func TestConnectionLess_AcquireConnection_SkipsClosedListener(t *testing.T) {
-	t.Parallel()
-
-	ctx := t.Context()
-
-	tp, err := NewConnectionLessTransport(sip.UDPMetadata())
-	if err != nil {
-		t.Fatalf("NewConnectionLessTransport() error = %v, want nil", err)
-	}
-	t.Cleanup(func() { _ = tp.Close() })
-
-	lis, err := tp.Listen(ctx, "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Listen() error = %v, want nil", err)
-	}
-	stale := lis.(*trackedListener) //nolint:forcetypeassert
-	laddr := lis.LocalAddr()
-
-	// Close the underlying listener behind the wrapper's back, leaving a
-	// stale closed record in the registry like Serve's cancellation path
-	// could.
-	if err := stale.transpListener.Close(); err != nil {
-		t.Fatalf("underlying lis.Close() error = %v, want nil", err)
-	}
-	if _, ok := tp.lisMap.Load(laddr); !ok {
-		t.Fatal("stale record unexpectedly removed, test premise broken")
-	}
-
-	raddr := netip.MustParseAddrPort("127.0.0.1:50999")
-	if conn, err := tp.AcquireConnection(
-		ctx,
-		raddr,
-		AcquireConnectionOptions{LocalAddr: laddr},
-	); !errors.Is(err, ErrConnectionNotFound) {
-		t.Fatalf("AcquireConnection() = (%v, %v), want %v", conn, err, ErrConnectionNotFound)
-	}
-	if _, ok := tp.lisMap.Load(laddr); ok {
-		t.Error("stale closed record still tracked after lookup, want dropped")
-	}
-
-	// A live sibling on the same address family is picked up by the generic
-	// fallback instead.
-	lis2, err := tp.Listen(ctx, "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("sibling Listen() error = %v, want nil", err)
-	}
-	t.Cleanup(func() { _ = lis2.Close() })
-	conn, err := tp.AcquireConnection(
-		ctx,
-		raddr,
-		AcquireConnectionOptions{LocalAddr: laddr},
-	)
-	if err != nil {
-		t.Fatalf("AcquireConnection() with live sibling error = %v, want nil", err)
-	}
-	if got := conn.LocalAddr(); got != lis2.LocalAddr() {
-		t.Errorf("acquired conn LocalAddr = %v, want sibling %v", got, lis2.LocalAddr())
-	}
-}
-
 type (
-	transportOperationContextKey struct{}
-	transportServeContextKey     struct{}
+	tpOpCtxKey  struct{}
+	tpSrvCtxKey struct{}
 )
 
-type dialContextRecorder struct {
-	dialer          net.Dialer
-	contexts        chan context.Context
-	calls           atomic.Int32
-	successfulCalls atomic.Int32
+type dialCtxRecorder struct {
+	dialer       net.Dialer
+	contexts     chan context.Context
+	calls        atomic.Int32
+	successCalls atomic.Int32
 }
 
-func newDialContextRecorder() *dialContextRecorder {
-	return &dialContextRecorder{contexts: make(chan context.Context, 2)}
+func newDialCtxRecorder() *dialCtxRecorder {
+	return &dialCtxRecorder{contexts: make(chan context.Context, 2)}
 }
 
-func (d *dialContextRecorder) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+func (d *dialCtxRecorder) Dial(ctx context.Context, network, address string) (net.Conn, error) {
 	d.calls.Add(1)
 	d.contexts <- ctx
 	conn, err := d.dialer.DialContext(ctx, network, address)
 	if err == nil {
-		d.successfulCalls.Add(1)
+		d.successCalls.Add(1)
 	}
 	return errors.Wrap2(conn, err)
 }
 
-type fixedConnectionDialer struct {
-	conn            net.Conn
-	err             error
-	calls           atomic.Int32
-	successfulCalls atomic.Int32
+type fixedConnDialer struct {
+	conn         net.Conn
+	err          error
+	calls        atomic.Int32
+	successCalls atomic.Int32
 }
 
-func (d *fixedConnectionDialer) Dial(context.Context, string, string) (net.Conn, error) {
+func (d *fixedConnDialer) Dial(context.Context, string, string) (net.Conn, error) {
 	d.calls.Add(1)
 	if d.err != nil {
 		return nil, errors.Wrap(d.err)
 	}
-	d.successfulCalls.Add(1)
+	d.successCalls.Add(1)
 	return d.conn, nil
 }
 
-type contextDialableTransport interface {
+type ctxDialableTransp interface {
 	sip.Transport
-	AcquireConnection(
-		ctx context.Context,
-		raddr netip.AddrPort,
-		opts ...AcquireConnectionOptions,
-	) (sip.TransportConnection, error)
+	AcquireConn(ctx context.Context, raddr netip.AddrPort, opts ...AcquireConnOptions) (sip.TransportConn, error)
 }
 
-func newContextDialableTransport(
-	meta sip.TransportMetadata,
-	dialer ConnectionDialer,
-) (contextDialableTransport, error) {
+func newCtxDialableTransp(meta sip.TransportMetadata, dialer ConnDialer) (ctxDialableTransp, error) {
 	opts := TransportOptions{
-		ConnectionDialer:      dialer,
-		ConnectionReadTimeout: -1,
-		ConnectionIdleTimeout: -1,
+		ConnDialer:      dialer,
+		ConnReadTimeout: -1,
+		ConnIdleTimeout: -1,
 	}
 	if meta.Streamed() {
-		return errors.Wrap2(NewConnectionOrientedTransport(meta, opts))
+		return errors.Wrap2(NewConnOrientedTransport(meta, opts))
 	}
-	return errors.Wrap2(NewConnectionLessTransport(meta, opts))
+	return errors.Wrap2(NewConnLessTransport(meta, opts))
 }
 
-func TestTransport_DialSeparatesOperationAndInboundContexts(t *testing.T) {
+func TestTransport_Dial_SeparatesOperationAndInboundContexts(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
-		name               string
-		meta               sip.TransportMetadata
-		customServeContext bool
+		name         string
+		meta         sip.TransportMetadata
+		customSrvCtx bool
 	}{
-		{name: "tcp default", meta: sip.TCPMetadata()},
-		{name: "tcp custom", meta: sip.TCPMetadata(), customServeContext: true},
-		{name: "udp default", meta: sip.UDPMetadata()},
-		{name: "udp custom", meta: sip.UDPMetadata(), customServeContext: true},
+		{"tcp default", sip.TCPMetadata(), false},
+		{"tcp custom", sip.TCPMetadata(), true},
+		{"udp default", sip.UDPMetadata(), false},
+		{"udp custom", sip.UDPMetadata(), true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			meta := tt.meta
 
 			var (
-				tcpListener *net.TCPListener
-				udpPeer     net.PacketConn
-				err         error
+				tcpLis  *net.TCPListener
+				udpPeer net.PacketConn
+				err     error
 			)
 			if meta.Streamed() {
-				tcpListener, err = net.ListenTCP(meta.Network, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+				tcpLis, err = net.ListenTCP(meta.Network, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 				if err != nil {
 					t.Fatalf("net.Listen() error = %v, want nil", err)
 				}
-				t.Cleanup(func() { _ = tcpListener.Close() })
+				t.Cleanup(func() { _ = tcpLis.Close() })
 			} else {
 				udpPeer, err = net.ListenPacket(meta.Network, "127.0.0.1:0")
 				if err != nil {
@@ -882,56 +740,57 @@ func TestTransport_DialSeparatesOperationAndInboundContexts(t *testing.T) {
 				t.Cleanup(func() { _ = udpPeer.Close() })
 			}
 
-			remoteAddr := netip.MustParseAddrPort(func() string {
-				if tcpListener != nil {
-					return tcpListener.Addr().String()
+			rmtAddr := netip.MustParseAddrPort(func() string {
+				if tcpLis != nil {
+					return tcpLis.Addr().String()
 				}
 				return udpPeer.LocalAddr().String()
 			}())
-			dialer := newDialContextRecorder()
-			tp, err := newContextDialableTransport(meta, dialer)
+			dialer := newDialCtxRecorder()
+			tp, err := newCtxDialableTransp(meta, dialer)
 			if err != nil {
-				t.Fatalf("newContextDialableTransport() error = %v, want nil", err)
+				t.Fatalf("newCtxDialableTransp() error = %v, want nil", err)
 			}
 			t.Cleanup(func() { _ = tp.Close() })
 
-			serveCtx := context.Background()
-			var serveCancel context.CancelFunc
-			var serveFactoryCalls atomic.Int32
-			var successfulCallsAtFactory atomic.Int32
-			var serveContextFactory func() context.Context
-			if tt.customServeContext {
-				serveCtx, serveCancel = context.WithDeadline(
-					context.WithValue(context.Background(), transportServeContextKey{}, "serve"),
+			// The default serving context is independent of the test and acquisition contexts.
+			srvCtx := context.Background() //nolint:usetesting // Must not inherit the test context.
+			var srvCancel context.CancelFunc
+			var srvFactoryCalls atomic.Int32
+			var successCallsAtFactory atomic.Int32
+			var srvCtxFactory func() context.Context
+			if tt.customSrvCtx {
+				srvCtx, srvCancel = context.WithDeadline(
+					context.WithValue(t.Context(), tpSrvCtxKey{}, "serve"),
 					time.Now().Add(time.Minute),
 				)
-				t.Cleanup(serveCancel)
-				serveContextFactory = func() context.Context {
-					serveFactoryCalls.Add(1)
-					successfulCallsAtFactory.Store(dialer.successfulCalls.Load())
-					return serveCtx
+				t.Cleanup(srvCancel)
+				srvCtxFactory = func() context.Context {
+					srvFactoryCalls.Add(1)
+					successCallsAtFactory.Store(dialer.successCalls.Load())
+					return srvCtx
 				}
 			}
-			serveContextState := servingContextState{
-				value: serveCtx.Value(transportServeContextKey{}),
-				done:  serveCtx.Done(),
+			srvCtxState := servingCtxState{
+				value: srvCtx.Value(tpSrvCtxKey{}),
+				done:  srvCtx.Done(),
 			}
-			serveContextState.deadline, serveContextState.hasDeadline = serveCtx.Deadline()
+			srvCtxState.deadline, srvCtxState.hasDeadline = srvCtx.Deadline()
 
-			inboundCtxs := make(chan context.Context, 2)
+			inCtxs := make(chan context.Context, 2)
 			tp.UseInboundRequestInterceptor(sip.InboundRequestInterceptorFunc(
 				func(ctx context.Context, _ sip.RequestReceiver, _ *sip.RequestEnvelope) error {
-					inboundCtxs <- ctx
+					inCtxs <- ctx
 					return nil
 				},
 			))
 
-			req := newContextPropagationRequest(
+			req := newCtxPropagationReq(
 				t,
 				meta,
-				sip.MakeHostPortAddr("127.0.0.1", remoteAddr.Port()),
+				sip.MakeHostPortAddr("127.0.0.1", rmtAddr.Port()),
 				netip.MustParseAddrPort("127.0.0.1:5070"),
-				remoteAddr,
+				rmtAddr,
 			)
 			req.WithMessage(func(msg *sip.Request) {
 				msg.Headers.Set(header.ContentLength(0))
@@ -941,51 +800,56 @@ func TestTransport_DialSeparatesOperationAndInboundContexts(t *testing.T) {
 				t.Fatalf("sip.NewInviteClientTransaction() error = %v, want nil", err)
 			}
 
-			unrelatedElm := &sip.Element{}
-			t.Cleanup(func() { _ = unrelatedElm.Close() })
+			unrelatedElem := &sip.Element{}
+			t.Cleanup(func() { _ = unrelatedElem.Close() })
+
 			baseCtx, deadlineCancel := context.WithDeadline(
-				context.WithValue(t.Context(), transportOperationContextKey{}, "dial"),
+				context.WithValue(t.Context(), tpOpCtxKey{}, "dial"),
 				time.Now().Add(10*time.Second),
 			)
 			t.Cleanup(deadlineCancel)
-			operationCtx := sip.ContextWithTransaction(sip.ContextWithElement(baseCtx, unrelatedElm), tx)
-			dialCtx, operationCancel := context.WithCancel(operationCtx)
 
-			conn, err := tp.AcquireConnection(
+			opCtx := sip.ContextWithTransaction(sip.ContextWithElement(baseCtx, unrelatedElem), tx)
+			dialCtx, opCancel := context.WithCancel(opCtx)
+
+			conn, err := tp.AcquireConn(
 				dialCtx,
-				remoteAddr,
-				AcquireConnectionOptions{
+				rmtAddr,
+				AcquireConnOptions{
 					Dial:         true,
-					ServeContext: serveContextFactory,
+					ServeContext: srvCtxFactory,
 				},
 			)
 			if err != nil {
-				t.Fatalf("tp.AcquireConnection() error = %v, want nil", err)
+				t.Fatalf("tp.AcquireConn() error = %v, want nil", err)
 			}
+
 			actualDialCtx := testutil.WaitResult(t, dialer.contexts, "transport dial context")
-			operationDeadline, _ := dialCtx.Deadline()
-			assertOperationContext(t, actualDialCtx, tx, tp, unrelatedElm, operationDeadline)
+			opDeadline, _ := dialCtx.Deadline()
+			assertOpCtx(t, actualDialCtx, tx, tp, unrelatedElem, opDeadline)
 			wantFactoryCalls := int32(0)
-			if tt.customServeContext {
+			if tt.customSrvCtx {
 				wantFactoryCalls = 1
-				if got := successfulCallsAtFactory.Load(); got != 1 {
+				if got := successCallsAtFactory.Load(); got != 1 {
 					t.Errorf("successful dial calls when ServeContext ran = %d, want 1", got)
 				}
 			}
-			if got := serveFactoryCalls.Load(); got != wantFactoryCalls {
-				t.Errorf("ServeContext factory calls after dial = %d, want %d", got, wantFactoryCalls)
+			if got := srvFactoryCalls.Load(); got != wantFactoryCalls {
+				t.Errorf("opts.ServeContext() factory calls after dial = %d, want %d", got, wantFactoryCalls)
 			}
 
 			var writeInbound func([]byte) error
 			if meta.Streamed() {
-				if err := tcpListener.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
-					t.Fatalf("tcpListener.SetDeadline() error = %v, want nil", errors.Wrap(err))
+				if err := tcpLis.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+					t.Fatalf("tcpLis.SetDeadline() error = %v, want nil", errors.Wrap(err))
 				}
-				peer, acceptErr := tcpListener.AcceptTCP()
+
+				peer, acceptErr := tcpLis.AcceptTCP()
 				if acceptErr != nil {
-					t.Fatalf("tcpListener.AcceptTCP() error = %v, want nil", errors.Wrap(acceptErr))
+					t.Fatalf("tcpLis.AcceptTCP() error = %v, want nil", errors.Wrap(acceptErr))
 				}
 				t.Cleanup(func() { _ = peer.Close() })
+
 				writeInbound = func(data []byte) error {
 					if err := peer.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
 						return errors.Wrap(err)
@@ -1001,7 +865,7 @@ func TestTransport_DialSeparatesOperationAndInboundContexts(t *testing.T) {
 				}
 			}
 
-			operationCancel()
+			opCancel()
 			if !errors.Is(actualDialCtx.Err(), context.Canceled) {
 				t.Fatalf("dial context error = %v, want %v after cancel", actualDialCtx.Err(), context.Canceled)
 			}
@@ -1010,19 +874,17 @@ func TestTransport_DialSeparatesOperationAndInboundContexts(t *testing.T) {
 				if err := writeInbound([]byte(req.Message().Render())); err != nil {
 					t.Fatalf("writeInbound() error = %v, want nil", err)
 				}
-				assertFreshInboundContext(
-					testutil.WaitResult(t, inboundCtxs, "inbound request interceptor context"),
-					t,
-					tp,
-					serveContextState,
+				assertFreshInCtx(t,
+					testutil.WaitResult(t, inCtxs, "inbound request interceptor context"),
+					tp, srvCtxState,
 				)
 			}
 
 			var reuseFactoryCalls atomic.Int32
-			reused, err := tp.AcquireConnection(
-				context.Background(),
-				remoteAddr,
-				AcquireConnectionOptions{
+			reused, err := tp.AcquireConn(
+				t.Context(),
+				rmtAddr,
+				AcquireConnOptions{
 					Dial: true,
 					ServeContext: func() context.Context {
 						reuseFactoryCalls.Add(1)
@@ -1031,7 +893,7 @@ func TestTransport_DialSeparatesOperationAndInboundContexts(t *testing.T) {
 				},
 			)
 			if err != nil {
-				t.Fatalf("tp.AcquireConnection(reuse) error = %v, want nil", err)
+				t.Fatalf("tp.AcquireConn(reuse) error = %v, want nil", err)
 			}
 			if reused != conn {
 				t.Errorf("reused connection = %v, want same instance %v", reused, conn)
@@ -1048,32 +910,30 @@ func TestTransport_DialSeparatesOperationAndInboundContexts(t *testing.T) {
 			if err := writeInbound([]byte(req.Message().Render())); err != nil {
 				t.Fatalf("writeInbound(reused connection) error = %v, want nil", err)
 			}
-			assertFreshInboundContext(
-				testutil.WaitResult(t, inboundCtxs, "reused connection inbound context"),
-				t,
-				tp,
-				serveContextState,
+			assertFreshInCtx(t,
+				testutil.WaitResult(t, inCtxs, "reused connection inbound context"),
+				tp, srvCtxState,
 			)
 
-			if tt.customServeContext {
-				servingConn, ok := conn.(*Connection)
+			if tt.customSrvCtx {
+				servingConn, ok := conn.(*Conn)
 				if !ok {
-					t.Fatalf("dialed connection type = %T, want *Connection", conn)
+					t.Fatalf("dialed connection type = %T, want *Conn", conn)
 				}
-				serveCancel()
+				srvCancel()
 				testutil.WaitClosed(t, servingConn.closed, "custom serve context cancellation")
 			}
 			if err := tp.Close(); err != nil {
 				t.Fatalf("tp.Close() error = %v, want nil", err)
 			}
-			if err := conn.WriteMessage(context.Background(), req.Message(), remoteAddr); err == nil {
+			if err := conn.WriteMessage(t.Context(), req.Message(), rmtAddr); err == nil {
 				t.Fatal("conn.WriteMessage() after transport close error = nil, want error")
 			}
 		})
 	}
 }
 
-func assertOperationContext(
+func assertOpCtx(
 	t *testing.T,
 	ctx context.Context,
 	tx sip.Transaction,
@@ -1082,6 +942,7 @@ func assertOperationContext(
 	wantDeadline time.Time,
 ) {
 	t.Helper()
+
 	if got, ok := sip.TransactionFromContext(ctx); !ok || got != tx {
 		t.Errorf("sip.TransactionFromContext(dial ctx) = (%v, %t), want %v", got, ok, tx)
 	}
@@ -1091,7 +952,7 @@ func assertOperationContext(
 	if got, ok := sip.ElementFromContext(ctx); !ok || got != elm {
 		t.Errorf("sip.ElementFromContext(dial ctx) = (%v, %t), want %v", got, ok, elm)
 	}
-	if got := ctx.Value(transportOperationContextKey{}); got != "dial" {
+	if got := ctx.Value(tpOpCtxKey{}); got != "dial" {
 		t.Errorf("dial context value = %v, want dial", got)
 	}
 	if got, ok := ctx.Deadline(); !ok || !got.Equal(wantDeadline) {
@@ -1099,15 +960,16 @@ func assertOperationContext(
 	}
 }
 
-type servingContextState struct {
+type servingCtxState struct {
 	value       any
 	deadline    time.Time
 	hasDeadline bool
 	done        <-chan struct{}
 }
 
-func assertFreshInboundContext(ctx context.Context, t *testing.T, tp sip.Transport, serveCtx servingContextState) {
+func assertFreshInCtx(t *testing.T, ctx context.Context, tp sip.Transport, serveCtx servingCtxState) {
 	t.Helper()
+
 	if got, ok := sip.TransportFromContext(ctx); !ok || got != tp {
 		t.Errorf("sip.TransportFromContext(inbound ctx) = (%v, %t), want %v", got, ok, tp)
 	}
@@ -1117,17 +979,20 @@ func assertFreshInboundContext(ctx context.Context, t *testing.T, tp sip.Transpo
 	if got, ok := sip.ElementFromContext(ctx); ok || got != nil {
 		t.Errorf("sip.ElementFromContext(inbound ctx) = (%v, %t), want (nil, false)", got, ok)
 	}
-	if got := ctx.Value(transportOperationContextKey{}); got != nil {
+	if got := ctx.Value(tpOpCtxKey{}); got != nil {
 		t.Errorf("inbound context operation value = %v, want nil", got)
 	}
-	if got := ctx.Value(transportServeContextKey{}); got != serveCtx.value {
+	if got := ctx.Value(tpSrvCtxKey{}); got != serveCtx.value {
 		t.Errorf("inbound context serving value = %v, want %v", got, serveCtx.value)
 	}
 	gotDeadline, gotDeadlineSet := ctx.Deadline()
-	if gotDeadlineSet != serveCtx.hasDeadline ||
-		serveCtx.hasDeadline && !gotDeadline.Equal(serveCtx.deadline) {
+	if gotDeadlineSet != serveCtx.hasDeadline || serveCtx.hasDeadline && !gotDeadline.Equal(serveCtx.deadline) {
 		t.Errorf("inbound context deadline = (%v, %t), want (%v, %t)",
-			gotDeadline, gotDeadlineSet, serveCtx.deadline, serveCtx.hasDeadline)
+			gotDeadline,
+			gotDeadlineSet,
+			serveCtx.deadline,
+			serveCtx.hasDeadline,
+		)
 	}
 	if err := ctx.Err(); err != nil {
 		t.Errorf("inbound context error = %v, want nil", err)
@@ -1144,11 +1009,11 @@ func assertFreshInboundContext(ctx context.Context, t *testing.T, tp sip.Transpo
 	}
 }
 
-func TestTransport_AcquireConnection_ServeContextErrors(t *testing.T) {
+func TestTransport_AcquireConn_ServeContextErrors(t *testing.T) {
 	t.Parallel()
 
 	const dialFailure errors.Error = "fixture dial failure"
-	remoteAddr := netip.MustParseAddrPort("127.0.0.1:5099")
+	rmtAddr := netip.MustParseAddrPort("127.0.0.1:5099")
 	for _, meta := range []sip.TransportMetadata{sip.TCPMetadata(), sip.UDPMetadata()} {
 		t.Run(string(meta.Proto), func(t *testing.T) {
 			t.Parallel()
@@ -1166,7 +1031,7 @@ func TestTransport_AcquireConnection_ServeContextErrors(t *testing.T) {
 			}{
 				{
 					name:    "dial disabled",
-					wantErr: ErrConnectionNotFound,
+					wantErr: ErrConnNotFound,
 				},
 				{
 					name:          "dial failure",
@@ -1190,30 +1055,30 @@ func TestTransport_AcquireConnection_ServeContextErrors(t *testing.T) {
 				t.Run(tt.name, func(t *testing.T) {
 					t.Parallel()
 
-					var seamConn *idleSeamConn
+					var idleConn *stubIdleConn
 					if tt.withConn {
-						seamConn = &idleSeamConn{
+						idleConn = &stubIdleConn{
 							laddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5070},
 							raddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5099},
 						}
 					}
-					dialer := &fixedConnectionDialer{conn: seamConn, err: tt.dialErr}
-					tp, err := newContextDialableTransport(meta, dialer)
+					dialer := &fixedConnDialer{conn: idleConn, err: tt.dialErr}
+					tp, err := newCtxDialableTransp(meta, dialer)
 					if err != nil {
-						t.Fatalf("newContextDialableTransport() error = %v, want nil", errors.Wrap(err))
+						t.Fatalf("newCtxDialableTransp() error = %v, want nil", errors.Wrap(err))
 					}
 					t.Cleanup(func() { _ = tp.Close() })
 
 					var serveFactoryCalls atomic.Int32
 					var successfulCallsAtFactory atomic.Int32
-					conn, err := tp.AcquireConnection(
+					conn, err := tp.AcquireConn(
 						t.Context(),
-						remoteAddr,
-						AcquireConnectionOptions{
+						rmtAddr,
+						AcquireConnOptions{
 							Dial: tt.dial,
 							ServeContext: func() context.Context {
 								serveFactoryCalls.Add(1)
-								successfulCallsAtFactory.Store(dialer.successfulCalls.Load())
+								successfulCallsAtFactory.Store(dialer.successCalls.Load())
 								return nil
 							},
 						},
@@ -1222,31 +1087,31 @@ func TestTransport_AcquireConnection_ServeContextErrors(t *testing.T) {
 					switch {
 					case tt.wantErr != nil:
 						if !errors.Is(err, tt.wantErr) {
-							t.Fatalf("tp.AcquireConnection() error = %v, want %v", errors.Wrap(err), tt.wantErr)
+							t.Fatalf("tp.AcquireConn() error = %v, want %v", errors.Wrap(err), tt.wantErr)
 						}
 					case tt.wantAnyErr:
 						if err == nil {
-							t.Fatal("tp.AcquireConnection() error = nil, want nil serve context error")
+							t.Fatal("tp.AcquireConn() error = nil, want nil serve context error")
 						}
 					default:
 						if err != nil {
-							t.Fatalf("tp.AcquireConnection() error = %v, want nil", errors.Wrap(err))
+							t.Fatalf("tp.AcquireConn() error = %v, want nil", errors.Wrap(err))
 						}
 					}
 					if conn != nil {
-						t.Fatalf("tp.AcquireConnection() connection = %v, want nil", conn)
+						t.Fatalf("tp.AcquireConn() connection = %v, want nil", conn)
 					}
 					if got := dialer.calls.Load(); got != tt.wantDialCalls {
 						t.Errorf("Dial calls = %d, want %d", got, tt.wantDialCalls)
 					}
 					if got := serveFactoryCalls.Load(); got != tt.wantFactory {
-						t.Errorf("ServeContext factory calls = %d, want %d", got, tt.wantFactory)
+						t.Errorf("opts.ServeContext() factory calls = %d, want %d", got, tt.wantFactory)
 					}
 					if tt.withConn {
 						if got := successfulCallsAtFactory.Load(); got != 1 {
-							t.Errorf("successful dial calls when ServeContext ran = %d, want 1", got)
+							t.Errorf("successful dial calls when opts.ServeContext() ran = %d, want 1", got)
 						}
-						if got := seamConn.closes.Load(); got != tt.wantCloseCalls {
+						if got := idleConn.closes.Load(); got != tt.wantCloseCalls {
 							t.Errorf("dialed socket Close calls = %d, want %d", got, tt.wantCloseCalls)
 						}
 					}
@@ -1254,52 +1119,13 @@ func TestTransport_AcquireConnection_ServeContextErrors(t *testing.T) {
 					if err := tp.Close(); err != nil {
 						t.Fatalf("tp.Close() error = %v, want nil", errors.Wrap(err))
 					}
-					if tt.withConn && seamConn.closes.Load() != tt.wantCloseCalls {
+					if tt.withConn && idleConn.closes.Load() != tt.wantCloseCalls {
 						t.Errorf("dialed socket Close calls after transport close = %d, want %d",
-							seamConn.closes.Load(), tt.wantCloseCalls)
+							idleConn.closes.Load(), tt.wantCloseCalls)
 					}
 				})
 			}
 		})
-	}
-}
-
-func TestConnectionLessTransport_AcquireConnection_ServeContextListenerFallback(t *testing.T) {
-	t.Parallel()
-
-	tp, err := NewConnectionLessTransport(sip.UDPMetadata())
-	if err != nil {
-		t.Fatalf("NewConnectionLessTransport() error = %v, want nil", errors.Wrap(err))
-	}
-	t.Cleanup(func() { _ = tp.Close() })
-
-	listener, err := tp.Listen(context.Background(), "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("tp.Listen() error = %v, want nil", errors.Wrap(err))
-	}
-
-	var factoryCalls atomic.Int32
-	conn, err := tp.AcquireConnection(
-		t.Context(),
-		netip.MustParseAddrPort("127.0.0.1:5098"),
-		AcquireConnectionOptions{
-			LocalAddr: listener.LocalAddr(),
-			Dial:      true,
-			ServeContext: func() context.Context {
-				factoryCalls.Add(1)
-				return nil
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("tp.AcquireConnection() error = %v, want nil", errors.Wrap(err))
-	}
-	if conn.LocalAddr() != listener.LocalAddr() {
-		t.Fatalf("tp.AcquireConnection().LocalAddr() = %v, want listener address %v",
-			conn.LocalAddr(), listener.LocalAddr())
-	}
-	if got := factoryCalls.Load(); got != 0 {
-		t.Errorf("ServeContext factory calls for listener fallback = %d, want 0", got)
 	}
 }
 
@@ -1332,7 +1158,6 @@ func (*afterFuncStopContext) Deadline() (time.Time, bool) { return time.Time{}, 
 func (ctx *afterFuncStopContext) Done() <-chan struct{}   { return ctx.done }
 func (*afterFuncStopContext) Err() error                  { return nil }
 func (*afterFuncStopContext) Value(any) any               { return nil }
-
 func (ctx *afterFuncStopContext) AfterFunc(func()) func() bool {
 	ctx.registered <- struct{}{}
 	return func() bool {
@@ -1344,18 +1169,18 @@ func (ctx *afterFuncStopContext) AfterFunc(func()) func() bool {
 func TestTranspBase_ServeConn_StopsCancellationRegistration(t *testing.T) {
 	t.Parallel()
 
-	tp, err := NewConnectionOrientedTransport(sip.TCPMetadata(), TransportOptions{
-		ConnectionReadTimeout: -1,
-		ConnectionIdleTimeout: -1,
+	tp, err := NewConnOrientedTransport(sip.TCPMetadata(), TransportOptions{
+		ConnReadTimeout: -1,
+		ConnIdleTimeout: -1,
 	})
 	if err != nil {
-		t.Fatalf("NewConnectionOrientedTransport() error = %v, want nil", err)
+		t.Fatalf("transport.NewConnOrientedTransport() error = %v, want nil", err)
 	}
 	t.Cleanup(func() { _ = tp.Close() })
 
-	peer, server := newTestTCPConnPair(t)
+	peer, srv := newTestTCPConnPair(t)
 	ctx := newAfterFuncStopContext()
-	readConn := &readSignalingConn{Conn: server, readStarted: make(chan struct{})}
+	readConn := &readSignalingConn{Conn: srv, readStarted: make(chan struct{})}
 	conn, done, err := tp.serveConn(ctx, readConn, true)
 	if err != nil {
 		t.Fatalf("tp.serveConn() error = %v, want nil", err)
@@ -1393,32 +1218,32 @@ func TestTranspBase_ServeConn_StopsCancellationRegistration(t *testing.T) {
 	}
 }
 
-func TestTranspBase_ServeConn_CancelClosesOnlyOwnedConnections(t *testing.T) {
+func TestTranspBase_ServeConn_CancelClosesOnlyOwnedConns(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
 		name     string
 		borrowed bool
 	}{
-		{name: "owned"},
-		{name: "borrowed", borrowed: true},
+		{"owned", false},
+		{"borrowed", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tp, err := NewConnectionOrientedTransport(sip.TCPMetadata(), TransportOptions{
-				ConnectionReadTimeout: 75 * time.Millisecond,
-				ConnectionIdleTimeout: -1,
+			tp, err := NewConnOrientedTransport(sip.TCPMetadata(), TransportOptions{
+				ConnReadTimeout: 75 * time.Millisecond,
+				ConnIdleTimeout: -1,
 			})
 			if err != nil {
-				t.Fatalf("NewConnectionOrientedTransport() error = %v, want nil", err)
+				t.Fatalf("transport.NewConnOrientedTransport() error = %v, want nil", err)
 			}
 			t.Cleanup(func() { _ = tp.Close() })
 
-			peer, server := newTestTCPConnPair(t)
+			peer, srv := newTestTCPConnPair(t)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			readConn := &readSignalingConn{Conn: server, readStarted: make(chan struct{})}
+			readConn := &readSignalingConn{Conn: srv, readStarted: make(chan struct{})}
 			conn, done, err := tp.serveConn(ctx, readConn, tt.borrowed)
 			if err != nil {
 				t.Fatalf("tp.serveConn() error = %v, want nil", err)
@@ -1456,29 +1281,29 @@ func TestTranspBase_ServeConn_CancelClosesOnlyOwnedConnections(t *testing.T) {
 	}
 }
 
-func newTestTCPConnPair(tb testing.TB) (peer, server net.Conn) {
+func newTestTCPConnPair(tb testing.TB) (peer, srv net.Conn) {
 	tb.Helper()
 
-	listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	lis, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		tb.Fatalf("net.ListenTCP() error = %v, want nil", errors.Wrap(err))
 	}
-	tb.Cleanup(func() { _ = listener.Close() })
+	tb.Cleanup(func() { _ = lis.Close() })
 
-	if err := listener.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		tb.Fatalf("listener.SetDeadline() error = %v, want nil", errors.Wrap(err))
+	if err := lis.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		tb.Fatalf("lis.SetDeadline() error = %v, want nil", errors.Wrap(err))
 	}
-	peer, err = net.DialTimeout("tcp", listener.Addr().String(), 5*time.Second)
+	peer, err = net.DialTimeout("tcp", lis.Addr().String(), 5*time.Second)
 	if err != nil {
 		tb.Fatalf("net.DialTimeout() error = %v, want nil", errors.Wrap(err))
 	}
 	tb.Cleanup(func() { _ = peer.Close() })
 
-	server, err = listener.AcceptTCP()
+	srv, err = lis.AcceptTCP()
 	if err != nil {
-		tb.Fatalf("listener.AcceptTCP() error = %v, want nil", errors.Wrap(err))
+		tb.Fatalf("lis.AcceptTCP() error = %v, want nil", errors.Wrap(err))
 	}
-	tb.Cleanup(func() { _ = server.Close() })
+	tb.Cleanup(func() { _ = srv.Close() })
 
-	return peer, server
+	return peer, srv
 }

@@ -1,6 +1,7 @@
 package siptest
 
 import (
+	"errors"
 	"iter"
 	"net"
 	"testing"
@@ -53,4 +54,33 @@ func (r *StreamReader) Read(tb testing.TB) sip.Message {
 	}
 
 	return msg
+}
+
+// TryRead reads and parses one SIP message within d; it returns false on a
+// clean read timeout or when the stream ends. Parser read-ahead is retained
+// across calls, so coalesced messages are never dropped.
+func (r *StreamReader) TryRead(tb testing.TB, d time.Duration) (sip.Message, bool) {
+	tb.Helper()
+
+	if err := r.conn.SetReadDeadline(time.Now().Add(d)); err != nil {
+		tb.Fatalf("conn.SetReadDeadline() error = %v, want nil", err)
+	}
+	msg, err, ok := r.next()
+	if resetErr := r.conn.SetReadDeadline(time.Time{}); resetErr != nil {
+		tb.Fatalf("conn.SetReadDeadline(zero) error = %v, want nil", resetErr)
+	}
+	if !ok {
+		return nil, false
+	}
+	if err != nil {
+		if nerr, isNetErr := errors.AsType[net.Error](err); isNetErr && nerr.Timeout() {
+			return nil, false
+		}
+		tb.Fatalf("sip.ParseStream() error = %v, want nil", err)
+	}
+	if msg == nil {
+		tb.Fatalf("sip.ParseStream() message = nil, want non-nil")
+	}
+
+	return msg, true
 }

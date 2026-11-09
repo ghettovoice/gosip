@@ -84,12 +84,10 @@ func TestCallInfo_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.hdr.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -365,7 +363,6 @@ func TestCallInfo_MarshalJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
-
 			if got := string(got); got != tt.want {
 				t.Fatalf("json.Marshal(hdr) = %q, want %q", got, tt.want)
 			}
@@ -480,7 +477,6 @@ func TestCallInfo_RoundTripJSON(t *testing.T) {
 			if err := json.Unmarshal(data, &got); err != nil {
 				t.Fatalf("json.Unmarshal(data, got) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(got, tt.hdr); diff != "" {
 				t.Fatalf("round-trip mismatch: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.hdr, diff)
 			}

@@ -18,7 +18,7 @@ func ContextWithElement(ctx context.Context, elm *Element) context.Context {
 	if elm == nil {
 		return context.WithValue(ctx, elemCtxKey{}, struct{}{})
 	}
-	if current, ok := ElementFromContext(ctx); ok && current == elm {
+	if cur, ok := ElementFromContext(ctx); ok && cur == elm {
 		return ctx
 	}
 	return context.WithValue(ctx, elemCtxKey{}, elm)
@@ -42,11 +42,11 @@ func ContextWithTransport(ctx context.Context, tp Transport) context.Context {
 // TransportFromContext returns the current SIP transport and reports whether
 // one is present.
 func TransportFromContext(ctx context.Context) (Transport, bool) {
-	value, ok := ctx.Value(transpCtxKey{}).(Transport)
-	if !ok || util.IsNil(value) {
+	val, ok := ctx.Value(transpCtxKey{}).(Transport)
+	if !ok || util.IsNil(val) {
 		return nil, false
 	}
-	return value, true
+	return val, true
 }
 
 // ContextWithTransaction returns a context carrying the current SIP transaction.
@@ -77,18 +77,17 @@ func ContextWithTransaction(ctx context.Context, tx Transaction) context.Context
 	if !util.IsNil(tp) {
 		ctx = ContextWithTransport(ctx, tp)
 	}
-
 	return ctx
 }
 
 // TransactionFromContext returns the current SIP transaction and reports
 // whether one is present.
 func TransactionFromContext(ctx context.Context) (Transaction, bool) {
-	value, ok := ctx.Value(transactCtxKey{}).(Transaction)
-	if !ok || util.IsNil(value) {
+	val, ok := ctx.Value(transactCtxKey{}).(Transaction)
+	if !ok || util.IsNil(val) {
 		return nil, false
 	}
-	return value, true
+	return val, true
 }
 
 // ClientTransactionFromContext returns the current SIP client transaction and
@@ -98,11 +97,11 @@ func ClientTransactionFromContext(ctx context.Context) (ClientTransaction, bool)
 	if !ok {
 		return nil, false
 	}
-	clientTx, ok := tx.(ClientTransaction)
-	if !ok || util.IsNil(clientTx) {
+	clnTx, ok := tx.(ClientTransaction)
+	if !ok || util.IsNil(clnTx) {
 		return nil, false
 	}
-	return clientTx, true
+	return clnTx, true
 }
 
 // ServerTransactionFromContext returns the current SIP server transaction and
@@ -112,9 +111,9 @@ func ServerTransactionFromContext(ctx context.Context) (ServerTransaction, bool)
 	if !ok {
 		return nil, false
 	}
-	serverTx, ok := tx.(ServerTransaction)
-	if !ok || util.IsNil(serverTx) {
+	srvTx, ok := tx.(ServerTransaction)
+	if !ok || util.IsNil(srvTx) {
 		return nil, false
 	}
-	return serverTx, true
+	return srvTx, true
 }

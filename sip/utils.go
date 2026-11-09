@@ -23,7 +23,7 @@ var txtProtoRdrPool = sync.Pool{
 }
 
 func getTxtProtoRdr(r *bufio.Reader) *textproto.Reader {
-	tr := txtProtoRdrPool.Get().(*textproto.Reader) //nolint:forcetypeassert
+	tr := txtProtoRdrPool.Get().(*textproto.Reader) //nolint:forcetypeassert // the concrete type is fixed by construction
 	tr.R = r
 	return tr
 }
@@ -38,7 +38,7 @@ var bufferedRdrPool = sync.Pool{
 }
 
 func getBufferedRdr(r io.Reader) *bufio.Reader {
-	br := bufferedRdrPool.Get().(*bufio.Reader) //nolint:forcetypeassert
+	br := bufferedRdrPool.Get().(*bufio.Reader) //nolint:forcetypeassert // the concrete type is fixed by construction
 	br.Reset(r)
 	return br
 }

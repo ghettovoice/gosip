@@ -15,34 +15,34 @@ import (
 func TestStubResolver_NilHooks(t *testing.T) {
 	t.Parallel()
 
-	resolver := dnstest.StubResolver{}
+	rslvr := dnstest.StubResolver{}
 	tests := []struct {
 		name string
 		run  func(*testing.T)
 	}{
 		{
-			name: "LookupIP",
-			run: func(t *testing.T) {
+			"LookupIP",
+			func(t *testing.T) {
 				t.Helper()
-				if got, err := resolver.LookupIP(t.Context(), "ip4", "example.com"); got != nil || err != nil {
+				if got, err := rslvr.LookupIP(t.Context(), "ip4", "example.com"); got != nil || err != nil {
 					t.Errorf("dnstest.StubResolver.LookupIP() = (%v, %v), want (nil, nil)", got, err)
 				}
 			},
 		},
 		{
-			name: "LookupSRV",
-			run: func(t *testing.T) {
+			"LookupSRV",
+			func(t *testing.T) {
 				t.Helper()
-				if got, err := resolver.LookupSRV(t.Context(), "sip", "udp", "example.com"); got != nil || err != nil {
+				if got, err := rslvr.LookupSRV(t.Context(), "sip", "udp", "example.com"); got != nil || err != nil {
 					t.Errorf("dnstest.StubResolver.LookupSRV() = (%v, %v), want (nil, nil)", got, err)
 				}
 			},
 		},
 		{
-			name: "LookupNAPTR",
-			run: func(t *testing.T) {
+			"LookupNAPTR",
+			func(t *testing.T) {
 				t.Helper()
-				if got, err := resolver.LookupNAPTR(t.Context(), "example.com"); got != nil || err != nil {
+				if got, err := rslvr.LookupNAPTR(t.Context(), "example.com"); got != nil || err != nil {
 					t.Errorf("dnstest.StubResolver.LookupNAPTR() = (%v, %v), want (nil, nil)", got, err)
 				}
 			},
@@ -52,6 +52,7 @@ func TestStubResolver_NilHooks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			tt.run(t)
 		})
 	}
@@ -65,15 +66,18 @@ func TestStubResolver_ForwardsLookups(t *testing.T) {
 		run  func(*testing.T)
 	}{
 		{
-			name: "LookupIP forwards arguments, result, and error",
-			run: func(t *testing.T) {
+			"LookupIP forwards arguments, result, and error",
+			func(t *testing.T) {
 				t.Helper()
+
 				type contextKey struct{}
 				ctx := context.WithValue(t.Context(), contextKey{}, "forwarded")
+
 				wantErr := errors.ErrorWrap("lookup failure")
 				wantIPs := []net.IP{net.ParseIP("192.0.2.1")}
+
 				called := false
-				resolver := dnstest.StubResolver{
+				rslvr := dnstest.StubResolver{
 					LookupIPFunc: func(got context.Context, network, host string) ([]net.IP, error) {
 						called = true
 						if got != ctx {
@@ -87,7 +91,7 @@ func TestStubResolver_ForwardsLookups(t *testing.T) {
 					},
 				}
 
-				gotIPs, gotErr := resolver.LookupIP(ctx, "ip4", "ip.example.com")
+				gotIPs, gotErr := rslvr.LookupIP(ctx, "ip4", "ip.example.com")
 				if !called {
 					t.Error("dnstest.StubResolver.LookupIPFunc was not called")
 				}
@@ -100,19 +104,19 @@ func TestStubResolver_ForwardsLookups(t *testing.T) {
 			},
 		},
 		{
-			name: "LookupSRV forwards arguments, result, and error",
-			run: func(t *testing.T) {
+			"LookupSRV forwards arguments, result, and error",
+			func(t *testing.T) {
 				t.Helper()
+
 				type contextKey struct{}
 				ctx := context.WithValue(t.Context(), contextKey{}, "forwarded")
+
 				wantErr := errors.ErrorWrap("lookup failure")
 				wantSRV := []*dns.SRV{{Target: "sip.example.com.", Port: 5060}}
+
 				called := false
-				resolver := dnstest.StubResolver{
-					LookupSRVFunc: func(
-						got context.Context,
-						service, proto, host string,
-					) ([]*dns.SRV, error) {
+				rslvr := dnstest.StubResolver{
+					LookupSRVFunc: func(got context.Context, service, proto, host string) ([]*dns.SRV, error) {
 						called = true
 						if got != ctx {
 							t.Errorf("dnstest.StubResolver.LookupSRVFunc() context = %v, want forwarded context", got)
@@ -125,7 +129,7 @@ func TestStubResolver_ForwardsLookups(t *testing.T) {
 					},
 				}
 
-				gotSRV, gotErr := resolver.LookupSRV(ctx, "sip", "udp", "srv.example.com")
+				gotSRV, gotErr := rslvr.LookupSRV(ctx, "sip", "udp", "srv.example.com")
 				if !called {
 					t.Error("dnstest.StubResolver.LookupSRVFunc was not called")
 				}
@@ -138,15 +142,18 @@ func TestStubResolver_ForwardsLookups(t *testing.T) {
 			},
 		},
 		{
-			name: "LookupNAPTR forwards arguments, result, and error",
-			run: func(t *testing.T) {
+			"LookupNAPTR forwards arguments, result, and error",
+			func(t *testing.T) {
 				t.Helper()
+
 				type contextKey struct{}
 				ctx := context.WithValue(t.Context(), contextKey{}, "forwarded")
+
 				wantErr := errors.ErrorWrap("lookup failure")
 				wantNAPTR := []*dns.NAPTR{{Service: "SIP+D2U", Replacement: "example.com."}}
+
 				called := false
-				resolver := dnstest.StubResolver{
+				rslvr := dnstest.StubResolver{
 					LookupNAPTRFunc: func(got context.Context, host string) ([]*dns.NAPTR, error) {
 						called = true
 						if got != ctx {
@@ -159,7 +166,7 @@ func TestStubResolver_ForwardsLookups(t *testing.T) {
 					},
 				}
 
-				gotNAPTR, gotErr := resolver.LookupNAPTR(ctx, "naptr.example.com")
+				gotNAPTR, gotErr := rslvr.LookupNAPTR(ctx, "naptr.example.com")
 				if !called {
 					t.Error("dnstest.StubResolver.LookupNAPTRFunc was not called")
 				}
@@ -176,6 +183,7 @@ func TestStubResolver_ForwardsLookups(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			tt.run(t)
 		})
 	}

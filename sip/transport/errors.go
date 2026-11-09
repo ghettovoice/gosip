@@ -10,13 +10,13 @@ import (
 )
 
 const (
-	ErrNetworkClosed          errors.Error = "network closed"
-	ErrTransportClosed        errors.Error = "transport closed"
-	ErrListenerTracked        errors.Error = "listener already tracked"
-	ErrListenerServing        errors.Error = "listener already serving"
-	ErrConnectionTracked      errors.Error = "connection already tracked"
-	ErrBrokenConnectionStream errors.Error = "broken connection stream"
-	ErrConnectionNotFound     errors.Error = "connection not found"
+	ErrNetworkClosed    errors.Error = "network closed"
+	ErrTransportClosed  errors.Error = "transport closed"
+	ErrListenerTracked  errors.Error = "listener already tracked"
+	ErrListenerServing  errors.Error = "listener already serving"
+	ErrConnTracked      errors.Error = "connection already tracked"
+	ErrBrokenConnStream errors.Error = "broken connection stream"
+	ErrConnNotFound     errors.Error = "connection not found"
 )
 
 func NewNetworkClosedError(args ...any) error {
@@ -51,24 +51,24 @@ func NewListenerServingError(args ...any) error {
 	)
 }
 
-func NewConnectionTrackedError(args ...any) error {
+func NewConnTrackedError(args ...any) error {
 	return errclass.Classify(
-		errors.Prefix(ErrConnectionTracked, args...),
+		errors.Prefix(ErrConnTracked, args...),
 		errclass.ClassConflict,
 		sip.ErrClassTransport,
 	)
 }
 
-func NewBrokenConnectionStreamError(args ...any) error {
+func NewBrokenConnStreamError(args ...any) error {
 	return errclass.Classify(
-		errors.Prefix(ErrBrokenConnectionStream, args...),
+		errors.Prefix(ErrBrokenConnStream, args...),
 		sip.ErrClassTransport,
 	)
 }
 
-func NewConnectionNotFoundError(args ...any) error {
+func NewConnNotFoundError(args ...any) error {
 	return errclass.Classify(
-		errors.Prefix(ErrConnectionNotFound, args...),
+		errors.Prefix(ErrConnNotFound, args...),
 		errclass.ClassNotFound,
 		sip.ErrClassTransport,
 	)

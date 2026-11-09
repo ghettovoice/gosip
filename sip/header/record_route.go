@@ -8,7 +8,7 @@ import (
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // RecordRoute represents the Record-Route header field.
@@ -22,27 +22,31 @@ func (RecordRoute) CanonicName() Name { return "Record-Route" }
 func (RecordRoute) CompactName() Name { return "Record-Route" }
 
 // RenderTo writes the header to the provided writer.
-func (hdr RecordRoute) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr RecordRoute) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderHdrEntries(w, hdr))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr RecordRoute) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrValsTo(w, hdr))
 }
 
 // Render returns the string representation of the header.
 func (hdr RecordRoute) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
 func (hdr RecordRoute) RenderValue() string {
-	return renderHdrEntriesString(hdr)
+	return renderHdrVal(hdr)
 }
 
 // String returns the string representation of the header value.
-func (hdr RecordRoute) String() string { return hdr.RenderValue() }
+func (hdr RecordRoute) String() string {
+	return hdr.RenderValue()
+}
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr RecordRoute) Format(f fmt.State, verb rune) {
@@ -58,30 +62,24 @@ func (hdr RecordRoute) Format(f fmt.State, verb rune) {
 
 // Clone returns a copy of the header.
 func (hdr RecordRoute) Clone() Header {
-	return cloneHdrEntries(hdr)
+	return cloneHdrVals(hdr)
 }
 
 // Equal compares this header with another for equality.
 func (hdr RecordRoute) Equal(val any) bool {
-	var other RecordRoute
-	switch v := val.(type) {
-	case RecordRoute:
-		other = v
-	case *RecordRoute:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(addr1, addr2 RouteHop) bool { return addr1.Equal(addr2) })
+	return util.EqualValue(val, func(other RecordRoute) bool {
+		return slices.EqualFunc(hdr, other, func(addr1, addr2 RouteHop) bool {
+			return addr1.Equal(addr2)
+		})
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
 func (hdr RecordRoute) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(addr RouteHop) bool { return !addr.IsValid() })
+	return len(hdr) > 0 &&
+		!slices.ContainsFunc(hdr, func(addr RouteHop) bool {
+			return !addr.IsValid()
+		})
 }
 
 func (hdr RecordRoute) MarshalJSON() ([]byte, error) {
@@ -89,7 +87,7 @@ func (hdr RecordRoute) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *RecordRoute) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromRecordRouteNode(node *abnf.Node) RecordRoute {

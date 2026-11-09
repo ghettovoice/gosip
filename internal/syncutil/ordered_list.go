@@ -6,20 +6,20 @@ import (
 	"sync/atomic"
 )
 
-type orderedListItem[T any] struct {
+type ordListItem[T any] struct {
 	id    uint64
 	value T
 }
 
-type orderedListState[T any] struct {
-	items []orderedListItem[T]
+type ordListState[T any] struct {
+	items []ordListItem[T]
 }
 
 // OrderedList is a thread-safe ordered collection backed by immutable snapshots.
 // Readers do not block writers, and each iteration observes one consistent snapshot.
 type OrderedList[T any] struct {
 	nextID atomic.Uint64
-	state  atomic.Pointer[orderedListState[T]]
+	state  atomic.Pointer[ordListState[T]]
 }
 
 // Add appends value and returns an idempotent function that removes this entry.
@@ -29,10 +29,10 @@ func (s *OrderedList[T]) Add(value T) (remove func()) {
 	}
 
 	id := s.nextID.Add(1)
-	s.update(func(items []orderedListItem[T]) []orderedListItem[T] {
-		next := make([]orderedListItem[T], len(items)+1)
+	s.update(func(items []ordListItem[T]) []ordListItem[T] {
+		next := make([]ordListItem[T], len(items)+1)
 		copy(next, items)
-		next[len(items)] = orderedListItem[T]{id: id, value: value}
+		next[len(items)] = ordListItem[T]{id: id, value: value}
 		return next
 	})
 
@@ -106,24 +106,24 @@ func (s *OrderedList[T]) remove(id uint64) {
 			return
 		}
 
-		next := make([]orderedListItem[T], len(state.items)-1)
+		next := make([]ordListItem[T], len(state.items)-1)
 		copy(next, state.items[:index])
 		copy(next[index:], state.items[index+1:])
-		if s.state.CompareAndSwap(state, &orderedListState[T]{items: next}) {
+		if s.state.CompareAndSwap(state, &ordListState[T]{items: next}) {
 			return
 		}
 	}
 }
 
-func (s *OrderedList[T]) update(fn func([]orderedListItem[T]) []orderedListItem[T]) {
+func (s *OrderedList[T]) update(fn func([]ordListItem[T]) []ordListItem[T]) {
 	for {
 		state := s.state.Load()
-		var items []orderedListItem[T]
+		var items []ordListItem[T]
 		if state != nil {
 			items = state.items
 		}
 
-		next := &orderedListState[T]{items: fn(items)}
+		next := &ordListState[T]{items: fn(items)}
 		if s.state.CompareAndSwap(state, next) {
 			return
 		}

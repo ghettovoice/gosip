@@ -23,11 +23,7 @@ func (u *Any) Clone() URI {
 	if u == nil {
 		return nil
 	}
-
-	u2 := Any{
-		URL: *u.URL.Clone(),
-	}
-	return &u2
+	return &Any{*u.URL.Clone()}
 }
 
 // Scheme returns the URI scheme.
@@ -103,16 +99,16 @@ func (u *Any) Equal(val any) bool {
 		return false
 	}
 	// FIXME compare by url.URL parts
-	return util.EqFold(u.Render(), other.Render())
+	return util.EqualFold(u.Render(), other.Render())
 }
 
 // IsValid checks whether the Any URI is syntactically valid.
 func (u *Any) IsValid() bool {
 	return u != nil &&
-		(util.TrimSP(u.Opaque) != "" ||
-			util.TrimSP(u.Host) != "" ||
-			util.TrimSP(u.Path) != "" ||
-			util.TrimSP(u.RawPath) != "")
+		(util.TrimSpace(u.Opaque) != "" ||
+			util.TrimSpace(u.Host) != "" ||
+			util.TrimSpace(u.Path) != "" ||
+			util.TrimSpace(u.RawPath) != "")
 }
 
 // MarshalText implements [encoding.TextMarshaler].
@@ -131,12 +127,12 @@ func (u *Any) UnmarshalText(text []byte) error {
 		return nil
 	}
 
-	u1, err := ParseAny(string(text))
+	parsed, err := ParseAny(string(text))
 	if err != nil {
 		return errors.Wrap(err)
 	}
 
-	*u = *u1
+	*u = *parsed
 	return nil
 }
 
@@ -157,15 +153,15 @@ func ParseAny[T ~string | ~[]byte](s T) (u *Any, err error) {
 		}
 	}()
 
-	nu, err := url.Parse(string(s))
+	parsed, err := url.Parse(string(s))
 	if err != nil {
 		return nil, errors.Wrap(errors.Prefix(grammar.ErrMalformedInput, err))
 	}
 
-	return &Any{URL: *nu}, nil
+	return &Any{*parsed}, nil
 }
 
 func buildFromAnyNode(node *abnf.Node) *Any {
 	u := util.Must2(url.Parse(node.String()))
-	return &Any{URL: *u}
+	return &Any{*u}
 }

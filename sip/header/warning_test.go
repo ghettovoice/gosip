@@ -84,12 +84,10 @@ func TestWarning_RenderTo(t *testing.T) {
 			t.Parallel()
 
 			var sb strings.Builder
-
 			_, err := tt.hdr.RenderTo(&sb)
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("hdr.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -331,7 +329,6 @@ func TestWarning_MarshalJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("json.Marshal(hdr) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(string(got), tt.want); diff != "" {
 				t.Fatalf("json.Marshal(hdr) = %q, want %q\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
@@ -396,18 +393,18 @@ func TestWarning_UnmarshalJSON(t *testing.T) {
 	}
 }
 
-func TestWarningEntry_String(t *testing.T) {
+func TestWarningValue_String(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		item header.WarningEntry
+		item header.WarningValue
 		want string
 	}{
-		{"zero", header.WarningEntry{}, `0  ""`},
+		{"zero", header.WarningValue{}, `0  ""`},
 		{
 			"full",
-			header.WarningEntry{
+			header.WarningValue{
 				Code:  307,
 				Agent: "isi.edu",
 				Text:  "Session parameter 'foo' not understood",
@@ -427,34 +424,34 @@ func TestWarningEntry_String(t *testing.T) {
 	}
 }
 
-func TestWarningEntry_Equal(t *testing.T) {
+func TestWarningValue_Equal(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		item header.WarningEntry
+		item header.WarningValue
 		val  any
 		want bool
 	}{
-		{"zero to nil", header.WarningEntry{}, nil, false},
-		{"zero to zero", header.WarningEntry{}, header.WarningEntry{}, true},
-		{"zero to zero ptr", header.WarningEntry{}, &header.WarningEntry{}, true},
-		{"zero to nil ptr", header.WarningEntry{}, (*header.WarningEntry)(nil), false},
-		{"not match 1", header.WarningEntry{Code: 100}, header.WarningEntry{Code: 307}, false},
+		{"zero to nil", header.WarningValue{}, nil, false},
+		{"zero to zero", header.WarningValue{}, header.WarningValue{}, true},
+		{"zero to zero ptr", header.WarningValue{}, &header.WarningValue{}, true},
+		{"zero to nil ptr", header.WarningValue{}, (*header.WarningValue)(nil), false},
+		{"not match 1", header.WarningValue{Code: 100}, header.WarningValue{Code: 307}, false},
 		{
 			"not match 2",
-			header.WarningEntry{Code: 100, Agent: "isi.edu"},
-			header.WarningEntry{Code: 100, Agent: "qwe.abc"},
+			header.WarningValue{Code: 100, Agent: "isi.edu"},
+			header.WarningValue{Code: 100, Agent: "qwe.abc"},
 			false,
 		},
 		{
 			"match",
-			header.WarningEntry{
+			header.WarningValue{
 				Code:  307,
 				Agent: "isi.edu",
 				Text:  "Session parameter 'foo' not understood",
 			},
-			header.WarningEntry{
+			header.WarningValue{
 				Code:  307,
 				Agent: "ISI.EDU",
 				Text:  "Session parameter 'foo' not understood",
@@ -474,22 +471,22 @@ func TestWarningEntry_Equal(t *testing.T) {
 	}
 }
 
-func TestWarningEntry_IsValid(t *testing.T) {
+func TestWarningValue_IsValid(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		item header.WarningEntry
+		item header.WarningValue
 		want bool
 	}{
-		{"zero", header.WarningEntry{}, false},
+		{"zero", header.WarningValue{}, false},
 		{
 			"valid",
-			header.WarningEntry{Code: 307, Agent: "isi.edu", Text: "Session parameter 'foo' not understood"},
+			header.WarningValue{Code: 307, Agent: "isi.edu", Text: "Session parameter 'foo' not understood"},
 			true,
 		},
-		{"invalid 1", header.WarningEntry{Code: 0}, false},
-		{"invalid 2", header.WarningEntry{Agent: "isi.edu"}, false},
+		{"invalid 1", header.WarningValue{Code: 0}, false},
+		{"invalid 2", header.WarningValue{Agent: "isi.edu"}, false},
 	}
 
 	for _, tt := range tests {
@@ -503,16 +500,16 @@ func TestWarningEntry_IsValid(t *testing.T) {
 	}
 }
 
-func TestWarningEntry_IsZero(t *testing.T) {
+func TestWarningValue_IsZero(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		item header.WarningEntry
+		item header.WarningValue
 		want bool
 	}{
-		{"zero", header.WarningEntry{}, true},
-		{"not zero", header.WarningEntry{Code: 307}, false},
+		{"zero", header.WarningValue{}, true},
+		{"not zero", header.WarningValue{Code: 307}, false},
 	}
 
 	for _, tt := range tests {
@@ -526,23 +523,23 @@ func TestWarningEntry_IsZero(t *testing.T) {
 	}
 }
 
-func TestWarningEntry_Clone(t *testing.T) {
+func TestWarningValue_Clone(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		item header.WarningEntry
+		item header.WarningValue
 		want any
 	}{
-		{"zero", header.WarningEntry{}, header.WarningEntry{}},
+		{"zero", header.WarningValue{}, header.WarningValue{}},
 		{
 			"full",
-			header.WarningEntry{
+			header.WarningValue{
 				Code:  307,
 				Agent: "isi.edu",
 				Text:  "Session parameter 'foo' not understood",
 			},
-			header.WarningEntry{
+			header.WarningValue{
 				Code:  307,
 				Agent: "isi.edu",
 				Text:  "Session parameter 'foo' not understood",
@@ -562,18 +559,18 @@ func TestWarningEntry_Clone(t *testing.T) {
 	}
 }
 
-func TestWarningEntry_MarshalText(t *testing.T) {
+func TestWarningValue_MarshalText(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		wrn  header.WarningEntry
+		wrn  header.WarningValue
 		want string
 	}{
-		{"zero", header.WarningEntry{}, `0  ""`},
+		{"zero", header.WarningValue{}, `0  ""`},
 		{
 			"full",
-			header.WarningEntry{
+			header.WarningValue{
 				Code:  307,
 				Agent: "isi.edu",
 				Text:  "Session parameter 'foo' not understood",
@@ -590,7 +587,6 @@ func TestWarningEntry_MarshalText(t *testing.T) {
 			if err != nil {
 				t.Fatalf("wrn.MarshalText() error = %v, want nil", err)
 			}
-
 			if string(got) != tt.want {
 				t.Fatalf("wrn.MarshalText() = %q, want %q", got, tt.want)
 			}
@@ -598,22 +594,22 @@ func TestWarningEntry_MarshalText(t *testing.T) {
 	}
 }
 
-func TestWarningEntry_UnmarshalText(t *testing.T) {
+func TestWarningValue_UnmarshalText(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name    string
 		data    string
-		want    header.WarningEntry
+		want    header.WarningValue
 		wantErr bool
 	}{
-		{"empty", "", header.WarningEntry{}, false},
-		{"invalid", "not a valid hop", header.WarningEntry{}, true},
-		{"zero", `0  ""`, header.WarningEntry{}, false},
+		{"empty", "", header.WarningValue{}, false},
+		{"invalid", "not a valid hop", header.WarningValue{}, true},
+		{"zero", `0  ""`, header.WarningValue{}, false},
 		{
 			"full",
 			`307 isi.edu "Session parameter 'foo' not understood"`,
-			header.WarningEntry{
+			header.WarningValue{
 				Code:  307,
 				Agent: "isi.edu",
 				Text:  "Session parameter 'foo' not understood",
@@ -626,16 +622,16 @@ func TestWarningEntry_UnmarshalText(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var got header.WarningEntry
+			var got header.WarningValue
 			if err := got.UnmarshalText([]byte(tt.data)); err != nil {
 				if !tt.wantErr {
-					t.Fatalf("warningEntry.UnmarshalText(data) error = %v, want nil", err)
+					t.Fatalf("warningValue.UnmarshalText(data) error = %v, want nil", err)
 				}
 				return
 			}
 
 			if tt.wantErr {
-				t.Fatal("warningEntry.UnmarshalText(data) error = nil, want error")
+				t.Fatal("warningValue.UnmarshalText(data) error = nil, want error")
 			}
 
 			if diff := cmp.Diff(got, tt.want); diff != "" {

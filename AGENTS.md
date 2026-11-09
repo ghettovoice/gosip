@@ -8,10 +8,9 @@ guidelines when working on the codebase.
 
 ### Go Base Style Guide
 
-**File:** `.devin/rules/go_base_guide.md`
+**File:** [`.agents/rules/go_base_guide.md`](.agents/rules/go_base_guide.md)
 
-Comprehensive Go coding style guidelines based on Google's Go Style Guide with
-project-specific additions. Covers:
+General Go coding style guidelines based on Google's Go Style Guide. Covers:
 
 - Naming conventions (packages, functions, variables, constants)
 - Code organization and file structure
@@ -23,9 +22,9 @@ project-specific additions. Covers:
 
 ### Go Testing Style Guide
 
-**File:** `.devin/rules/go_test_guide.md`
+**File:** [`.agents/rules/go_test_guide.md`](.agents/rules/go_test_guide.md)
 
-Testing conventions and best practices for the project. Includes:
+General Go testing conventions and best practices. Includes:
 
 - Test naming conventions
 - Table-driven test patterns
@@ -37,39 +36,37 @@ Testing conventions and best practices for the project. Includes:
 
 ### Go Error Handling Guide
 
-**File:** `.devin/rules/go_error_guide.md`
+**File:** [`.agents/rules/go_error_guide.md`](.agents/rules/go_error_guide.md)
 
-Error handling conventions and style guidelines. Covers:
+General Go error handling conventions using standard-library APIs. Covers:
 
 - Function argument validation errors
 - Sentinel error declaration and usage
 - Error wrapping message styles
-- Error trace wrapping with internal errors package
-- Complete error handling examples
-- Best practices summary
+- Error inspection with `errors.Is` and `errors.As`
+- Typed errors and preservation of underlying causes
+- Multiple errors, message style, and public error contracts
 
-### golangci-lint Compliance
+### Project-specific Guidelines
 
-**File:** `.devin/rules/golangci_lint_compliance.md`
-
-Mandatory linting requirements for all code changes. Specifies:
-
-- Required actions after code modifications
-- Common issues to address (imports, naming, error handling)
-- Integration with development workflow
-- Exception handling guidelines
-- Tool configuration details
-
-### Project-specific guidelines
-
-**File:** `.devin/rules/proj_guide.md`
+**File:** [`.agents/rules/proj_guide.md`](.agents/rules/proj_guide.md)
 
 Project-specific guidelines and conventions. Covers:
 
 - SIP protocol code conventions
+- Accepted naming abbreviations and constructor names
+- Error construction, classification, and tracing with repository packages
 - Network code considerations
-- Testing infrastructure patterns
+- Test file naming, shared utilities, and go-cmp comparisons
+- Formatting, linting, and verification requirements
 - Code review checklist
+
+### Commit Messages Guidelines
+
+**File:** [`.agents/rules/commit_message.md`](.agents/rules/commit_message.md)
+
+Commit subjects, prefixes, and optional bodies. Multiple-change commits include
+a body listing their main changes.
 
 ## Usage Guidelines
 

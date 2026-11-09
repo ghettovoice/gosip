@@ -278,7 +278,6 @@ func TestNameAddr_MarshalText(t *testing.T) {
 			if err != nil {
 				t.Fatalf("addr.MarshalText() error = %v, want nil", err)
 			}
-
 			if string(got) != tt.want {
 				t.Fatalf("addr.MarshalText() = %q, want %q", got, tt.want)
 			}
@@ -412,7 +411,6 @@ func TestNameAddr_RoundTripText(t *testing.T) {
 			if err := got.UnmarshalText(data); err != nil {
 				t.Fatalf("addr.UnmarshalText(data) error = %v, want nil", err)
 			}
-
 			if diff := cmp.Diff(got, tt.addr); diff != "" {
 				t.Fatalf("round-trip mismatched: got = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.addr, diff)
 			}

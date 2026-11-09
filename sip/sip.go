@@ -5,16 +5,16 @@ import (
 	"net"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 )
 
 // RenderOptions represents options for rendering SIP messages.
-// See [types.RenderOptions].
-type RenderOptions = types.RenderOptions
+// See [shared.RenderOptions].
+type RenderOptions = shared.RenderOptions
 
 // ProtoInfo represents SIP protocol information.
-// See [types.ProtoInfo].
-type ProtoInfo = types.ProtoInfo
+// See [shared.ProtoInfo].
+type ProtoInfo = shared.ProtoInfo
 
 var protoVer20 = ProtoInfo{Name: "SIP", Version: "2.0"}
 
@@ -22,25 +22,25 @@ var protoVer20 = ProtoInfo{Name: "SIP", Version: "2.0"}
 func ProtoVer20() ProtoInfo { return protoVer20 }
 
 // Addr represents a network address.
-// See [types.Addr].
-type Addr = types.Addr
+// See [shared.Addr].
+type Addr = shared.Addr
 
 // MakeHostAddr returns an [Addr] containing the provided host and no port.
-func MakeHostAddr(host string) Addr { return types.MakeHostAddr(host) }
+func MakeHostAddr(host string) Addr { return shared.MakeHostAddr(host) }
 
 // MakeHostPortAddr returns an [Addr] containing the provided host and port.
-func MakeHostPortAddr(host string, port uint16) Addr { return types.MakeHostPortAddr(host, port) }
+func MakeHostPortAddr(host string, port uint16) Addr { return shared.MakeHostPortAddr(host, port) }
 
-func MakeIPAddr(ip net.IP) Addr { return types.MakeIPAddr(ip) }
+func MakeIPAddr(ip net.IP) Addr { return shared.MakeIPAddr(ip) }
 
-func MakeIPPortAddr(ip net.IP, port uint16) Addr { return types.MakeIPPortAddr(ip, port) }
+func MakeIPPortAddr(ip net.IP, port uint16) Addr { return shared.MakeIPPortAddr(ip, port) }
 
 // ParseAddr parses a "host[:port]" string into an [Addr].
-func ParseAddr(s string) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }
+func ParseAddr(s string) (Addr, error) { return errors.Wrap2(shared.ParseAddr(s)) }
 
 // Values represents a map of string keys to string values.
-// See [types.Values].
-type Values = types.Values
+// See [shared.Values].
+type Values = shared.Values
 
 type ErrorHandler interface {
 	HandleError(ctx context.Context, err error)

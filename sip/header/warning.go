@@ -11,43 +11,28 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type Warning []WarningEntry
+type Warning []WarningValue
 
 func (Warning) CanonicName() Name { return "Warning" }
 
 func (Warning) CompactName() Name { return "Warning" }
 
-func (hdr Warning) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr Warning) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr Warning) renderValueTo(w io.Writer) (num int, err error) {
-	return errors.Wrap2(renderHdrEntries(w, hdr))
+func (hdr Warning) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrValsTo(w, hdr))
 }
 
 func (hdr Warning) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 func (hdr Warning) String() string {
@@ -55,60 +40,37 @@ func (hdr Warning) String() string {
 }
 
 func (hdr Warning) RenderValue() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrVal(hdr)
 }
 
 func (hdr Warning) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods Warning
-			Warning     hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), Warning(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods Warning
+		Warning     hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), Warning(hdr))
 }
 
-func (hdr Warning) Clone() Header { return cloneHdrEntries(hdr) }
+func (hdr Warning) Clone() Header {
+	return cloneHdrVals(hdr)
+}
 
 func (hdr Warning) Equal(val any) bool {
-	var other Warning
-	switch v := val.(type) {
-	case Warning:
-		other = v
-	case *Warning:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(wrn1, wrn2 WarningEntry) bool { return wrn1.Equal(wrn2) })
+	return util.EqualValue(val, func(other Warning) bool {
+		return slices.EqualFunc(hdr, other, func(wrn1, wrn2 WarningValue) bool {
+			return wrn1.Equal(wrn2)
+		})
+	})
 }
 
 func (hdr Warning) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(wrn WarningEntry) bool { return !wrn.IsValid() })
+	return len(hdr) > 0 &&
+		!slices.ContainsFunc(hdr, func(wrn WarningValue) bool {
+			return !wrn.IsValid()
+		})
 }
 
 func (hdr Warning) MarshalJSON() ([]byte, error) {
@@ -116,91 +78,76 @@ func (hdr Warning) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Warning) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromWarningNode(node *abnf.Node) Warning {
 	warnNodes := node.GetNodes("warning-value")
 	h := make(Warning, len(warnNodes))
 	for i, warnNode := range warnNodes {
-		h[i] = buildFromWarningEntryNode(warnNode)
+		h[i] = buildFromWarningValueNode(warnNode)
 	}
 	return h
 }
 
-type WarningEntry struct {
+type WarningValue struct {
 	Code  uint
 	Agent string
 	Text  string
 }
 
-func (wrn WarningEntry) String() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	fmt.Fprintf(sb, "%d %s %q", wrn.Code, wrn.Agent, wrn.Text)
-	return sb.String()
+func (wrn WarningValue) String() string {
+	return renderVal(wrn)
 }
 
-func (wrn WarningEntry) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		fmt.Fprint(f, wrn.String())
-		return
-	case 'q':
-		fmt.Fprint(f, strconv.Quote(wrn.String()))
-		return
-	default:
-		if !f.Flag('+') && !f.Flag('#') {
-			fmt.Fprint(f, wrn.String())
-			return
-		}
+func (wrn WarningValue) renderTo(w io.Writer) (int, error) {
+	return errors.Wrap2(fmt.Fprintf(w, "%d %s %q", wrn.Code, wrn.Agent, wrn.Text))
+}
 
-		type (
-			hideMethods WarningEntry
-			WarningItem hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), WarningItem(wrn))
+func (wrn WarningValue) Format(f fmt.State, verb rune) {
+	if formatVal(f, verb, wrn) {
 		return
 	}
+	type (
+		hideMethods WarningValue
+		WarningItem hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), WarningItem(wrn))
 }
 
-func (wrn WarningEntry) Equal(val any) bool {
-	var other WarningEntry
-	switch v := val.(type) {
-	case WarningEntry:
-		other = v
-	case *WarningEntry:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return wrn.Code == other.Code &&
-		util.EqFold(wrn.Agent, other.Agent) &&
-		wrn.Text == other.Text
+func (wrn WarningValue) Equal(val any) bool {
+	return util.EqualValue(val, func(other WarningValue) bool {
+		return wrn.Code == other.Code &&
+			util.EqualFold(wrn.Agent, other.Agent) &&
+			wrn.Text == other.Text
+	})
 }
 
-func (wrn WarningEntry) IsValid() bool { return wrn.Code > 0 && grammar.IsToken(wrn.Agent) }
+func (wrn WarningValue) IsValid() bool {
+	return wrn.Code > 0 && grammar.IsToken(wrn.Agent)
+}
 
-func (wrn WarningEntry) IsZero() bool { return wrn.Code == 0 && wrn.Agent == "" && wrn.Text == "" }
+func (wrn WarningValue) IsZero() bool {
+	return wrn.Code == 0 &&
+		wrn.Agent == "" &&
+		wrn.Text == ""
+}
 
-func (wrn WarningEntry) Clone() WarningEntry { return wrn }
+func (wrn WarningValue) Clone() WarningValue {
+	return wrn
+}
 
-func (wrn WarningEntry) MarshalText() ([]byte, error) {
+func (wrn WarningValue) MarshalText() ([]byte, error) {
 	return []byte(wrn.String()), nil
 }
 
-func (wrn WarningEntry) AppendText(b []byte) ([]byte, error) {
+func (wrn WarningValue) AppendText(b []byte) ([]byte, error) {
 	return append(b, wrn.String()...), nil
 }
 
-func (wrn *WarningEntry) UnmarshalText(data []byte) (finErr error) {
+func (wrn *WarningValue) UnmarshalText(data []byte) (finErr error) {
 	if len(data) == 0 || bytes.Equal(data, []byte(`0  ""`)) {
-		*wrn = WarningEntry{}
+		*wrn = WarningValue{}
 		return nil
 	}
 
@@ -219,17 +166,17 @@ func (wrn *WarningEntry) UnmarshalText(data []byte) (finErr error) {
 		return errors.Wrap(err)
 	}
 
-	*wrn = buildFromWarningEntryNode(node)
+	*wrn = buildFromWarningValueNode(node)
 	return nil
 }
 
-func buildFromWarningEntryNode(node *abnf.Node) WarningEntry {
+func buildFromWarningValueNode(node *abnf.Node) WarningValue {
 	codeNode := grammar.MustGetNode(node, "warn-code")
 	code, err := strconv.ParseUint(codeNode.String(), 10, 64)
 	if err != nil {
 		panic(errors.ErrorfWrap("invalid warning code: %w", err))
 	}
-	return WarningEntry{
+	return WarningValue{
 		Code:  uint(code),
 		Agent: grammar.MustGetNode(node, "warn-agent").String(),
 		Text:  grammar.Unquote(node.Children[4].String()),

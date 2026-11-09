@@ -58,7 +58,7 @@ func TestUnquote(t *testing.T) {
 	}
 }
 
-func TestIsTelNum(t *testing.T) {
+func TestIsTelephoneNumber(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -83,14 +83,14 @@ func TestIsTelNum(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got, want := grammar.IsTelNum(tt.str), tt.want; got != want {
-				t.Errorf("grammar.IsTelNum(%q) = %v, want %v", tt.str, got, want)
+			if got, want := grammar.IsPhoneNumber(tt.str), tt.want; got != want {
+				t.Errorf("grammar.IsTelephoneNumber(%q) = %v, want %v", tt.str, got, want)
 			}
 		})
 	}
 }
 
-func TestIsGlobTelNum(t *testing.T) {
+func TestIsGlobalTelephoneNumber(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -108,14 +108,14 @@ func TestIsGlobTelNum(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got, want := grammar.IsGlobTelNum(tt.str), tt.want; got != want {
-				t.Errorf("grammar.IsGlobTelNum(%q) = %v, want %v", tt.str, got, want)
+			if got, want := grammar.IsGlobalPhoneNumber(tt.str), tt.want; got != want {
+				t.Errorf("grammar.IsGlobalTelephoneNumber(%q) = %v, want %v", tt.str, got, want)
 			}
 		})
 	}
 }
 
-func BenchmarkCleanTelNum(b *testing.B) {
+func BenchmarkCleanTelephoneNumber(b *testing.B) {
 	tests := []struct {
 		name string
 		in   any
@@ -135,13 +135,13 @@ func BenchmarkCleanTelNum(b *testing.B) {
 				switch in := tt.in.(type) {
 				case string:
 					want, _ := tt.out.(string)
-					if got := grammar.CleanTelNum(in); got != want {
-						b.Errorf("grammar.CleanTelNum(%q) = %q, want %q", in, got, want)
+					if got := grammar.CleanPhoneNumber(in); got != want {
+						b.Errorf("grammar.CleanTelephoneNumber(%q) = %q, want %q", in, got, want)
 					}
 				case []byte:
 					want, _ := tt.out.([]byte)
-					if got := grammar.CleanTelNum(in); !bytes.Equal(got, want) {
-						b.Errorf("grammar.CleanTelNum(%q) = %q, want %q", in, got, want)
+					if got := grammar.CleanPhoneNumber(in); !bytes.Equal(got, want) {
+						b.Errorf("grammar.CleanTelephoneNumber(%q) = %q, want %q", in, got, want)
 					}
 				}
 			}

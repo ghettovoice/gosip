@@ -12,19 +12,18 @@ type unwrapAll interface {
 	Unwrap() []error
 }
 
-func assertErrorContains(tb testing.TB, err error, want string) {
+func assertErrContains(tb testing.TB, err error, want string) {
 	tb.Helper()
 
 	if err == nil {
 		tb.Fatal("expected non-nil error")
 	}
-
 	if !strings.Contains(err.Error(), want) {
 		tb.Fatalf("expected error text %q contains %q", err.Error(), want)
 	}
 }
 
-func assertErrorIs(tb testing.TB, err, target error) {
+func assertErrIs(tb testing.TB, err, target error) {
 	tb.Helper()
 
 	if !errors.Is(err, target) {
@@ -32,14 +31,13 @@ func assertErrorIs(tb testing.TB, err, target error) {
 	}
 }
 
-func unwrapErrors(tb testing.TB, err error) []error {
+func unwrapErrs(tb testing.TB, err error) []error {
 	tb.Helper()
 
 	var u unwrapAll
 	if !errors.As(err, &u) {
 		tb.Fatalf("expected error %v to support Unwrap() []error", err)
 	}
-
 	return u.Unwrap()
 }
 
@@ -47,7 +45,6 @@ func TestError(t *testing.T) {
 	t.Parallel()
 
 	const want = "boom"
-
 	got := errors.Error(want).Error()
 	if got != want {
 		t.Errorf("err.Error() = %q, want %q", got, want)
@@ -58,14 +55,12 @@ func TestNew(t *testing.T) {
 	t.Parallel()
 
 	const msg = "boom"
-
 	err := errors.New(msg)
 	if err == nil {
 		t.Fatal("errors.New() = nil, want error")
 	}
-
-	assertErrorContains(t, err, msg)
-	assertErrorIs(t, err, errors.Error(msg))
+	assertErrContains(t, err, msg)
+	assertErrIs(t, err, errors.Error(msg))
 }
 
 func TestErrorf(t *testing.T) {
@@ -75,8 +70,7 @@ func TestErrorf(t *testing.T) {
 	if err == nil {
 		t.Fatal("errors.Errorf() = nil, want error")
 	}
-
-	assertErrorContains(t, err, "value 3")
+	assertErrContains(t, err, "value 3")
 }
 
 func TestPrefix(t *testing.T) {
@@ -89,46 +83,16 @@ func TestPrefix(t *testing.T) {
 	tests := []struct {
 		name         string
 		args         []any
-		wantMessage  string
+		wantMsg      string
 		wantIsBase   bool
 		wantIsPrefix bool
 	}{
-		{
-			name:         "no args",
-			wantMessage:  "sentinel",
-			wantIsPrefix: true,
-		},
-		{
-			name:         "error arg",
-			args:         []any{base},
-			wantMessage:  "sentinel: base",
-			wantIsBase:   true,
-			wantIsPrefix: true,
-		},
-		{
-			name:         "error arg already prefixed",
-			args:         []any{prefixed},
-			wantMessage:  "sentinel: detail",
-			wantIsPrefix: true,
-		},
-		{
-			name:         "string arg",
-			args:         []any{"detail"},
-			wantMessage:  "sentinel: detail",
-			wantIsPrefix: true,
-		},
-		{
-			name:         "format args",
-			args:         []any{"detail %d", 2},
-			wantMessage:  "sentinel: detail 2",
-			wantIsPrefix: true,
-		},
-		{
-			name:         "default arg",
-			args:         []any{123},
-			wantMessage:  "sentinel",
-			wantIsPrefix: true,
-		},
+		{"no args", nil, "sentinel", false, true},
+		{"error arg", []any{base}, "sentinel: base", true, true},
+		{"error arg already prefixed", []any{prefixed}, "sentinel: detail", false, true},
+		{"string arg", []any{"detail"}, "sentinel: detail", false, true},
+		{"format args", []any{"detail %d", 2}, "sentinel: detail 2", false, true},
+		{"default arg", []any{123}, "sentinel", false, true},
 	}
 
 	for _, tt := range tests {
@@ -139,15 +103,12 @@ func TestPrefix(t *testing.T) {
 			if err == nil {
 				t.Fatal("errors.Prefix() = nil, want error")
 			}
-
-			assertErrorContains(t, err, tt.wantMessage)
-
+			assertErrContains(t, err, tt.wantMsg)
 			if tt.wantIsPrefix {
-				assertErrorIs(t, err, sentinel)
+				assertErrIs(t, err, sentinel)
 			}
-
 			if tt.wantIsBase {
-				assertErrorIs(t, err, base)
+				assertErrIs(t, err, base)
 			} else if errors.Is(err, base) {
 				t.Fatalf("errors.Prefix() unexpectedly matched base error")
 			}

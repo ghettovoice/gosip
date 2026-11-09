@@ -1,0 +1,12 @@
+# Repository Contracts
+
+- Authority: `.agents/rules/proj_guide.md` overrides conflicting generic examples in `go_base_guide.md`, `go_test_guide.md`, and `go_error_guide.md`. Read applicable originals before editing. Read `.agents/rules/commit_message.md` before committing.
+- Keep SIP RFC terminology, initialisms, timer names and accepted abbreviations (Addr, Conn, Proto, Ver, Recv, Auth, Params, Seq, etc.). Naming-only edits must preserve header/parameter names, JSON tags and serialized formats.
+- Application errors use `github.com/ghettovoice/gosip/internal/errors`, not direct standard `errors` or `braces.dev/errtrace` imports. Sentinels are constants of `errors.Error` (or an alias), unlike generic standard-library examples.
+- Trace returned/forwarded errors with `errors.Wrap`, `Wrap2`, `Wrap3`, or a Wrap-suffixed constructor/helper; also trace errors passed to handlers or channels. Error constructors use `errors.GetCaller()` to control the recorded caller. Do not double-wrap Wrap-suffixed joins.
+- Behavioral/domain classification is in `pkg/errclass`: use existing classified constructors; new classes are independent values, not bit flags. Preserve underlying causes. IsTimeout does not imply IsTemporary or IsDeadline; parser domain does not imply grammar failure, transport domain does not imply an underlying network error.
+- Test files: `<source>_test.go` uses external `<package>_test` for black-box tests; `<source>_internal_test.go` uses the tested package for white-box tests. Reuse `internal/testutil`, `dnstest`, and `siptest`; use table-driven tests for multiple scenarios.
+- Use `t.Context()` / `b.Context()`. Cleanup runs after the test context is canceled; derive cleanup contexts with `context.WithoutCancel(t.Context())` and a cancellation/timeout wrapper.
+- Complex comparisons use `cmp.Diff(want, got)` with `(-want +got)` labels; focused error checks use errors.Is/As. Test error sentinel, domain and applicable common classes, including wrapped/joined inspection.
+- Formatting: Go tabs; `.golangci.yml` configures gci import order standard / third-party / localmodule, and gofumpt extras group-params, clothe-returns, balance-calls. Bare gofmt is insufficient. JSON/YAML tag conventions and slog constraints are configured there; do not loosen lint settings to fit a change.
+- Specific justified `//nolint:<linter>` only; avoid broad suppressions or unrelated automatic rewrites.

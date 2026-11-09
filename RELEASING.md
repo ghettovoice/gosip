@@ -20,7 +20,7 @@ task check
 
 ## Manual release
 
-1. Update `VERSION` in `gosip.go`.
+1. Update `Version` in `gosip.go`.
 2. Commit, push, and release:
 
 ```bash

@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -24,99 +22,64 @@ func (Allow) CanonicName() Name { return "Allow" }
 func (Allow) CompactName() Name { return "Allow" }
 
 // RenderTo writes the header to the provided writer.
-func (hdr Allow) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr Allow) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr Allow) renderValueTo(w io.Writer) (num int, err error) {
-	return errors.Wrap2(renderHdrEntries(w, hdr))
+func (hdr Allow) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrTokensTo(w, hdr))
 }
 
 // Render returns the string representation of the header.
 func (hdr Allow) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the string representation of the header value.
 func (hdr Allow) RenderValue() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrVal(hdr)
 }
 
 // String returns the string representation of the header value.
-func (hdr Allow) String() string { return hdr.RenderValue() }
+func (hdr Allow) String() string {
+	return hdr.RenderValue()
+}
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr Allow) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods Allow
-			Allow       hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), Allow(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods Allow
+		Allow       hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), Allow(hdr))
 }
 
 // Clone returns a copy of the header.
-func (hdr Allow) Clone() Header { return slices.Clone(hdr) }
+func (hdr Allow) Clone() Header {
+	return slices.Clone(hdr)
+}
 
 // Equal compares this header with another for equality.
 func (hdr Allow) Equal(val any) bool {
-	var other Allow
-	switch v := val.(type) {
-	case Allow:
-		other = v
-	case *Allow:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(mtd1, mtd2 RequestMethod) bool { return mtd1.Equal(mtd2) })
+	return util.EqualValue(val, func(other Allow) bool {
+		return slices.EqualFunc(hdr, other, func(mtd1, mtd2 RequestMethod) bool {
+			return mtd1.Equal(mtd2)
+		})
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
 func (hdr Allow) IsValid() bool {
-	return hdr != nil && !slices.ContainsFunc(hdr, func(mtd RequestMethod) bool { return !mtd.IsValid() })
+	return hdr != nil &&
+		!slices.ContainsFunc(hdr, func(mtd RequestMethod) bool {
+			return !mtd.IsValid()
+		})
 }
 
 func (hdr Allow) MarshalJSON() ([]byte, error) {

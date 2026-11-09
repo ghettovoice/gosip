@@ -8,11 +8,11 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 )
 
-type elemCapabilsMiddleware struct {
+type elemCapabilsMidware struct {
 	methods []sip.RequestMethod
 }
 
-func (mw elemCapabilsMiddleware) Capabilities() sip.ElementCapabilities {
+func (mw elemCapabilsMidware) Capabilities() sip.ElementCapabilities {
 	return sip.ElementCapabilities{Methods: mw.methods}
 }
 
@@ -22,13 +22,13 @@ func TestElement_UseMiddleware_PreservesRegistrationOrder(t *testing.T) {
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
 
-	removeFirst := elm.UseMiddleware(elemCapabilsMiddleware{
+	removeFirst := elm.UseMiddleware(elemCapabilsMidware{
 		methods: []sip.RequestMethod{sip.RequestMethodInvite},
 	})
-	removeSecond := elm.UseMiddleware(elemCapabilsMiddleware{
+	removeSecond := elm.UseMiddleware(elemCapabilsMidware{
 		methods: []sip.RequestMethod{sip.RequestMethodBye},
 	})
-	removeThird := elm.UseMiddleware(elemCapabilsMiddleware{
+	removeThird := elm.UseMiddleware(elemCapabilsMidware{
 		methods: []sip.RequestMethod{sip.RequestMethodCancel},
 	})
 

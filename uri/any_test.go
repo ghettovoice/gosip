@@ -32,7 +32,7 @@ func TestAny_Render(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.Render(); got != tt.want {
-				t.Errorf("uri.Render() = %q, want %q", got, tt.want)
+				t.Errorf("u.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -57,11 +57,9 @@ func TestAny_RenderTo(t *testing.T) {
 
 			var sb strings.Builder
 			_, err := tt.uri.RenderTo(&sb)
-
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("uri.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
+				t.Errorf("u.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -87,7 +85,7 @@ func TestAny_String(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.String(); got != tt.want {
-				t.Errorf("uri.String() = %q, want %q", got, tt.want)
+				t.Errorf("u.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -133,7 +131,7 @@ func TestAny_Equal(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.Equal(tt.val); got != tt.want {
-				t.Errorf("uri.Equal(val) = %v, want %v", got, tt.want)
+				t.Errorf("u.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -157,7 +155,7 @@ func TestAny_IsValid(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.IsValid(); got != tt.want {
-				t.Errorf("uri.IsValid() = %v, want %v", got, tt.want)
+				t.Errorf("u.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -187,16 +185,14 @@ func TestAny_Clone(t *testing.T) {
 			t.Parallel()
 
 			got := tt.uri.Clone()
-
 			if tt.uri == nil {
 				if got != nil {
-					t.Errorf("uri.Clone() = %+v, want nil", got)
+					t.Errorf("u.Clone() = %+v, want nil", got)
 				}
 				return
 			}
-
 			if diff := cmp.Diff(got, tt.uri, cmp.AllowUnexported(uri.Any{})); diff != "" {
-				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.uri, diff)
+				t.Errorf("u.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.uri, diff)
 			}
 		})
 	}
@@ -233,19 +229,17 @@ func TestAny_RoundTripText(t *testing.T) {
 
 			text, err := tt.uri.MarshalText()
 			if err != nil {
-				t.Fatalf("uri.MarshalText() error = %v, want nil", err)
+				t.Fatalf("want.MarshalText() error = %v, want nil", err)
 			}
 
 			var got uri.Any
 			err = got.UnmarshalText(text)
-
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("got.UnmarshalText(text) error = nil, want error")
 				}
 				return
 			}
-
 			if err != nil {
 				t.Fatalf("got.UnmarshalText(text) error = %v, want nil", err)
 			}

@@ -14,7 +14,7 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/uri"
 )
@@ -22,18 +22,14 @@ import (
 // NameAddr represents a single element in From, To, Contact, Reply-To headers.
 // It contains a display name, URI, and parameters.
 type NameAddr struct {
-	DisplayName string
-	URI         uri.URI
-	Params      Values
+	DisplayName string  `json:"display_name,omitempty"`
+	URI         uri.URI `json:"uri"`
+	Params      Values  `json:"params,omitempty"`
 }
 
 // String returns the string representation of the NameAddr.
 func (addr NameAddr) String() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = addr.renderTo(sb)
-	return sb.String()
+	return renderVal(addr)
 }
 
 func (addr NameAddr) renderTo(w io.Writer) (num int, err error) {
@@ -53,71 +49,50 @@ func (addr NameAddr) renderTo(w io.Writer) (num int, err error) {
 	cw.Fprint(">")
 
 	cw.Call(func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderHdrParams(w, addr.Params, false))
+		return errors.Wrap2(renderHdrParamsTo(w, addr.Params, false))
 	})
 	return errors.Wrap2(cw.Result())
 }
 
 // Format implements fmt.Formatter for custom formatting of the NameAddr.
 func (addr NameAddr) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		fmt.Fprint(f, addr.String())
-		return
-	case 'q':
-		fmt.Fprint(f, strconv.Quote(addr.String()))
-		return
-	default:
-		if !f.Flag('+') && !f.Flag('#') {
-			fmt.Fprint(f, addr.String())
-			return
-		}
-
-		type (
-			hideMethods NameAddr
-			NameAddr    hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), NameAddr(addr))
+	if formatVal(f, verb, addr) {
 		return
 	}
+	type (
+		hideMethods NameAddr
+		NameAddr    hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), NameAddr(addr))
 }
 
 // Equal compares this NameAddr with another for equality.
 func (addr NameAddr) Equal(val any) bool {
-	var other NameAddr
-	switch v := val.(type) {
-	case NameAddr:
-		other = v
-	case *NameAddr:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return types.IsEqual(addr.URI, other.URI) &&
-		compareHdrParams(addr.Params, other.Params, map[string]bool{
-			"q":       true,
-			"tag":     true,
-			"expires": true,
-		}, "tag")
+	return util.EqualValue(val, func(other NameAddr) bool {
+		return shared.IsEqual(addr.URI, other.URI) &&
+			compareHdrParams(addr.Params, other.Params, map[string]bool{
+				"q":       true,
+				"tag":     true,
+				"expires": true,
+			}, "tag")
+	})
 }
 
 // IsValid checks whether the NameAddr is syntactically valid.
 func (addr NameAddr) IsValid() bool {
-	return types.IsValid(addr.URI) && validateHdrParams(addr.Params)
+	return shared.IsValid(addr.URI) && validateHdrParams(addr.Params)
 }
 
 // IsZero checks whether the NameAddr is empty.
 func (addr NameAddr) IsZero() bool {
-	return addr.DisplayName == "" && addr.URI == nil && len(addr.Params) == 0
+	return addr.DisplayName == "" &&
+		addr.URI == nil &&
+		len(addr.Params) == 0
 }
 
 // Clone returns a copy of the NameAddr.
 func (addr NameAddr) Clone() NameAddr {
-	addr.URI = types.Clone[uri.URI](addr.URI)
+	addr.URI = shared.Clone[uri.URI](addr.URI)
 	addr.Params = addr.Params.Clone()
 	return addr
 }
@@ -169,14 +144,13 @@ func (addr NameAddr) Expires() (time.Duration, bool) {
 	if err != nil {
 		return 0, false
 	}
-
 	return time.Duration(sec) * time.Second, true
 }
 
 func buildFromNameAddrNode(node *abnf.Node, psNodeKey string) NameAddr {
 	addr := NameAddr{
 		URI:    util.Must2(uri.FromABNF(grammar.MustGetNode(node, "addr-spec").Children[0])),
-		Params: buildFromHeaderParamNodes(node.GetNodes(psNodeKey), nil),
+		Params: buildFromHdrParamNodes(node.GetNodes(psNodeKey), nil),
 	}
 
 	// https://datatracker.ietf.org/doc/rfc8217/
@@ -198,6 +172,5 @@ func buildFromNameAddrNode(node *abnf.Node, psNodeKey string) NameAddr {
 	if dnameNode, ok := node.GetNode("display-name"); ok {
 		addr.DisplayName = grammar.Unquote(strings.TrimSpace(dnameNode.String()))
 	}
-
 	return addr
 }

@@ -12,8 +12,8 @@ import (
 	"github.com/ghettovoice/gosip/internal/netutil"
 )
 
-type countingConn struct {
-	mockConn
+type spyCloseConn struct {
+	stubConn
 	closes   atomic.Int32
 	readErr  error
 	writeErr error
@@ -21,19 +21,19 @@ type countingConn struct {
 	writeOut chan struct{}
 }
 
-func (c *countingConn) Close() error {
+func (c *spyCloseConn) Close() error {
 	c.closes.Add(1)
 	return nil
 }
 
-func (c *countingConn) Read(b []byte) (int, error) {
+func (c *spyCloseConn) Read(b []byte) (int, error) {
 	if c.readErr != nil {
 		return 1, c.readErr
 	}
-	return c.mockConn.Read(b)
+	return c.stubConn.Read(b)
 }
 
-func (c *countingConn) Write(b []byte) (int, error) {
+func (c *spyCloseConn) Write(b []byte) (int, error) {
 	if c.writeIn != nil {
 		close(c.writeIn)
 		c.writeIn = nil
@@ -42,11 +42,11 @@ func (c *countingConn) Write(b []byte) (int, error) {
 	if c.writeErr != nil {
 		return 1, c.writeErr
 	}
-	return c.mockConn.Write(b)
+	return c.stubConn.Write(b)
 }
 
-type countingPacketConn struct {
-	mockPacketConn
+type spyClosePktConn struct {
+	stubPktConn
 	closes   atomic.Int32
 	readErr  error
 	writeErr error
@@ -54,19 +54,19 @@ type countingPacketConn struct {
 	writeOut chan struct{}
 }
 
-func (c *countingPacketConn) Close() error {
+func (c *spyClosePktConn) Close() error {
 	c.closes.Add(1)
 	return nil
 }
 
-func (c *countingPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+func (c *spyClosePktConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	if c.readErr != nil {
 		return 1, nil, c.readErr
 	}
-	return c.mockPacketConn.ReadFrom(p)
+	return c.stubPktConn.ReadFrom(p)
 }
 
-func (c *countingPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+func (c *spyClosePktConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	if c.writeIn != nil {
 		close(c.writeIn)
 		c.writeIn = nil
@@ -75,7 +75,7 @@ func (c *countingPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	if c.writeErr != nil {
 		return 1, c.writeErr
 	}
-	return c.mockPacketConn.WriteTo(p, addr)
+	return c.stubPktConn.WriteTo(p, addr)
 }
 
 type autoCloseFixture struct {
@@ -93,50 +93,56 @@ var autoCloseKinds = []struct {
 	name  string
 	setup func(ttl time.Duration) *autoCloseFixture
 }{
-	{name: "conn", setup: func(ttl time.Duration) *autoCloseFixture {
-		base := &countingConn{}
-		w := netutil.NewAutoCloseConn(base, ttl)
-		return &autoCloseFixture{
-			closes:      base.closes.Load,
-			read:        func() error { _, err := w.Read(make([]byte, 1)); return err },
-			write:       func() error { _, err := w.Write([]byte{1}); return err },
-			close:       w.Close,
-			setReadErr:  func(err error) { base.readErr = err },
-			setWriteErr: func(err error) { base.writeErr = err },
-			gateWrite: func() (chan struct{}, chan struct{}) {
-				base.writeIn, base.writeOut = make(chan struct{}), make(chan struct{})
-				return base.writeIn, base.writeOut
-			},
-			rewrap: func(newTTL time.Duration) bool {
-				return netutil.NewAutoCloseConn(w, newTTL) == w
-			},
-		}
-	}},
-	{name: "packet_conn", setup: func(ttl time.Duration) *autoCloseFixture {
-		base := &countingPacketConn{}
-		w := netutil.NewAutoClosePacketConn(base, ttl)
-		return &autoCloseFixture{
-			closes: base.closes.Load,
-			read: func() error {
-				_, _, err := w.ReadFrom(make([]byte, 1))
-				return err
-			},
-			write: func() error {
-				_, err := w.WriteTo([]byte{1}, base.LocalAddr())
-				return err
-			},
-			close:       w.Close,
-			setReadErr:  func(err error) { base.readErr = err },
-			setWriteErr: func(err error) { base.writeErr = err },
-			gateWrite: func() (chan struct{}, chan struct{}) {
-				base.writeIn, base.writeOut = make(chan struct{}), make(chan struct{})
-				return base.writeIn, base.writeOut
-			},
-			rewrap: func(newTTL time.Duration) bool {
-				return netutil.NewAutoClosePacketConn(w, newTTL) == w
-			},
-		}
-	}},
+	{
+		"conn",
+		func(ttl time.Duration) *autoCloseFixture {
+			base := &spyCloseConn{}
+			w := netutil.NewAutoCloseConn(base, ttl)
+			return &autoCloseFixture{
+				closes:      base.closes.Load,
+				read:        func() error { _, err := w.Read(make([]byte, 1)); return err },
+				write:       func() error { _, err := w.Write([]byte{1}); return err },
+				close:       w.Close,
+				setReadErr:  func(err error) { base.readErr = err },
+				setWriteErr: func(err error) { base.writeErr = err },
+				gateWrite: func() (chan struct{}, chan struct{}) {
+					base.writeIn, base.writeOut = make(chan struct{}), make(chan struct{})
+					return base.writeIn, base.writeOut
+				},
+				rewrap: func(newTTL time.Duration) bool {
+					return netutil.NewAutoCloseConn(w, newTTL) == w
+				},
+			}
+		},
+	},
+	{
+		"packet_conn",
+		func(ttl time.Duration) *autoCloseFixture {
+			base := &spyClosePktConn{}
+			w := netutil.NewAutoClosePacketConn(base, ttl)
+			return &autoCloseFixture{
+				closes: base.closes.Load,
+				read: func() error {
+					_, _, err := w.ReadFrom(make([]byte, 1))
+					return err
+				},
+				write: func() error {
+					_, err := w.WriteTo([]byte{1}, base.LocalAddr())
+					return err
+				},
+				close:       w.Close,
+				setReadErr:  func(err error) { base.readErr = err },
+				setWriteErr: func(err error) { base.writeErr = err },
+				gateWrite: func() (chan struct{}, chan struct{}) {
+					base.writeIn, base.writeOut = make(chan struct{}), make(chan struct{})
+					return base.writeIn, base.writeOut
+				},
+				rewrap: func(newTTL time.Duration) bool {
+					return netutil.NewAutoClosePacketConn(w, newTTL) == w
+				},
+			}
+		},
+	},
 }
 
 func TestAutoClose_IdleTimeoutCloses(t *testing.T) {
@@ -145,10 +151,12 @@ func TestAutoClose_IdleTimeoutCloses(t *testing.T) {
 	for _, kind := range autoCloseKinds {
 		t.Run(kind.name, func(t *testing.T) {
 			t.Parallel()
+
 			synctest.Test(t, func(t *testing.T) {
 				fx := kind.setup(time.Second)
 
 				time.Sleep(1100 * time.Millisecond)
+
 				if got := fx.closes(); got != 1 {
 					t.Fatalf("underlying closes = %d after idle timeout, want 1", got)
 				}
@@ -164,6 +172,7 @@ func TestAutoClose_SuccessResetsTimer(t *testing.T) {
 		for _, op := range []string{"read", "write"} {
 			t.Run(kind.name+"/"+op, func(t *testing.T) {
 				t.Parallel()
+
 				synctest.Test(t, func(t *testing.T) {
 					fx := kind.setup(time.Second)
 					defer func() { _ = fx.close() }()
@@ -174,20 +183,22 @@ func TestAutoClose_SuccessResetsTimer(t *testing.T) {
 					}
 
 					time.Sleep(599 * time.Millisecond)
+
 					if got := fx.closes(); got != 0 {
 						t.Fatalf("underlying closes = %d before deadline, want 0", got)
 					}
-
 					if err := run(); err != nil {
-						t.Fatalf("%s() error = %v, want nil", op, err)
+						t.Fatalf("fx.%s() error = %v, want nil", op, err)
 					}
 
 					time.Sleep(500 * time.Millisecond)
+
 					if got := fx.closes(); got != 0 {
 						t.Fatalf("underlying closes = %d at original deadline, want 0", got)
 					}
 
 					time.Sleep(600 * time.Millisecond)
+
 					if got := fx.closes(); got != 1 {
 						t.Fatalf("underlying closes = %d after new full timeout, want 1", got)
 					}
@@ -204,6 +215,7 @@ func TestAutoClose_ErrorDoesNotReset(t *testing.T) {
 		for _, op := range []string{"read", "write"} {
 			t.Run(kind.name+"/"+op, func(t *testing.T) {
 				t.Parallel()
+
 				synctest.Test(t, func(t *testing.T) {
 					fx := kind.setup(time.Second)
 					defer func() { _ = fx.close() }()
@@ -220,11 +232,13 @@ func TestAutoClose_ErrorDoesNotReset(t *testing.T) {
 					}
 
 					time.Sleep(600 * time.Millisecond)
+
 					if err := run(); !errors.Is(err, sentinel) {
-						t.Fatalf("%s() error = %v, want %v", op, err, sentinel)
+						t.Fatalf("fx.%s() error = %v, want %v", op, err, sentinel)
 					}
 
 					time.Sleep(500 * time.Millisecond)
+
 					if got := fx.closes(); got != 1 {
 						t.Fatalf("underlying closes = %d at original deadline, want 1", got)
 					}
@@ -240,25 +254,28 @@ func TestAutoClose_CloseIsPermanent(t *testing.T) {
 	for _, kind := range autoCloseKinds {
 		t.Run(kind.name, func(t *testing.T) {
 			t.Parallel()
+
 			synctest.Test(t, func(t *testing.T) {
 				fx := kind.setup(time.Second)
 
 				time.Sleep(600 * time.Millisecond)
+
 				if err := fx.close(); err != nil {
-					t.Fatalf("close() error = %v, want nil", err)
+					t.Fatalf("fx.close() error = %v, want nil", err)
 				}
 				if got := fx.closes(); got != 1 {
 					t.Fatalf("underlying closes = %d after manual close, want 1", got)
 				}
 
 				if err := fx.read(); err != nil {
-					t.Fatalf("late read() error = %v, want nil", err)
+					t.Fatalf("late fx.read() error = %v, want nil", err)
 				}
 				if err := fx.write(); err != nil {
-					t.Fatalf("late write() error = %v, want nil", err)
+					t.Fatalf("late fx.write() error = %v, want nil", err)
 				}
 
 				time.Sleep(2 * time.Second)
+
 				if got := fx.closes(); got != 1 {
 					t.Fatalf("underlying closes = %d after late successful IO, want 1", got)
 				}
@@ -274,22 +291,24 @@ func TestAutoClose_Disabled(t *testing.T) {
 		for _, ttl := range []time.Duration{0, -time.Second} {
 			t.Run(kind.name+"/"+ttl.String(), func(t *testing.T) {
 				t.Parallel()
+
 				synctest.Test(t, func(t *testing.T) {
 					fx := kind.setup(ttl)
 
 					if err := fx.read(); err != nil {
-						t.Fatalf("read() error = %v, want nil", err)
+						t.Fatalf("fx.read() error = %v, want nil", err)
 					}
 					if err := fx.write(); err != nil {
-						t.Fatalf("write() error = %v, want nil", err)
+						t.Fatalf("fx.write() error = %v, want nil", err)
 					}
 
 					time.Sleep(3 * time.Second)
+
 					if got := fx.closes(); got != 0 {
 						t.Fatalf("underlying closes = %d with disabled timeout, want 0", got)
 					}
 					if err := fx.close(); err != nil {
-						t.Fatalf("close() error = %v, want nil", err)
+						t.Fatalf("fx.close() error = %v, want nil", err)
 					}
 				})
 			})
@@ -303,16 +322,19 @@ func TestAutoClose_RewrapKeepsTimeout(t *testing.T) {
 	for _, kind := range autoCloseKinds {
 		t.Run(kind.name, func(t *testing.T) {
 			t.Parallel()
+
 			synctest.Test(t, func(t *testing.T) {
 				fx := kind.setup(time.Second)
 				defer func() { _ = fx.close() }()
 
 				time.Sleep(600 * time.Millisecond)
+
 				if !fx.rewrap(10 * time.Second) {
 					t.Fatal("re-wrap returned a different wrapper, want same instance")
 				}
 
 				time.Sleep(500 * time.Millisecond)
+
 				if got := fx.closes(); got != 1 {
 					t.Fatalf("underlying closes = %d at original deadline, want 1", got)
 				}
@@ -327,6 +349,7 @@ func TestAutoClose_ConcurrentWriteAndClose(t *testing.T) {
 	for _, kind := range autoCloseKinds {
 		t.Run(kind.name, func(t *testing.T) {
 			t.Parallel()
+
 			synctest.Test(t, func(t *testing.T) {
 				fx := kind.setup(time.Second)
 
@@ -336,18 +359,20 @@ func TestAutoClose_ConcurrentWriteAndClose(t *testing.T) {
 				<-started
 
 				if err := fx.close(); err != nil {
-					t.Fatalf("close() error = %v, want nil", err)
+					t.Fatalf("fx.close() error = %v, want nil", err)
 				}
 				if got := fx.closes(); got != 1 {
 					t.Fatalf("underlying closes = %d after close, want 1", got)
 				}
 
 				close(release)
+
 				if err := <-done; err != nil {
-					t.Fatalf("late write() error = %v, want nil", err)
+					t.Fatalf("late fx.write() error = %v, want nil", err)
 				}
 
 				time.Sleep(2 * time.Second)
+
 				if got := fx.closes(); got != 1 {
 					t.Fatalf("underlying closes = %d after late write completion, want 1", got)
 				}

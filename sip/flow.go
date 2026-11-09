@@ -64,7 +64,7 @@ func (t FlowToken) Equal(val any) bool {
 		return false
 	}
 
-	t = t.Canonic() //nolint:revive
+	t = t.Canonic() //nolint:revive // canonicalizing the receiver copy is intentional
 
 	return t.Transport.Equal(other.Transport) &&
 		t.LocalAddr == other.LocalAddr &&

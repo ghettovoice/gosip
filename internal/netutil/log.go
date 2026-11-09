@@ -10,46 +10,46 @@ import (
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
-type logListener struct {
+type logLis struct {
 	net.Listener
 	log *slog.Logger
 	lvl slog.Level
 }
 
 func NewLogListener(ls net.Listener, logger *slog.Logger, lvl slog.Level) net.Listener {
-	if _, ok := AsListener[*logListener](ls); ok {
+	if _, ok := AsListener[*logLis](ls); ok {
 		return ls
 	}
 
-	return &logListener{
+	return &logLis{
 		Listener: ls,
 		log:      logger.With(slog.Any("listener", ls)),
 		lvl:      lvl,
 	}
 }
 
-func (ls *logListener) Accept() (net.Conn, error) {
-	conn, err := ls.Listener.Accept()
+func (l *logLis) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
-	ls.log.LogAttrs(context.Background(), ls.lvl, "connection accepted", slog.Any("connection", conn))
+	l.log.LogAttrs(context.Background(), l.lvl, "connection accepted", slog.Any("connection", conn))
 
 	return conn, nil
 }
 
-func (ls *logListener) Close() error {
-	if err := ls.Listener.Close(); err != nil {
+func (l *logLis) Close() error {
+	if err := l.Listener.Close(); err != nil {
 		return errors.Wrap(err)
 	}
 
-	ls.log.LogAttrs(context.Background(), ls.lvl, "listener closed")
+	l.log.LogAttrs(context.Background(), l.lvl, "listener closed")
 
 	return nil
 }
 
-func (l *logListener) Unwrap() net.Listener {
+func (l *logLis) Unwrap() net.Listener {
 	if l == nil {
 		return nil
 	}
@@ -161,25 +161,25 @@ func (c *logConn) Unwrap() net.Conn {
 	return c.Conn
 }
 
-type logPacketConn struct {
+type logPktConn struct {
 	net.PacketConn
 	log *slog.Logger
 	lvl slog.Level
 }
 
 func NewLogPacketConn(conn net.PacketConn, logger *slog.Logger, lvl slog.Level) net.PacketConn {
-	if _, ok := AsPacketConn[*logPacketConn](conn); ok {
+	if _, ok := AsPacketConn[*logPktConn](conn); ok {
 		return conn
 	}
 
-	return &logPacketConn{
+	return &logPktConn{
 		PacketConn: conn,
 		log:        logger.With(slog.Any("connection", conn)),
 		lvl:        lvl,
 	}
 }
 
-func (c *logPacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
+func (c *logPktConn) ReadFrom(b []byte) (int, net.Addr, error) {
 	n, addr, err := c.PacketConn.ReadFrom(b)
 	if err != nil {
 		return n, addr, errors.Wrap(err)
@@ -199,7 +199,7 @@ func (c *logPacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
 	return n, addr, nil
 }
 
-func (c *logPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+func (c *logPktConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	n, err := c.PacketConn.WriteTo(b, addr)
 	if err != nil {
 		return n, errors.Wrap(err)
@@ -219,7 +219,7 @@ func (c *logPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	return n, nil
 }
 
-func (c *logPacketConn) Close() error {
+func (c *logPktConn) Close() error {
 	if err := c.PacketConn.Close(); err != nil {
 		return errors.Wrap(err)
 	}
@@ -229,7 +229,7 @@ func (c *logPacketConn) Close() error {
 	return nil
 }
 
-func (c *logPacketConn) SetDeadline(t time.Time) error {
+func (c *logPktConn) SetDeadline(t time.Time) error {
 	if err := c.PacketConn.SetDeadline(t); err != nil {
 		return errors.Wrap(err)
 	}
@@ -239,7 +239,7 @@ func (c *logPacketConn) SetDeadline(t time.Time) error {
 	return nil
 }
 
-func (c *logPacketConn) SetReadDeadline(t time.Time) error {
+func (c *logPktConn) SetReadDeadline(t time.Time) error {
 	if err := c.PacketConn.SetReadDeadline(t); err != nil {
 		return errors.Wrap(err)
 	}
@@ -249,7 +249,7 @@ func (c *logPacketConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-func (c *logPacketConn) SetWriteDeadline(t time.Time) error {
+func (c *logPktConn) SetWriteDeadline(t time.Time) error {
 	if err := c.PacketConn.SetWriteDeadline(t); err != nil {
 		return errors.Wrap(err)
 	}
@@ -259,7 +259,7 @@ func (c *logPacketConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func (c *logPacketConn) Unwrap() net.PacketConn {
+func (c *logPktConn) Unwrap() net.PacketConn {
 	if c == nil {
 		return nil
 	}

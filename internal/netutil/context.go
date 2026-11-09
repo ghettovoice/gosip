@@ -15,7 +15,7 @@ type ContextPacketConn interface {
 	ReadFromContext(ctx context.Context, b []byte) (int, net.Addr, error)
 }
 
-type contextPacketConn struct {
+type ctxPktConn struct {
 	net.PacketConn
 	wrMu, rdMu sync.Mutex
 }
@@ -24,10 +24,10 @@ func NewContextPacketConn(conn net.PacketConn) net.PacketConn {
 	if _, ok := AsPacketConn[ContextPacketConn](conn); ok {
 		return conn
 	}
-	return &contextPacketConn{PacketConn: conn}
+	return &ctxPktConn{PacketConn: conn}
 }
 
-func (c *contextPacketConn) WriteToContext(ctx context.Context, b []byte, addr net.Addr) (int, error) {
+func (c *ctxPktConn) WriteToContext(ctx context.Context, b []byte, addr net.Addr) (int, error) {
 	c.wrMu.Lock()
 	defer c.wrMu.Unlock()
 
@@ -41,7 +41,7 @@ func (c *contextPacketConn) WriteToContext(ctx context.Context, b []byte, addr n
 	return errors.Wrap2(c.WriteTo(b, addr))
 }
 
-func (c *contextPacketConn) ReadFromContext(ctx context.Context, b []byte) (int, net.Addr, error) {
+func (c *ctxPktConn) ReadFromContext(ctx context.Context, b []byte) (int, net.Addr, error) {
 	c.rdMu.Lock()
 	defer c.rdMu.Unlock()
 
@@ -55,7 +55,7 @@ func (c *contextPacketConn) ReadFromContext(ctx context.Context, b []byte) (int,
 	return errors.Wrap3(c.ReadFrom(b))
 }
 
-func (c *contextPacketConn) Unwrap() net.PacketConn {
+func (c *ctxPktConn) Unwrap() net.PacketConn {
 	if c == nil {
 		return nil
 	}
@@ -68,7 +68,7 @@ type ContextConn interface {
 	ReadContext(ctx context.Context, b []byte) (int, error)
 }
 
-type contextConn struct {
+type ctxConn struct {
 	net.Conn
 	wrMu, rdMu sync.Mutex
 }
@@ -77,10 +77,10 @@ func NewContextConn(conn net.Conn) net.Conn {
 	if _, ok := AsConn[ContextConn](conn); ok {
 		return conn
 	}
-	return &contextConn{Conn: conn}
+	return &ctxConn{Conn: conn}
 }
 
-func (c *contextConn) WriteContext(ctx context.Context, b []byte) (int, error) {
+func (c *ctxConn) WriteContext(ctx context.Context, b []byte) (int, error) {
 	c.wrMu.Lock()
 	defer c.wrMu.Unlock()
 
@@ -94,7 +94,7 @@ func (c *contextConn) WriteContext(ctx context.Context, b []byte) (int, error) {
 	return errors.Wrap2(c.Write(b))
 }
 
-func (c *contextConn) ReadContext(ctx context.Context, b []byte) (int, error) {
+func (c *ctxConn) ReadContext(ctx context.Context, b []byte) (int, error) {
 	c.rdMu.Lock()
 	defer c.rdMu.Unlock()
 
@@ -108,7 +108,7 @@ func (c *contextConn) ReadContext(ctx context.Context, b []byte) (int, error) {
 	return errors.Wrap2(c.Read(b))
 }
 
-func (c *contextConn) Unwrap() net.Conn {
+func (c *ctxConn) Unwrap() net.Conn {
 	if c == nil {
 		return nil
 	}

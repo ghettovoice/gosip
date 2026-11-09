@@ -5,7 +5,7 @@ import (
 	"slices"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 )
 
 // RequestReceiver is an interface for receiving requests.
@@ -341,10 +341,10 @@ type MessageInterceptorChain interface {
 }
 
 type StdMsgInterceptChain struct {
-	InboundRequestInterceptors   types.CallbackManager[InboundRequestInterceptor]
-	InboundResponseInterceptors  types.CallbackManager[InboundResponseInterceptor]
-	OutboundRequestInterceptors  types.CallbackManager[OutboundRequestInterceptor]
-	OutboundResponseInterceptors types.CallbackManager[OutboundResponseInterceptor]
+	InboundRequestInterceptors   shared.CallbackManager[InboundRequestInterceptor]
+	InboundResponseInterceptors  shared.CallbackManager[InboundResponseInterceptor]
+	OutboundRequestInterceptors  shared.CallbackManager[OutboundRequestInterceptor]
+	OutboundResponseInterceptors shared.CallbackManager[OutboundResponseInterceptor]
 }
 
 func (ch *StdMsgInterceptChain) UseInboundRequestInterceptor(interceptor InboundRequestInterceptor) (unbind func()) {

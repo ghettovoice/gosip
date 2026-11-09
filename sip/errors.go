@@ -64,12 +64,8 @@ func NewNoAddressError(args ...any) error {
 // 	case string(ErrNoAddress):
 // 		return ErrClassElement | ErrClassNotFound
 
-// 	case string(ErrForwardContextDuplicate):
-// 		return ErrClassProxy | ErrClassConflict
-// 	case string(ErrForwardContextNotFound):
-// 		return ErrClassProxy | ErrClassNotFound
 // 	case string(errUnsupURIScheme),
-// 		string(errToManyHops),
+// 		string(errTooManyHops),
 // 		string(errUnsupOption),
 // 		string(errAuthRequired),
 // 		string(errNoFwdTargets):
@@ -99,7 +95,7 @@ func NewRequestRejectedError(
 		cause:   cause,
 		logLvl:  level,
 		resSts:  status,
-		resOpts: util.LastSliceElemOr(opts, RespondOptions{}),
+		resOpts: util.LastSliceElem(opts, RespondOptions{}),
 	}
 }
 
@@ -406,26 +402,4 @@ func (e *ListenerServeError) Metadata() TransportMetadata {
 		return TransportMetadata{}
 	}
 	return e.tp
-}
-
-// Proxy errors.
-const (
-	ErrForwardContextDuplicate errors.Error = "forward context duplicate"
-	ErrForwardContextNotFound  errors.Error = "forward context not found"
-)
-
-func NewForwardContextDuplicateError(args ...any) error {
-	return errclass.Classify(
-		errors.Prefix(ErrForwardContextDuplicate, args...),
-		ErrClassProxy,
-		errclass.ClassConflict,
-	)
-}
-
-func NewForwardContextNotFoundError(args ...any) error {
-	return errclass.Classify(
-		errors.Prefix(ErrForwardContextNotFound, args...),
-		ErrClassProxy,
-		errclass.ClassNotFound,
-	)
 }

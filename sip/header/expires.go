@@ -9,7 +9,7 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // Expires represents the Expires header field.
@@ -25,18 +25,20 @@ func (*Expires) CanonicName() Name { return "Expires" }
 func (*Expires) CompactName() Name { return "Expires" }
 
 // RenderTo writes the header to the provided writer.
-func (hdr *Expires) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr *Expires) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderDeltaSecondsTo(w, hdr.Duration))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr *Expires) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderDeltaSecsTo(w, hdr.Duration))
 }
 
 // Render returns the string representation of the header.
 func (hdr *Expires) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
@@ -44,10 +46,12 @@ func (hdr *Expires) RenderValue() string {
 	if hdr == nil {
 		return ""
 	}
-	return renderDeltaSeconds(hdr.Duration)
+	return renderDeltaSecs(hdr.Duration)
 }
 
-func (hdr *Expires) String() string { return hdr.RenderValue() }
+func (hdr *Expires) String() string {
+	return hdr.RenderValue()
+}
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr *Expires) Format(f fmt.State, verb rune) {
@@ -67,44 +71,32 @@ func (hdr *Expires) Clone() Header {
 		return nil
 	}
 
-	hdr2 := *hdr
-	return &hdr2
+	clone := *hdr
+	return &clone
 }
 
 // Equal compares this header with another for equality.
 func (hdr *Expires) Equal(val any) bool {
-	var other *Expires
-	switch v := val.(type) {
-	case Expires:
-		other = &v
-	case *Expires:
-		other = v
-	default:
-		return false
-	}
-
-	if hdr == other {
-		return true
-	} else if hdr == nil || other == nil {
-		return false
-	}
-
-	return hdr.Duration == other.Duration
+	return util.EqualPointer(hdr, val, func(other *Expires) bool {
+		return hdr.Duration == other.Duration
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
-func (hdr *Expires) IsValid() bool { return hdr != nil && validDeltaSeconds(hdr.Duration) }
+func (hdr *Expires) IsValid() bool {
+	return hdr != nil && validDeltaSecs(hdr.Duration)
+}
 
 func (hdr *Expires) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))
 }
 
 func (hdr *Expires) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromExpiresNode(node *abnf.Node) *Expires {
-	duration, err := parseDeltaSeconds(grammar.MustGetNode(node, "delta-seconds").String())
+	duration, err := parseDeltaSecs(grammar.MustGetNode(node, "delta-seconds").String())
 	if err != nil {
 		panic(errors.Wrap(err))
 	}

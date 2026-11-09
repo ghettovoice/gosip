@@ -12,103 +12,103 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // ResponseStatus represents a SIP response status.
-// See [types.ResponseStatus].
-type ResponseStatus = types.ResponseStatus
+// See [shared.ResponseStatus].
+type ResponseStatus = shared.ResponseStatus
 
 // Response status constants.
-// See [types.ResponseStatus].
+// See [shared.ResponseStatus].
 const (
-	ResponseStatusTrying                = types.ResponseStatusTrying
-	ResponseStatusRinging               = types.ResponseStatusRinging
-	ResponseStatusCallIsBeingForwarded  = types.ResponseStatusCallIsBeingForwarded
-	ResponseStatusQueued                = types.ResponseStatusQueued
-	ResponseStatusSessionProgress       = types.ResponseStatusSessionProgress
-	ResponseStatusEarlyDialogTerminated = types.ResponseStatusEarlyDialogTerminated
+	ResponseStatusTrying                = shared.ResponseStatusTrying
+	ResponseStatusRinging               = shared.ResponseStatusRinging
+	ResponseStatusCallIsBeingForwarded  = shared.ResponseStatusCallIsBeingForwarded
+	ResponseStatusQueued                = shared.ResponseStatusQueued
+	ResponseStatusSessionProgress       = shared.ResponseStatusSessionProgress
+	ResponseStatusEarlyDialogTerminated = shared.ResponseStatusEarlyDialogTerminated
 
-	ResponseStatusOK             = types.ResponseStatusOK
-	ResponseStatusAccepted       = types.ResponseStatusAccepted
-	ResponseStatusNoNotification = types.ResponseStatusNoNotification
+	ResponseStatusOK             = shared.ResponseStatusOK
+	ResponseStatusAccepted       = shared.ResponseStatusAccepted
+	ResponseStatusNoNotification = shared.ResponseStatusNoNotification
 
-	ResponseStatusMultipleChoices    = types.ResponseStatusMultipleChoices
-	ResponseStatusMovedPermanently   = types.ResponseStatusMovedPermanently
-	ResponseStatusMovedTemporarily   = types.ResponseStatusMovedTemporarily
-	ResponseStatusUseProxy           = types.ResponseStatusUseProxy
-	ResponseStatusAlternativeService = types.ResponseStatusAlternativeService
+	ResponseStatusMultipleChoices    = shared.ResponseStatusMultipleChoices
+	ResponseStatusMovedPermanently   = shared.ResponseStatusMovedPermanently
+	ResponseStatusMovedTemporarily   = shared.ResponseStatusMovedTemporarily
+	ResponseStatusUseProxy           = shared.ResponseStatusUseProxy
+	ResponseStatusAlternativeService = shared.ResponseStatusAlternativeService
 
-	ResponseStatusBadRequest                   = types.ResponseStatusBadRequest
-	ResponseStatusUnauthorized                 = types.ResponseStatusUnauthorized
-	ResponseStatusPaymentRequired              = types.ResponseStatusPaymentRequired
-	ResponseStatusForbidden                    = types.ResponseStatusForbidden
-	ResponseStatusNotFound                     = types.ResponseStatusNotFound
-	ResponseStatusMethodNotAllowed             = types.ResponseStatusMethodNotAllowed
-	ResponseStatusNotAcceptable                = types.ResponseStatusNotAcceptable
-	ResponseStatusProxyAuthenticationRequired  = types.ResponseStatusProxyAuthenticationRequired
-	ResponseStatusRequestTimeout               = types.ResponseStatusRequestTimeout
-	ResponseStatusGone                         = types.ResponseStatusGone
-	ResponseStatusLengthRequired               = types.ResponseStatusLengthRequired
-	ResponseStatusConditionalRequestFailed     = types.ResponseStatusConditionalRequestFailed
-	ResponseStatusRequestEntityTooLarge        = types.ResponseStatusRequestEntityTooLarge
-	ResponseStatusRequestURITooLong            = types.ResponseStatusRequestURITooLong
-	ResponseStatusUnsupportedMediaType         = types.ResponseStatusUnsupportedMediaType
-	ResponseStatusUnsupportedURIScheme         = types.ResponseStatusUnsupportedURIScheme
-	ResponseStatusUnknownResourcePriority      = types.ResponseStatusUnknownResourcePriority
-	ResponseStatusBadExtension                 = types.ResponseStatusBadExtension
-	ResponseStatusExtensionRequired            = types.ResponseStatusExtensionRequired
-	ResponseStatusSessionIntervalTooSmall      = types.ResponseStatusSessionIntervalTooSmall
-	ResponseStatusIntervalTooBrief             = types.ResponseStatusIntervalTooBrief
-	ResponseStatusBadLocationInformation       = types.ResponseStatusBadLocationInformation
-	ResponseStatusBadAlertMessage              = types.ResponseStatusBadAlertMessage
-	ResponseStatusUseIdentityHeader            = types.ResponseStatusUseIdentityHeader
-	ResponseStatusProvideReferrerIdentity      = types.ResponseStatusProvideReferrerIdentity
-	ResponseStatusFlowFailed                   = types.ResponseStatusFlowFailed
-	ResponseStatusAnonymityDisallowed          = types.ResponseStatusAnonymityDisallowed
-	ResponseStatusBadIdentityInfo              = types.ResponseStatusBadIdentityInfo
-	ResponseStatusUnsupportedCredential        = types.ResponseStatusUnsupportedCredential
-	ResponseStatusInvalidIdentityHeader        = types.ResponseStatusInvalidIdentityHeader
-	ResponseStatusFirstHopLacksOutboundSupport = types.ResponseStatusFirstHopLacksOutboundSupport
-	ResponseStatusMaxBreadthExceeded           = types.ResponseStatusMaxBreadthExceeded
-	ResponseStatusBadInfoPackage               = types.ResponseStatusBadInfoPackage
-	ResponseStatusConsentNeeded                = types.ResponseStatusConsentNeeded
-	ResponseStatusTemporarilyUnavailable       = types.ResponseStatusTemporarilyUnavailable
-	ResponseStatusCallTransactionDoesNotExist  = types.ResponseStatusCallTransactionDoesNotExist
-	ResponseStatusLoopDetected                 = types.ResponseStatusLoopDetected
-	ResponseStatusTooManyHops                  = types.ResponseStatusTooManyHops
-	ResponseStatusAddressIncomplete            = types.ResponseStatusAddressIncomplete
-	ResponseStatusAmbiguous                    = types.ResponseStatusAmbiguous
-	ResponseStatusBusyHere                     = types.ResponseStatusBusyHere
-	ResponseStatusRequestTerminated            = types.ResponseStatusRequestTerminated
-	ResponseStatusNotAcceptableHere            = types.ResponseStatusNotAcceptableHere
-	ResponseStatusBadEvent                     = types.ResponseStatusBadEvent
-	ResponseStatusRequestPending               = types.ResponseStatusRequestPending
-	ResponseStatusUndecipherable               = types.ResponseStatusUndecipherable
-	ResponseStatusSecurityAgreementRequired    = types.ResponseStatusSecurityAgreementRequired
+	ResponseStatusBadRequest                   = shared.ResponseStatusBadRequest
+	ResponseStatusUnauthorized                 = shared.ResponseStatusUnauthorized
+	ResponseStatusPaymentRequired              = shared.ResponseStatusPaymentRequired
+	ResponseStatusForbidden                    = shared.ResponseStatusForbidden
+	ResponseStatusNotFound                     = shared.ResponseStatusNotFound
+	ResponseStatusMethodNotAllowed             = shared.ResponseStatusMethodNotAllowed
+	ResponseStatusNotAcceptable                = shared.ResponseStatusNotAcceptable
+	ResponseStatusProxyAuthenticationRequired  = shared.ResponseStatusProxyAuthenticationRequired
+	ResponseStatusRequestTimeout               = shared.ResponseStatusRequestTimeout
+	ResponseStatusGone                         = shared.ResponseStatusGone
+	ResponseStatusLengthRequired               = shared.ResponseStatusLengthRequired
+	ResponseStatusConditionalRequestFailed     = shared.ResponseStatusConditionalRequestFailed
+	ResponseStatusRequestEntityTooLarge        = shared.ResponseStatusRequestEntityTooLarge
+	ResponseStatusRequestURITooLong            = shared.ResponseStatusRequestURITooLong
+	ResponseStatusUnsupportedMediaType         = shared.ResponseStatusUnsupportedMediaType
+	ResponseStatusUnsupportedURIScheme         = shared.ResponseStatusUnsupportedURIScheme
+	ResponseStatusUnknownResourcePriority      = shared.ResponseStatusUnknownResourcePriority
+	ResponseStatusBadExtension                 = shared.ResponseStatusBadExtension
+	ResponseStatusExtensionRequired            = shared.ResponseStatusExtensionRequired
+	ResponseStatusSessionIntervalTooSmall      = shared.ResponseStatusSessionIntervalTooSmall
+	ResponseStatusIntervalTooBrief             = shared.ResponseStatusIntervalTooBrief
+	ResponseStatusBadLocationInformation       = shared.ResponseStatusBadLocationInformation
+	ResponseStatusBadAlertMessage              = shared.ResponseStatusBadAlertMessage
+	ResponseStatusUseIdentityHeader            = shared.ResponseStatusUseIdentityHeader
+	ResponseStatusProvideReferrerIdentity      = shared.ResponseStatusProvideReferrerIdentity
+	ResponseStatusFlowFailed                   = shared.ResponseStatusFlowFailed
+	ResponseStatusAnonymityDisallowed          = shared.ResponseStatusAnonymityDisallowed
+	ResponseStatusBadIdentityInfo              = shared.ResponseStatusBadIdentityInfo
+	ResponseStatusUnsupportedCredential        = shared.ResponseStatusUnsupportedCredential
+	ResponseStatusInvalidIdentityHeader        = shared.ResponseStatusInvalidIdentityHeader
+	ResponseStatusFirstHopLacksOutboundSupport = shared.ResponseStatusFirstHopLacksOutboundSupport
+	ResponseStatusMaxBreadthExceeded           = shared.ResponseStatusMaxBreadthExceeded
+	ResponseStatusBadInfoPackage               = shared.ResponseStatusBadInfoPackage
+	ResponseStatusConsentNeeded                = shared.ResponseStatusConsentNeeded
+	ResponseStatusTemporarilyUnavailable       = shared.ResponseStatusTemporarilyUnavailable
+	ResponseStatusCallTransactionDoesNotExist  = shared.ResponseStatusCallTransactionDoesNotExist
+	ResponseStatusLoopDetected                 = shared.ResponseStatusLoopDetected
+	ResponseStatusTooManyHops                  = shared.ResponseStatusTooManyHops
+	ResponseStatusAddressIncomplete            = shared.ResponseStatusAddressIncomplete
+	ResponseStatusAmbiguous                    = shared.ResponseStatusAmbiguous
+	ResponseStatusBusyHere                     = shared.ResponseStatusBusyHere
+	ResponseStatusRequestTerminated            = shared.ResponseStatusRequestTerminated
+	ResponseStatusNotAcceptableHere            = shared.ResponseStatusNotAcceptableHere
+	ResponseStatusBadEvent                     = shared.ResponseStatusBadEvent
+	ResponseStatusRequestPending               = shared.ResponseStatusRequestPending
+	ResponseStatusUndecipherable               = shared.ResponseStatusUndecipherable
+	ResponseStatusSecurityAgreementRequired    = shared.ResponseStatusSecurityAgreementRequired
 
-	ResponseStatusServerInternalError                 = types.ResponseStatusServerInternalError
-	ResponseStatusNotImplemented                      = types.ResponseStatusNotImplemented
-	ResponseStatusBadGateway                          = types.ResponseStatusBadGateway
-	ResponseStatusServiceUnavailable                  = types.ResponseStatusServiceUnavailable
-	ResponseStatusGatewayTimeout                      = types.ResponseStatusGatewayTimeout
-	ResponseStatusVersionNotSupported                 = types.ResponseStatusVersionNotSupported
-	ResponseStatusMessageTooLarge                     = types.ResponseStatusMessageTooLarge
-	ResponseStatusPushNotificationServiceNotSupported = types.ResponseStatusPushNotificationServiceNotSupported
-	ResponseStatusPreconditionFailure                 = types.ResponseStatusPreconditionFailure
+	ResponseStatusServerInternalError                 = shared.ResponseStatusServerInternalError
+	ResponseStatusNotImplemented                      = shared.ResponseStatusNotImplemented
+	ResponseStatusBadGateway                          = shared.ResponseStatusBadGateway
+	ResponseStatusServiceUnavailable                  = shared.ResponseStatusServiceUnavailable
+	ResponseStatusGatewayTimeout                      = shared.ResponseStatusGatewayTimeout
+	ResponseStatusVersionNotSupported                 = shared.ResponseStatusVersionNotSupported
+	ResponseStatusMessageTooLarge                     = shared.ResponseStatusMessageTooLarge
+	ResponseStatusPushNotificationServiceNotSupported = shared.ResponseStatusPushNotificationServiceNotSupported
+	ResponseStatusPreconditionFailure                 = shared.ResponseStatusPreconditionFailure
 
-	ResponseStatusBusyEverywhere       = types.ResponseStatusBusyEverywhere
-	ResponseStatusDecline              = types.ResponseStatusDecline
-	ResponseStatusDoesNotExistAnywhere = types.ResponseStatusDoesNotExistAnywhere
-	ResponseStatusNotAcceptable606     = types.ResponseStatusNotAcceptable606
-	ResponseStatusUnwanted             = types.ResponseStatusUnwanted
-	ResponseStatusRejected             = types.ResponseStatusRejected
+	ResponseStatusBusyEverywhere       = shared.ResponseStatusBusyEverywhere
+	ResponseStatusDecline              = shared.ResponseStatusDecline
+	ResponseStatusDoesNotExistAnywhere = shared.ResponseStatusDoesNotExistAnywhere
+	ResponseStatusNotAcceptable606     = shared.ResponseStatusNotAcceptable606
+	ResponseStatusUnwanted             = shared.ResponseStatusUnwanted
+	ResponseStatusRejected             = shared.ResponseStatusRejected
 )
 
 // ResponseReason represents a SIP response reason.
-// See [types.ResponseReason].
-type ResponseReason = types.ResponseReason
+// See [shared.ResponseReason].
+type ResponseReason = shared.ResponseReason
 
 // Response represents a SIP response message.
 type Response struct {
@@ -117,6 +117,13 @@ type Response struct {
 	Proto   ProtoInfo      `json:"proto"`
 	Headers Headers        `json:"headers,omitempty"`
 	Body    []byte         `json:"body,omitempty"`
+
+	// preserveToTag marks an owned proxied response copy whose To header tag
+	// must be forwarded verbatim. Endpoint conveniences that would manufacture
+	// a dialog tag honor it. It is trusted in-memory provenance only: clones
+	// keep it, JSON rebuilds reset it, and it is never a wire header or a
+	// serialized user-controlled field.
+	preserveToTag bool
 }
 
 var _ Message = (*Response)(nil)
@@ -338,6 +345,9 @@ func (res *Response) UnmarshalJSON(data []byte) error {
 	res.Proto = resData.Proto
 	res.Headers = resData.Headers
 	res.Body = resData.Body
+	// The preserveToTag marker is in-memory provenance, never a serialized
+	// field; trusted checkpoint state reestablishes it on restore.
+	res.preserveToTag = false
 	return nil
 }
 
@@ -365,7 +375,7 @@ func (req *Request) NewResponse(sts ResponseStatus, opts ...ResponseOptions) (*R
 		return nil, errors.Wrap(NewRequestMethodNotAllowedError())
 	}
 
-	o := util.LastSliceElemOr(opts, ResponseOptions{})
+	o := util.LastSliceElem(opts, ResponseOptions{})
 
 	res := &Response{
 		Status:  sts,
@@ -386,6 +396,11 @@ func (req *Request) NewResponse(sts ResponseStatus, opts ...ResponseOptions) (*R
 }
 
 func EnsureResponseToTag(res *Response, tag string) {
+	if res.preserveToTag {
+		// A forwarded response keeps its dialog identity verbatim; a proxy
+		// must not manufacture a To tag for it.
+		return
+	}
 	if res.Status.Equal(ResponseStatusTrying) {
 		return
 	}
@@ -487,7 +502,7 @@ func (r *ResponseEnvelope) Clone() Message {
 		return nil
 	}
 	return &ResponseEnvelope{
-		cloned.(*MessageEnvelope[*Response]), //nolint:forcetypeassert
+		cloned.(*MessageEnvelope[*Response]), //nolint:forcetypeassert // the concrete type is fixed by construction
 	}
 }
 
@@ -495,7 +510,26 @@ func cloneResEnvelope(res *ResponseEnvelope) *ResponseEnvelope {
 	if res == nil {
 		return nil
 	}
-	return res.Clone().(*ResponseEnvelope) //nolint:forcetypeassert
+	return res.Clone().(*ResponseEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
+}
+
+// resPreservesToTag reports whether the envelope's response carries the
+// forwarded-copy To-tag preservation marker.
+func resPreservesToTag(res *ResponseEnvelope) bool {
+	var preserve bool
+	if res != nil {
+		res.WithMessage(func(r *Response) { preserve = r.preserveToTag })
+	}
+	return preserve
+}
+
+// setResPreserveToTag marks or unmarks an owned response copy for To-tag
+// preservation.
+func setResPreserveToTag(res *ResponseEnvelope, preserve bool) {
+	if res == nil {
+		return
+	}
+	res.WithMessage(func(r *Response) { r.preserveToTag = preserve })
 }
 
 func (r *ResponseEnvelope) Equal(val any) bool {

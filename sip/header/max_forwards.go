@@ -22,81 +22,63 @@ func (MaxForwards) CanonicName() Name { return "Max-Forwards" }
 func (MaxForwards) CompactName() Name { return "Max-Forwards" }
 
 // RenderTo writes the header to the provided writer.
-func (hdr MaxForwards) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
-	return errors.Wrap2(fmt.Fprint(w, hdr.CanonicName(), ": ", hdr.RenderValue()))
+func (hdr MaxForwards) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr MaxForwards) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(io.WriteString(w, strconv.FormatUint(uint64(hdr), 10)))
 }
 
 // Render returns the string representation of the header.
 func (hdr MaxForwards) Render(opts ...RenderOptions) string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
-func (hdr MaxForwards) RenderValue() string { return strconv.FormatUint(uint64(hdr), 10) }
+func (hdr MaxForwards) RenderValue() string {
+	return strconv.FormatUint(uint64(hdr), 10)
+}
 
-func (hdr MaxForwards) String() string { return hdr.RenderValue() }
+func (hdr MaxForwards) String() string {
+	return hdr.RenderValue()
+}
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr MaxForwards) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods MaxForwards
-			MaxForwards hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), MaxForwards(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods MaxForwards
+		MaxForwards hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), MaxForwards(hdr))
 }
 
 // Clone returns a copy of the header.
-func (hdr MaxForwards) Clone() Header { return hdr }
+func (hdr MaxForwards) Clone() Header {
+	return hdr
+}
 
 // Equal compares this header with another for equality.
 func (hdr MaxForwards) Equal(val any) bool {
-	var other MaxForwards
-	switch v := val.(type) {
-	case MaxForwards:
-		other = v
-	case *MaxForwards:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return hdr == other
+	return util.EqualValue(val, func(other MaxForwards) bool {
+		return hdr == other
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
-func (MaxForwards) IsValid() bool { return true }
+func (MaxForwards) IsValid() bool {
+	return true
+}
 
 func (hdr MaxForwards) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))
 }
 
 func (hdr *MaxForwards) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromMaxForwardsNode(node *abnf.Node) MaxForwards {

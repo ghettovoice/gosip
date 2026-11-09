@@ -8,7 +8,7 @@ import (
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // Supported represents the Supported header field.
@@ -26,23 +26,27 @@ func (hdr Supported) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err 
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, renderHdrName(hdr, opts...), func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderHdrEntries(w, hdr))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr Supported) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrTokensTo(w, hdr))
 }
 
 // Render returns the string representation of the header.
 func (hdr Supported) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
 func (hdr Supported) RenderValue() string {
-	return renderHdrEntriesString(hdr)
+	return renderHdrVal(hdr)
 }
 
 // String returns the string representation of the header value.
-func (hdr Supported) String() string { return hdr.RenderValue() }
+func (hdr Supported) String() string {
+	return hdr.RenderValue()
+}
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr Supported) Format(f fmt.State, verb rune) {
@@ -63,20 +67,11 @@ func (hdr Supported) Clone() Header {
 
 // Equal compares this header with another for equality.
 func (hdr Supported) Equal(val any) bool {
-	var other Supported
-	switch v := val.(type) {
-	case Supported:
-		other = v
-	case *Supported:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(tag1, tag2 OptionTag) bool { return tag1.Equal(tag2) })
+	return util.EqualValue(val, func(other Supported) bool {
+		return slices.EqualFunc(hdr, other, func(tag1, tag2 OptionTag) bool {
+			return tag1.Equal(tag2)
+		})
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.

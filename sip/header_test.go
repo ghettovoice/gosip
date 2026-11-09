@@ -81,16 +81,16 @@ func (hdr *customHeader) Equal(val any) bool {
 		return false
 	}
 
-	return util.EqFold(hdr.name, other.name) &&
+	return util.EqualFold(hdr.name, other.name) &&
 		hdr.num == other.num &&
-		util.EqFold(hdr.str, other.str)
+		util.EqualFold(hdr.str, other.str)
 }
 
 func (hdr *customHeader) IsValid() bool {
 	return hdr != nil && grammar.IsToken(hdr.name) && hdr.num > 0 && len(hdr.str) > 0
 }
 
-func TestAllHeaderElems(t *testing.T) {
+func TestAllHeaderValues(t *testing.T) {
 	t.Parallel()
 
 	hdrs := make(sip.Headers).
@@ -125,13 +125,13 @@ func TestAllHeaderElems(t *testing.T) {
 		{
 			"route",
 			func() error {
-				return testAllHeaderElems[header.Route](hdrs, "Route", "header.Route", []*header.NameAddr(nil))
+				return testAllHeaderValues[header.Route](hdrs, "Route", "header.Route", []*header.NameAddr(nil))
 			},
 		},
 		{
 			"supported",
 			func() error {
-				return testAllHeaderElems[header.Supported](
+				return testAllHeaderValues[header.Supported](
 					hdrs,
 					"Supported",
 					"header.Supported",
@@ -149,7 +149,7 @@ func TestAllHeaderElems(t *testing.T) {
 		{
 			"via",
 			func() error {
-				return testAllHeaderElems[header.Via](
+				return testAllHeaderValues[header.Via](
 					hdrs,
 					"Via",
 					"header.Via",
@@ -186,12 +186,12 @@ func TestAllHeaderElems(t *testing.T) {
 	}
 }
 
-func testAllHeaderElems[H ~[]E, E any](hdrs sip.Headers, hname sip.HeaderName, htype string, want []*E) error {
-	got := slices.Collect(sip.AllHeaderElems[H](hdrs, hname))
+func testAllHeaderValues[H ~[]E, E any](hdrs sip.Headers, hdrName sip.HeaderName, hdrType string, want []*E) error {
+	got := slices.Collect(sip.AllHeaderValues[H](hdrs, hdrName))
 	if diff := cmp.Diff(got, want); diff != "" {
 		return errors.Errorf(
-			"sip.AllHeaderElems[%s](hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v",
-			htype, hname, got, want, diff,
+			"sip.AllHeaderValues[%s](hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v",
+			hdrType, hdrName, got, want, diff,
 		)
 	}
 
@@ -227,11 +227,11 @@ func TestFirstHeader(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		hname   sip.HeaderName
-		fnname  string
+		hdrName sip.HeaderName
+		fnName  string
 		fn      func(sip.Headers, sip.HeaderName) (any, bool)
 		wantHdr any
-		wantOk  bool
+		wantOK  bool
 	}{
 		{
 			"from",
@@ -300,9 +300,9 @@ func TestFirstHeader(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotHdr, gotOk := tt.fn(hdrs, tt.hname)
-			if diff := cmp.Diff([]any{gotHdr, gotOk}, []any{tt.wantHdr, tt.wantOk}); diff != "" {
-				t.Errorf("%s(hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v", tt.fnname, tt.hname, gotHdr, gotOk, diff)
+			gotHdr, gotOK := tt.fn(hdrs, tt.hdrName)
+			if diff := cmp.Diff([]any{gotHdr, gotOK}, []any{tt.wantHdr, tt.wantOK}); diff != "" {
+				t.Errorf("%s(hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v", tt.fnName, tt.hdrName, gotHdr, gotOK, diff)
 			}
 		})
 	}
@@ -336,11 +336,11 @@ func TestLastHeader(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		hname   sip.HeaderName
-		fnname  string
+		hdrName sip.HeaderName
+		fnName  string
 		fn      func(sip.Headers, sip.HeaderName) (any, bool)
 		wantHdr any
-		wantOk  bool
+		wantOK  bool
 	}{
 		{
 			"from",
@@ -394,15 +394,15 @@ func TestLastHeader(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotHdr, gotOk := tt.fn(hdrs, tt.hname)
-			if diff := cmp.Diff([]any{gotHdr, gotOk}, []any{tt.wantHdr, tt.wantOk}); diff != "" {
-				t.Errorf("%s(hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v", tt.fnname, tt.hname, gotHdr, gotOk, diff)
+			gotHdr, gotOK := tt.fn(hdrs, tt.hdrName)
+			if diff := cmp.Diff([]any{gotHdr, gotOK}, []any{tt.wantHdr, tt.wantOK}); diff != "" {
+				t.Errorf("%s(hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v", tt.fnName, tt.hdrName, gotHdr, gotOK, diff)
 			}
 		})
 	}
 }
 
-func TestFirstHeaderElem(t *testing.T) {
+func TestFirstHeaderValue(t *testing.T) {
 	t.Parallel()
 
 	hdrs := make(sip.Headers).
@@ -428,21 +428,20 @@ func TestFirstHeaderElem(t *testing.T) {
 		Append(header.Supported{"opt1"}).
 		Append(header.Supported{"opt2", "opt3"})
 
-	//nolint:forcetypeassert
 	tests := []struct {
 		name     string
-		hname    sip.HeaderName
-		fnname   string
+		hdrName  sip.HeaderName
+		fnName   string
 		fn       func(sip.Headers, sip.HeaderName) (any, bool)
 		wantElem any
-		wantOk   bool
+		wantOK   bool
 	}{
 		{
 			"route",
 			"Route",
-			"sip.FirstHeaderElem[header.Route]",
+			"sip.FirstHeaderValue[header.Route]",
 			func(hdrs sip.Headers, name sip.HeaderName) (any, bool) {
-				return sip.FirstHeaderElem[header.Route](hdrs, name)
+				return sip.FirstHeaderValue[header.Route](hdrs, name)
 			},
 			(*header.NameAddr)(nil),
 			false,
@@ -450,9 +449,9 @@ func TestFirstHeaderElem(t *testing.T) {
 		{
 			"via",
 			"Via",
-			"sip.FirstHeaderElem[header.Via]",
+			"sip.FirstHeaderValue[header.Via]",
 			func(hdrs sip.Headers, name sip.HeaderName) (any, bool) {
-				return sip.FirstHeaderElem[header.Via](hdrs, name)
+				return sip.FirstHeaderValue[header.Via](hdrs, name)
 			},
 			&hdrs["Via"][0].(header.Via)[0],
 			true,
@@ -460,9 +459,9 @@ func TestFirstHeaderElem(t *testing.T) {
 		{
 			"supported",
 			"Supported",
-			"sip.FirstHeaderElem[header.Supported]",
+			"sip.FirstHeaderValue[header.Supported]",
 			func(hdrs sip.Headers, name sip.HeaderName) (any, bool) {
-				return sip.FirstHeaderElem[header.Supported](hdrs, name)
+				return sip.FirstHeaderValue[header.Supported](hdrs, name)
 			},
 			&hdrs["Supported"][0].(header.Supported)[0],
 			true,
@@ -481,15 +480,15 @@ func TestFirstHeaderElem(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotEl, gotOk := tt.fn(hdrs, tt.hname)
-			if diff := cmp.Diff([]any{gotEl, gotOk}, []any{tt.wantElem, tt.wantOk}, cmpOpts...); diff != "" {
-				t.Errorf("%s(hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v", tt.fnname, tt.hname, gotEl, gotOk, diff)
+			gotEl, gotOK := tt.fn(hdrs, tt.hdrName)
+			if diff := cmp.Diff([]any{gotEl, gotOK}, []any{tt.wantElem, tt.wantOK}, cmpOpts...); diff != "" {
+				t.Errorf("%s(hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v", tt.fnName, tt.hdrName, gotEl, gotOK, diff)
 			}
 		})
 	}
 }
 
-func TestLastHeaderElem(t *testing.T) {
+func TestLastHeaderValue(t *testing.T) {
 	t.Parallel()
 
 	hdrs := make(sip.Headers).
@@ -515,21 +514,20 @@ func TestLastHeaderElem(t *testing.T) {
 		Append(header.Supported{"opt1"}).
 		Append(header.Supported{"opt2", "opt3"})
 
-	//nolint:forcetypeassert
 	tests := []struct {
 		name     string
-		hname    sip.HeaderName
-		fnname   string
+		hdrName  sip.HeaderName
+		fnName   string
 		fn       func(sip.Headers, sip.HeaderName) (any, bool)
 		wantElem any
-		wantOk   bool
+		wantOK   bool
 	}{
 		{
 			"route",
 			"Route",
-			"sip.LastHeaderElem[header.Route]",
+			"sip.LastHeaderValue[header.Route]",
 			func(hdrs sip.Headers, name sip.HeaderName) (any, bool) {
-				return sip.LastHeaderElem[header.Route](hdrs, name)
+				return sip.LastHeaderValue[header.Route](hdrs, name)
 			},
 			(*header.NameAddr)(nil),
 			false,
@@ -537,9 +535,9 @@ func TestLastHeaderElem(t *testing.T) {
 		{
 			"via",
 			"Via",
-			"sip.LastHeaderElem[header.Via]",
+			"sip.LastHeaderValue[header.Via]",
 			func(hdrs sip.Headers, name sip.HeaderName) (any, bool) {
-				return sip.LastHeaderElem[header.Via](hdrs, name)
+				return sip.LastHeaderValue[header.Via](hdrs, name)
 			},
 			&hdrs["Via"][1].(header.Via)[0],
 			true,
@@ -547,9 +545,9 @@ func TestLastHeaderElem(t *testing.T) {
 		{
 			"supported",
 			"Supported",
-			"sip.LastHeaderElem[header.Supported]",
+			"sip.LastHeaderValue[header.Supported]",
 			func(hdrs sip.Headers, name sip.HeaderName) (any, bool) {
-				return sip.LastHeaderElem[header.Supported](hdrs, name)
+				return sip.LastHeaderValue[header.Supported](hdrs, name)
 			},
 			&hdrs["Supported"][1].(header.Supported)[1],
 			true,
@@ -568,16 +566,15 @@ func TestLastHeaderElem(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotElem, gotOk := tt.fn(hdrs, tt.hname)
-			if diff := cmp.Diff([]any{gotElem, gotOk}, []any{tt.wantElem, tt.wantOk}, cmpOpts...); diff != "" {
-				t.Errorf("%s(hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v", tt.fnname, tt.hname, gotElem, gotOk, diff)
+			gotElem, gotOK := tt.fn(hdrs, tt.hdrName)
+			if diff := cmp.Diff([]any{gotElem, gotOK}, []any{tt.wantElem, tt.wantOK}, cmpOpts...); diff != "" {
+				t.Errorf("%s(hdrs, %q) = %+v, want %+v\ndiff (-got +want):\n%v", tt.fnName, tt.hdrName, gotElem, gotOK, diff)
 			}
 		})
 	}
 }
 
-//nolint:tparallel
-func TestPopFirstHeaderElem(t *testing.T) {
+func TestPopFirstHeaderValue(t *testing.T) {
 	t.Parallel()
 
 	hdrs := make(sip.Headers).
@@ -604,18 +601,26 @@ func TestPopFirstHeaderElem(t *testing.T) {
 		Append(header.Supported{"opt2", "opt3"})
 
 	t.Run("route", func(t *testing.T) {
-		if got, ok := sip.PopFirstHeaderElem[header.Route](hdrs, "Route"); ok || got != nil {
-			t.Errorf("sip.PopFirstHeaderElem[header.Route](hdrs, \"Route\") = %+v, %v, want nil, false", got, ok)
+		t.Parallel()
+
+		h := hdrs.Clone()
+
+		if got, ok := sip.PopFirstHeaderValue[header.Route](h, "Route"); ok || got != nil {
+			t.Errorf("sip.PopFirstHeaderValue[header.Route](hdrs, \"Route\") = %+v, %v, want nil, false", got, ok)
 		}
 	})
 
 	t.Run("via", func(t *testing.T) {
-		want := hdrs["Via"][0].(header.Via)[0] //nolint:forcetypeassert
+		t.Parallel()
 
-		got, ok := sip.PopFirstHeaderElem[header.Via](hdrs, "Via")
+		h := hdrs.Clone()
+
+		want := h["Via"][0].(header.Via)[0]
+
+		got, ok := sip.PopFirstHeaderValue[header.Via](h, "Via")
 		if diff := cmp.Diff(got, &want); !ok || diff != "" {
 			t.Fatalf(
-				"sip.PopFirstHeaderElem[header.Via](hdrs, \"Via\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
+				"sip.PopFirstHeaderValue[header.Via](hdrs, \"Via\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
 				got, ok, &want, diff,
 			)
 		}
@@ -637,19 +642,23 @@ func TestPopFirstHeaderElem(t *testing.T) {
 			},
 		}
 
-		newVia := hdrs.Get("Via")
+		newVia := h.Get("Via")
 		if diff := cmp.Diff(newVia, via); diff != "" {
 			t.Fatalf("hdrs.Get(\"Via\") = %+v, want %+v\ndiff (-got +want):\n%v", newVia, via, diff)
 		}
 	})
 
 	t.Run("supported", func(t *testing.T) {
-		want := hdrs["Supported"][0].(header.Supported)[0] //nolint:forcetypeassert
+		t.Parallel()
 
-		got, ok := sip.PopFirstHeaderElem[header.Supported](hdrs, "Supported")
+		h := hdrs.Clone()
+
+		want := h["Supported"][0].(header.Supported)[0]
+
+		got, ok := sip.PopFirstHeaderValue[header.Supported](h, "Supported")
 		if diff := cmp.Diff(got, &want); !ok || diff != "" {
 			t.Fatalf(
-				"sip.PopFirstHeaderElem[header.Supported](hdrs, \"Supported\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
+				"sip.PopFirstHeaderValue[header.Supported](hdrs, \"Supported\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
 				got, ok, &want, diff,
 			)
 		}
@@ -658,15 +667,14 @@ func TestPopFirstHeaderElem(t *testing.T) {
 			header.Supported{"opt2", "opt3"},
 		}
 
-		newSupported := hdrs.Get("Supported")
+		newSupported := h.Get("Supported")
 		if diff := cmp.Diff(newSupported, supported); diff != "" {
 			t.Fatalf("hdrs.Get(\"Supported\") = %+v, want %+v\ndiff (-got +want):\n%v", newSupported, supported, diff)
 		}
 	})
 }
 
-//nolint:tparallel
-func TestPopLastHeaderElem(t *testing.T) {
+func TestPopLastHeaderValue(t *testing.T) {
 	t.Parallel()
 
 	hdrs := make(sip.Headers).
@@ -693,18 +701,26 @@ func TestPopLastHeaderElem(t *testing.T) {
 		Append(header.Supported{"opt2", "opt3"})
 
 	t.Run("route", func(t *testing.T) {
-		if got, ok := sip.PopLastHeaderElem[header.Route](hdrs, "Route"); ok || got != nil {
-			t.Errorf("sip.PopLastHeaderElem[header.Route](hdrs, \"Route\") = %+v, %v, want nil, false", got, ok)
+		t.Parallel()
+
+		h := hdrs.Clone()
+
+		if got, ok := sip.PopLastHeaderValue[header.Route](h, "Route"); ok || got != nil {
+			t.Errorf("sip.PopLastHeaderValue[header.Route](hdrs, \"Route\") = %+v, %v, want nil, false", got, ok)
 		}
 	})
 
 	t.Run("via", func(t *testing.T) {
-		want := hdrs["Via"][1].(header.Via)[0] //nolint:forcetypeassert
+		t.Parallel()
 
-		got, ok := sip.PopLastHeaderElem[header.Via](hdrs, "Via")
+		h := hdrs.Clone()
+
+		want := h["Via"][1].(header.Via)[0]
+
+		got, ok := sip.PopLastHeaderValue[header.Via](h, "Via")
 		if diff := cmp.Diff(got, &want); !ok || diff != "" {
 			t.Fatalf(
-				"sip.PopLastHeaderElem[header.Via](hdrs, \"Via\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
+				"sip.PopLastHeaderValue[header.Via](hdrs, \"Via\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
 				got, ok, &want, diff,
 			)
 		}
@@ -724,19 +740,23 @@ func TestPopLastHeaderElem(t *testing.T) {
 			},
 		}
 
-		newVia := hdrs.Get("Via")
+		newVia := h.Get("Via")
 		if diff := cmp.Diff(newVia, via); diff != "" {
 			t.Fatalf("hdrs.Get(\"Via\") = %+v, want %+v\ndiff (-got +want):\n%v", newVia, via, diff)
 		}
 	})
 
 	t.Run("supported", func(t *testing.T) {
-		want := hdrs["Supported"][1].(header.Supported)[1] //nolint:forcetypeassert
+		t.Parallel()
 
-		got, ok := sip.PopLastHeaderElem[header.Supported](hdrs, "Supported")
+		h := hdrs.Clone()
+
+		want := h["Supported"][1].(header.Supported)[1]
+
+		got, ok := sip.PopLastHeaderValue[header.Supported](h, "Supported")
 		if diff := cmp.Diff(got, &want); !ok || diff != "" {
 			t.Fatalf(
-				"sip.PopLastHeaderElem[header.Supported](hdrs, \"Supported\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
+				"sip.PopLastHeaderValue[header.Supported](hdrs, \"Supported\") = %+v, %v, want %+v, true\ndiff (-got +want):\n%v",
 				got, ok, &want, diff,
 			)
 		}
@@ -746,7 +766,7 @@ func TestPopLastHeaderElem(t *testing.T) {
 			header.Supported{"opt2"},
 		}
 
-		newSupported := hdrs.Get("Supported")
+		newSupported := h.Get("Supported")
 		if diff := cmp.Diff(newSupported, supported); diff != "" {
 			t.Fatalf("hdrs.Get(\"Supported\") = %+v, want %+v\ndiff (-got +want):\n%v", newSupported, supported, diff)
 		}

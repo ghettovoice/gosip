@@ -15,6 +15,7 @@ import (
 
 func checkRWMap(t *testing.T, m *syncutil.RWMap[string, int], want map[string]int) {
 	t.Helper()
+
 	if diff := cmp.Diff(want, maps.Collect(m.All())); diff != "" {
 		t.Errorf("map.All() mismatch (-want +got):\n%s", diff)
 	}
@@ -25,6 +26,7 @@ func checkRWMap(t *testing.T, m *syncutil.RWMap[string, int], want map[string]in
 
 func mustPanic(t *testing.T, fn func()) {
 	t.Helper()
+
 	defer func() {
 		if recover() == nil {
 			t.Error("expected panic, got none")
@@ -56,15 +58,15 @@ func TestRWMap_ZeroValue(t *testing.T) {
 	if got, ok := m.LoadAndDelete("a"); ok || got != 0 {
 		t.Errorf("map.LoadAndDelete(a) = (%d, %t), want (0, false)", got, ok)
 	}
-	checkRWMap(t, &m, map[string]int{})
+	checkRWMap(t, &m, make(map[string]int))
 
 	clone := m.Clone()
 	if clone == nil {
 		t.Fatal("map.Clone() = nil, want empty map")
 	}
-	checkRWMap(t, clone, map[string]int{})
+	checkRWMap(t, clone, make(map[string]int))
 	clone.Store("x", 1)
-	checkRWMap(t, &m, map[string]int{})
+	checkRWMap(t, &m, make(map[string]int))
 
 	if got := m.Clear(); got != &m {
 		t.Errorf("map.Clear() = %p, want receiver %p", got, &m)
@@ -283,12 +285,20 @@ func TestRWMap_Copy(t *testing.T) {
 		apply    func(src, dst *syncutil.RWMap[string, int]) *syncutil.RWMap[string, int]
 		retIsSrc bool
 	}{
-		{name: "CopyTo", retIsSrc: true, apply: func(src, dst *syncutil.RWMap[string, int]) *syncutil.RWMap[string, int] {
-			return src.CopyTo(dst)
-		}},
-		{name: "CopyFrom", retIsSrc: false, apply: func(src, dst *syncutil.RWMap[string, int]) *syncutil.RWMap[string, int] {
-			return dst.CopyFrom(src)
-		}},
+		{
+			"CopyTo",
+			func(src, dst *syncutil.RWMap[string, int]) *syncutil.RWMap[string, int] {
+				return src.CopyTo(dst)
+			},
+			true,
+		},
+		{
+			"CopyFrom",
+			func(src, dst *syncutil.RWMap[string, int]) *syncutil.RWMap[string, int] {
+				return dst.CopyFrom(src)
+			},
+			false,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -344,7 +354,7 @@ func TestRWMap_Copy(t *testing.T) {
 	})
 }
 
-func TestRWMap_AllSnapshot(t *testing.T) {
+func TestRWMap_All_Snapshot(t *testing.T) {
 	t.Parallel()
 
 	var m syncutil.RWMap[string, int]
@@ -677,16 +687,17 @@ func TestRWMap_Membership(t *testing.T) {
 		wantAll bool
 		wantAny bool
 	}{
-		{name: "empty", wantAll: true},
-		{name: "present", keys: []string{"a"}, wantAll: true, wantAny: true},
-		{name: "all present", keys: []string{"a", "b"}, wantAll: true, wantAny: true},
-		{name: "absent", keys: []string{"missing"}},
-		{name: "missing first", keys: []string{"missing", "b"}, wantAny: true},
-		{name: "missing last", keys: []string{"a", "missing"}, wantAny: true},
-		{name: "duplicates", keys: []string{"a", "a"}, wantAll: true, wantAny: true},
+		{"empty", nil, true, false},
+		{"present", []string{"a"}, true, true},
+		{"all present", []string{"a", "b"}, true, true},
+		{"absent", []string{"missing"}, false, false},
+		{"missing first", []string{"missing", "b"}, false, true},
+		{"missing last", []string{"a", "missing"}, false, true},
+		{"duplicates", []string{"a", "a"}, true, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if got := m.HasAll(tt.keys...); got != tt.wantAll {
 				t.Errorf("map.HasAll(%v) = %t, want %t", tt.keys, got, tt.wantAll)
 			}

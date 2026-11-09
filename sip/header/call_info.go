@@ -8,7 +8,7 @@ import (
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // CallInfo represents the Call-Info header field.
@@ -22,26 +22,30 @@ func (CallInfo) CanonicName() Name { return "Call-Info" }
 func (CallInfo) CompactName() Name { return "Call-Info" }
 
 // RenderTo writes the header to the provided writer.
-func (hdr CallInfo) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr CallInfo) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, hdr.CanonicName(), func(w io.Writer) (int, error) {
-		return errors.Wrap2(renderHdrEntries(w, hdr))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr CallInfo) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrValsTo(w, hdr))
 }
 
 // Render returns the string representation of the header.
 func (hdr CallInfo) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 // String returns the string representation of the header value.
-func (hdr CallInfo) String() string { return hdr.RenderValue() }
+func (hdr CallInfo) String() string {
+	return hdr.RenderValue()
+}
 
 // RenderValue returns the header value without the name prefix.
 func (hdr CallInfo) RenderValue() string {
-	return renderHdrEntriesString(hdr)
+	return renderHdrVal(hdr)
 }
 
 // Format implements fmt.Formatter for custom formatting of the header.
@@ -57,29 +61,25 @@ func (hdr CallInfo) Format(f fmt.State, verb rune) {
 }
 
 // Clone returns a copy of the header.
-func (hdr CallInfo) Clone() Header { return cloneHdrEntries(hdr) }
+func (hdr CallInfo) Clone() Header {
+	return cloneHdrVals(hdr)
+}
 
 // Equal compares this header with another for equality.
 func (hdr CallInfo) Equal(val any) bool {
-	var other CallInfo
-	switch v := val.(type) {
-	case CallInfo:
-		other = v
-	case *CallInfo:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(addr1, addr2 CallInfoAddr) bool { return addr1.Equal(addr2) })
+	return util.EqualValue(val, func(other CallInfo) bool {
+		return slices.EqualFunc(hdr, other, func(addr1, addr2 CallInfoAddr) bool {
+			return addr1.Equal(addr2)
+		})
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
 func (hdr CallInfo) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(addr CallInfoAddr) bool { return !addr.IsValid() })
+	return len(hdr) > 0 &&
+		!slices.ContainsFunc(hdr, func(addr CallInfoAddr) bool {
+			return !addr.IsValid()
+		})
 }
 
 func (hdr CallInfo) MarshalJSON() ([]byte, error) {
@@ -87,14 +87,14 @@ func (hdr CallInfo) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *CallInfo) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromCallInfoNode(node *abnf.Node) CallInfo {
-	entryNodes := node.GetNodes("info")
-	h := make(CallInfo, len(entryNodes))
-	for i, entryNode := range entryNodes {
-		h[i] = buildFromInfoAddrNode(entryNode)
+	valueNodes := node.GetNodes("info")
+	h := make(CallInfo, len(valueNodes))
+	for i, valueNode := range valueNodes {
+		h[i] = buildFromInfoAddrNode(valueNode)
 	}
 	return h
 }

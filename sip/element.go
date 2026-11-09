@@ -13,8 +13,8 @@ import (
 	"uuid"
 
 	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/syncutil"
-	"github.com/ghettovoice/gosip/internal/types"
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/pkg/log"
 	"github.com/ghettovoice/gosip/sip/header"
@@ -101,15 +101,15 @@ type Element struct {
 	cbWg     sync.WaitGroup
 	cbSealed bool
 
-	// listeners are the transport-owned listeners prepared through
+	// liss are the transport-owned liss prepared through
 	// [Element.ListenManaged]; ownership stays with the transport, and managed
 	// startup serves them. [Element.UntrackTransport] prunes the records of
 	// the untracked protocol while the element is still ready.
-	listeners []elemListener
-	// listenerRev is a lazily allocated per-protocol record that
+	liss []elemListener
+	// lisRev is a lazily allocated per-protocol record that
 	// [Element.UntrackTransport] updates under lcMu; a listener bind that
 	// races a detachment is rejected or discarded at commit time.
-	listenerRev map[TransportProto]elemListenerRevision
+	lisRev map[TransportProto]elemLisRev
 	// cancelRun cancels the detached runtime context shared by the
 	// background transaction starts and listener serves launched by
 	// [Element.Start].
@@ -120,15 +120,15 @@ type Element struct {
 	runWg sync.WaitGroup
 	// errHdlrs holds the element error handlers bound through
 	// [Element.BindErrorHandler].
-	errHdlrs types.CallbackManager[ErrorHandler]
+	errHdlrs shared.CallbackManager[ErrorHandler]
 
-	mws syncutil.OrderedList[*elemMiddlewareEntry]
+	mws syncutil.OrderedList[*elemMidwareEntry]
 
-	// cpbRev is the middleware/capabilities revision; every accepted
+	// capabilsRev is the middleware/capabilities revision; every accepted
 	// registration or removal advances it under lcMu.
-	cpbRev  uint64
-	baseCpb ElementCapabilities
-	curCpb  atomic.Value // ElementCapabilities
+	capabilsRev  uint64
+	baseCapabils ElementCapabilities
+	currCapabils atomic.Value // ElementCapabilities
 }
 
 const (
@@ -143,16 +143,16 @@ const (
 // [Element.UntrackTransport] can prune records under lcMu without calling
 // back into transport code.
 type elemListener struct {
-	proto    TransportProto
-	listener TransportListener
+	proto TransportProto
+	lis   TransportListener
 }
 
-// elemListenerRevision tracks a protocol's untrack generation and the number
+// elemLisRev tracks a protocol's untrack generation and the number
 // of untrack calls still in flight for it, so a racing bind can neither
 // start nor commit during a detachment.
-type elemListenerRevision struct {
-	generation uint64
-	untracking uint32
+type elemLisRev struct {
+	gen     uint64
+	untrack uint32
 }
 
 // ensureInit lazily initializes the element runtime state from the public
@@ -178,7 +178,7 @@ func (elm *Element) init() {
 	}
 	// The element attribute must use the prebuilt log value instead of the
 	// element itself: resolving elm as a slog.LogValuer would re-enter initOnce.
-	elm.log = baseLog.With(slog.Any("element", elm.logValue()))
+	elm.log = baseLog.With(slog.Any("element", elm.logVal()))
 
 	elm.tpm = &TransportManager{Logger: elm.log}
 
@@ -192,10 +192,13 @@ func (elm *Element) init() {
 
 	elm.srvLctr = elm.ServerLocator
 	if elm.srvLctr == nil {
-		elm.srvLctr = &RemoteElementLocator{DNSResolver: elm.DNSResolver, MetadataProvider: elm.tpm}
+		elm.srvLctr = &RemoteElementLocator{
+			DNSResolver:      elm.DNSResolver,
+			MetadataProvider: elm.tpm,
+		}
 	}
 
-	elm.baseCpb = ElementCapabilities{
+	elm.baseCapabils = ElementCapabilities{
 		Methods: slices.Clone(elm.BaseCapabilities.Methods),
 		Options: slices.Clone(elm.BaseCapabilities.Options),
 		MIMETypes: util.CloneSliceFunc(
@@ -203,7 +206,7 @@ func (elm *Element) init() {
 			func(m header.MIMERange) header.MIMERange { return m.Clone() },
 		),
 	}
-	elm.curCpb.Store(elm.baseCpb)
+	elm.currCapabils.Store(elm.baseCapabils)
 
 	elm.tpm.UseMessageInterceptor(elm.txm)
 	elm.tpm.UseMessageInterceptor(elm)
@@ -224,13 +227,13 @@ func (elm *Element) LogValue() slog.Value {
 		return slog.Value{}
 	}
 	elm.ensureInit()
-	return elm.logValue()
+	return elm.logVal()
 }
 
-// logValue returns the log representation of the element.
+// logVal returns the log representation of the element.
 // It only reads the already initialized runtime fields, so it can be used
 // while lazy initialization is in progress.
-func (elm *Element) logValue() slog.Value {
+func (elm *Element) logVal() slog.Value {
 	return slog.GroupValue(
 		slog.String("ptr", fmt.Sprintf("%p", elm)),
 		slog.Any("id", elm.id),
@@ -253,7 +256,7 @@ func (elm *Element) InterceptOutboundRequest(
 	})
 
 	if tp := req.Transport(); !tp.Reliable() && tp.MTU > 0 {
-		sendOpts := util.LastSliceElemOr(opts, SendRequestOptions{})
+		sendOpts := util.LastSliceElem(opts, SendRequestOptions{})
 		isLarge := uint(len(req.Render(sendOpts.RenderOptions))) > tp.MTU-200
 
 		if isLarge && !sendOpts.RenderOptions.Compact {
@@ -289,11 +292,19 @@ func (elm *Element) InterceptOutboundResponse(
 	return errors.Wrap(next.SendResponse(ctx, res, opts...))
 }
 
-func (elm *Element) InterceptInboundRequest(ctx context.Context, next RequestReceiver, req *RequestEnvelope) error {
+func (elm *Element) InterceptInboundRequest(
+	ctx context.Context,
+	next RequestReceiver,
+	req *RequestEnvelope,
+) error {
 	return errors.Wrap(next.RecvRequest(ContextWithElement(ctx, elm), req))
 }
 
-func (elm *Element) InterceptInboundResponse(ctx context.Context, next ResponseReceiver, res *ResponseEnvelope) error {
+func (elm *Element) InterceptInboundResponse(
+	ctx context.Context,
+	next ResponseReceiver,
+	res *ResponseEnvelope,
+) error {
 	return errors.Wrap(next.RecvResponse(ContextWithElement(ctx, elm), res))
 }
 
@@ -398,7 +409,7 @@ func (elm *Element) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ContextWithElement(ctx, elm)))
 	elm.cancelRun = cancel
 
-	listeners := slices.Clone(elm.listeners)
+	liss := slices.Clone(elm.liss)
 	elm.lcMu.Unlock()
 
 	// Snapshot the registered transactions outside lcMu and before launching
@@ -428,8 +439,8 @@ func (elm *Element) Start(ctx context.Context) error {
 		startTx(tx)
 	}
 
-	for _, entry := range listeners {
-		lis := entry.listener
+	for _, entry := range liss {
+		lis := entry.lis
 		elm.runWg.Go(func() {
 			if err := lis.Serve(runCtx); err != nil {
 				elm.reportRunErr(runCtx, errors.Wrap(NewListenerServeError(
@@ -542,7 +553,7 @@ func (elm *Element) close(cncRun context.CancelFunc) error {
 					ctx, cnc := context.WithTimeout(context.Background(), 5*time.Second)
 					defer cnc()
 
-					if err = elm.sendRequest(ctx, cncReq, true); err != nil {
+					if err = elm.sendReq(ctx, cncReq, true); err != nil {
 						elm.log.Warn(
 							"failed to cancel transaction",
 							slog.Any("error", err),
@@ -633,10 +644,10 @@ func (elm *Element) Shutdown(ctx context.Context) error {
 	elm.ensureInit()
 	ctx = ContextWithElement(ctx, elm)
 	elm.shutdownOnce.Do(func() {
-		mwErr := elm.shutdownMiddleware(ctx)
+		mwErr := elm.shutdownMidware(ctx)
 		// The hooks released their operation lease before returning, so the
 		// final Close cannot wait for this call.
-		closeErr := elm.Close()
+		closeErr := elm.Close() //nolint:contextcheck // Close is a lifecycle call and cannot wait on the caller ctx
 		elm.shutdownErr = errors.JoinPrefix("element shutdown errors:", mwErr, closeErr)
 	})
 	return errors.Wrap(elm.shutdownErr)
@@ -680,6 +691,7 @@ func (elm *Element) UntrackTransport(tp Transport) error {
 	if util.IsNil(tp) {
 		return errors.ErrorWrap("nil transport")
 	}
+
 	proto := tp.Metadata().Proto.Canonic()
 
 	elm.lcMu.Lock()
@@ -691,16 +703,16 @@ func (elm *Element) UntrackTransport(tp Transport) error {
 		elm.lcMu.Unlock()
 		return errors.Wrap(NewElementClosedError())
 	}
-	if elm.listenerRev == nil {
-		elm.listenerRev = make(map[TransportProto]elemListenerRevision)
+	if elm.lisRev == nil {
+		elm.lisRev = make(map[TransportProto]elemLisRev)
 	}
-	rev := elm.listenerRev[proto]
-	rev.generation++
-	rev.untracking++
-	elm.listenerRev[proto] = rev
+	rev := elm.lisRev[proto]
+	rev.gen++
+	rev.untrack++
+	elm.lisRev[proto] = rev
 	// Prune the protocol's prepared listeners before releasing the lock, so
 	// a racing Start can never launch them.
-	elm.listeners = slices.DeleteFunc(elm.listeners, func(entry elemListener) bool {
+	elm.liss = slices.DeleteFunc(elm.liss, func(entry elemListener) bool {
 		return entry.proto == proto
 	})
 	elm.lcMu.Unlock()
@@ -709,9 +721,9 @@ func (elm *Element) UntrackTransport(tp Transport) error {
 		// current record because a concurrent untrack of the same protocol
 		// may have replaced it and must keep its own count.
 		elm.lcMu.Lock()
-		if cur := elm.listenerRev[proto]; cur.untracking > 0 {
-			cur.untracking--
-			elm.listenerRev[proto] = cur
+		if cur := elm.lisRev[proto]; cur.untrack > 0 {
+			cur.untrack--
+			elm.lisRev[proto] = cur
 		}
 		elm.lcMu.Unlock()
 	}()
@@ -806,11 +818,11 @@ func (elm *Element) ListenManaged(ctx context.Context, proto TransportProto, add
 	}
 
 	proto = proto.Canonic()
-	rev := elm.listenerRev[proto]
+	rev := elm.lisRev[proto]
 	// A detachment is in progress for the whole manager call, so a new bind
 	// on this protocol is rejected before any transport work: the manager
 	// lookup could still resolve the transport it is about to drop.
-	if rev.untracking != 0 {
+	if rev.untrack != 0 {
 		elm.lcMu.Unlock()
 		return errors.Wrap(NewNoTransportError("transport untracked during bind"))
 	}
@@ -818,7 +830,7 @@ func (elm *Element) ListenManaged(ctx context.Context, proto TransportProto, add
 	elm.opsWg.Add(1)
 	defer elm.opsWg.Done()
 
-	gen := rev.generation
+	gen := rev.gen
 	elm.lcMu.Unlock()
 
 	lis, err := elm.tpm.Listen(ctx, proto, addr)
@@ -831,17 +843,17 @@ func (elm *Element) ListenManaged(ctx context.Context, proto TransportProto, add
 	// cached untrack snapshot. A loser is closed again outside the lock
 	// rather than being forgotten or left unserved.
 	elm.lcMu.Lock()
-	rev = elm.listenerRev[proto]
+	rev = elm.lisRev[proto]
 	var lcErr error
 	switch st := elm.state.Load(); {
 	case st == elmStateRunning:
 		lcErr = NewElementStartedError()
 	case st >= elmStateClosing:
 		lcErr = NewElementClosedError()
-	case rev.generation != gen || rev.untracking != 0:
+	case rev.gen != gen || rev.untrack != 0:
 		lcErr = NewNoTransportError("transport untracked during bind")
 	default:
-		elm.listeners = append(elm.listeners, elemListener{proto: proto, listener: lis})
+		elm.liss = append(elm.liss, elemListener{proto: proto, lis: lis})
 	}
 	elm.lcMu.Unlock()
 
@@ -879,7 +891,7 @@ func (elm *Element) NewClientTransaction(
 	}
 	defer release()
 
-	txOpts := util.LastSliceElemOr(opts, ClientTransactionOptions{})
+	txOpts := util.LastSliceElem(opts, ClientTransactionOptions{})
 	if txOpts.Logger == nil {
 		txOpts.Logger = elm.log
 	} else {
@@ -927,7 +939,7 @@ func (elm *Element) NewServerTransaction(
 	}
 	defer release()
 
-	txOpts := util.LastSliceElemOr(opts, ServerTransactionOptions{})
+	txOpts := util.LastSliceElem(opts, ServerTransactionOptions{})
 	if txOpts.Logger == nil {
 		txOpts.Logger = elm.log
 	} else {
@@ -960,9 +972,9 @@ type RequestAttempt struct {
 	// Request is the request copy prepared for this attempt.
 	Request *RequestEnvelope
 
-	elm         *Element
-	sharedState *reqAttemptsSharedState
-	forceUnrel  bool
+	elm        *Element
+	state      *reqAttemptState
+	forceUnrel bool
 }
 
 // IsRFC2543Fallback reports whether this attempt is the compatibility retry
@@ -991,11 +1003,11 @@ func (ra *RequestAttempt) prepareReq(tpMeta TransportMetadata, reuseBranch bool)
 			EnsureRequestVia(r, tpMeta.Proto, Addr{})
 			via, _ := r.Headers.FirstVia()
 			currBranch, _ := via.Branch()
-			if !reuseBranch && currBranch == ra.sharedState.prevBranch {
+			if !reuseBranch && currBranch == ra.state.prevBranch {
 				currBranch = GenerateBranch(0)
 				via.Params.Set("branch", currBranch)
 			}
-			ra.sharedState.prevBranch = currBranch
+			ra.state.prevBranch = currBranch
 		})
 
 	return ra
@@ -1026,14 +1038,14 @@ func (ra *RequestAttempt) doStateless(ctx context.Context, opts ...SendRequestOp
 		return errors.Wrap(NewNoTransportError())
 	}
 
-	sendOpts := util.LastSliceElemOr(opts, SendRequestOptions{})
+	sendOpts := util.LastSliceElem(opts, SendRequestOptions{})
 
 	err := ra.prepareReq(tp.Metadata(), false).sendStateless(ctx, tp, sendOpts)
 	if err != nil && !ra.forceUnrel && !tp.Metadata().Reliable() &&
 		(errors.Is(err, ErrMessageBodyTooLarge) || errors.Is(err, ErrMessageTooLarge)) {
 		if ra.Addr.FromDNS {
 			// defer to fallback, re-try will be on next reliable attempt
-			ra.sharedState.unrelFallback = append(ra.sharedState.unrelFallback, ra.Addr)
+			ra.state.unrelFallback = append(ra.state.unrelFallback, ra.Addr)
 		} else {
 			// re-try with switch to reliable transport
 			for newTp := range ra.elm.AllTransports() {
@@ -1045,7 +1057,7 @@ func (ra *RequestAttempt) doStateless(ctx context.Context, opts ...SendRequestOp
 					if err == nil {
 						ra.Addr = newAddr
 					} else if IsTransportError(err) {
-						ra.sharedState.unrelFallback = append(ra.sharedState.unrelFallback, ra.Addr)
+						ra.state.unrelFallback = append(ra.state.unrelFallback, ra.Addr)
 					}
 					break
 				}
@@ -1056,7 +1068,11 @@ func (ra *RequestAttempt) doStateless(ctx context.Context, opts ...SendRequestOp
 	return errors.Wrap(err)
 }
 
-func (ra *RequestAttempt) sendStateless(ctx context.Context, tp ClientTransport, opts SendRequestOptions) error {
+func (ra *RequestAttempt) sendStateless(
+	ctx context.Context,
+	tp ClientTransport,
+	opts SendRequestOptions,
+) error {
 	return errors.Wrap(tp.SendRequest(ctx, ra.Request, opts))
 }
 
@@ -1085,14 +1101,14 @@ func (ra *RequestAttempt) doStateful(ctx context.Context, opts ...ClientTransact
 		return nil, errors.Wrap(NewNoTransportError())
 	}
 
-	txOpts := util.LastSliceElemOr(opts, ClientTransactionOptions{})
+	txOpts := util.LastSliceElem(opts, ClientTransactionOptions{})
 
 	tx, err := ra.prepareReq(tp.Metadata(), false).sendStateful(ctx, tp, txOpts)
 	if err != nil && !ra.forceUnrel && !tp.Metadata().Reliable() &&
 		(errors.Is(err, ErrMessageBodyTooLarge) || errors.Is(err, ErrMessageTooLarge)) {
 		if ra.Addr.FromDNS {
 			// defer to fallback, re-try will be on next reliable attempt
-			ra.sharedState.unrelFallback = append(ra.sharedState.unrelFallback, ra.Addr)
+			ra.state.unrelFallback = append(ra.state.unrelFallback, ra.Addr)
 		} else {
 			// re-try with switch to reliable transport
 			for newTp := range ra.elm.AllTransports() {
@@ -1104,7 +1120,7 @@ func (ra *RequestAttempt) doStateful(ctx context.Context, opts ...ClientTransact
 					if err == nil {
 						ra.Addr = newAddr
 					} else if IsTransportError(err) {
-						ra.sharedState.unrelFallback = append(ra.sharedState.unrelFallback, ra.Addr)
+						ra.state.unrelFallback = append(ra.state.unrelFallback, ra.Addr)
 					}
 					break
 				}
@@ -1115,25 +1131,31 @@ func (ra *RequestAttempt) doStateful(ctx context.Context, opts ...ClientTransact
 	return tx, errors.Wrap(err)
 }
 
-func (ra *RequestAttempt) sendStateful(ctx context.Context, tp Transport, opts ClientTransactionOptions) (ClientTransaction, error) {
-	tx, err := ra.elm.NewClientTransaction(ctx, ra.Request.Clone().(*RequestEnvelope), tp, opts) //nolint:forcetypeassert
+func (ra *RequestAttempt) sendStateful(
+	ctx context.Context,
+	tp Transport,
+	opts ClientTransactionOptions,
+) (ClientTransaction, error) {
+	tx, err := ra.elm.NewClientTransaction(ctx, ra.Request.Clone().(*RequestEnvelope), tp, opts) //nolint:forcetypeassert // Clone preserves the concrete envelope type
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
 	if err := tx.Start(ContextWithTransaction(ctx, tx)); err != nil {
-		return nil, errors.Wrap(err)
+		// The transaction is already registered: return it so callers can
+		// classify the failure against the created transaction.
+		return tx, errors.Wrap(err)
 	}
 
 	ra.Request.UpdateFrom(tx.Request())
 	return tx, nil
 }
 
-// reqAttemptsSharedState is shared by the lazy attempt sequence.
+// reqAttemptState is shared by the lazy attempt sequence.
 //
 // A primary attempt can append an unreliable size fallback while it is being executed;
 // the fallback is emitted only after all primary candidates have been tried.
-type reqAttemptsSharedState struct {
+type reqAttemptState struct {
 	unrelFallback []ResolvedAddr
 	prevBranch    string
 }
@@ -1213,50 +1235,57 @@ func (elm *Element) ResolveRequestTarget(ctx context.Context, req *RequestEnvelo
 		err  error
 	)
 	req.WithMessage(func(r *Request) {
-		var secured bool
-
-		reqURI := r.URI
-		if u, ok := reqURI.(*URI); ok {
-			trgt = u.Clone().(*URI) //nolint:forcetypeassert
-			secured = u.Secured
-		}
-
-		route, ok := r.Headers.FirstRoute()
-		if !ok || !route.IsValid() {
-			if trgt == nil {
-				trgt, err = elm.uriConv.ConvertURI(ctx, reqURI.Clone())
-				if err != nil {
-					err = errors.Wrap(err)
-					return
-				}
-			}
-			return
-		}
-
-		var routeURI *URI
-		routeURI, err = elm.uriConv.ConvertURI(ctx, route.URI)
-		if err != nil {
-			err = errors.Wrap(err)
-			return
-		}
-
-		trgt = routeURI.Clone().(*URI) //nolint:forcetypeassert
-		if secured {
-			trgt.Secured = secured
-		}
-
-		if !routeURI.LR() {
-			r.Headers.
-				AppendRoute(header.RouteHop{URI: reqURI.Clone()}).
-				PopFirstRoute()
-			r.URI = cleanReqURI(routeURI)
-		}
+		trgt, err = elm.resolveMsgTarget(ctx, r)
 	})
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
 
 	req.Metadata().Set(lookupTargetMetaKey, trgt)
+	return trgt, nil
+}
+
+// resolveMsgTarget resolves the next-hop target URI from a request message.
+// The outbound Route set and Request-URI may be rewritten per RFC 3261 when
+// the top Route is a strict-routing hop (no lr parameter).
+func (elm *Element) resolveMsgTarget(ctx context.Context, r *Request) (*URI, error) {
+	var secured bool
+
+	reqURI := r.URI
+	var trgt *URI
+	if u, ok := reqURI.(*URI); ok {
+		trgt = u.Clone().(*URI) //nolint:forcetypeassert // Clone preserves the concrete envelope type
+		secured = u.Secured
+	}
+
+	route, ok := r.Headers.FirstRoute()
+	if !ok || !route.IsValid() {
+		if trgt == nil {
+			conv, err := elm.uriConv.ConvertURI(ctx, reqURI.Clone())
+			if err != nil {
+				return nil, errors.Wrap(err)
+			}
+			trgt = conv
+		}
+		return trgt, nil
+	}
+
+	routeURI, err := elm.uriConv.ConvertURI(ctx, route.URI)
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+
+	trgt = routeURI.Clone().(*URI) //nolint:forcetypeassert // Clone preserves the concrete envelope type
+	if secured {
+		trgt.Secured = secured
+	}
+
+	if !routeURI.LR() {
+		r.Headers.
+			AppendRoute(header.RouteHop{URI: reqURI.Clone()}).
+			PopFirstRoute()
+		r.URI = cleanReqURI(routeURI)
+	}
 	return trgt, nil
 }
 
@@ -1287,39 +1316,39 @@ func (elm *Element) ProduceRequestAttempts(
 	// Produce attempts based on DNS lookup procedure.
 	// This is the common path for most outbound requests.
 	return func(yield func(*RequestAttempt) bool) {
-		lookupOpts := util.LastSliceElemOr(opts, LookupMessageAddrsOptions{})
-		sharedState := &reqAttemptsSharedState{}
+		lookupOpts := util.LastSliceElem(opts, LookupMessageAddrsOptions{})
+		state := &reqAttemptState{}
 
 		for addr := range elm.srvLctr.LookupRequestAddrs(ctx, trgt, lookupOpts) {
-			req := req.Clone().(*RequestEnvelope) //nolint:forcetypeassert
+			req := req.Clone().(*RequestEnvelope) //nolint:forcetypeassert // Clone preserves the concrete envelope type
 			req.SetRemoteAddr(addr.Addr)
 			if tp, ok := elm.TransportMetadataByProto(addr.Transport); ok {
 				req.SetTransport(tp)
 			}
 
 			if !yield(&RequestAttempt{
-				Request:     req,
-				Addr:        addr,
-				elm:         elm,
-				sharedState: sharedState,
+				Request: req,
+				Addr:    addr,
+				elm:     elm,
+				state:   state,
 			}) {
 				return
 			}
 		}
 
-		for _, addr := range sharedState.unrelFallback {
-			req := req.Clone().(*RequestEnvelope) //nolint:forcetypeassert
+		for _, addr := range state.unrelFallback {
+			req := req.Clone().(*RequestEnvelope) //nolint:forcetypeassert // Clone preserves the concrete envelope type
 			req.SetRemoteAddr(addr.Addr)
 			if tp, ok := elm.TransportMetadataByProto(addr.Transport); ok {
 				req.SetTransport(tp)
 			}
 
 			if !yield(&RequestAttempt{
-				Request:     req,
-				Addr:        addr,
-				elm:         elm,
-				sharedState: sharedState,
-				forceUnrel:  true,
+				Request:    req,
+				Addr:       addr,
+				elm:        elm,
+				state:      state,
+				forceUnrel: true,
 			}) {
 				return
 			}
@@ -1399,16 +1428,16 @@ func (elm *Element) SendRequest(ctx context.Context, req *RequestEnvelope, opts 
 		return errors.Wrap(NewElementClosedError())
 	}
 	ctx = ContextWithElement(ctx, elm)
-	return errors.Wrap(elm.sendRequest(ctx, req, false, opts...))
+	return errors.Wrap(elm.sendReq(ctx, req, false, opts...))
 }
 
-// sendRequest is the lease-free core of [Element.SendRequest]. Target
+// sendReq is the lease-free core of [Element.SendRequest]. Target
 // resolution and DNS lookup are not covered by the operation lease: they may
 // block arbitrarily long and must never delay shutdown. Only the actual
 // attempt send is admitted; pass allowClosing when calling after admission
 // has already been sealed, e.g. for the best-effort transaction cancellation
 // performed while shutting down.
-func (elm *Element) sendRequest(
+func (elm *Element) sendReq(
 	ctx context.Context,
 	req *RequestEnvelope,
 	allowClosing bool,
@@ -1416,7 +1445,7 @@ func (elm *Element) sendRequest(
 ) error {
 	ctx = ContextWithElement(ctx, elm)
 
-	sendOpts := util.LastSliceElemOr(opts, SendRequestOptions{})
+	sendOpts := util.LastSliceElem(opts, SendRequestOptions{})
 	sendOpts.LookupOptions.StableDNSRecordsOrder = true
 
 	attempts, err := elm.ProduceRequestAttempts(ctx, req, sendOpts.LookupOptions)
@@ -1454,7 +1483,7 @@ func (elm *Element) SendResponse(ctx context.Context, res *ResponseEnvelope, opt
 	}
 	defer release()
 
-	sendOpts := util.LastSliceElemOr(opts, SendResponseOptions{})
+	sendOpts := util.LastSliceElem(opts, SendResponseOptions{})
 	sendOpts.LookupOptions.StableDNSRecordsOrder = true
 
 	return errors.Wrap(elm.tpm.SendResponse(ctx, res, sendOpts))
@@ -1473,7 +1502,7 @@ func (elm *Element) Respond(
 	}
 	ctx = ContextWithElement(ctx, elm)
 
-	resOpts := util.LastSliceElemOr(opts, RespondOptions{})
+	resOpts := util.LastSliceElem(opts, RespondOptions{})
 	if resOpts.ResponseOptions.LocalTag == "" {
 		req.WithMessage(func(r *Request) {
 			resOpts.ResponseOptions.LocalTag = GenerateStableToTag(r, elm.id[:])
@@ -1514,7 +1543,7 @@ func (elm *Element) SendRequestStateless(
 	}
 	ctx = ContextWithElement(ctx, elm)
 
-	sendOpts := util.LastSliceElemOr(opts, SendRequestStatelessOptions{})
+	sendOpts := util.LastSliceElem(opts, SendRequestStatelessOptions{})
 	sendOpts.SendOptions.LookupOptions.StableDNSRecordsOrder = true
 
 	var successAttempt *RequestAttempt
@@ -1527,7 +1556,7 @@ func (elm *Element) SendRequestStateless(
 				return errors.Wrap(&RequestAttemptError{
 					Cause:   err,
 					Addr:    attempt.Addr,
-					Request: attempt.Request.Clone().(*RequestEnvelope), //nolint:forcetypeassert
+					Request: attempt.Request.Clone().(*RequestEnvelope), //nolint:forcetypeassert // Clone preserves the concrete envelope type
 				})
 			}
 
@@ -1592,7 +1621,7 @@ func (elm *Element) SendRequestStateful(
 	}
 	ctx = ContextWithElement(ctx, elm)
 
-	sendOpts := util.LastSliceElemOr(opts, SendRequestStatefulOptions{})
+	sendOpts := util.LastSliceElem(opts, SendRequestStatefulOptions{})
 
 	var successTx ClientTransaction
 	err := elm.runReqAttempts(
@@ -1606,13 +1635,14 @@ func (elm *Element) SendRequestStateful(
 			})
 			if err != nil {
 				return errors.Wrap(&RequestAttemptError{
-					Cause:   err,
-					Addr:    attempt.Addr,
-					Request: attempt.Request.Clone().(*RequestEnvelope), //nolint:forcetypeassert
+					Cause:       err,
+					Addr:        attempt.Addr,
+					Request:     attempt.Request.Clone().(*RequestEnvelope), //nolint:forcetypeassert // Clone preserves the concrete envelope type
+					Transaction: tx,
 				})
 			}
 
-			if err := elm.confirmClientTx(ctx, attempt, tx, sendOpts.OnAttemptProgress); err != nil {
+			if err := elm.confirmClnTx(ctx, attempt, tx, sendOpts.OnAttemptProgress); err != nil {
 				return errors.Wrap(err)
 			}
 
@@ -1632,7 +1662,7 @@ func (elm *Element) SendRequestStateful(
 
 const errServiceUnavail errors.Error = "service unavailable"
 
-// confirmClientTx decides whether the current candidate is usable before the
+// confirmClnTx decides whether the current candidate is usable before the
 // request runner commits to it.
 //
 // The method intentionally waits for the transaction's accepted/completed state
@@ -1643,7 +1673,7 @@ const errServiceUnavail errors.Error = "service unavailable"
 // The confirmation handler is removed before returning.
 // The transaction itself remains alive and continues its normal SIP FSM; only
 // application-specific response handling is left to the caller.
-func (elm *Element) confirmClientTx(
+func (elm *Element) confirmClnTx(
 	ctx context.Context,
 	attempt *RequestAttempt,
 	tx ClientTransaction,
@@ -1652,7 +1682,7 @@ func (elm *Element) confirmClientTx(
 	unbindResHndlr := tx.BindResponseHandler(InboundResponseHandlerFunc(
 		func(ctx context.Context, res *ResponseEnvelope) {
 			if onProgress != nil {
-				if sts := res.Status(); ResponseStatusTrying < sts && sts < types.ResponseStatusOK {
+				if sts := res.Status(); ResponseStatusTrying < sts && sts < shared.ResponseStatusOK {
 					onProgress(ContextWithElement(ctx, elm), attempt, res)
 				}
 			}
@@ -1677,7 +1707,7 @@ func (elm *Element) confirmClientTx(
 		))).
 		AddCancel(tx.BindStateHandler(TransactionStateHandlerFunc(
 			func(_ context.Context, _, to TransactionState) {
-				//nolint:exhaustive
+				//nolint:exhaustive // only the settled states matter here
 				switch to {
 				case TransactionStateAccepted, TransactionStateCompleted:
 					unbindResHndlr()
@@ -1703,25 +1733,7 @@ func (elm *Element) confirmClientTx(
 		firstOf.Resolve(errors.Wrap(ctx.Err()))
 
 		if err := <-firstOf.Chan(); err != nil {
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-			defer cancel()
-
-			cncTx, cncErr := elm.txm.NewCancelClientTransaction(ctx, tx)
-			switch {
-			case cncErr == nil:
-				cncErr = cncTx.Start(ContextWithTransaction(ctx, cncTx))
-			case errors.Is(cncErr, ErrTransactionDuplicate):
-				if cncTx = elm.cancelTxOf(tx); cncTx != nil {
-					cncErr = nil
-				}
-			}
-			if cncErr != nil && !errors.Is(cncErr, ErrTransactionActionNotAllowed) && !errors.Is(cncErr, ErrTransactionManagerClosed) {
-				elm.log.WarnContext(
-					ctx, "failed to cancel transaction",
-					slog.Any("transaction", tx),
-					slog.Any("error", cncErr),
-				)
-			}
+			cncTx := elm.cancelAttemptTx(ctx, tx)
 
 			return errors.Wrap(&RequestAttemptError{
 				Cause:             err,
@@ -1745,6 +1757,32 @@ func (elm *Element) confirmClientTx(
 	default:
 		return nil
 	}
+}
+
+// cancelAttemptTx spawns a CANCEL transaction for tx or reuses an existing
+// one. A fresh context without the caller's cancellation is used since the
+// caller context is already done when this is invoked.
+func (elm *Element) cancelAttemptTx(ctx context.Context, tx ClientTransaction) ClientTransaction {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	defer cancel()
+
+	cncTx, cncErr := elm.txm.NewCancelClientTransaction(ctx, tx)
+	switch {
+	case cncErr == nil:
+		cncErr = cncTx.Start(ContextWithTransaction(ctx, cncTx))
+	case errors.Is(cncErr, ErrTransactionDuplicate):
+		if cncTx = elm.cancelTxOf(tx); cncTx != nil {
+			cncErr = nil
+		}
+	}
+	if cncErr != nil && !errors.Is(cncErr, ErrTransactionActionNotAllowed) && !errors.Is(cncErr, ErrTransactionManagerClosed) {
+		elm.log.WarnContext(
+			ctx, "failed to cancel transaction",
+			slog.Any("transaction", tx),
+			slog.Any("error", cncErr),
+		)
+	}
+	return cncTx
 }
 
 func (elm *Element) cancelTxOf(invTx ClientTransaction) ClientTransaction {
@@ -1793,7 +1831,7 @@ func (elm *Element) SendResponseStateful(
 		return nil, errors.Wrap(err)
 	}
 
-	sendOpts := util.LastSliceElemOr(opts, SendResponseStatefulOptions{})
+	sendOpts := util.LastSliceElem(opts, SendResponseStatefulOptions{})
 
 	tx, ok := elm.LoadServerTransaction(txKey)
 	if !ok {
@@ -1859,7 +1897,7 @@ func (elm *Element) RespondStateful(
 	}
 	ctx = ContextWithElement(ctx, elm)
 
-	resOpts := util.LastSliceElemOr(opts, RespondStatefulOptions{})
+	resOpts := util.LastSliceElem(opts, RespondStatefulOptions{})
 
 	res, err := req.NewResponse(sts, resOpts.ResponseOptions)
 	if err != nil {

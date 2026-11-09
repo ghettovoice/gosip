@@ -45,7 +45,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 			cmpopts.IgnoreUnexported(netip.AddrPort{}),
 		}
 		if diff := cmp.Diff(want, got, opts...); diff != "" {
-			t.Errorf("LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -75,7 +75,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		want := []netip.AddrPort{netip.MustParseAddrPort("192.168.1.1:5070")}
 		opts := cmpopts.IgnoreUnexported(netip.AddrPort{})
 		if diff := cmp.Diff(want, got, opts); diff != "" {
-			t.Errorf("LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -122,7 +122,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 			cmpopts.IgnoreUnexported(netip.AddrPort{}),
 		}
 		if diff := cmp.Diff(want, got, opts...); diff != "" {
-			t.Errorf("LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -151,11 +151,11 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		}
 
 		if len(got) != 1 {
-			t.Fatalf("LookupRequestAddrs() produced %d addresses, want 1", len(got))
+			t.Fatalf("lctr.LookupRequestAddrs() produced %d addresses, want 1", len(got))
 		}
 		gotAddr := netip.AddrPortFrom(got[0].Addr.Addr().Unmap(), got[0].Addr.Port())
 		if gotAddr != netip.MustParseAddrPort("192.168.1.1:5060") {
-			t.Errorf("LookupRequestAddrs() address = %v, want 192.168.1.1:5060", got[0].Addr)
+			t.Errorf("lctr.LookupRequestAddrs() address = %v, want 192.168.1.1:5060", got[0].Addr)
 		}
 		if got[0].FromDNS {
 			t.Errorf("LookupRequestAddrs() FromDNS = true, want false for A/AAAA fallback")
@@ -218,7 +218,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		want := []netip.AddrPort{netip.MustParseAddrPort("10.0.0.1:5060")}
 		opts := cmpopts.IgnoreUnexported(netip.AddrPort{})
 		if diff := cmp.Diff(want, got, opts); diff != "" {
-			t.Errorf("LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -255,7 +255,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		want := []netip.AddrPort{netip.MustParseAddrPort("192.168.1.1:5060")}
 		opts := cmpopts.IgnoreUnexported(netip.AddrPort{})
 		if diff := cmp.Diff(want, got, opts); diff != "" {
-			t.Errorf("LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupRequestAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -292,14 +292,14 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 		}
 
 		if len(got) != 1 {
-			t.Fatalf("LookupRequestAddrs() produced %d addresses, want 1", len(got))
+			t.Fatalf("lctr.LookupRequestAddrs() produced %d addresses, want 1", len(got))
 		}
 		gotAddr := netip.AddrPortFrom(got[0].Addr.Addr().Unmap(), got[0].Addr.Port())
 		if gotAddr != netip.MustParseAddrPort("10.0.0.1:5060") {
-			t.Errorf("LookupRequestAddrs() address = %v, want 10.0.0.1:5060", got[0].Addr)
+			t.Errorf("lctr.LookupRequestAddrs() address = %v, want 10.0.0.1:5060", got[0].Addr)
 		}
 		if !got[0].FromDNS {
-			t.Errorf("LookupRequestAddrs() FromDNS = false, want true for SRV result")
+			t.Errorf("lctr.LookupRequestAddrs() FromDNS = false, want true for SRV result")
 		}
 	})
 
@@ -316,7 +316,7 @@ func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 			got = append(got, addr.Addr)
 		}
 		if len(got) != 0 {
-			t.Errorf("LookupRequestAddrs() = %v, want empty", got)
+			t.Errorf("lctr.LookupRequestAddrs() = %v, want empty", got)
 		}
 	})
 }
@@ -356,7 +356,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		want := []netip.AddrPort{netip.MustParseAddrPort("10.0.0.1:5060")}
 		opts := cmpopts.IgnoreUnexported(netip.AddrPort{})
 		if diff := cmp.Diff(want, got, opts); diff != "" {
-			t.Errorf("LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -382,7 +382,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		want := []netip.AddrPort{netip.MustParseAddrPort("203.0.113.1:5060")}
 		opts := cmpopts.IgnoreUnexported(netip.AddrPort{})
 		if diff := cmp.Diff(want, got, opts); diff != "" {
-			t.Errorf("LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -408,7 +408,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		want := []netip.AddrPort{netip.MustParseAddrPort("203.0.113.1:12345")}
 		opts := cmpopts.IgnoreUnexported(netip.AddrPort{})
 		if diff := cmp.Diff(want, got, opts); diff != "" {
-			t.Errorf("LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -433,7 +433,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		want := []netip.AddrPort{netip.MustParseAddrPort("192.168.1.1:5070")}
 		opts := cmpopts.IgnoreUnexported(netip.AddrPort{})
 		if diff := cmp.Diff(want, got, opts); diff != "" {
-			t.Errorf("LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -465,7 +465,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		want := []netip.AddrPort{netip.MustParseAddrPort("192.168.1.1:5070")}
 		opts := cmpopts.IgnoreUnexported(netip.AddrPort{})
 		if diff := cmp.Diff(want, got, opts); diff != "" {
-			t.Errorf("LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -505,7 +505,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 		want := []netip.AddrPort{netip.MustParseAddrPort("10.0.0.1:5060")}
 		opts := cmpopts.IgnoreUnexported(netip.AddrPort{})
 		if diff := cmp.Diff(want, got, opts); diff != "" {
-			t.Errorf("LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
+			t.Errorf("lctr.LookupResponseAddrs() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -522,7 +522,7 @@ func TestRemoteElementLocator_LookupResponseAddrs(t *testing.T) {
 			got = append(got, addr.Addr)
 		}
 		if len(got) != 0 {
-			t.Errorf("LookupResponseAddrs() = %v, want empty", got)
+			t.Errorf("lctr.LookupResponseAddrs() = %v, want empty", got)
 		}
 	})
 }

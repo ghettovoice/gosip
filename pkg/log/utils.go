@@ -5,12 +5,12 @@ import (
 	"log/slog"
 )
 
-type stringValue[T any] struct {
+type strValue[T any] struct {
 	val T
 	fmt string
 }
 
-func (v stringValue[T]) LogValue() slog.Value {
+func (v strValue[T]) LogValue() slog.Value {
 	switch vv := any(v.val).(type) {
 	case string:
 		return slog.StringValue(vv)
@@ -27,9 +27,9 @@ func (v stringValue[T]) LogValue() slog.Value {
 
 // StringValue returns a value logger that formats v as string.
 func StringValue[T any](v T) slog.LogValuer {
-	return stringValue[T]{v, ""}
+	return strValue[T]{v, ""}
 }
 
 func StringValueWithFormat[T any](v T, f string) slog.LogValuer {
-	return stringValue[T]{v, f}
+	return strValue[T]{v, f}
 }

@@ -8,7 +8,7 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // From represents the From header field.
@@ -26,25 +26,29 @@ func (hdr *From) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err erro
 	if hdr == nil {
 		return 0, nil
 	}
-	return errors.Wrap2(renderHdrTo(w, renderHdrName(hdr, opts...), func(w io.Writer) (int, error) {
-		return errors.Wrap2(NameAddr(*hdr).renderTo(w))
-	}))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
+}
+
+func (hdr *From) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(NameAddr(*hdr).renderTo(w))
 }
 
 // Render returns the string representation of the header.
 func (hdr *From) Render(opts ...RenderOptions) string {
-	return types.Render(hdr, opts...)
+	return render(hdr, opts...)
 }
 
 // String returns the string representation of the header value.
-func (hdr *From) String() string { return hdr.RenderValue() }
+func (hdr *From) String() string {
+	return hdr.RenderValue()
+}
 
 // RenderValue returns the header value without the name prefix.
 func (hdr *From) RenderValue() string {
 	if hdr == nil {
 		return ""
 	}
-	return NameAddr(*hdr).String()
+	return renderHdrVal(hdr)
 }
 
 // Format implements fmt.Formatter for custom formatting of the header.
@@ -65,40 +69,28 @@ func (hdr *From) Clone() Header {
 		return nil
 	}
 
-	hdr2 := From(NameAddr(*hdr).Clone())
-	return &hdr2
+	clone := From(NameAddr(*hdr).Clone())
+	return &clone
 }
 
 // Equal compares this header with another for equality.
 func (hdr *From) Equal(val any) bool {
-	var other *From
-	switch v := val.(type) {
-	case From:
-		other = &v
-	case *From:
-		other = v
-	default:
-		return false
-	}
-
-	if hdr == other {
-		return true
-	} else if hdr == nil || other == nil {
-		return false
-	}
-
-	return NameAddr(*hdr).Equal(NameAddr(*other))
+	return util.EqualPointer(hdr, val, func(other *From) bool {
+		return NameAddr(*hdr).Equal(NameAddr(*other))
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
-func (hdr *From) IsValid() bool { return hdr != nil && NameAddr(*hdr).IsValid() }
+func (hdr *From) IsValid() bool {
+	return hdr != nil && NameAddr(*hdr).IsValid()
+}
 
 func (hdr *From) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))
 }
 
 func (hdr *From) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyNameAddrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyNameAddrVal))
 }
 
 func (hdr *From) Tag() (string, bool) {

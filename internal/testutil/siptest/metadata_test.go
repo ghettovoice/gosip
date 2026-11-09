@@ -14,7 +14,7 @@ func TestMetadataProvider_Lookups(t *testing.T) {
 
 	udpMeta := sip.UDPMetadata()
 	tcpMeta := sip.TCPMetadata()
-	provider := siptest.MetadataProvider{Metas: []sip.TransportMetadata{udpMeta, tcpMeta}}
+	prvdr := siptest.MetadataProvider{Metas: []sip.TransportMetadata{udpMeta, tcpMeta}}
 
 	tests := []struct {
 		name string
@@ -23,26 +23,32 @@ func TestMetadataProvider_Lookups(t *testing.T) {
 		ok   bool
 	}{
 		{
-			name: "protocol match is case insensitive",
-			got: func() (sip.TransportMetadata, bool) {
-				return provider.TransportMetadataByProto(sip.TransportProto("uDp"))
+			"protocol match is case insensitive",
+			func() (sip.TransportMetadata, bool) {
+				return prvdr.TransportMetadataByProto(sip.TransportProto("uDp"))
 			},
-			want: udpMeta,
-			ok:   true,
+			udpMeta,
+			true,
 		},
 		{
-			name: "NAPTR service match is case insensitive",
-			got:  func() (sip.TransportMetadata, bool) { return provider.TransportMetadataByNAPTRService("sip+d2t") },
-			want: tcpMeta,
-			ok:   true,
+			"NAPTR service match is case insensitive",
+			func() (sip.TransportMetadata, bool) {
+				return prvdr.TransportMetadataByNAPTRService("sip+d2t")
+			},
+			tcpMeta,
+			true,
 		},
 		{
 			name: "missing protocol",
-			got:  func() (sip.TransportMetadata, bool) { return provider.TransportMetadataByProto("missing") },
+			got: func() (sip.TransportMetadata, bool) {
+				return prvdr.TransportMetadataByProto("missing")
+			},
 		},
 		{
 			name: "missing NAPTR service",
-			got:  func() (sip.TransportMetadata, bool) { return provider.TransportMetadataByNAPTRService("missing") },
+			got: func() (sip.TransportMetadata, bool) {
+				return prvdr.TransportMetadataByNAPTRService("missing")
+			},
 		},
 	}
 
@@ -65,10 +71,10 @@ func TestMetadataProvider_AllTransportMetadata(t *testing.T) {
 	t.Parallel()
 
 	metas := []sip.TransportMetadata{sip.UDPMetadata(), sip.TCPMetadata(), sip.TLSMetadata()}
-	provider := siptest.MetadataProvider{Metas: metas}
+	prvdr := siptest.MetadataProvider{Metas: metas}
 
 	var got []sip.TransportMetadata
-	for meta := range provider.AllTransportMetadata() {
+	for meta := range prvdr.AllTransportMetadata() {
 		got = append(got, meta)
 	}
 	if diff := cmp.Diff(metas, got); diff != "" {
@@ -76,7 +82,7 @@ func TestMetadataProvider_AllTransportMetadata(t *testing.T) {
 	}
 
 	yielded := 0
-	provider.AllTransportMetadata()(func(sip.TransportMetadata) bool {
+	prvdr.AllTransportMetadata()(func(sip.TransportMetadata) bool {
 		yielded++
 		return false
 	})

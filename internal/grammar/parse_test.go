@@ -40,7 +40,6 @@ func TestParseSIPURI(t *testing.T) {
 			case []byte:
 				node, err = grammar.ParseSIPURI(in)
 			}
-
 			if tt.err == nil {
 				if got, want := node.String(), tt.expect; got != want {
 					t.Errorf("grammar.ParseSIPURI(%q) = %q, want %q", tt.input, got, want)

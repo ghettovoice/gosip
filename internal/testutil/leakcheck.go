@@ -3,7 +3,7 @@ package testutil
 import (
 	"fmt"
 	"runtime/pprof"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +25,6 @@ const (
 // If the profile is unavailable, it falls back to go.uber.org/goleak.
 func VerifyTestMain(m *testing.M, options ...goleak.Option) {
 	profile := pprof.Lookup(goroutineLeakProfileName)
-
 	if profile == nil {
 		goleak.VerifyTestMain(m, options...)
 		return
@@ -78,11 +77,9 @@ func VerifyNone(t *testing.T, options ...goleak.Option) {
 		if leakErr != nil {
 			t.Fatalf("collect %s result: %v", goroutineLeakProfileName, leakErr)
 		}
-
 		if len(leaks) == 0 {
 			return
 		}
-
 		t.Fatalf("%s", formatLeakReport(leaks))
 	})
 }
@@ -105,14 +102,13 @@ func awaitLeakedStacks(profile *pprof.Profile, baseline map[string]int) ([]strin
 
 		time.Sleep(profileCheckRetryDelay)
 	}
-
 	return nil, nil
 }
 
 func collectLeakedStacks(profile *pprof.Profile) (map[string]int, error) {
 	var profileData strings.Builder
 	if err := profile.WriteTo(&profileData, profileDebugLevel); err != nil {
-		return nil, err
+		return nil, err //nolint:wrapcheck // test util, propagate the pprof error as-is
 	}
 
 	leakedStacks := make(map[string]int)
@@ -121,10 +117,8 @@ func collectLeakedStacks(profile *pprof.Profile) (map[string]int, error) {
 		if stack == "" || !strings.Contains(stack, goroutineLeakMarker) {
 			continue
 		}
-
 		leakedStacks[stack]++
 	}
-
 	return leakedStacks, nil
 }
 
@@ -136,8 +130,7 @@ func diffLeakedStacks(baseline, current map[string]int) []string {
 			leaks = append(leaks, stack)
 		}
 	}
-
-	sort.Strings(leaks)
+	slices.Sort(leaks)
 	return leaks
 }
 

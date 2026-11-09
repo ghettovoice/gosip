@@ -13,7 +13,7 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -32,11 +32,11 @@ func (u *SIP) Clone() URI {
 		return nil
 	}
 
-	u2 := *u
-	u2.Addr = u.Addr.Clone()
-	u2.Params = u.Params.Clone()
-	u2.Headers = u.Headers.Clone()
-	return &u2
+	clone := *u
+	clone.Addr = u.Addr.Clone()
+	clone.Params = u.Params.Clone()
+	clone.Headers = u.Headers.Clone()
+	return &clone
 }
 
 // Scheme returns the URI scheme.
@@ -77,10 +77,10 @@ func (u *SIP) renderParams(w io.Writer) (num int, err error) {
 	kvs := make([][]string, 0, len(u.Params))
 	for k := range u.Params {
 		v, _ := u.Params.Last(k)
-		kvs = append(kvs, []string{util.LCase(k), v})
+		kvs = append(kvs, []string{util.ToLower(k), v})
 	}
 
-	slices.SortFunc(kvs, util.CmpKVs)
+	slices.SortFunc(kvs, util.CompareKeys)
 
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
@@ -102,10 +102,10 @@ func (u *SIP) renderHeaders(w io.Writer) (num int, err error) {
 
 	kvs := make([][]string, 0, len(u.Headers))
 	for k := range u.Headers {
-		kvs = append(kvs, append([]string{util.LCase(k)}, u.Headers.Get(k)...))
+		kvs = append(kvs, append([]string{util.ToLower(k)}, u.Headers.Get(k)...))
 	}
 
-	slices.SortFunc(kvs, util.CmpKVs)
+	slices.SortFunc(kvs, util.CompareKeys)
 
 	cw := ioutil.GetCountingWriter(w)
 	defer ioutil.FreeCountingWriter(cw)
@@ -200,7 +200,7 @@ func (u *SIP) compareParams(params Values) bool {
 		return !hasSIPURISpecParam(u.Params)
 	}
 
-	checked := map[string]bool{}
+	checked := make(map[string]bool)
 	// Any non-special parameters appearing in only one list are ignored.
 	// First, traverse over self-parameters, compare values appearing in both lists,
 	// check on speciality and save checked param names.
@@ -209,14 +209,14 @@ func (u *SIP) compareParams(params Values) bool {
 			// Any parameter appearing in both URIs must match.
 			v1, _ := u.Params.Last(k)
 			v2, _ := params.Last(k)
-			if !util.EqFold(v1, v2) {
+			if !util.EqualFold(v1, v2) {
 				return false
 			}
-		} else if sipURISpecParams[util.LCase(k)] {
+		} else if sipURISpecParams[util.ToLower(k)] {
 			// Any special SIP URI parameter appearing in one URI must appear in the other.
 			return false
 		}
-		checked[util.LCase(k)] = true
+		checked[util.ToLower(k)] = true
 	}
 	// Then need only check that there are no non-checked special parameters in the other list.
 	for k := range sipURISpecParams {
@@ -262,7 +262,7 @@ func (u *SIP) compareHeaders(hdrs Values) bool {
 		}
 		// very simplified comparison, but probably not worth to make it fully spec compatible
 		// take all header values as lower-cased string
-		v1, v2 := util.LCase(strings.Join(u.Headers.Get(k), ", ")), util.LCase(strings.Join(hdrs.Get(k), ", "))
+		v1, v2 := util.ToLower(strings.Join(u.Headers.Get(k), ", ")), util.ToLower(strings.Join(hdrs.Get(k), ", "))
 		if v1 != v2 {
 			return false
 		}
@@ -381,7 +381,7 @@ func ParseSIP[T ~string | ~[]byte](s T) (u *SIP, err error) {
 	}()
 
 	var n *abnf.Node
-	if len(s) >= 4 && util.EqFold(string(s[:4]), "sips") {
+	if len(s) >= 4 && util.EqualFold(string(s[:4]), "sips") {
 		n, err = grammar.ParseSIPSURI(s)
 	} else {
 		n, err = grammar.ParseSIPURI(s)
@@ -395,7 +395,7 @@ func ParseSIP[T ~string | ~[]byte](s T) (u *SIP, err error) {
 }
 
 func buildFromSIPURINode(node *abnf.Node) *SIP {
-	addr, err := types.AddrFromABNF(grammar.MustGetNode(node, "hostport"))
+	addr, err := shared.AddrFromABNF(grammar.MustGetNode(node, "hostport"))
 	if err != nil {
 		panic(errors.Wrap(err))
 	}
@@ -419,11 +419,11 @@ func buildFromUserinfoNode(node *abnf.Node) UserInfo {
 		return UserInfo{}
 	}
 
-	usrname := grammar.Unescape(grammar.MustGetNode(node, "user").String())
-	if passwdNode, ok := node.GetNode("password"); ok {
-		return MakeUserPasswordInfo(usrname, grammar.Unescape(passwdNode.String()))
+	uname := grammar.Unescape(grammar.MustGetNode(node, "user").String())
+	if n, ok := node.GetNode("password"); ok {
+		return MakeUserPasswordInfo(uname, grammar.Unescape(n.String()))
 	}
-	return MakeUserInfo(usrname)
+	return MakeUserInfo(uname)
 }
 
 func buildFromURIParamsNode(node *abnf.Node) Values {
@@ -479,25 +479,25 @@ func buildFromURIHeadersNode(node *abnf.Node) Values {
 // UserInfo is a container for user credentials.
 // It is typically used in [SIP] to store userinfo part.
 type UserInfo struct {
-	usrname, passwd string
-	hasPasswd       bool
+	name, pwd string
+	hasPwd    bool
 }
 
 // MakeUserInfo returns a [UserInfo] containing the provided username and no password.
-func MakeUserInfo(usrname string) UserInfo {
-	return UserInfo{usrname: usrname}
+func MakeUserInfo(name string) UserInfo {
+	return UserInfo{name: name}
 }
 
 // MakeUserPasswordInfo returns a [UserInfo] containing the provided username and password.
-func MakeUserPasswordInfo(usrname, passwd string) UserInfo {
-	return UserInfo{usrname: usrname, passwd: passwd, hasPasswd: true}
+func MakeUserPasswordInfo(name, pwd string) UserInfo {
+	return UserInfo{name: name, pwd: pwd, hasPwd: true}
 }
 
 // Username returns the username from the UserInfo.
-func (ui UserInfo) Username() string { return ui.usrname }
+func (ui UserInfo) Username() string { return ui.name }
 
 // Password returns the password, in case it is set, and a bool flag indicating whether it is set.
-func (ui UserInfo) Password() (string, bool) { return ui.passwd, ui.hasPasswd }
+func (ui UserInfo) Password() (string, bool) { return ui.pwd, ui.hasPwd }
 
 func shouldEscapeUserChar(c byte) bool { return !grammar.IsURIUserCharUnreserved(c) }
 
@@ -508,12 +508,12 @@ func (ui UserInfo) String() string {
 	sb := util.GetStringBuilder()
 	defer util.FreeStringBuilder(sb)
 
-	if ui.usrname != "" {
-		sb.WriteString(grammar.Escape(ui.usrname, shouldEscapeUserChar))
+	if ui.name != "" {
+		sb.WriteString(grammar.Escape(ui.name, shouldEscapeUserChar))
 	}
-	if ui.hasPasswd {
+	if ui.hasPwd {
 		sb.WriteString(":")
-		sb.WriteString(grammar.Escape(ui.passwd, shouldEscapePasswdChar))
+		sb.WriteString(grammar.Escape(ui.pwd, shouldEscapePasswdChar))
 	}
 	return sb.String()
 }
@@ -533,11 +533,11 @@ func (ui UserInfo) Equal(val any) bool {
 		return false
 	}
 
-	return ui.usrname == other.usrname && ui.passwd == other.passwd && ui.hasPasswd == other.hasPasswd
+	return ui.name == other.name && ui.pwd == other.pwd && ui.hasPwd == other.hasPwd
 }
 
 // IsValid checks whether the UserInfo is syntactically valid.
-func (ui UserInfo) IsValid() bool { return ui.usrname != "" }
+func (ui UserInfo) IsValid() bool { return ui.name != "" }
 
 // IsZero checks whether the UserInfo is empty.
-func (ui UserInfo) IsZero() bool { return ui.usrname == "" && ui.passwd == "" && !ui.hasPasswd }
+func (ui UserInfo) IsZero() bool { return ui.name == "" && ui.pwd == "" && !ui.hasPwd }

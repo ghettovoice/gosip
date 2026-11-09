@@ -3,7 +3,6 @@ package header
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
@@ -24,85 +23,58 @@ func (CallID) CompactName() Name { return "i" }
 
 // RenderTo writes the header to the provided writer.
 func (hdr CallID) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
-	return errors.Wrap2(fmt.Fprint(w, hdr.name(opts...), ": ", hdr.RenderValue()))
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr CallID) name(opts ...RenderOptions) Name {
-	if util.LastSliceElemOr(opts, RenderOptions{}).Compact {
-		return hdr.CompactName()
-	}
-	return hdr.CanonicName()
+func (hdr CallID) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(io.WriteString(w, string(hdr)))
 }
 
 // Render returns the string representation of the header.
 func (hdr CallID) Render(opts ...RenderOptions) string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
-func (hdr CallID) RenderValue() string { return string(hdr) }
+func (hdr CallID) RenderValue() string {
+	return string(hdr)
+}
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr CallID) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, string(hdr))
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(string(hdr)))
-		return
-	default:
-		type (
-			hideMethods CallID
-			CallID      hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), CallID(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods CallID
+		CallID      hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), CallID(hdr))
 }
 
 // Clone returns a copy of the header.
-func (hdr CallID) Clone() Header { return hdr }
+func (hdr CallID) Clone() Header {
+	return hdr
+}
 
 // Equal compares this header with another for equality.
 func (hdr CallID) Equal(val any) bool {
-	var other CallID
-	switch v := val.(type) {
-	case CallID:
-		other = v
-	case *CallID:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return hdr == other
+	return util.EqualValue(val, func(other CallID) bool {
+		return hdr == other
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
-func (hdr CallID) IsValid() bool { return hdr != "" }
+func (hdr CallID) IsValid() bool {
+	return hdr != ""
+}
 
 func (hdr CallID) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))
 }
 
 func (hdr *CallID) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromCallIDNode(node *abnf.Node) CallID {

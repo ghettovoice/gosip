@@ -2,8 +2,8 @@ package sip_test
 
 import (
 	"context"
-	"iter"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -12,47 +12,92 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 )
 
-type proxyStubTransport struct {
+type prxStubTransp struct {
 	sip.StdMsgInterceptChain
-	*stubClientTransport
 
+	*stubClnTransp
 	md sip.TransportMetadata
 
 	sendResCalls chan sendResCall
+	sendResHook  func(res *sip.ResponseEnvelope, idx int) error
+	sendResCnt   int
 }
 
-func newProxyStubTransport() *proxyStubTransport {
-	return &proxyStubTransport{
-		stubClientTransport: newStubClientTransport(false),
-		md:                  sip.UDPMetadata(),
-		sendResCalls:        make(chan sendResCall, 64),
+func newPrxStubTransp() *prxStubTransp {
+	return &prxStubTransp{
+		stubClnTransp: newStubClnTransp(false),
+		md:            sip.UDPMetadata(),
+		sendResCalls:  make(chan sendResCall, 64),
 	}
 }
 
-func (tp *proxyStubTransport) Metadata() sip.TransportMetadata { return tp.md }
+func (tp *prxStubTransp) Metadata() sip.TransportMetadata { return tp.md }
 
-func (tp *proxyStubTransport) SendResponse(
+// SendResponse mirrors the real transport send path: the outbound response
+// interceptors bound to the transport run before the wire send, so a
+// proxy-initiated send sees its one-shot token.
+func (tp *prxStubTransp) SendResponse(
 	ctx context.Context,
 	res *sip.ResponseEnvelope,
 	opts ...sip.SendResponseOptions,
 ) error {
+	sender := sip.InterceptOutboundResponse(
+		slices.Collect(tp.OutboundResponseInterceptors.All()),
+		sip.ResponseSenderFunc(tp.sendResponse),
+	)
+	return errors.Wrap(sender.SendResponse(ctx, res, opts...))
+}
+
+// sendResponse is the wire endpoint of the stub: it applies the
+// transport-side To-tag default the same way a real transport does, then
+// records the send. A hooked failure is reported to the caller without
+// recording.
+func (tp *prxStubTransp) sendResponse(
+	ctx context.Context,
+	res *sip.ResponseEnvelope,
+	_ ...sip.SendResponseOptions,
+) error {
+	idx := tp.sendResCnt
+	tp.sendResCnt++
+	if tp.sendResHook != nil {
+		if err := tp.sendResHook(res, idx); err != nil {
+			return errors.Wrap(err)
+		}
+	}
+
+	res.SetTransport(tp.md)
+	res.WithMessage(func(msg *sip.Response) {
+		sip.EnsureResponseToTag(msg, sip.GenerateStableToTag(msg, []byte("192.0.2.1:5060")))
+	})
 	tp.sendResCalls <- sendResCall{ctx: ctx, res: res}
 	return nil
 }
 
-func (*proxyStubTransport) Respond(context.Context, *sip.RequestEnvelope, sip.ResponseStatus, ...sip.RespondOptions) error {
+func (*prxStubTransp) Respond(context.Context, *sip.RequestEnvelope, sip.ResponseStatus, ...sip.RespondOptions) error {
 	return nil
 }
 
-func (*proxyStubTransport) Close() error { return nil }
-
-func (*proxyStubTransport) Listen(context.Context, string) (sip.TransportListener, error) {
+func (*prxStubTransp) Close() error { return nil }
+func (*prxStubTransp) Listen(context.Context, string) (sip.TransportListener, error) {
 	return nil, nil
 }
 
-func (*proxyStubTransport) MatchSentBy(sip.Addr) bool { return true }
+func (*prxStubTransp) MatchSentBy(sip.Addr) bool { return true }
 
-func (tp *proxyStubTransport) countSendRes() int {
+// prxSentByTransp narrows the permissive stub to explicit advertised addresses.
+// The caller selects the transport by protocol before matching its sent-by.
+type prxSentByTransp struct {
+	*prxStubTransp
+	sentBy []sip.Addr
+}
+
+func (tp *prxSentByTransp) MatchSentBy(addr sip.Addr) bool {
+	return slices.ContainsFunc(tp.sentBy, func(owned sip.Addr) bool {
+		return owned.Equal(addr)
+	})
+}
+
+func (tp *prxStubTransp) countSendRes() int {
 	cnt := 0
 	for {
 		select {
@@ -68,11 +113,20 @@ func newTestProxy(
 	tb testing.TB,
 	route *sip.ProxyRoute,
 	elems ...*sip.Element,
-) (*sip.Element, *sip.Proxy, *proxyStubTransport) {
+) (*sip.Element, *sip.Proxy, *prxStubTransp) {
+	tb.Helper()
+	return newConfiguredTestProxy(tb, route, sip.ProxyOptions{}, elems...)
+}
+
+func newConfiguredTestProxy(
+	tb testing.TB,
+	route *sip.ProxyRoute,
+	opts sip.ProxyOptions,
+	elems ...*sip.Element,
+) (*sip.Element, *sip.Proxy, *prxStubTransp) {
 	tb.Helper()
 
-	tp := newProxyStubTransport()
-
+	tp := newPrxStubTransp()
 	elm := &sip.Element{}
 	if len(elems) > 0 && elems[len(elems)-1] != nil {
 		elm = elems[len(elems)-1]
@@ -83,23 +137,36 @@ func newTestProxy(
 		tb.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
 
-	if route.MatchRequest == nil {
-		route.MatchRequest = func(context.Context, *sip.ProxyRoute, *sip.RequestEnvelope) bool {
-			return true
-		}
-	}
-	if route.ServerTransactionOptions == nil {
-		route.ServerTransactionOptions = func(context.Context, *sip.ProxyRoute, *sip.RequestEnvelope) sip.ServerTransactionOptions {
-			return sip.ServerTransactionOptions{}
-		}
-	}
-
-	prx, err := sip.NewProxy(elm, []sip.ProxyRoute{*route})
+	prx, err := sip.NewProxy(elm, []sip.ProxyRoute{*route}, opts)
 	if err != nil {
 		tb.Fatalf("sip.NewProxy() error = %v, want nil", err)
 	}
 
 	return elm, prx, tp
+}
+
+func drainPrxReqs(tp *prxStubTransp) []*sip.RequestEnvelope {
+	var reqs []*sip.RequestEnvelope
+	for {
+		select {
+		case call := <-tp.sendReqCalls:
+			reqs = append(reqs, call.req)
+		default:
+			return reqs
+		}
+	}
+}
+
+func drainPrxRess(tp *prxStubTransp) []*sip.ResponseEnvelope {
+	var ress []*sip.ResponseEnvelope
+	for {
+		select {
+		case call := <-tp.sendResCalls:
+			ress = append(ress, call.res)
+		default:
+			return ress
+		}
+	}
 }
 
 func TestProxy_DuplicateRequestConsumedByExistingTransaction(t *testing.T) {
@@ -113,20 +180,18 @@ func TestProxy_DuplicateRequestConsumedByExistingTransaction(t *testing.T) {
 	route := &sip.ProxyRoute{
 		Name:        "test",
 		ForwardMode: sip.ForwardModeStateful,
-		AuthorizeRequest: func(context.Context, *sip.ProxyRoute, *sip.RequestEnvelope) error {
+		AuthorizeRequest: func(context.Context, *sip.RequestEnvelope) error {
 			authorized.Add(1)
 			return nil
 		},
-		ResolveRequestTargets: func(context.Context, *sip.ProxyRoute, *sip.RequestEnvelope) (iter.Seq[[]*sip.URI], error) {
+		ResolveRequestTargets: func(context.Context, *sip.RequestEnvelope) (sip.ProxyTargetPlan, error) {
 			resolved.Add(1)
-			return func(func([]*sip.URI) bool) {}, nil
+			return sip.ProxyTargetPlan{}, nil
 		},
 	}
 
 	elm, prx, tp := newTestProxy(t, route)
-
 	req := newInInviteReq(t, "UDP", sip.MagicCookie+".proxy-dup", laddr, raddr)
-
 	srvTx, err := elm.NewServerTransaction(ctx, req, tp)
 	if err != nil {
 		t.Fatalf("elm.NewServerTransaction() error = %v, want nil", err)
@@ -156,10 +221,10 @@ func TestProxy_DuplicateRequestConsumedByExistingTransaction(t *testing.T) {
 		t.Fatalf("next called %d times, want 0", got)
 	}
 	if got := authorized.Load(); got != 0 {
-		t.Fatalf("AuthorizeRequest called %d times, want 0", got)
+		t.Fatalf("route.AuthorizeRequest() called %d times, want 0", got)
 	}
 	if got := resolved.Load(); got != 0 {
-		t.Fatalf("ResolveRequestTargets called %d times, want 0", got)
+		t.Fatalf("route.ResolveRequestTargets() called %d times, want 0", got)
 	}
 
 	if got := tp.countSendRes(); got != 1 {
@@ -189,7 +254,6 @@ func TestProxy_DuplicateRequestNoExistingTransaction(t *testing.T) {
 	})
 
 	req := newInInviteReq(t, "UDP", sip.MagicCookie+".proxy-gone", laddr, raddr)
-
 	next := sip.RequestReceiverFunc(func(context.Context, *sip.RequestEnvelope) error {
 		nexted.Add(1)
 		return nil
@@ -213,7 +277,7 @@ func TestProxy_StatefulAuthorizationContext(t *testing.T) {
 	route := &sip.ProxyRoute{
 		Name:        "context",
 		ForwardMode: sip.ForwardModeStateful,
-		AuthorizeRequest: func(ctx context.Context, _ *sip.ProxyRoute, _ *sip.RequestEnvelope) error {
+		AuthorizeRequest: func(ctx context.Context, _ *sip.RequestEnvelope) error {
 			authCtxs <- ctx
 			return errors.Wrap(sip.NewMessageNotMatched())
 		},

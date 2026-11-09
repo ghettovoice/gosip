@@ -24,6 +24,7 @@ func New(msg string) error {
 // Errorf formats according to a format specifier and returns the string as a
 // value that satisfies error.
 func Errorf(format string, args ...any) error {
+	//nolint:err113 // this is a error constructor
 	return fmt.Errorf(format, args...) //errtrace:skip
 }
 
@@ -37,22 +38,21 @@ func Prefix(sentinel error, args ...any) error {
 	if sentinel == nil {
 		return nil
 	}
-
 	if len(args) == 0 {
 		return sentinel //errtrace:skip
 	}
 
-	switch v := args[0].(type) {
+	switch arg := args[0].(type) {
 	case error:
-		if errors.Is(v, sentinel) {
-			return v //errtrace:skip
+		if errors.Is(arg, sentinel) {
+			return arg //errtrace:skip
 		}
-		return fmt.Errorf("%w: %w", sentinel, v) //errtrace:skip
+		return fmt.Errorf("%w: %w", sentinel, arg) //errtrace:skip
 	case string:
 		if len(args) == 1 {
-			return fmt.Errorf("%w: %s", sentinel, v) //errtrace:skip
+			return fmt.Errorf("%w: %s", sentinel, arg) //errtrace:skip
 		}
-		return fmt.Errorf("%w: %s", sentinel, fmt.Sprintf(v, args[1:]...)) //errtrace:skip
+		return fmt.Errorf("%w: %s", sentinel, fmt.Sprintf(arg, args[1:]...)) //errtrace:skip
 	default:
 		return sentinel //errtrace:skip
 	}

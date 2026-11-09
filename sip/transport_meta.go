@@ -8,16 +8,16 @@ import (
 	"slices"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // TransportProto is a transport protocol name.
-type TransportProto = types.TransportProto
+type TransportProto = shared.TransportProto
 
 // TransportFlags is a bitmask that represents transport capabilities.
 //
-//nolint:recvcheck
+//nolint:recvcheck // setters mutate in place while readers stay on values
 type TransportFlags uint
 
 const (
@@ -104,16 +104,16 @@ type TransportMetadata struct {
 	// DefaultPort is the default port for the transport.
 	DefaultPort uint16 `json:"default_port"`
 	// Flags is a set of transport flags.
-	Flags TransportFlags `json:"flags"`
+	Flags TransportFlags `json:"flags,omitzero"`
 	// NAPTRService is the NAPTR service string for the transport.
-	NAPTRService string `json:"naptr_service"`
+	NAPTRService string `json:"naptr_service,omitzero"`
 	// Priority defines the transport selection order.
 	// Lower value means higher priority (e.g. UDP=0, TCP=10, TLS=20).
-	Priority uint `json:"priority"`
+	Priority uint `json:"priority,omitzero"`
 	// MTU is the maximum Transport Unit.
 	// It is used to limit the maximum size of the outbound message.
 	// Value 0 means no limit.
-	MTU uint
+	MTU uint `json:"mtu,omitzero"`
 }
 
 func (d TransportMetadata) IsValid() bool {
@@ -126,8 +126,8 @@ func (d TransportMetadata) Streamed() bool { return d.Flags.Streamed() }
 
 func (d TransportMetadata) Canonic() TransportMetadata {
 	d.Proto = d.Proto.Canonic()
-	d.Network = util.LCase(d.Network)
-	d.NAPTRService = util.UCase(d.NAPTRService)
+	d.Network = util.ToLower(d.Network)
+	d.NAPTRService = util.ToUpper(d.NAPTRService)
 	return d
 }
 
@@ -230,7 +230,7 @@ func (p *stdTranspMetaProvider) TransportMetadataByProto(proto TransportProto) (
 
 func (p *stdTranspMetaProvider) TransportMetadataByNAPTRService(service string) (TransportMetadata, bool) {
 	for _, meta := range p.metas {
-		if util.EqFold(meta.NAPTRService, service) {
+		if util.EqualFold(meta.NAPTRService, service) {
 			return meta, true
 		}
 	}

@@ -56,7 +56,8 @@ func startTestDNSServer(t *testing.T, handler ...mdns.Handler) string {
 	}
 
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		// The test context is already canceled when cleanup runs.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Second)
 		defer cancel()
 
 		dnsSrv.Shutdown(ctx)
@@ -78,7 +79,7 @@ func startTestDNSServer(t *testing.T, handler ...mdns.Handler) string {
 func newTestDNSHandler() mdns.Handler {
 	mux := mdns.NewServeMux()
 	mux.HandleFunc("example.test.", func(_ context.Context, w mdns.ResponseWriter, req *mdns.Msg) {
-		resp := &mdns.Msg{
+		res := &mdns.Msg{
 			ID:                 req.ID,
 			Response:           true,
 			Authoritative:      true,
@@ -86,24 +87,24 @@ func newTestDNSHandler() mdns.Handler {
 			RecursionAvailable: true,
 			Question:           req.Question,
 		}
-		resp.Authoritative = true
+		res.Authoritative = true
 
 		for _, q := range req.Question {
 			qName := q.Header().Name
 
 			switch {
 			case isQuestionType[*mdns.A](q) && qName == "host.example.test.":
-				resp.Answer = append(resp.Answer, &mdns.A{
+				res.Answer = append(res.Answer, &mdns.A{
 					Hdr:  mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
 					Addr: netip.MustParseAddr("127.0.0.1"),
 				})
 			case isQuestionType[*mdns.AAAA](q) && qName == "host.example.test.":
-				resp.Answer = append(resp.Answer, &mdns.AAAA{
+				res.Answer = append(res.Answer, &mdns.AAAA{
 					Hdr:  mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
 					Addr: netip.MustParseAddr("2001:db8::1"),
 				})
 			case isQuestionType[*mdns.SRV](q) && qName == "_sip._udp.example.test.":
-				resp.Answer = append(resp.Answer, &mdns.SRV{
+				res.Answer = append(res.Answer, &mdns.SRV{
 					Hdr:      mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
 					Priority: 10,
 					Weight:   20,
@@ -111,8 +112,8 @@ func newTestDNSHandler() mdns.Handler {
 					Target:   "sip.example.test.",
 				})
 			case isQuestionType[*mdns.NAPTR](q) && qName == "example.test.":
-				resp.Answer = append(
-					resp.Answer,
+				res.Answer = append(
+					res.Answer,
 					&mdns.NAPTR{
 						Hdr:         mdns.Header{Name: qName, Class: mdns.ClassINET, TTL: 300},
 						Order:       10,
@@ -131,13 +132,12 @@ func newTestDNSHandler() mdns.Handler {
 					},
 				)
 			default:
-				resp.Rcode = mdns.RcodeNameError
+				res.Rcode = mdns.RcodeNameError
 			}
 		}
 
-		_, _ = resp.WriteTo(w)
+		_, _ = res.WriteTo(w)
 	})
-
 	return mux
 }
 
@@ -162,15 +162,12 @@ func TestResolver_LookupIP(t *testing.T) {
 	for _, ip := range got {
 		if ip4 := ip.To4(); ip4 != nil {
 			hasIPv4 = true
-
 			if len(ip) != net.IPv4len {
 				t.Errorf("len(ipv4) = %d, want %d", len(ip), net.IPv4len)
 			}
-
 			if !ip4.Equal(net.IPv4(127, 0, 0, 1)) {
 				t.Errorf("ipv4 = %v, want %v", ip4, net.IPv4(127, 0, 0, 1))
 			}
-
 			continue
 		}
 
@@ -330,9 +327,9 @@ func TestResolver_LookupNAPTR_Cancel(t *testing.T) {
 func TestResolver_ConcurrentInit(t *testing.T) {
 	t.Parallel()
 
-	r := &gdns.Resolver{NameServer: startTestDNSServer(t)}
+	rslvr := &gdns.Resolver{NameServer: startTestDNSServer(t)}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	errs := make(chan error, 30)
 	var wg sync.WaitGroup
@@ -341,19 +338,19 @@ func TestResolver_ConcurrentInit(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			_, err := r.LookupIP(ctx, "ip4", "host.example.test")
+			_, err := rslvr.LookupIP(ctx, "ip4", "host.example.test")
 			errs <- err
 		}()
 		go func() {
 			defer wg.Done()
 
-			_, err := r.LookupSRV(ctx, "sip", "udp", "example.test")
+			_, err := rslvr.LookupSRV(ctx, "sip", "udp", "example.test")
 			errs <- err
 		}()
 		go func() {
 			defer wg.Done()
 
-			_, err := r.LookupNAPTR(ctx, "example.test")
+			_, err := rslvr.LookupNAPTR(ctx, "example.test")
 			errs <- err
 		}()
 	}

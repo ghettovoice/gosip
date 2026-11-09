@@ -13,8 +13,8 @@
 // Via, and many others. Custom or extension headers can be handled through the Any
 // type or by registering custom parsers.
 //
-// All header types implement the [Header] interface, which combines [types.Renderer],
-// [types.Cloneable[Header]], [types.ValidFlag], and [types.Equalable]. This ensures
+// All header types implement the [Header] interface, which combines [shared.Renderer],
+// [shared.Cloneable[Header]], [shared.ValidFlag], and [shared.Equalable]. This ensures
 // consistent behavior across all header implementations for rendering, cloning,
 // validation, and equality comparisons.
 //

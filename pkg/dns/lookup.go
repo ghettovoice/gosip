@@ -16,6 +16,12 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 )
 
+// Default dialer settings applied when [Resolver.Dialer] is nil.
+const (
+	defDialerTimeout   = 5 * time.Second
+	defDialerKeepAlive = 3 * time.Second
+)
+
 var defResolver = &Resolver{}
 
 func DefaultResolver() *Resolver { return defResolver }
@@ -50,7 +56,7 @@ type Resolver struct {
 
 	nameSrv  string // resolved name server
 	netRslvr *net.Resolver
-	dialer   *net.Dialer // resolved dialer
+	netDlr   *net.Dialer // resolved dialer
 	initOnce sync.Once
 	initErr  error
 }
@@ -62,7 +68,6 @@ func (r *Resolver) init() error {
 		if err != nil {
 			return errtrace.Wrap(fmt.Errorf("load system DNS config: %w", err))
 		}
-
 		if len(cfg.Servers) == 0 {
 			return errtrace.Wrap(errors.New("no system DNS servers configured"))
 		}
@@ -75,11 +80,11 @@ func (r *Resolver) init() error {
 	dlr := r.Dialer
 	if dlr == nil {
 		dlr = &net.Dialer{
-			Timeout:   5 * time.Second,
-			KeepAlive: 3 * time.Second,
+			Timeout:   defDialerTimeout,
+			KeepAlive: defDialerKeepAlive,
 		}
 	}
-	r.dialer = dlr
+	r.netDlr = dlr
 
 	r.netRslvr = &net.Resolver{
 		PreferGo: true,

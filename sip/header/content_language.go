@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -20,92 +18,57 @@ func (ContentLanguage) CanonicName() Name { return "Content-Language" }
 
 func (ContentLanguage) CompactName() Name { return "Content-Language" }
 
-func (hdr ContentLanguage) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+func (hdr ContentLanguage) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error) {
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.CanonicName(), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr ContentLanguage) renderValueTo(w io.Writer) (num int, err error) {
-	return errors.Wrap2(renderHdrEntries(w, hdr))
+func (hdr ContentLanguage) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrTokensTo(w, hdr))
 }
 
 func (hdr ContentLanguage) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
-func (hdr ContentLanguage) String() string { return hdr.RenderValue() }
+func (hdr ContentLanguage) String() string {
+	return hdr.RenderValue()
+}
 
 func (hdr ContentLanguage) RenderValue() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrVal(hdr)
 }
 
 func (hdr ContentLanguage) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods     ContentLanguage
-			ContentLanguage hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), ContentLanguage(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods     ContentLanguage
+		ContentLanguage hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), ContentLanguage(hdr))
 }
 
-func (hdr ContentLanguage) Clone() Header { return slices.Clone(hdr) }
+func (hdr ContentLanguage) Clone() Header {
+	return slices.Clone(hdr)
+}
 
 func (hdr ContentLanguage) Equal(val any) bool {
-	var other ContentLanguage
-	switch v := val.(type) {
-	case ContentLanguage:
-		other = v
-	case *ContentLanguage:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(lang1, lang2 Language) bool { return lang1.Equal(lang2) })
+	return util.EqualValue(val, func(other ContentLanguage) bool {
+		return slices.EqualFunc(hdr, other, func(lang1, lang2 Language) bool {
+			return lang1.Equal(lang2)
+		})
+	})
 }
 
 func (hdr ContentLanguage) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(lang Language) bool { return !lang.IsValid() })
+	return len(hdr) > 0 &&
+		!slices.ContainsFunc(hdr, func(lang Language) bool {
+			return !lang.IsValid()
+		})
 }
 
 func (hdr ContentLanguage) MarshalJSON() ([]byte, error) {
@@ -113,7 +76,7 @@ func (hdr ContentLanguage) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *ContentLanguage) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromContentLanguageNode(node *abnf.Node) ContentLanguage {
@@ -127,21 +90,12 @@ func buildFromContentLanguageNode(node *abnf.Node) ContentLanguage {
 
 type Language string
 
-func (lng Language) IsValid() bool { return grammar.IsToken(lng) }
+func (lng Language) IsValid() bool {
+	return grammar.IsToken(lng)
+}
 
 func (lng Language) Equal(val any) bool {
-	var other Language
-	switch v := val.(type) {
-	case Language:
-		other = v
-	case *Language:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return util.EqFold(lng, other)
+	return util.EqualValue(val, func(other Language) bool {
+		return util.EqualFold(lng, other)
+	})
 }

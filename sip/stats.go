@@ -18,6 +18,7 @@ type StatsReport struct {
 	Time         time.Time        `json:"time"`
 	Transports   []TransportStats `json:"transports"`
 	Transactions TransactionStats `json:"transactions"`
+	Proxy        ProxyStats       `json:"proxy"`
 }
 
 // TransportStats contains statistics for a single transport.
@@ -60,17 +61,58 @@ type TransactionStats struct {
 	NonInviteServerTransactionsTotal uint64 `json:"non_invite_server_transactions_total"`
 }
 
+// ProxyStats contains cumulative statistics derived from [ProxyEvent]
+// observations. The counters are subscription-lifetime observed totals:
+// they count the events the recorder observed since it was bound, they
+// keep no per-request or per-target labels, and they do not retain the
+// history of requests that completed before the binding.
+type ProxyStats struct {
+	// RequestsHandled is a number of inbound requests claimed by a proxy
+	// route that entered the forwarding pipeline.
+	RequestsHandled uint64 `json:"requests_handled"`
+	// RequestsForwarded is a number of proxied requests whose outbound
+	// copy was emitted toward at least one target.
+	RequestsForwarded uint64 `json:"requests_forwarded"`
+	// ForwardAttemptsSucceeded is a number of settled downstream forward
+	// attempts that produced no error.
+	ForwardAttemptsSucceeded uint64 `json:"forward_attempts_succeeded"`
+	// ForwardAttemptsFailed is a number of settled downstream forward
+	// attempts that failed.
+	ForwardAttemptsFailed uint64 `json:"forward_attempts_failed"`
+	// ResponsesForwarded is a number of responses relayed toward the
+	// prior hop.
+	ResponsesForwarded uint64 `json:"responses_forwarded"`
+	// RequestsCompleted is a number of proxied requests that reached a
+	// committed outcome.
+	RequestsCompleted uint64 `json:"requests_completed"`
+	// RequestsRejected is a number of proxied requests completed by a
+	// local rejection.
+	RequestsRejected uint64 `json:"requests_rejected"`
+	// RequestsTimedOut is a number of proxied requests completed by a
+	// timeout without a usable response.
+	RequestsTimedOut uint64 `json:"requests_timed_out"`
+	// RequestsCancelled is a number of proxied requests completed by a
+	// cancellation.
+	RequestsCancelled uint64 `json:"requests_cancelled"`
+}
+
 // StatsRecorder records various SIP statistics.
-// It implements MessageInterceptor and TransactionHandler interfaces
-// and can be used as a middleware for Element.
+// It implements MessageInterceptor, TransactionHandler and
+// ProxyEventHandler interfaces: it can be used as a middleware for
+// Element and as a proxy observation event handler at the same time —
+// the proxy counters count committed forwarding events only, so one
+// recorder serving both roles never counts a logical event twice.
 type StatsRecorder struct {
 	transpsStats
 	transactStats
+	prxStats
 }
 
 var (
 	_ MessageInterceptor = (*StatsRecorder)(nil)
 	_ TransactionHandler = (*StatsRecorder)(nil)
+	_ ElementMiddleware  = (*StatsRecorder)(nil)
+	_ ProxyEventHandler  = (*StatsRecorder)(nil)
 )
 
 type transpsStats struct {
@@ -101,6 +143,18 @@ type transactStats struct {
 	invSrvTxsTotal,
 	ninvClnTxsTotal,
 	ninvSrvTxsTotal atomic.Uint64
+}
+
+type prxStats struct {
+	reqsHandled,
+	reqsFwd,
+	attSucc,
+	attFail,
+	resFwd,
+	reqsCompl,
+	reqsRej,
+	reqsTmo,
+	reqsCnc atomic.Uint64
 }
 
 func (rcdr *StatsRecorder) LogValue() slog.Value {
@@ -160,12 +214,24 @@ func (rcdr *StatsRecorder) Report() StatsReport {
 		InviteServerTransactionsTotal:    rcdr.invSrvTxsTotal.Load(),
 		NonInviteServerTransactionsTotal: rcdr.ninvSrvTxsTotal.Load(),
 	}
+
+	report.Proxy = ProxyStats{
+		RequestsHandled:          rcdr.reqsHandled.Load(),
+		RequestsForwarded:        rcdr.reqsFwd.Load(),
+		ForwardAttemptsSucceeded: rcdr.attSucc.Load(),
+		ForwardAttemptsFailed:    rcdr.attFail.Load(),
+		ResponsesForwarded:       rcdr.resFwd.Load(),
+		RequestsCompleted:        rcdr.reqsCompl.Load(),
+		RequestsRejected:         rcdr.reqsRej.Load(),
+		RequestsTimedOut:         rcdr.reqsTmo.Load(),
+		RequestsCancelled:        rcdr.reqsCnc.Load(),
+	}
 	return report
 }
 
-func (rcdr *StatsRecorder) getTranspStats(key transpKey) *transpStats {
+func (rcdr *StatsRecorder) getTpStats(key transpKey) *transpStats {
 	stats, _ := rcdr.stats.LoadOrStore(key, &transpStats{})
-	return stats.(*transpStats) //nolint:forcetypeassert
+	return stats.(*transpStats) //nolint:forcetypeassert // the concrete type is fixed by construction
 }
 
 // InterceptInboundRequest intercepts inbound requests and records statistics.
@@ -191,7 +257,7 @@ func (rcdr *StatsRecorder) handleReqReceived(req *RequestEnvelope) {
 		return
 	}
 
-	stats := rcdr.getTranspStats(key)
+	stats := rcdr.getTpStats(key)
 	stats.inReqs.Add(1)
 }
 
@@ -218,7 +284,7 @@ func (rcdr *StatsRecorder) handleResReceived(res *ResponseEnvelope) {
 		return
 	}
 
-	stats := rcdr.getTranspStats(key)
+	stats := rcdr.getTpStats(key)
 	stats.inRess.Add(1)
 
 	// Calculate RTT using Timestamp header if present
@@ -277,7 +343,7 @@ func (rcdr *StatsRecorder) handleReqSent(req *RequestEnvelope) {
 		return
 	}
 
-	stats := rcdr.getTranspStats(key)
+	stats := rcdr.getTpStats(key)
 	stats.outReqs.Add(1)
 }
 
@@ -330,7 +396,7 @@ func (rcdr *StatsRecorder) handleResSent(res *ResponseEnvelope) {
 		return
 	}
 
-	stats := rcdr.getTranspStats(key)
+	stats := rcdr.getTpStats(key)
 	stats.outRess.Add(1)
 }
 
@@ -390,4 +456,41 @@ func (rcdr *StatsRecorder) HandleClientTransaction(_ context.Context, tx ClientT
 // HandleServerTransaction handles new server transactions for statistics.
 func (rcdr *StatsRecorder) HandleServerTransaction(_ context.Context, tx ServerTransaction) {
 	rcdr.handleTx(tx)
+}
+
+// HandleProxyEvent records one proxy observation event.
+//
+// Each counter increments only at its committed event kind: an attempt
+// counts as succeeded or failed by the presence of the event error, and
+// the completion reason counters derive solely from the committed
+// outcome carried by a completion event — a downstream error response is
+// a response decision, not an attempt failure and not a rejection.
+func (rcdr *StatsRecorder) HandleProxyEvent(_ context.Context, event ProxyEvent) {
+	switch event.Kind {
+	case ProxyEventRequestHandled:
+		rcdr.reqsHandled.Add(1)
+	case ProxyEventForwardAttemptFinished:
+		if event.Error != nil {
+			rcdr.attFail.Add(1)
+		} else {
+			rcdr.attSucc.Add(1)
+		}
+	case ProxyEventRequestForwarded:
+		rcdr.reqsFwd.Add(1)
+	case ProxyEventResponseForwarded:
+		rcdr.resFwd.Add(1)
+	case ProxyEventRequestCompleted:
+		rcdr.reqsCompl.Add(1)
+		switch event.Outcome {
+		case ProxyOutcomeRejected:
+			rcdr.reqsRej.Add(1)
+		case ProxyOutcomeTimeout:
+			rcdr.reqsTmo.Add(1)
+		case ProxyOutcomeCancelled:
+			rcdr.reqsCnc.Add(1)
+		case ProxyOutcomeResponse, ProxyOutcomeSendFailure,
+			ProxyOutcomeAbandoned, ProxyOutcomeSent:
+			// Counted only in the completion total.
+		}
+	}
 }

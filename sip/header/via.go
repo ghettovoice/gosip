@@ -13,7 +13,7 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
 	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -33,50 +33,21 @@ func (hdr Via) RenderTo(w io.Writer, opts ...RenderOptions) (num int, err error)
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.name(opts...), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr Via) name(opts ...RenderOptions) Name {
-	if util.LastSliceElemOr(opts, RenderOptions{}).Compact {
-		return hdr.CompactName()
-	}
-	return hdr.CanonicName()
-}
-
-func (hdr Via) renderValueTo(w io.Writer) (num int, err error) {
-	return errors.Wrap2(renderHdrEntries(w, hdr))
+func (hdr Via) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrValsTo(w, hdr))
 }
 
 // Render returns the string representation of the header.
 func (hdr Via) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 // RenderValue returns the header value without the name prefix.
 func (hdr Via) RenderValue() string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrVal(hdr)
 }
 
 // String returns the string representation of the header value.
@@ -86,55 +57,36 @@ func (hdr Via) String() string {
 
 // Format implements fmt.Formatter for custom formatting of the header.
 func (hdr Via) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods Via
-			Via         hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), Via(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods Via
+		Via         hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), Via(hdr))
 }
 
 // Clone returns a copy of the header.
-func (hdr Via) Clone() Header { return cloneHdrEntries(hdr) }
+func (hdr Via) Clone() Header {
+	return cloneHdrVals(hdr)
+}
 
 // Equal compares this header with another for equality.
 func (hdr Via) Equal(val any) bool {
-	var other Via
-	switch v := val.(type) {
-	case Via:
-		other = v
-	case *Via:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(hop1, hop2 ViaHop) bool { return hop1.Equal(hop2) })
+	return util.EqualValue(val, func(other Via) bool {
+		return slices.EqualFunc(hdr, other, func(hop1, hop2 ViaHop) bool {
+			return hop1.Equal(hop2)
+		})
+	})
 }
 
 // IsValid checks whether the header is syntactically valid.
 func (hdr Via) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(hop ViaHop) bool { return !hop.IsValid() })
+	return len(hdr) > 0 &&
+		!slices.ContainsFunc(hdr, func(hop ViaHop) bool {
+			return !hop.IsValid()
+		})
 }
 
 func (hdr Via) MarshalJSON() ([]byte, error) {
@@ -142,7 +94,7 @@ func (hdr Via) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *Via) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromViaNode(node *abnf.Node) Via {
@@ -156,7 +108,7 @@ func buildFromViaNode(node *abnf.Node) Via {
 
 func buildFromViaParmNode(node *abnf.Node) ViaHop {
 	protoNode := grammar.MustGetNode(node, "sent-protocol")
-	addr, err := types.AddrFromABNF(grammar.MustGetNode(node, "sent-by"))
+	addr, err := shared.AddrFromABNF(grammar.MustGetNode(node, "sent-by"))
 	if err != nil {
 		panic(errors.Wrap(err))
 	}
@@ -164,7 +116,7 @@ func buildFromViaParmNode(node *abnf.Node) ViaHop {
 		Proto:     ProtoInfo{Name: protoNode.Children[0].String(), Version: protoNode.Children[2].String()},
 		Transport: TransportProto(protoNode.Children[4].String()),
 		Addr:      addr,
-		Params:    buildFromHeaderParamNodes(node.GetNodes("via-params"), nil),
+		Params:    buildFromHdrParamNodes(node.GetNodes("via-params"), nil),
 	}
 }
 
@@ -178,63 +130,46 @@ type ViaHop struct {
 
 // String returns the string representation of the ViaHop.
 func (hop ViaHop) String() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
+	return renderVal(hop)
+}
 
-	fmt.Fprint(sb, hop.Proto, "/", hop.Transport, " ", hop.Addr)
-	_, _ = renderHdrParams(sb, hop.Params, false)
-	return sb.String()
+func (hop ViaHop) renderTo(w io.Writer) (num int, err error) {
+	cw := ioutil.GetCountingWriter(w)
+	defer ioutil.FreeCountingWriter(cw)
+
+	cw.Fprint(hop.Proto, "/", hop.Transport, " ", hop.Addr)
+	cw.Call(func(w io.Writer) (int, error) {
+		return errors.Wrap2(renderHdrParamsTo(w, hop.Params, false))
+	})
+	return errors.Wrap2(cw.Result())
 }
 
 // Format implements fmt.Formatter for custom formatting of the ViaHop.
 func (hop ViaHop) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		fmt.Fprint(f, hop.String())
-		return
-	case 'q':
-		fmt.Fprint(f, strconv.Quote(hop.String()))
-		return
-	default:
-		if !f.Flag('+') && !f.Flag('#') {
-			fmt.Fprint(f, hop.String())
-			return
-		}
-
-		type (
-			hideMethods ViaHop
-			ViaHop      hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), ViaHop(hop))
+	if formatVal(f, verb, hop) {
 		return
 	}
+	type (
+		hideMethods ViaHop
+		ViaHop      hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), ViaHop(hop))
 }
 
 // Equal compares this ViaHop with another for equality.
 func (hop ViaHop) Equal(val any) bool {
-	var other ViaHop
-	switch v := val.(type) {
-	case ViaHop:
-		other = v
-	case *ViaHop:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return hop.Proto.Equal(other.Proto) &&
-		hop.Transport.Equal(other.Transport) &&
-		hop.Addr.Equal(other.Addr) &&
-		compareHdrParams(hop.Params, other.Params, map[string]bool{
-			"maddr":    true,
-			"ttl":      true,
-			"received": true,
-			"rport":    true,
-			"branch":   true,
-		})
+	return util.EqualValue(val, func(other ViaHop) bool {
+		return hop.Proto.Equal(other.Proto) &&
+			hop.Transport.Equal(other.Transport) &&
+			hop.Addr.Equal(other.Addr) &&
+			compareHdrParams(hop.Params, other.Params, map[string]bool{
+				"maddr":    true,
+				"ttl":      true,
+				"received": true,
+				"rport":    true,
+				"branch":   true,
+			})
+	})
 }
 
 // IsValid checks whether the ViaHop is syntactically valid.
@@ -307,7 +242,6 @@ func (hop ViaHop) Received() (netip.Addr, bool) {
 	if err != nil {
 		return netip.Addr{}, false
 	}
-
 	return addr, true
 }
 
@@ -321,7 +255,6 @@ func (hop ViaHop) RPort() (uint16, bool) {
 	if err != nil {
 		return 0, false
 	}
-
 	return uint16(port), true
 }
 
@@ -343,6 +276,5 @@ func (hop ViaHop) TTL() (uint8, bool) {
 	if err != nil {
 		return 0, false
 	}
-
 	return uint8(ttl), true
 }

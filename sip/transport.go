@@ -50,8 +50,8 @@ type TransportListener interface {
 	Close() error
 }
 
-// TransportConnection represents a transport peer-to-peer connection.
-type TransportConnection interface {
+// TransportConn represents a transport peer-to-peer connection.
+type TransportConn interface {
 	// Metadata returns the transport metadata of the connection.
 	Metadata() TransportMetadata
 	// LocalAddr returns the local address of the connection.

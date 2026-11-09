@@ -51,8 +51,7 @@ type netAddr struct {
 }
 
 func (a *netAddr) Network() string { return a.network }
-
-func (a *netAddr) String() string { return a.addr }
+func (a *netAddr) String() string  { return a.addr }
 
 func UnmapAddrPort(addr netip.AddrPort) netip.AddrPort {
 	if addr.Addr().Is4In6() {
@@ -65,7 +64,6 @@ func UnmapAddrPort(addr netip.AddrPort) netip.AddrPort {
 // It returns the found listener and true if successful, or the zero value and false otherwise.
 func AsListener[T any](l net.Listener) (T, bool) {
 	var zero T
-
 	for l != nil {
 		if v, ok := any(l).(T); ok {
 			return v, true
@@ -78,7 +76,6 @@ func AsListener[T any](l net.Listener) (T, bool) {
 
 		l = u.Unwrap()
 	}
-
 	return zero, false
 }
 
@@ -86,7 +83,6 @@ func AsListener[T any](l net.Listener) (T, bool) {
 // It returns the found connection and true if successful, or the zero value and false otherwise.
 func AsConn[T any](c net.Conn) (T, bool) {
 	var zero T
-
 	for c != nil {
 		if v, ok := any(c).(T); ok {
 			return v, true
@@ -99,7 +95,6 @@ func AsConn[T any](c net.Conn) (T, bool) {
 
 		c = u.Unwrap()
 	}
-
 	return zero, false
 }
 
@@ -107,7 +102,6 @@ func AsConn[T any](c net.Conn) (T, bool) {
 // It returns the found connection and true if successful, or the zero value and false otherwise.
 func AsPacketConn[T any](c net.PacketConn) (T, bool) {
 	var zero T
-
 	for c != nil {
 		if v, ok := any(c).(T); ok {
 			return v, true
@@ -120,7 +114,6 @@ func AsPacketConn[T any](c net.PacketConn) (T, bool) {
 
 		c = u.Unwrap()
 	}
-
 	return zero, false
 }
 
@@ -136,7 +129,7 @@ func HostIP() (net.IP, error) {
 	return ip, nil
 }
 
-//nolint:gocognit
+//nolint:gocognit // iterator branches on interface state and address families
 func AllHostIPs() iter.Seq[net.IP] {
 	return func(yield func(net.IP) bool) {
 		interfaces, err := net.Interfaces()

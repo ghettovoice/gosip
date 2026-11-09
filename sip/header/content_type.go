@@ -3,13 +3,11 @@ package header
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -23,69 +21,38 @@ func (hdr *ContentType) RenderTo(w io.Writer, opts ...RenderOptions) (num int, e
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.name(opts...), ": ")
-	cw.Fprint(hdr.RenderValue())
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr *ContentType) name(opts ...RenderOptions) Name {
-	if util.LastSliceElemOr(opts, RenderOptions{}).Compact {
-		return hdr.CompactName()
-	}
-
-	return hdr.CanonicName()
+func (hdr *ContentType) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(MIMEType(*hdr).renderTo(w))
 }
 
 func (hdr *ContentType) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
-func (hdr *ContentType) String() string { return hdr.RenderValue() }
+func (hdr *ContentType) String() string {
+	return hdr.RenderValue()
+}
 
 // RenderValue returns the header value without the name prefix.
 func (hdr *ContentType) RenderValue() string {
 	if hdr == nil {
 		return ""
 	}
-	return MIMEType(*hdr).String()
+	return renderHdrVal(hdr)
 }
 
 func (hdr *ContentType) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods ContentType
-			ContentType hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), (*ContentType)(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods ContentType
+		ContentType hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), (*ContentType)(hdr))
 }
 
 func (hdr *ContentType) Clone() Header {
@@ -93,31 +60,19 @@ func (hdr *ContentType) Clone() Header {
 		return nil
 	}
 
-	hdr2 := ContentType(MIMEType(*hdr).Clone())
-	return &hdr2
+	clone := ContentType(MIMEType(*hdr).Clone())
+	return &clone
 }
 
 func (hdr *ContentType) Equal(val any) bool {
-	var other *ContentType
-	switch v := val.(type) {
-	case ContentType:
-		other = &v
-	case *ContentType:
-		other = v
-	default:
-		return false
-	}
-
-	if hdr == other {
-		return true
-	} else if hdr == nil || other == nil {
-		return false
-	}
-
-	return MIMEType(*hdr).Equal(MIMEType(*other))
+	return util.EqualPointer(hdr, val, func(other *ContentType) bool {
+		return MIMEType(*hdr).Equal(MIMEType(*other))
+	})
 }
 
-func (hdr *ContentType) IsValid() bool { return hdr != nil && MIMEType(*hdr).IsValid() }
+func (hdr *ContentType) IsValid() bool {
+	return hdr != nil && MIMEType(*hdr).IsValid()
+}
 
 func (hdr *ContentType) MarshalJSON() ([]byte, error) {
 	return errors.Wrap2(ToJSON(hdr))

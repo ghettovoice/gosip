@@ -2,58 +2,65 @@ package header
 
 import (
 	"encoding/json"
-	"io"
 	"net"
 	"net/textproto"
-	"slices"
 	"sync"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/ioutil"
-	"github.com/ghettovoice/gosip/internal/types"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
 // Addr represents a network address consisting of a host and optional port.
-type Addr = types.Addr
+type Addr = shared.Addr
 
 // MakeHostAddr creates an Addr from a hostname without a port.
-func MakeHostAddr(host string) Addr { return types.MakeHostAddr(host) }
+func MakeHostAddr(host string) Addr {
+	return shared.MakeHostAddr(host)
+}
 
 // MakeHostPortAddr creates an Addr from a hostname and port.
-func MakeHostPortAddr(host string, port uint16) Addr { return types.MakeHostPortAddr(host, port) }
+func MakeHostPortAddr(host string, port uint16) Addr {
+	return shared.MakeHostPortAddr(host, port)
+}
 
-func MakeIPAddr(ip net.IP) Addr { return types.MakeIPAddr(ip) }
+func MakeIPAddr(ip net.IP) Addr {
+	return shared.MakeIPAddr(ip)
+}
 
-func MakeIPPortAddr(ip net.IP, port uint16) Addr { return types.MakeIPPortAddr(ip, port) }
+func MakeIPPortAddr(ip net.IP, port uint16) Addr {
+	return shared.MakeIPPortAddr(ip, port)
+}
 
 // ParseAddr parses a network address from the given input s (string or []byte).
-func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) { return errors.Wrap2(types.ParseAddr(s)) }
+func ParseAddr[T ~string | ~[]byte](s T) (Addr, error) {
+	return errors.Wrap2(shared.ParseAddr(s))
+}
 
 // Values represents header parameters as a multi-value map.
-type Values = types.Values
+type Values = shared.Values
 
 // ProtoInfo represents SIP protocol information (name and version).
-type ProtoInfo = types.ProtoInfo
+type ProtoInfo = shared.ProtoInfo
 
 // TransportProto represents a transport protocol (UDP, TCP, TLS, SCTP, WS, WSS).
-type TransportProto = types.TransportProto
+type TransportProto = shared.TransportProto
 
 // RequestMethod represents a SIP request method (INVITE, ACK, BYE, etc.).
-type RequestMethod = types.RequestMethod
+type RequestMethod = shared.RequestMethod
 
 // RenderOptions contains options for rendering headers and URIs.
-type RenderOptions = types.RenderOptions
+type RenderOptions = shared.RenderOptions
 
 // Header represents a generic SIP header.
 type Header interface {
-	types.Renderer
-	types.Cloneable[Header]
-	types.ValidFlag
-	types.Equalable
+	shared.Renderer
+	shared.Cloneable[Header]
+	shared.ValidFlag
+	shared.Equalable
 	CanonicName() Name
 	CompactName() Name
 	RenderValue() string
@@ -63,30 +70,23 @@ type Header interface {
 type Name string
 
 // Canonic converts the Name to its canonical form.
-func (n Name) Canonic() Name { return CanonicName(n) }
+func (n Name) Canonic() Name {
+	return CanonicName(n)
+}
 
 // IsValid checks whether the Name is syntactically valid.
-func (n Name) IsValid() bool { return grammar.IsToken(n) }
+func (n Name) IsValid() bool {
+	return grammar.IsToken(n)
+}
 
 // Equal compares this Name with another for equality.
 func (n Name) Equal(val any) bool {
-	var other Name
-	switch v := val.(type) {
-	case Name:
-		other = v
-	case *Name:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return CanonicName(n) == CanonicName(other)
+	return util.EqualValue(val, func(other Name) bool {
+		return CanonicName(n) == CanonicName(other)
+	})
 }
 
-var hdrNames = map[string]Name{
+var hdrAliasToName = map[string]Name{
 	"c":                "Content-Type",
 	"e":                "Content-Encoding",
 	"f":                "From",
@@ -108,162 +108,16 @@ var hdrNames = map[string]Name{
 // the rest are converted to lowercase. For example, the canonical name for "accept-encoding" is "Accept-Encoding".
 // Also, any compact name is converted to its full canonical form. For example, "c" converts to "Content-Type".
 func CanonicName[T ~string](name T) Name {
-	name = util.TrimSP(name)
-	if n, ok := hdrNames[string(name)]; ok {
+	name = util.TrimSpace(name)
+	if n, ok := hdrAliasToName[string(name)]; ok {
 		return n
 	}
 
 	name = T(textproto.CanonicalMIMEHeaderKey(string(name)))
-	if n, ok := hdrNames[string(name)]; ok {
+	if n, ok := hdrAliasToName[string(name)]; ok {
 		return n
 	}
-
 	return Name(name)
-}
-
-func renderHdrEntries[H ~[]E, E any](w io.Writer, hdr H) (num int, err error) {
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	for i := range hdr {
-		if i > 0 {
-			cw.Fprint(", ")
-		}
-		if entry, ok := any(hdr[i]).(interface {
-			renderTo(w io.Writer) (int, error)
-		}); ok {
-			cw.Call(entry.renderTo)
-		} else {
-			cw.Fprint(hdr[i])
-		}
-	}
-	return errors.Wrap2(cw.Result())
-}
-
-func renderHdrParams(w io.Writer, params Values, addQParam bool) (num int, err error) {
-	if len(params) == 0 {
-		return 0, nil
-	}
-
-	// Sort parameters in alphabet order, but with "q" parameter always the first place.
-	// If missing the "q" param, then dump it with the default value.
-	// RFC 2616 Section 14.1.
-	var kvs [][]string
-	if addQParam && !params.Has("q") {
-		kvs = append(kvs, []string{"q", "1"})
-	}
-
-	for k := range params {
-		v, _ := params.Last(k)
-		kvs = append(kvs, []string{util.LCase(k), v})
-	}
-
-	slices.SortFunc(kvs, func(a, b []string) int {
-		if a[0] == "q" && b[0] != "q" {
-			return -1
-		} else if a[0] != "q" && b[0] == "q" {
-			return 1
-		}
-		return util.CmpKVs(a, b)
-	})
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	for _, kv := range kvs {
-		cw.Fprint(";", kv[0])
-		if kv[1] != "" {
-			cw.Fprint("=", kv[1])
-		}
-	}
-
-	return errors.Wrap2(cw.Result())
-}
-
-func compareHdrParams(params1, params2 Values, specParams map[string]bool, caseSensParams ...string) bool {
-	switch {
-	case len(params1) == 0 && len(params2) == 0:
-		return true
-	case len(params1) == 0:
-		return !hasSpecHdrParam(params2, specParams)
-	case len(params2) == 0:
-		return !hasSpecHdrParam(params1, specParams)
-	}
-
-	checked := map[string]bool{}
-	// Any non-special parameters appearing in only one list are ignored.
-	// First, traverse over self-parameters, compare values appearing in both lists,
-	// check on speciality and save checked param names.
-	for k := range params1 {
-		if params2.Has(k) {
-			// Any parameter appearing in both URIs must match.
-			v1, _ := params1.Last(k)
-			v2, _ := params2.Last(k)
-			if !slices.Contains(caseSensParams, util.LCase(k)) {
-				if !grammar.IsQuoted(v1) {
-					v1 = util.LCase(v1)
-				}
-				if !grammar.IsQuoted(v2) {
-					v2 = util.LCase(v2)
-				}
-			}
-			if v1 != v2 {
-				return false
-			}
-		} else if specParams[util.LCase(k)] {
-			// Any special SIP URI parameter appearing in one URI must appear in the other.
-			return false
-		}
-
-		checked[util.LCase(k)] = true
-	}
-	// Then need only check that there are no non-checked special parameters in the other list.
-	for k := range specParams {
-		if checked[k] {
-			continue
-		}
-		if params2.Has(k) {
-			return false
-		}
-	}
-
-	return true
-}
-
-func hasSpecHdrParam(params Values, specParams map[string]bool) bool {
-	for k := range specParams {
-		if params.Has(k) {
-			return true
-		}
-	}
-	return false
-}
-
-func validateHdrParams(params Values) bool {
-	for k := range params {
-		if !grammar.IsToken(k) {
-			return false
-		}
-
-		v, _ := params.Last(k)
-		if v != "" && (!grammar.IsToken(v) && !grammar.IsHost(v) && !grammar.IsQuoted(v)) {
-			return false
-		}
-	}
-	return true
-}
-
-func cloneHdrEntries[H ~[]E, E interface{ Clone() E }](hdr H) H {
-	var hdr2 H
-	if hdr == nil {
-		return hdr2
-	}
-
-	hdr2 = make(H, len(hdr))
-	for i := range hdr {
-		hdr2[i] = hdr[i].Clone()
-	}
-	return hdr2
 }
 
 // Parser is a function type for parsing a custom SIP header.
@@ -273,12 +127,12 @@ var customParsers sync.Map // map[string]Parser
 
 // RegisterParser registers a custom SIP header parser.
 func RegisterParser(name string, parser Parser) {
-	customParsers.Store(util.LCase(name), parser)
+	customParsers.Store(util.ToLower(name), parser)
 }
 
 // UnregisterParser unregisters a custom SIP header parser.
 func UnregisterParser(name string) {
-	customParsers.Delete(util.LCase(name))
+	customParsers.Delete(util.ToLower(name))
 }
 
 // Parse parses a SIP header from the given input s (string or []byte) and
@@ -400,9 +254,9 @@ func FromABNF(node *abnf.Node) (hdr Header, err error) {
 	case "WWW-Authenticate":
 		return buildFromWWWAuthenticateNode(node), nil
 	case "extension-header":
-		name := util.LCase(string(node.Children[0].Value))
+		name := util.ToLower(string(node.Children[0].Value))
 		if prs, ok := customParsers.Load(name); ok && prs != nil {
-			//nolint:forcetypeassert
+			//nolint:forcetypeassert // customParsers only stores Parser
 			return errors.Wrap2(prs.(Parser)(
 				node.Children[0].String(),
 				grammar.MustGetNode(node, "header-value").Value,
@@ -414,7 +268,7 @@ func FromABNF(node *abnf.Node) (hdr Header, err error) {
 	}
 }
 
-func buildFromHeaderParamNodes(nodes abnf.Nodes, params Values) Values {
+func buildFromHdrParamNodes(nodes abnf.Nodes, params Values) Values {
 	if len(nodes) == 0 {
 		return params
 	}
@@ -448,7 +302,6 @@ func buildFromHeaderParamNodes(nodes abnf.Nodes, params Values) Values {
 		}
 		params.Append(node.Children[0].String(), string(val))
 	}
-
 	return params
 }
 
@@ -490,17 +343,15 @@ func FromJSON[T ~string | ~[]byte](data T) (Header, error) {
 	if err := json.Unmarshal([]byte(data), &hd); err != nil {
 		return nil, errors.Wrap(err)
 	}
-
 	if hd == nil {
 		// json null
-		return nil, nil //nolint:nilnil
+		return nil, nil //nolint:nilnil // nil message and nil error mean JSON null input
 	}
 
 	if hd.Name == "" {
 		// json {} or {"value":"..."}
 		return &Any{Value: hd.Value}, nil
 	}
-
 	return errors.Wrap2(Parse(hd.Name + ":" + hd.Value))
 }
 

@@ -13,7 +13,7 @@ func Unescape[T ~string | ~[]byte](s T) T {
 	var b bytes.Buffer
 	b.Grow(len(s))
 	for i := 0; i < len(s); i++ {
-		if s[i] == '%' && i+2 <= len(s) && ishex(s[i+1]) && ishex(s[i+2]) {
+		if s[i] == '%' && i+2 <= len(s) && isHex(s[i+1]) && isHex(s[i+2]) {
 			b.WriteByte(unhex(s[i+1])<<4 | unhex(s[i+2]))
 			i += 2
 		} else {
@@ -38,15 +38,15 @@ func Escape[T ~string | ~[]byte](s T, shouldEscape func(c byte) bool) T {
 	b.Grow(len(s))
 	for i := 0; i < len(s); i++ {
 		switch {
-		case s[i] == '%' && i+2 <= len(s) && ishex(s[i+1]) && ishex(s[i+2]):
+		case s[i] == '%' && i+2 <= len(s) && isHex(s[i+1]) && isHex(s[i+2]):
 			b.WriteByte(s[i])
 			b.WriteByte(s[i+1])
 			b.WriteByte(s[i+2])
 			i += 2
 		case shouldEscape(s[i]):
 			b.WriteByte('%')
-			b.WriteByte(upperhex[s[i]>>4])
-			b.WriteByte(upperhex[s[i]&15])
+			b.WriteByte(upperHex[s[i]>>4])
+			b.WriteByte(upperHex[s[i]&15])
 		default:
 			b.WriteByte(s[i])
 		}
@@ -55,9 +55,9 @@ func Escape[T ~string | ~[]byte](s T, shouldEscape func(c byte) bool) T {
 	return T(b.Bytes())
 }
 
-const upperhex = "0123456789ABCDEF"
+const upperHex = "0123456789ABCDEF"
 
-func ishex(c byte) bool {
+func isHex(c byte) bool {
 	switch {
 	case '0' <= c && c <= '9':
 		return true
@@ -75,9 +75,9 @@ func unhex(c byte) byte {
 	case '0' <= c && c <= '9':
 		return c - '0'
 	case 'a' <= c && c <= 'f':
-		return c - 'a' + 10
+		return c - 'a' + 10 //nolint:mnd // hex letter digit offset
 	case 'A' <= c && c <= 'F':
-		return c - 'A' + 10
+		return c - 'A' + 10 //nolint:mnd // hex letter digit offset
 	}
 
 	return 0

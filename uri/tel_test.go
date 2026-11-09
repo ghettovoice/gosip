@@ -45,7 +45,7 @@ func TestTel_Render(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.Render(); got != tt.want {
-				t.Errorf("uri.Render() = %q, want %q", got, tt.want)
+				t.Errorf("u.Render() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -71,11 +71,9 @@ func TestTel_RenderTo(t *testing.T) {
 
 			var sb strings.Builder
 			_, err := tt.uri.RenderTo(&sb)
-
 			if diff := cmp.Diff(err, tt.wantErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("uri.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
+				t.Errorf("u.RenderTo(&sb) error = %v, want %v\ndiff (-got +want):\n%v", err, tt.wantErr, diff)
 			}
-
 			if got := sb.String(); got != tt.wantRes {
 				t.Errorf("sb.String() = %q, want %q", got, tt.wantRes)
 			}
@@ -100,7 +98,7 @@ func TestTel_String(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.String(); got != tt.want {
-				t.Errorf("uri.String() = %q, want %q", got, tt.want)
+				t.Errorf("u.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -203,7 +201,7 @@ func TestTel_Equal(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.Equal(tt.val); got != tt.want {
-				t.Errorf("uri.Equal(val) = %v, want %v", got, tt.want)
+				t.Errorf("u.Equal(val) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -234,7 +232,7 @@ func TestTel_IsValid(t *testing.T) {
 			t.Parallel()
 
 			if got := tt.uri.IsValid(); got != tt.want {
-				t.Errorf("uri.IsValid() = %v, want %v", got, tt.want)
+				t.Errorf("u.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -260,22 +258,20 @@ func TestTel_Clone(t *testing.T) {
 			t.Parallel()
 
 			got := tt.uri.Clone()
-
 			if tt.uri == nil {
 				if got != nil {
-					t.Errorf("uri.Clone() = %+v, want nil", got)
+					t.Errorf("u.Clone() = %+v, want nil", got)
 				}
 				return
 			}
-
 			if diff := cmp.Diff(got, tt.uri); diff != "" {
-				t.Errorf("uri.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.uri, diff)
+				t.Errorf("u.Clone() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.uri, diff)
 			}
 		})
 	}
 }
 
-func TestTel_IsGlob(t *testing.T) {
+func TestTel_IsGlobal(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -293,8 +289,8 @@ func TestTel_IsGlob(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := tt.uri.IsGlob(); got != tt.want {
-				t.Errorf("uri.IsGlob() = %v, want %v", got, tt.want)
+			if got := tt.uri.IsGlobal(); got != tt.want {
+				t.Errorf("u.IsGlobal() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -353,9 +349,8 @@ func TestTel_ToSIP(t *testing.T) {
 			t.Parallel()
 
 			got := tt.uri.ToSIP()
-
 			if diff := cmp.Diff(got, tt.want); diff != "" {
-				t.Errorf("uri.ToSIP() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
+				t.Errorf("u.ToSIP() = %+v, want %+v\ndiff (-got +want):\n%v", got, tt.want, diff)
 			}
 		})
 	}
@@ -397,19 +392,17 @@ func TestTel_RoundTripText(t *testing.T) {
 
 			text, err := tt.uri.MarshalText()
 			if err != nil {
-				t.Fatalf("uri.MarshalText() error = %v, want nil", err)
+				t.Fatalf("want.MarshalText() error = %v, want nil", err)
 			}
 
 			var got uri.Tel
 			err = got.UnmarshalText(text)
-
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("got.UnmarshalText(text) error = nil, want error")
 				}
 				return
 			}
-
 			if err != nil {
 				t.Fatalf("got.UnmarshalText(text) error = %v, want nil", err)
 			}

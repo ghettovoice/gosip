@@ -6,18 +6,18 @@ import (
 	"github.com/ghettovoice/gosip/internal/errors"
 )
 
-type packetConnAdapter struct {
+type pktConnAdapter struct {
 	net.Conn
 }
 
 func NewPacketConnAdapter(c net.Conn) net.Conn {
-	if _, ok := AsConn[*packetConnAdapter](c); ok {
+	if _, ok := AsConn[*pktConnAdapter](c); ok {
 		return c
 	}
-	return &packetConnAdapter{Conn: c}
+	return &pktConnAdapter{Conn: c}
 }
 
-func (c *packetConnAdapter) ReadFrom(b []byte) (int, net.Addr, error) {
+func (c *pktConnAdapter) ReadFrom(b []byte) (int, net.Addr, error) {
 	switch conn := c.Conn.(type) {
 	case net.PacketConn:
 		return errors.Wrap3(conn.ReadFrom(b))
@@ -27,7 +27,7 @@ func (c *packetConnAdapter) ReadFrom(b []byte) (int, net.Addr, error) {
 	}
 }
 
-func (c *packetConnAdapter) WriteTo(b []byte, addr net.Addr) (int, error) {
+func (c *pktConnAdapter) WriteTo(b []byte, addr net.Addr) (int, error) {
 	switch conn := c.Conn.(type) {
 	case net.PacketConn:
 		return errors.Wrap2(conn.WriteTo(b, addr))
@@ -37,7 +37,7 @@ func (c *packetConnAdapter) WriteTo(b []byte, addr net.Addr) (int, error) {
 	}
 }
 
-func (c *packetConnAdapter) Unwrap() net.Conn {
+func (c *pktConnAdapter) Unwrap() net.Conn {
 	if c == nil {
 		return nil
 	}

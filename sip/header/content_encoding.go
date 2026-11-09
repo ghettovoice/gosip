@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strconv"
 
 	"github.com/ghettovoice/abnf"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/grammar"
-	"github.com/ghettovoice/gosip/internal/ioutil"
 	"github.com/ghettovoice/gosip/internal/util"
 )
 
@@ -24,95 +22,53 @@ func (hdr ContentEncoding) RenderTo(w io.Writer, opts ...RenderOptions) (num int
 	if hdr == nil {
 		return 0, nil
 	}
-
-	cw := ioutil.GetCountingWriter(w)
-	defer ioutil.FreeCountingWriter(cw)
-
-	cw.Fprint(hdr.name(opts...), ": ")
-	cw.Call(hdr.renderValueTo)
-	return errors.Wrap2(cw.Result())
+	return errors.Wrap2(renderHdrTo(w, hdr, opts...))
 }
 
-func (hdr ContentEncoding) name(opts ...RenderOptions) Name {
-	if util.LastSliceElemOr(opts, RenderOptions{}).Compact {
-		return hdr.CompactName()
-	}
-	return hdr.CanonicName()
-}
-
-func (hdr ContentEncoding) renderValueTo(w io.Writer) (num int, err error) {
-	return errors.Wrap2(renderHdrEntries(w, hdr))
+func (hdr ContentEncoding) renderValTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
+	return errors.Wrap2(renderHdrTokensTo(w, hdr))
 }
 
 func (hdr ContentEncoding) Render(opts ...RenderOptions) string {
-	if hdr == nil {
-		return ""
-	}
-
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.RenderTo(sb, opts...)
-	return sb.String()
+	return render(hdr, opts...)
 }
 
 func (hdr ContentEncoding) RenderValue() string {
-	sb := util.GetStringBuilder()
-	defer util.FreeStringBuilder(sb)
-
-	_, _ = hdr.renderValueTo(sb)
-	return sb.String()
+	return renderHdrVal(hdr)
 }
 
-func (hdr ContentEncoding) String() string { return hdr.RenderValue() }
+func (hdr ContentEncoding) String() string {
+	return hdr.RenderValue()
+}
 
 func (hdr ContentEncoding) Format(f fmt.State, verb rune) {
-	switch verb {
-	case 's':
-		if f.Flag('+') {
-			_, _ = hdr.RenderTo(f)
-			return
-		}
-		fmt.Fprint(f, hdr.String())
-		return
-	case 'q':
-		if f.Flag('+') {
-			fmt.Fprint(f, strconv.Quote(hdr.Render()))
-			return
-		}
-		fmt.Fprint(f, strconv.Quote(hdr.String()))
-		return
-	default:
-		type (
-			hideMethods     ContentEncoding
-			ContentEncoding hideMethods
-		)
-		fmt.Fprintf(f, fmt.FormatString(f, verb), ContentEncoding(hdr))
+	if formatHdr(f, verb, hdr) {
 		return
 	}
+	type (
+		hideMethods     ContentEncoding
+		ContentEncoding hideMethods
+	)
+	fmt.Fprintf(f, fmt.FormatString(f, verb), ContentEncoding(hdr))
 }
 
-func (hdr ContentEncoding) Clone() Header { return slices.Clone(hdr) }
+func (hdr ContentEncoding) Clone() Header {
+	return slices.Clone(hdr)
+}
 
 func (hdr ContentEncoding) Equal(val any) bool {
-	var other ContentEncoding
-	switch v := val.(type) {
-	case ContentEncoding:
-		other = v
-	case *ContentEncoding:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return slices.EqualFunc(hdr, other, func(enc1, enc2 Encoding) bool { return enc1.Equal(enc2) })
+	return util.EqualValue(val, func(other ContentEncoding) bool {
+		return slices.EqualFunc(hdr, other, func(enc1, enc2 Encoding) bool {
+			return enc1.Equal(enc2)
+		})
+	})
 }
 
 func (hdr ContentEncoding) IsValid() bool {
-	return len(hdr) > 0 && !slices.ContainsFunc(hdr, func(enc Encoding) bool { return !enc.IsValid() })
+	return len(hdr) > 0 &&
+		!slices.ContainsFunc(hdr, func(enc Encoding) bool {
+			return !enc.IsValid()
+		})
 }
 
 func (hdr ContentEncoding) MarshalJSON() ([]byte, error) {
@@ -120,7 +76,7 @@ func (hdr ContentEncoding) MarshalJSON() ([]byte, error) {
 }
 
 func (hdr *ContentEncoding) UnmarshalJSON(data []byte) error {
-	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), emptyHdrValue))
+	return errors.Wrap(unmarshalHdrJSON(data, hdr, hdr.CanonicName(), isEmptyHdrVal))
 }
 
 func buildFromContentEncodingNode(node *abnf.Node) ContentEncoding {
@@ -134,21 +90,12 @@ func buildFromContentEncodingNode(node *abnf.Node) ContentEncoding {
 
 type Encoding string
 
-func (enc Encoding) IsValid() bool { return grammar.IsToken(enc) }
+func (enc Encoding) IsValid() bool {
+	return grammar.IsToken(enc)
+}
 
 func (enc Encoding) Equal(val any) bool {
-	var other Encoding
-	switch v := val.(type) {
-	case Encoding:
-		other = v
-	case *Encoding:
-		if v == nil {
-			return false
-		}
-		other = *v
-	default:
-		return false
-	}
-
-	return util.EqFold(enc, other)
+	return util.EqualValue(val, func(other Encoding) bool {
+		return util.EqualFold(enc, other)
+	})
 }

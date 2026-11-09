@@ -85,10 +85,10 @@
 //
 // The [URI] interface unifies all URI types and provides:
 //
-//   - Rendering: [types.Renderer] interface for string serialization with custom options
-//   - Cloning: [types.Cloneable] interface for creating deep copies
-//   - Validation: [types.ValidFlag] interface for syntax validation
-//   - Equality: [types.Equalable] interface for RFC-compliant comparison
+//   - Rendering: [shared.Renderer] interface for string serialization with custom options
+//   - Cloning: [shared.Cloneable] interface for creating deep copies
+//   - Validation: [shared.ValidFlag] interface for syntax validation
+//   - Equality: [shared.Equalable] interface for RFC-compliant comparison
 //
 // # Serialization
 //
@@ -105,15 +105,15 @@
 //
 // # Network Addresses
 //
-// The [Addr] type (alias for [types.Addr]) represents host:port combinations with
+// The [Addr] type (alias for [shared.Addr]) represents host:port combinations with
 // optional port. Helper functions [MakeHostAddr] and [MakeHostPortAddr] construct addresses,
 // and [ParseAddr] parses them from strings.
 //
 // # Parameters and Headers
 //
-// The [Values] type (alias for [types.Values]) is a multi-value map for URI parameters
+// The [Values] type (alias for [shared.Values]) is a multi-value map for URI parameters
 // and headers, similar to [net/url.Values]. Keys are case-insensitive and normalized
-// to lowercase. See [types.Values] for available methods.
+// to lowercase. See [shared.Values] for available methods.
 //
 // # RFC Compliance
 //

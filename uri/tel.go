@@ -26,9 +26,9 @@ type Tel struct {
 	Params Values
 }
 
-// IsGlob checks whether the telephone number is global or not.
+// IsGlobal checks whether the telephone number is global or not.
 // RFC 3966 Section 5.1.4.
-func (u *Tel) IsGlob() bool { return u != nil && grammar.IsGlobTelNum(u.number()) }
+func (u *Tel) IsGlobal() bool { return u != nil && grammar.IsGlobalPhoneNumber(u.number()) }
 
 // Clone returns a deep copy of the Tel URI.
 func (u *Tel) Clone() URI {
@@ -36,9 +36,9 @@ func (u *Tel) Clone() URI {
 		return nil
 	}
 
-	u2 := *u
-	u2.Params = u.Params.Clone()
-	return &u2
+	clone := *u
+	clone.Params = u.Params.Clone()
+	return &clone
 }
 
 // Scheme returns the URI scheme.
@@ -59,7 +59,7 @@ func (u *Tel) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 		var kvs [][]string
 		for k := range u.Params {
 			v, _ := u.Params.Last(k)
-			kvs = append(kvs, []string{util.LCase(k), v})
+			kvs = append(kvs, []string{util.ToLower(k), v})
 		}
 
 		// RFC 3966 Section 3.
@@ -79,7 +79,7 @@ func (u *Tel) RenderTo(w io.Writer, _ ...RenderOptions) (num int, err error) {
 				return 1
 			}
 
-			return util.CmpKVs(a, b)
+			return util.CompareKeys(a, b)
 		})
 
 		for _, kv := range kvs {
@@ -155,7 +155,7 @@ func (u *Tel) Equal(val any) bool {
 	// URI comparison is case-insensitive.
 	// Both must be either a local or a global number, i.e., start with a '+'.
 	// The numbers must be equal after removing all visual separators.
-	return util.EqFold(grammar.CleanTelNum(u.number()), grammar.CleanTelNum(other.number())) &&
+	return util.EqualFold(grammar.CleanPhoneNumber(u.number()), grammar.CleanPhoneNumber(other.number())) &&
 		u.compareParams(other.Params)
 }
 
@@ -176,17 +176,17 @@ func (u *Tel) compareParams(params Values) bool {
 
 		v1, _ := u.Params.Last(k)
 		v2, _ := params.Last(k)
-		switch util.LCase(k) {
+		switch util.ToLower(k) {
 		case "ext", "phone-context":
-			if grammar.IsTelNum(v1) {
-				v1 = grammar.CleanTelNum(v1)
+			if grammar.IsPhoneNumber(v1) {
+				v1 = grammar.CleanPhoneNumber(v1)
 			}
-			if grammar.IsTelNum(v2) {
-				v2 = grammar.CleanTelNum(v2)
+			if grammar.IsPhoneNumber(v2) {
+				v2 = grammar.CleanPhoneNumber(v2)
 			}
 		}
 
-		if !util.EqFold(v1, v2) {
+		if !util.EqualFold(v1, v2) {
 			return false
 		}
 	}
@@ -204,8 +204,8 @@ func (u *Tel) IsValid() bool {
 		return false
 	}
 
-	if !u.IsGlob() {
-		if ctx, ok := u.Params.Last("phone-context"); !ok || grammar.CleanTelNum(ctx) == "" {
+	if !u.IsGlobal() {
+		if ctx, ok := u.Params.Last("phone-context"); !ok || grammar.CleanPhoneNumber(ctx) == "" {
 			return false
 		}
 	}
@@ -225,24 +225,24 @@ func (u *Tel) ToSIP() *SIP {
 		return nil
 	}
 
-	u2, _ := u.Clone().(*Tel)
-	u2.Number = grammar.CleanTelNum(u2.Number)
+	clone, _ := u.Clone().(*Tel)
+	clone.Number = grammar.CleanPhoneNumber(clone.Number)
 
 	var host string
-	if ctx, _ := u2.Params.Last("phone-context"); grammar.IsHost(ctx) && host == "" {
+	if ctx, _ := clone.Params.Last("phone-context"); grammar.IsHost(ctx) && host == "" {
 		host = ctx
 	} else if ctx != "" && !grammar.IsHost(ctx) {
-		u2.Params.Set("phone-context", grammar.CleanTelNum(ctx))
+		clone.Params.Set("phone-context", grammar.CleanPhoneNumber(ctx))
 	}
 
-	if ext, _ := u2.Params.Last("ext"); ext != "" {
-		u2.Params.Set("ext", grammar.CleanTelNum(ext))
+	if ext, _ := clone.Params.Last("ext"); ext != "" {
+		clone.Params.Set("ext", grammar.CleanPhoneNumber(ext))
 	}
 	// RFC 3966 Section 4.
 	// All parameter names and values SHOULD use lower-case characters, as
 	// tel URIs may be used within contexts where comparisons are case-sensitive.
 	return &SIP{
-		User:   MakeUserInfo(util.LCase(u2.Render()[4:])),
+		User:   MakeUserInfo(util.ToLower(clone.Render()[4:])),
 		Addr:   MakeHostAddr(host),
 		Params: make(Values).Set("user", "phone"),
 	}
@@ -264,12 +264,12 @@ func (u *Tel) UnmarshalText(text []byte) error {
 		return nil
 	}
 
-	u1, err := ParseTel(string(text))
+	parsed, err := ParseTel(string(text))
 	if err != nil {
 		return errors.Wrap(err)
 	}
 
-	*u = *u1
+	*u = *parsed
 	return nil
 }
 
@@ -329,27 +329,27 @@ func buildFromTelURINode(node *abnf.Node) *Tel {
 }
 
 func buildTelURIParams(node *abnf.Node) Values {
-	ns := node.GetNodes("par")
+	paramNodes := node.GetNodes("par")
 	if n, ok := node.GetNode("context"); ok {
-		ns = append(abnf.Nodes{n}, ns...)
+		paramNodes = append(abnf.Nodes{n}, paramNodes...)
 	}
 
-	if len(ns) == 0 {
+	if len(paramNodes) == 0 {
 		return nil
 	}
 
-	ps := make(Values, len(ns))
-	for _, n := range ns {
+	params := make(Values, len(paramNodes))
+	for _, n := range paramNodes {
 		switch n.Key {
 		case "context":
-			ps.Append(
+			params.Append(
 				strings.Trim(n.Children[0].String(), ";="),
 				grammar.Unescape(n.Children[1].String()),
 			)
 		default:
 			switch n.Children[0].Key {
 			case "extension", "isdn-subaddress":
-				ps.Append(
+				params.Append(
 					strings.Trim(n.Children[0].Children[0].String(), ";="),
 					grammar.Unescape(n.Children[0].Children[1].String()),
 				)
@@ -358,7 +358,7 @@ func buildTelURIParams(node *abnf.Node) Values {
 				if vn, ok := n.GetNode("pvalue"); ok {
 					pval = grammar.Unescape(vn.String())
 				}
-				ps.Append(
+				params.Append(
 					grammar.MustGetNode(n, "pname").String(),
 					grammar.Unescape(pval),
 				)
@@ -366,5 +366,5 @@ func buildTelURIParams(node *abnf.Node) Values {
 		}
 	}
 
-	return ps
+	return params
 }

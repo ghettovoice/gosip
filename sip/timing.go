@@ -1,7 +1,10 @@
 package sip
 
 import (
+	"math"
 	"time"
+
+	"github.com/ghettovoice/gosip/internal/errors"
 )
 
 // Default values for SIP timers as described in RFC 3261.
@@ -124,3 +127,36 @@ func (c TimingConfig) TimeL() time.Duration { return 64 * c.t1() }
 // additional 2xx from other branches of a forked INVITE.
 // It is equal to 64*[TimingConfig.T1].
 func (c TimingConfig) TimeM() time.Duration { return 64 * c.t1() }
+
+// nonInviteTryingDelay returns the cumulative delay before a delayed Trying
+// response becomes eligible for a non-INVITE server transaction: the sum of
+// the effective Timer E backoff intervals until the interval first reaches
+// T2 (default 0.5 + 1 + 2 = 3.5 seconds). A T1 already reaching or exceeding
+// T2 makes Trying immediately eligible.
+//
+// The backoff interval is clamped to T2 before doubling so a mathematically
+// valid delay is not rejected for a naive doubling overflow; a genuinely
+// overflowing accumulated sum is rejected instead.
+func (cfg TimingConfig) nonInviteTryingDelay() (time.Duration, error) {
+	t1, t2 := cfg.t1(), cfg.t2()
+	if t1 >= t2 {
+		return 0, nil
+	}
+
+	var delay time.Duration
+	for interval := t1; interval < t2; {
+		if delay > math.MaxInt64-interval {
+			return 0, errors.ErrorfWrap(
+				"non-INVITE Trying delay overflow: T1 %s, T2 %s", t1, t2,
+			)
+		}
+		delay += interval
+		if interval >= t2-interval {
+			interval = t2
+		} else {
+			interval *= 2
+		}
+	}
+
+	return delay, nil
+}

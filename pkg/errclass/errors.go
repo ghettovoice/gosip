@@ -5,12 +5,12 @@ import "errors"
 
 // Class identifies a broad classification of an error.
 //
-//nolint:errname
+//nolint:errname // Class is a classification label, not an error type
 type Class string
 
 // Common error classes.
 //
-//nolint:errname
+//nolint:errname // class constants are categories, not errors
 const (
 	ClassClosed    Class = "closed"
 	ClassTimeout   Class = "timeout"
@@ -45,7 +45,7 @@ func Classify(base error, class Class, otherClasses ...Class) error {
 	for _, class := range otherClasses {
 		err.classes[class] = true
 	}
-	return err
+	return err //errtrace:skip
 }
 
 func (e *Error) Error() string {

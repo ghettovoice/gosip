@@ -16,7 +16,7 @@ import (
 // used for IO because it applies its own fixed deadlines; the message is used
 // only as a codec. The caller's context controls how long the exchange may take.
 func (r *Resolver) exchangeNAPTR(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
-	conn, err := r.dialer.DialContext(ctx, "udp", r.nameSrv)
+	conn, err := r.netDlr.DialContext(ctx, "udp", r.nameSrv)
 	if err != nil {
 		return nil, errors.Wrap(err)
 	}
@@ -66,17 +66,17 @@ func exchangeDNS(ctx context.Context, conn net.Conn, req *dns.Msg) (*dns.Msg, er
 		return nil, errors.Wrap(err)
 	}
 
-	resp := &dns.Msg{Data: buf[:n]}
-	if err := resp.Unpack(); err != nil {
+	res := &dns.Msg{Data: buf[:n]}
+	if err := res.Unpack(); err != nil {
 		return nil, errors.Wrap(err)
 	}
-	if !resp.Response {
+	if !res.Response {
 		return nil, errors.ErrorWrap("received non-response DNS message")
 	}
-	if resp.ID != req.ID {
+	if res.ID != req.ID {
 		return nil, errors.Wrap(dns.ErrID)
 	}
-	return resp, nil
+	return res, nil
 }
 
 // exchangeErr prefers the context error when the exchange was aborted by the
