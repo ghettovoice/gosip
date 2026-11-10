@@ -2,9 +2,11 @@ package sip_test
 
 import (
 	"context"
+	"iter"
 	"net"
 	"net/netip"
 	"testing"
+	"testing/synctest"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -15,6 +17,101 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 )
+
+type elementLookupFunc func(context.Context, *sip.URI, ...sip.LookupMessageAddrsOptions) iter.Seq[sip.ResolvedAddr]
+
+func (f elementLookupFunc) LookupRequestAddrs(ctx context.Context, uri *sip.URI, opts ...sip.LookupMessageAddrsOptions) iter.Seq[sip.ResolvedAddr] {
+	return f(ctx, uri, opts...)
+}
+
+func TestElement_LookupRequestAddrs(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"unconsumed", "break", "closed", "cancelled", "blocked", "cancel between yields", "close between yields"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				calls, yields := 0, 0
+				entered, resume := make(chan struct{}), make(chan struct{})
+				elm := &sip.Element{}
+				defer elm.Close()
+				elm.ServerLocator = elementLookupFunc(func(ctx context.Context, _ *sip.URI, _ ...sip.LookupMessageAddrsOptions) iter.Seq[sip.ResolvedAddr] {
+					calls++
+					owner, ok := sip.ElementFromContext(ctx)
+					if !ok || owner != elm {
+						t.Error("locator context does not carry element")
+					}
+					return func(yield func(sip.ResolvedAddr) bool) {
+						defer close(entered)
+						if name == "blocked" {
+							<-resume
+						}
+						for range 2 {
+							if !yield(sip.ResolvedAddr{Transport: "UDP", Addr: netip.MustParseAddrPort("192.0.2.1:5060")}) {
+								return
+							}
+						}
+					}
+				})
+				seq := elm.LookupRequestAddrs(ctx, &sip.URI{})
+				if calls != 0 {
+					t.Fatal("locator invoked before iteration")
+				}
+				switch name {
+				case "unconsumed":
+					return
+				case "closed":
+					if err := elm.Close(); err != nil {
+						t.Fatal(err)
+					}
+				case "cancelled":
+					cancel()
+				}
+				consume := func() {
+					for range seq {
+						yields++
+						switch name {
+						case "break":
+							return
+						case "cancel between yields":
+							cancel()
+						case "close between yields":
+							if err := elm.Close(); err != nil {
+								t.Error(err)
+							}
+						}
+					}
+				}
+				if name == "blocked" {
+					done := make(chan struct{})
+					go func() { consume(); close(done) }()
+					synctest.Wait()
+					if err := elm.Close(); err != nil {
+						t.Fatal(err)
+					}
+					close(resume)
+					<-done
+				} else {
+					consume()
+				}
+				wantCalls, wantYields := 1, 1
+				if name == "closed" || name == "cancelled" {
+					wantCalls, wantYields = 0, 0
+				}
+				if name == "blocked" {
+					wantYields = 0
+				}
+				if calls != wantCalls || yields != wantYields {
+					t.Fatalf("calls/yields = %d/%d, want %d/%d", calls, yields, wantCalls, wantYields)
+				}
+				if calls != 0 {
+					<-entered
+				}
+			})
+		})
+	}
+}
 
 func TestRemoteElementLocator_LookupRequestAddrs(t *testing.T) {
 	t.Parallel()

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/testutil"
+	"github.com/ghettovoice/gosip/internal/testutil/siptest"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 )
@@ -206,12 +207,7 @@ func newInInviteReq(
 ) *sip.RequestEnvelope {
 	tb.Helper()
 
-	req := sip.NewRequestEnvelope(newInviteReq(tb, tp, branch, rmtAddr)).
-		SetTransport(testTpMeta(tp)).
-		SetLocalAddr(locAddr).
-		SetRemoteAddr(rmtAddr)
-
-	return req
+	return siptest.NewInboundInvite(tb, tp, branch, locAddr, rmtAddr)
 }
 
 func newOutInviteReq(
@@ -222,12 +218,8 @@ func newOutInviteReq(
 ) *sip.RequestEnvelope {
 	tb.Helper()
 
-	req := sip.NewRequestEnvelope(newInviteReq(tb, tp, branch, locAddr)).
-		SetTransport(testTpMeta(tp)).
-		SetLocalAddr(locAddr).
+	return siptest.NewInboundInvite(tb, tp, branch, locAddr, locAddr).
 		SetRemoteAddr(rmtAddr)
-
-	return req
 }
 
 func newAckReq(tb testing.TB, invite *sip.Request, res *sip.Response) *sip.Request {
@@ -321,17 +313,7 @@ func newOutNonInviteReq(
 func newInRes(tb testing.TB, req *sip.RequestEnvelope, sts sip.ResponseStatus) *sip.ResponseEnvelope {
 	tb.Helper()
 
-	msg, err := req.Message().NewResponse(sts)
-	if err != nil {
-		tb.Fatalf("failed to create response: %v", err)
-	}
-
-	res := sip.NewResponseEnvelope(msg).
-		SetTransport(req.Transport()).
-		SetRemoteAddr(req.RemoteAddr()).
-		SetLocalAddr(req.LocalAddr())
-
-	return res
+	return siptest.NewInboundResponse(tb, req, sts)
 }
 
 func waitForTxState(tb testing.TB, tx sip.Transaction, want sip.TransactionState, timeout time.Duration) {

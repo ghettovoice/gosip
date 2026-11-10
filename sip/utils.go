@@ -48,13 +48,6 @@ func freeBufferedRdr(r *bufio.Reader) {
 	bufferedRdrPool.Put(r)
 }
 
-func clampToUint64(value int64) uint64 {
-	if value <= 0 {
-		return 0
-	}
-	return uint64(value)
-}
-
 func cloneTmrSnapshot(snap *timeutil.TimerSnapshot) *timeutil.TimerSnapshot {
 	if snap == nil {
 		return nil

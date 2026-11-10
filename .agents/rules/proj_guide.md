@@ -173,7 +173,8 @@ Use the common classes according to their actual meaning:
 | `errclass.ClassConflict` | A conflict such as duplicate registration |
 
 Add the appropriate SIP domain class where applicable: `sip.ErrClassMessage`, `sip.ErrClassTransport`,
-`sip.ErrClassTransaction`, `sip.ErrClassElement`, `sip.ErrClassParser`, or `sip.ErrClassProxy`.
+`sip.ErrClassTransaction`, `sip.ErrClassElement`, `sip.ErrClassParser`, or `proxy.ErrClass`
+(the proxy domain class lives in package `github.com/ghettovoice/gosip/sip/proxy`).
 Domain classes and common classes describe different aspects of the same error.
 
 For example, inside package `sip`, a newly implemented not-found boundary can construct:

@@ -16,6 +16,7 @@ import (
 	"github.com/ghettovoice/gosip/internal/util"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
+	"github.com/ghettovoice/gosip/sip/stats"
 )
 
 type stubTransact struct {
@@ -3945,7 +3946,7 @@ func TestTransactionManager_RegisterServerTransaction_HandlerClosesManager(t *te
 	})
 }
 
-func TestTransactionManager_StatsRecorder_RestoredTransactions(t *testing.T) {
+func TestTransactionManager_Recorder_RestoredTransactions(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
@@ -3957,7 +3958,7 @@ func TestTransactionManager_StatsRecorder_RestoredTransactions(t *testing.T) {
 			}
 		}()
 
-		rcdr := &sip.StatsRecorder{}
+		rcdr := &stats.Recorder{}
 		txm.BindTransactionHandler(rcdr)
 
 		remote := netip.MustParseAddrPort("55.55.55.55:5060")
@@ -4050,12 +4051,12 @@ func TestTransactionManager_StatsRecorder_RestoredTransactions(t *testing.T) {
 		assertStats := func(want uint64) {
 			t.Helper()
 
-			stats := rcdr.Report().Transactions
-			if stats.InviteClientTransactions != want || stats.InviteClientTransactionsTotal != 1 ||
-				stats.NonInviteClientTransactions != want || stats.NonInviteClientTransactionsTotal != 1 ||
-				stats.InviteServerTransactions != want || stats.InviteServerTransactionsTotal != 1 ||
-				stats.NonInviteServerTransactions != want || stats.NonInviteServerTransactionsTotal != 1 {
-				t.Fatalf("rcdr.Report().Transactions = %+v, want active %d and total 1 per type", stats, want)
+			txStats := rcdr.Report().Transactions
+			if txStats.InviteClientTransactions != want || txStats.InviteClientTransactionsTotal != 1 ||
+				txStats.NonInviteClientTransactions != want || txStats.NonInviteClientTransactionsTotal != 1 ||
+				txStats.InviteServerTransactions != want || txStats.InviteServerTransactionsTotal != 1 ||
+				txStats.NonInviteServerTransactions != want || txStats.NonInviteServerTransactionsTotal != 1 {
+				t.Fatalf("rcdr.Report().Transactions = %+v, want active %d and total 1 per type", txStats, want)
 			}
 		}
 		assertStats(1)

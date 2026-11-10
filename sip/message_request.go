@@ -51,13 +51,6 @@ type Request struct {
 	Proto   ProtoInfo     `json:"proto"`
 	Headers Headers       `json:"headers,omitempty"`
 	Body    []byte        `json:"body,omitempty"`
-
-	// forwarded marks an owned proxy branch copy of a forwarded request.
-	// Endpoint conveniences that would corrupt a forwarded message (such as
-	// inventing a From tag) honor it. It is trusted in-memory provenance only:
-	// clones keep it, JSON rebuilds reset it, and it is never a wire header or
-	// a serialized user-controlled field.
-	forwarded bool
 }
 
 var _ Message = (*Request)(nil)
@@ -279,8 +272,6 @@ func (req *Request) UnmarshalJSON(data []byte) error {
 	req.Proto = reqData.Proto
 	req.Headers = reqData.Headers
 	req.Body = reqData.Body
-	// The forwarded marker is in-memory provenance, never a serialized field.
-	req.forwarded = false
 	if u, err := ParseAnyURI(reqData.URI); err == nil {
 		req.URI = u
 	} else {
@@ -377,7 +368,7 @@ func NewRequest(mtd RequestMethod, ruri, furi, turi AnyURI, opts ...RequestOptio
 	reqOpts := util.LastSliceElem(opts, RequestOptions{})
 
 	if u, ok := ruri.(*URI); ok {
-		ruri = cleanReqURI(u)
+		ruri = CleanRequestURI(u)
 	}
 
 	via := header.ViaHop{
@@ -421,32 +412,18 @@ func NewRequest(mtd RequestMethod, ruri, furi, turi AnyURI, opts ...RequestOptio
 	return req, nil
 }
 
+// EnsureRequestVia ensures the request's top Via hop exists and carries an
+// endpoint identity: the given transport and sent-by address (or defaults
+// when they are invalid) and an RFC 3261 branch when none is present.
+//
+// It is a raw endpoint helper: it rewrites the top Via unconditionally and
+// is not forwarding-aware. Use [RequestEnvelope.PrepareVia] on envelopes so
+// forwarded requests keep their transit identity.
 func EnsureRequestVia(req *Request, tp TransportProto, addr Addr) {
 	via, ok := req.Headers.FirstVia()
 	if !ok {
-		if req.forwarded {
-			// A forwarded request never gains an invented endpoint Via; the
-			// proxy inserts its own hop explicitly before the send.
-			return
-		}
 		req.Headers.PrependVia(header.ViaHop{Proto: protoVer20})
 		via, _ = req.Headers.FirstVia()
-	}
-
-	if req.forwarded {
-		// Only a proxy-owned top hop may be updated with the selected
-		// transport and sent-by. The forwarded peer's top Via is never
-		// rewritten, and a proxy branch is never regenerated here.
-		if b, ok := via.Branch(); !ok || !isPrxBranch(b) {
-			return
-		}
-		if tp.IsValid() {
-			via.Transport = tp
-		}
-		if addr.IsValid() {
-			via.Addr = addr
-		}
-		return
 	}
 
 	if tp.IsValid() {
@@ -469,6 +446,9 @@ func EnsureRequestVia(req *Request, tp TransportProto, addr Addr) {
 	}
 }
 
+// EnsureRequestViaMulticast sets the maddr parameter (and ttl=1 for IPv4)
+// on the request's top Via hop when addr is a multicast address. Requests
+// without a Via header or with a non-multicast addr are left unchanged.
 func EnsureRequestViaMulticast(req *Request, addr netip.Addr) {
 	addr = addr.Unmap()
 	if !addr.IsMulticast() {
@@ -486,13 +466,14 @@ func EnsureRequestViaMulticast(req *Request, addr netip.Addr) {
 	}
 }
 
+// EnsureRequestFromTag fills the request's From header with a generated tag
+// when the tag is absent. Requests without a From header or with an existing
+// tag are left unchanged.
+//
+// It is a raw endpoint helper: it is not forwarding-aware. Use
+// [RequestEnvelope.EnsureFromTag] on envelopes so forwarded requests keep
+// their downstream From identity, including an absent tag.
 func EnsureRequestFromTag(req *Request) {
-	if req.forwarded {
-		// A forwarded request keeps its dialog identity verbatim; a proxy
-		// must not manufacture a From tag for it.
-		return
-	}
-
 	from, ok := req.Headers.From()
 	if !ok || from == nil {
 		return
@@ -510,20 +491,34 @@ func EnsureRequestFromTag(req *Request) {
 // reqForwarded reports whether the envelope's request carries the forwarded
 // branch-copy marker.
 func reqForwarded(req *RequestEnvelope) bool {
-	var forwarded bool
-	if req != nil {
-		req.WithMessage(func(r *Request) { forwarded = r.forwarded })
-	}
-	return forwarded
+	return req != nil && req.Forwarded()
 }
 
-// setReqForwarded marks or unmarks an owned request copy as a forwarded
-// branch copy.
-func setReqForwarded(req *RequestEnvelope, forwarded bool) {
-	if req == nil {
+// restoreReqForwarded merges a legacy client checkpoint marker into the
+// envelope metadata of the transaction's outbound request. A true marker
+// re-establishes forwarding and, when the designation is missing, recovers it
+// from the saved top Via: the transaction itself sent that hop, so it is the
+// local one. A false marker never clears metadata, and an unmarked request
+// never gains a guessed designation.
+func restoreReqForwarded(req *RequestEnvelope, forwarded bool) {
+	if req == nil || !forwarded {
 		return
 	}
-	req.WithMessage(func(r *Request) { r.forwarded = forwarded })
+
+	req.MarkForwarded()
+	if req.ForwardedViaBranch() != "" {
+		return
+	}
+
+	var branch string
+	req.WithMessage(func(r *Request) {
+		if via, ok := r.Headers.FirstVia(); ok && via != nil {
+			branch, _ = via.Branch()
+		}
+	})
+	if branch != "" {
+		req.SetForwardedViaBranch(branch)
+	}
 }
 
 // EnsureRequestMaxForwards fills an absent Max-Forwards header field with
@@ -741,5 +736,15 @@ func NewCancelRequestEnvelope(inv *RequestEnvelope) (*RequestEnvelope, error) {
 		SetTransport(inv.Transport()).
 		SetLocalAddr(inv.LocalAddr()).
 		SetRemoteAddr(inv.RemoteAddr())
+	// The CANCEL reuses the INVITE top Via, so forwarding provenance and the
+	// local-hop designation carry over. Other metadata, such as the INVITE
+	// transaction binding, is deliberately left behind: the CANCEL starts its
+	// own transaction.
+	if inv.Forwarded() {
+		cncEnv.MarkForwarded()
+		if branch := inv.ForwardedViaBranch(); branch != "" {
+			cncEnv.SetForwardedViaBranch(branch)
+		}
+	}
 	return cncEnv, nil
 }

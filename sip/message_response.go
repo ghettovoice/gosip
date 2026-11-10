@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/ioutil"
@@ -117,13 +118,6 @@ type Response struct {
 	Proto   ProtoInfo      `json:"proto"`
 	Headers Headers        `json:"headers,omitempty"`
 	Body    []byte         `json:"body,omitempty"`
-
-	// preserveToTag marks an owned proxied response copy whose To header tag
-	// must be forwarded verbatim. Endpoint conveniences that would manufacture
-	// a dialog tag honor it. It is trusted in-memory provenance only: clones
-	// keep it, JSON rebuilds reset it, and it is never a wire header or a
-	// serialized user-controlled field.
-	preserveToTag bool
 }
 
 var _ Message = (*Response)(nil)
@@ -345,9 +339,6 @@ func (res *Response) UnmarshalJSON(data []byte) error {
 	res.Proto = resData.Proto
 	res.Headers = resData.Headers
 	res.Body = resData.Body
-	// The preserveToTag marker is in-memory provenance, never a serialized
-	// field; trusted checkpoint state reestablishes it on restore.
-	res.preserveToTag = false
 	return nil
 }
 
@@ -395,12 +386,15 @@ func (req *Request) NewResponse(sts ResponseStatus, opts ...ResponseOptions) (*R
 	return res, nil
 }
 
+// EnsureResponseToTag fills the response's To header with tag (or a
+// generated tag when tag is empty) when the tag is absent. Responses
+// without a To header, with an existing tag, or with status 100 Trying are
+// left unchanged.
+//
+// It is a raw endpoint helper: it is not forwarding-aware. Use
+// [ResponseEnvelope.EnsureToTag] on envelopes so forwarded responses keep
+// their downstream To identity, including an absent tag.
 func EnsureResponseToTag(res *Response, tag string) {
-	if res.preserveToTag {
-		// A forwarded response keeps its dialog identity verbatim; a proxy
-		// must not manufacture a To tag for it.
-		return
-	}
 	if res.Status.Equal(ResponseStatusTrying) {
 		return
 	}
@@ -453,6 +447,26 @@ func (r *ResponseEnvelope) SetRemoteAddr(addr netip.AddrPort) *ResponseEnvelope 
 func (r *ResponseEnvelope) UpdateFrom(other *ResponseEnvelope) *ResponseEnvelope {
 	r.MessageEnvelope.UpdateFrom(other.MessageEnvelope)
 	return r
+}
+
+// RequestTime returns the request timestamp carried in the envelope metadata
+// by [RequestEnvelope.NewResponse]. The boolean result reports whether a
+// well-typed value was stored; a stored zero time still reports true so the
+// Timestamp-delay policy can decide how to treat it.
+func (r *ResponseEnvelope) RequestTime() (time.Time, bool) {
+	if r == nil || r.MessageEnvelope == nil {
+		return time.Time{}, false
+	}
+
+	val, ok := r.Metadata().Get(reqTimeMetaKey)
+	if !ok {
+		return time.Time{}, false
+	}
+	ts, ok := val.(time.Time)
+	if !ok {
+		return time.Time{}, false
+	}
+	return ts, true
 }
 
 func (r *ResponseEnvelope) Status() ResponseStatus {
@@ -516,20 +530,18 @@ func cloneResEnvelope(res *ResponseEnvelope) *ResponseEnvelope {
 // resPreservesToTag reports whether the envelope's response carries the
 // forwarded-copy To-tag preservation marker.
 func resPreservesToTag(res *ResponseEnvelope) bool {
-	var preserve bool
-	if res != nil {
-		res.WithMessage(func(r *Response) { preserve = r.preserveToTag })
-	}
-	return preserve
+	return res != nil && (res.Forwarded() || res.PreservesToTag())
 }
 
-// setResPreserveToTag marks or unmarks an owned response copy for To-tag
-// preservation.
+// setResPreserveToTag merges a legacy server checkpoint marker into the
+// envelope metadata of the transaction's last response. A true marker
+// re-establishes To-tag preservation; a false or absent marker never clears
+// metadata the checkpoint already carries, so a redundant legacy field can
+// not silently remove forwarding protection.
 func setResPreserveToTag(res *ResponseEnvelope, preserve bool) {
-	if res == nil {
-		return
+	if res != nil && preserve {
+		res.SetPreserveToTag(true)
 	}
-	res.WithMessage(func(r *Response) { r.preserveToTag = preserve })
 }
 
 func (r *ResponseEnvelope) Equal(val any) bool {

@@ -1219,15 +1219,24 @@ func (tb *transpBase[L]) sendReq(
 		return errors.Wrap(err)
 	}
 
-	req.SetLocalAddr(conn.LocalAddr()).
-		WithMessage(func(r *sip.Request) {
-			sip.EnsureRequestVia(r, tb.meta.Proto, tb.buildSentBy(req.LocalAddr()))
+	req.SetLocalAddr(conn.LocalAddr())
+	req.PrepareVia(tb.meta.Proto, tb.buildSentBy(req.LocalAddr()))
+	req.EnsureFromTag()
+	forwarded := req.Forwarded()
+	branch := req.ForwardedViaBranch()
+	req.WithMessage(func(r *sip.Request) {
+		via, ok := r.Headers.FirstVia()
+		var topBranch string
+		if ok {
+			topBranch, _ = via.Branch()
+		}
+		if !forwarded || (branch != "" && topBranch == branch) {
 			sip.EnsureRequestViaMulticast(r, raddr.Addr())
-			sip.EnsureRequestFromTag(r)
-			if tb.meta.Streamed() {
-				r.Headers.Set(header.ContentLength(len(r.Body)))
-			}
-		})
+		}
+		if tb.meta.Streamed() {
+			r.Headers.Set(header.ContentLength(len(r.Body)))
+		}
+	})
 	if err := req.Validate(); err != nil {
 		return errors.Wrap(err)
 	}
@@ -1279,17 +1288,19 @@ func (tb *transpBase[L]) sendRes(
 
 	res.SetTransport(tb.meta)
 
+	var tag string
 	var via header.ViaHop
 	res.WithMessage(func(r *sip.Response) {
 		if v, ok := r.Headers.FirstVia(); ok && v != nil {
 			via = v.Clone()
 		}
 
-		sip.EnsureResponseToTag(r, sip.GenerateStableToTag(r, []byte(tb.pubAddr.String())))
+		tag = sip.GenerateStableToTag(r, []byte(tb.pubAddr.String()))
 		if tb.meta.Streamed() {
 			r.Headers.Set(header.ContentLength(len(r.Body)))
 		}
 	})
+	res.EnsureToTag(tag)
 	if err := res.Validate(); err != nil {
 		return errors.Wrap(err)
 	}

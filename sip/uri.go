@@ -70,7 +70,10 @@ func ConvertURI(ctx context.Context, anyURI AnyURI) (*URI, error) {
 	return errors.Wrap2(defURIConverter.ConvertURI(ctx, anyURI))
 }
 
-func cleanReqURI(u *URI) *URI {
+// CleanRequestURI returns a clone of u with the "method" parameter and all
+// URI headers removed, ready to be installed as a forwarded Request-URI.
+// The input URI is never mutated.
+func CleanRequestURI(u *URI) *URI {
 	u2 := u.Clone().(*URI) //nolint:forcetypeassert // the concrete type is fixed by construction
 	u2.Params.Delete("method")
 	u2.Headers.Clear()

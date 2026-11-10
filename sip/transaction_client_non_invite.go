@@ -330,10 +330,9 @@ func RestoreNonInviteClientTransaction(
 	o.Timing = snap.Timing
 
 	req := snap.Request.Clone().(*RequestEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
-	// The forwarded marker is in-memory provenance that JSON rebuilds reset;
-	// the checkpoint carries it explicitly, so the owned clone gets it back
-	// before the transaction adopts the request.
-	setReqForwarded(req, snap.ForwardedRequest)
+	// Legacy checkpoints carry provenance only in this scalar. Restore it
+	// without clearing metadata already present on newer envelope snapshots.
+	restoreReqForwarded(req, snap.ForwardedRequest)
 
 	tx := new(NonInviteClientTransaction)
 	base, err := newBaseClnTransact(TransactionTypeClientNonInvite, tx, req, tp, o)

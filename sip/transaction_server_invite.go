@@ -571,8 +571,8 @@ func RestoreInviteServerTransaction(
 	tx.baseSrvTransact = base
 	if snap.LastResponse != nil {
 		lastRes := snap.LastResponse.Clone().(*ResponseEnvelope) //nolint:forcetypeassert // the concrete type is fixed by construction
-		// Reapply the forwarded-response provenance from trusted checkpoint
-		// state before Start can resend the cached response.
+		// Merge the legacy preservation scalar into envelope metadata before
+		// Start can resend the cached response; false never clears provenance.
 		setResPreserveToTag(lastRes, snap.PreserveResponseToTag)
 		tx.lastRes.Store(lastRes)
 	}

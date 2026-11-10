@@ -203,7 +203,7 @@ func newBaseClnTransact(
 	tp ClientTransport,
 	opts ClientTransactionOptions,
 ) (*baseClnTransact, error) {
-	req.WithMessage(func(r *Request) { EnsureRequestVia(r, "", Addr{}) })
+	req.PrepareVia("", Addr{})
 
 	if err := req.Validate(); err != nil {
 		return nil, errors.Wrap(err)

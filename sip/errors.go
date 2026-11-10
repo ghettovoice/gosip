@@ -18,7 +18,6 @@ const (
 	ErrClassTransaction errclass.Class = "transaction"
 	ErrClassElement     errclass.Class = "element"
 	ErrClassParser      errclass.Class = "parser"
-	ErrClassProxy       errclass.Class = "proxy"
 )
 
 // Common SIP errors.
@@ -63,13 +62,6 @@ func NewNoAddressError(args ...any) error {
 // 		return ErrClassElement | ErrClassClosed
 // 	case string(ErrNoAddress):
 // 		return ErrClassElement | ErrClassNotFound
-
-// 	case string(errUnsupURIScheme),
-// 		string(errTooManyHops),
-// 		string(errUnsupOption),
-// 		string(errAuthRequired),
-// 		string(errNoFwdTargets):
-// 		return ErrClassProxy
 
 // 	default:
 // 		return 0

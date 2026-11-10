@@ -72,3 +72,36 @@ func TestTransaction_State_SetterClosesTerminalMarker(t *testing.T) {
 		t.Fatalf("tx.Start() error = %v, want %v", err, ErrTransactionActionNotAllowed)
 	}
 }
+
+func TestClearTransactionBinding(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil metadata", func(t *testing.T) {
+		t.Parallel()
+
+		ClearTransactionBinding(nil)
+	})
+
+	t.Run("removes only transaction keys", func(t *testing.T) {
+		t.Parallel()
+
+		meta := &MessageMetadata{}
+		meta.
+			Set(txKeyMetaKey, "tx-key").
+			Set(txTypeMetaKey, "client").
+			Set("app_key", "app-value").
+			Set("sip.proxy_finalized", true)
+
+		ClearTransactionBinding(meta)
+
+		if meta.HasAny(txKeyMetaKey, txTypeMetaKey) {
+			t.Errorf("meta.HasAny(txKeyMetaKey, txTypeMetaKey) = true, want false")
+		}
+		if got, ok := meta.Get("app_key"); !ok || got != "app-value" {
+			t.Errorf("meta.Get(\"app_key\") = %v, %v, want %q, true", got, ok, "app-value")
+		}
+		if got, ok := meta.Get("sip.proxy_finalized"); !ok || got != true {
+			t.Errorf("meta.Get(%q) = %v, %v, want true, true", "sip.proxy_finalized", got, ok)
+		}
+	})
+}

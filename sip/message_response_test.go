@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -858,6 +859,48 @@ func TestResponseEnvelope_UnmarshalJSON_EdgeCases(t *testing.T) {
 			}
 			if env.Metadata() == nil {
 				t.Errorf("env.Metadata() = nil, want non-nil")
+			}
+		})
+	}
+}
+
+func TestResponseEnvelope_RequestTime(t *testing.T) {
+	t.Parallel()
+
+	reqTime := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+
+	newEnvelope := func(val any, set bool) *sip.ResponseEnvelope {
+		env := sip.NewResponseEnvelope(&sip.Response{})
+		if set {
+			env.Metadata().Set("sip.request_time", val)
+		}
+		return env
+	}
+
+	tests := []struct {
+		name string
+		env  *sip.ResponseEnvelope
+		want time.Time
+		ok   bool
+	}{
+		{"nil envelope", nil, time.Time{}, false},
+		{"zero envelope", &sip.ResponseEnvelope{}, time.Time{}, false},
+		{"absent metadata", newEnvelope(nil, false), time.Time{}, false},
+		{"wrong typed metadata", newEnvelope("not-a-time", true), time.Time{}, false},
+		{"stored time", newEnvelope(reqTime, true), reqTime, true},
+		{"stored zero time", newEnvelope(time.Time{}, true), time.Time{}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := tt.env.RequestTime()
+			if ok != tt.ok {
+				t.Fatalf("env.RequestTime() ok = %v, want %v", ok, tt.ok)
+			}
+			if !got.Equal(tt.want) {
+				t.Errorf("env.RequestTime() = %v, want %v", got, tt.want)
 			}
 		})
 	}

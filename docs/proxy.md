@@ -1,37 +1,106 @@
 # SIP Proxy
 
-The `sip` package provides `Proxy`, an inbound middleware for an `Element`
-that claims inbound requests matching configured routes and forwards them
-according to each route's configuration.
+The `github.com/ghettovoice/gosip/sip/proxy` package provides `Proxy`, an
+inbound middleware for a `sip.Element` that claims inbound requests matching
+configured routes and forwards them according to each route's configuration.
+The core `sip` package does not depend on `sip/proxy`.
 
 ## Constructing a Proxy
 
 ```go
-prx, err := sip.NewProxy(elm, routes, opts)
+prx, err := proxy.New(routes, opts)
+unbind := elm.UseMiddleware(prx)
 ```
 
-- `elm` is the `*sip.Element` the proxy binds to; it must not be nil.
-- `routes` is a `[]sip.ProxyRoute` slice evaluated in order; the first
+- `routes` is a `[]proxy.Route` slice evaluated in order; the first
   matching route wins.
-- `opts` is an optional `sip.ProxyOptions` value.
+- `opts` is an optional `proxy.Options` value.
 
-`NewProxy` validates and copies the routes and options: later changes to the
+`proxy.New` validates and copies the routes and options: later changes to the
 caller's slices, maps, and URIs do not affect the running proxy, and a failed
-construction installs no middleware. Construction fails on a nil element,
-duplicate route names, unsupported forward modes or non-INVITE server
-transaction behaviors, and out-of-range Timer C values.
+construction installs no middleware. Construction fails on duplicate route
+names, unsupported forward modes or non-INVITE server transaction behaviors,
+and out-of-range Timer C values.
 
-Shut the proxy down by closing the owning element with `elm.Close()`.
+The constructor binds no element: an explicit `elm.UseMiddleware(prx)`
+registration attaches the proxy to an element's processing chain, and one
+instance may be registered on several elements at once. The registration's
+`unbind` detaches the middleware from that element only — it is never a
+shutdown path.
+
+## Migrating from the `sip` package API
+
+The proxy and statistics APIs moved out of the core `sip` package into
+`sip/proxy` and `sip/stats`. The core imports neither package, and no facade
+or aliases remain in `sip`. Map existing code with this table:
+
+| Previous API | Current API |
+| --- | --- |
+| `sip.NewProxy` | `proxy.New` |
+| `sip.ProxyRoute`, `sip.ProxyOptions` | `proxy.Route`, `proxy.Options` |
+| `sip.ProxyRequest` | `proxy.Request` |
+| `sip.ProxyTarget`, `sip.ProxyTargetPlan` | `proxy.Target`, `proxy.TargetPlan` |
+| `sip.ProxyBoundDelivery`, `sip.ProxyDeliveryRef` | `proxy.BoundDelivery`, `proxy.DeliveryRef` |
+| `sip.ProxySelection`, `sip.ProxyBranchOutcome` | `proxy.Selection`, `proxy.BranchOutcome` |
+| `sip.ProxyEvent`, `sip.ProxyEventKind` | `proxy.Event`, `proxy.EventKind` |
+| `sip.ProxyEventHandler`, `HandleProxyEvent` | `proxy.EventHandler`, `HandleEvent` |
+| `sip.ProxyEvent*` | `proxy.EventKind*` |
+| `sip.ProxyRequestOutcome`, `sip.ProxyOutcome*` | `proxy.RequestOutcome`, `proxy.Outcome*` |
+| `sip.ProxyRequestSnapshot` | `proxy.RequestSnapshot` |
+| `sip.ProxyTargetSnapshot`, `sip.ProxyAttemptSnapshot` | `proxy.TargetSnapshot`, `proxy.AttemptSnapshot` |
+| `sip.ProxyRequestSnapshotHandler`, `HandleProxyRequestSnapshot` | `proxy.RequestSnapshotHandler`, `HandleRequestSnapshot` |
+| `sip.ProxyRestoreBindings` | `proxy.RestoreBindings` |
+| `sip.ErrClassProxy` | `proxy.ErrClass` |
+| `sip.ErrProxyClosed`, `sip.ErrProxyRequestStarted` | `proxy.ErrClosed`, `proxy.ErrRequestStarted` |
+| `sip.ErrInvalidProxySnapshot`, `sip.ErrProxySnapshotUnsupported` | `proxy.ErrInvalidSnapshot`, `proxy.ErrSnapshotUnsupported` |
+| `sip.StatsRecorder`, `sip.StatsReport` | `stats.Recorder`, `stats.Report` |
+| `sip.TransportStats`, `sip.TransactionStats`, `sip.ProxyStats` | `stats.Transport`, `stats.Transaction`, `stats.Proxy` |
+
+Function adapters and error constructors follow the same
+rule. Event-kind constants use the `EventKind` prefix (for example,
+`proxy.EventKindRequestHandled`); their numeric values and string forms are
+unchanged. `ForwardMode` and its serialized values, the error-class value
+`"proxy"`, existing sentinel messages, snapshot JSON names, and statistics
+report JSON names are unchanged. `stats.Report` retains its `Transports`,
+`Transactions`, and `Proxy` fields.
+
+Registration also changed: the removed constructor accepted an element and
+self-registered. `proxy.New` is pure — construct the proxy, then attach it
+with `elm.UseMiddleware(prx)`; see the lifecycle section for the required
+retire-before-unbind ordering.
+
+## Proxy lifecycle
+
+One proxy instance has one lifecycle covering every element it is
+registered on. `prx.Shutdown(ctx)` — or the equivalent `prx.Close()` — is
+idempotent and instance-wide: it seals admission on all elements at once so
+new matching requests pass through unclaimed, detaches the proxy's own
+subscriptions, retires each owned request under the element that claimed
+it, and clears every element scope. The owning element invokes `Shutdown`
+as its optional middleware hook, so shutting down any one element — for
+example by closing it — shuts the whole proxy down. Shutdown never closes
+borrowed resources: transports, elements, sibling middleware, and
+transactions the proxy does not own are all left running. Applications
+that need independent lifetimes — for example draining one element while
+another keeps processing — must build an independent proxy instance per
+lifetime.
+
+Registration detachment is the caller's responsibility and follows one
+ordering rule: retire active proxy work before calling `unbind`. The
+registration's outbound response interceptor is required to settle the
+sends of in-flight requests, so run `prx.Shutdown(ctx)`/`prx.Close()` —
+or close an element, which invokes the same hook — first, and only then
+call `unbind`. Unbind itself never invokes proxy shutdown.
 
 ## Routes
 
-A `sip.ProxyRoute` is an immutable routing rule owned by the proxy after
-`NewProxy` returns.
+A `proxy.Route` is an immutable routing rule owned by the proxy after
+`proxy.New` returns.
 
 | Field | Meaning |
 | --- | --- |
 | `Name` | Route identifier reported in request metadata, events, and snapshots. Must be unique within one proxy. |
-| `ForwardMode` | `sip.ForwardModeStateful` (zero value) forwards through an upstream server transaction and downstream client transaction attempts. `sip.ForwardModeStateless` forwards without transactions and requires `ProxyOptions.StatelessKey`. |
+| `ForwardMode` | `proxy.ForwardModeStateful` (zero value) forwards through an upstream server transaction and downstream client transaction attempts. `proxy.ForwardModeStateless` forwards without transactions and requires `Options.StatelessKey`. |
 | `MatchRequest` | Reports whether the route claims the inbound request. Nil accepts every request at the route's position. |
 | `RecordRoute` | Requests insertion of a Record-Route header field value into forwarded requests. |
 | `ServerTransactionOptions` | Passed unchanged to the upstream server transaction created for a stateful request. |
@@ -39,7 +108,7 @@ A `sip.ProxyRoute` is an immutable routing rule owned by the proxy after
 
 ### Non-INVITE transaction behavior
 
-`ProxyRoute.ServerTransactionOptions.NonInviteServerTransactionBehavior` selects the response
+`Route.ServerTransactionOptions.NonInviteServerTransactionBehavior` selects the response
 and timer profile of the upstream non-INVITE server transaction the route
 creates for a stateful request. The option is local to the transaction this
 proxy creates: it is never negotiated with or advertised to peer elements,
@@ -79,7 +148,7 @@ All hooks are optional; a nil hook selects the documented default.
 
 | Hook | Default when nil | Purpose |
 | --- | --- | --- |
-| `ResolveRequestTargets` | RFC 3261 predetermined-target rules still run; without a predetermined target the request is rejected with the documented no-contact rejection. | Resolves the `sip.ProxyTargetPlan` for the request. |
+| `ResolveRequestTargets` | RFC 3261 predetermined-target rules still run; without a predetermined target the request is rejected with the documented no-contact rejection. | Resolves the `proxy.TargetPlan` for the request. |
 | `AuthorizeRequest` | Forwarding is allowed. | Authorizes the inbound request; returning `sip.RequestRejectedError` produces the carried SIP rejection. |
 | `PreprocessRoute` | Standard routing preprocessing is unchanged. | Inspects or rewrites routing information on an owned working copy. Cannot bypass local-identity, security, or loop rules. |
 | `AdjustOutboundRequest` | The outbound copy is used as constructed. | Customizes one outbound branch copy before final invariant checks and Via insertion. |
@@ -119,12 +188,12 @@ request's direction and transport view.
 
 ## Stateless forwarding
 
-A route with `ForwardMode: sip.ForwardModeStateless` forwards requests
+A route with `ForwardMode: proxy.ForwardModeStateless` forwards requests
 without creating transactions. Stateless forwarding is a contract, not a
 relaxed mode:
 
-- **A `StatelessKey` is required.** `NewProxy` rejects an explicit
-  stateless route configured without `ProxyOptions.StatelessKey`. The key
+- **A `StatelessKey` is required.** `proxy.New` rejects an explicit
+  stateless route configured without `Options.StatelessKey`. The key
   is a stable application secret that authenticates the deterministic Via
   branch derivation (`statelessBranch`): because a stateless proxy cannot
   distinguish a retransmission from the original, the branch is a keyed
@@ -148,7 +217,7 @@ relaxed mode:
   send. A literal-IP next hop uses the built-in deterministic selection and
   never touches DNS; a hostname or otherwise custom next hop is reachable
   statelessly only through
-  `ProxyOptions.ResolveStatelessDestination`, whose result must be stable
+  `Options.ResolveStatelessDestination`, whose result must be stable
   across retransmissions. Ordinary mutable or weighted DNS ordering is not
   a determinism guarantee. A send failure is reported as-is: there is no
   post-send failover to an alternate destination.
@@ -192,11 +261,11 @@ relaxed mode:
   `outbound` option tag.
 
 See `ExampleProxy_stateless` and `ExampleProxy_statelessDestination` in
-`sip/proxy_example_test.go` for compile-checked configurations.
+`sip/proxy/example_test.go` for compile-checked configurations.
 
 ## Target plan
 
-`sip.ProxyTargetPlan` is an ordered, eagerly resolved location-target plan.
+`proxy.TargetPlan` is an ordered, eagerly resolved location-target plan.
 `Groups` holds the ordered logical-target groups: each group is attempted
 before the next group is considered.
 This ordering is preserved when a multi-target stateless route promotes.
@@ -204,7 +273,7 @@ One target with empty surrounding groups still executes statelessly; a
 plan with no actual targets retains the existing no-contact rejection
 (480 for response-eligible requests).
 
-Each `sip.ProxyTarget` is a single logical forwarding target:
+Each `proxy.Target` is a single logical forwarding target:
 
 | Field | Meaning |
 | --- | --- |
@@ -216,12 +285,12 @@ Each `sip.ProxyTarget` is a single logical forwarding target:
 
 ## Delivery binding
 
-A target may carry a `sip.ProxyDeliveryRef{Kind, Key}` naming an
+A target may carry a `proxy.DeliveryRef{Kind, Key}` naming an
 application-defined delivery resource. The zero value selects ordinary
 next-hop resolution and needs no resolver.
 
-`ProxyOptions.ResolveDelivery` binds a nonzero reference to a
-`sip.ProxyBoundDelivery{Transport, LocalAddr, RemoteAddr}` whose sender is
+`Options.ResolveDelivery` binds a nonzero reference to a
+`proxy.BoundDelivery{Transport, LocalAddr, RemoteAddr}` whose sender is
 already bound to the required delivery semantics. A nonzero reference without
 a configured resolver is an explicit failure: no ordinary send is attempted.
 The binding cannot override the original request's SIPS constraint or the
@@ -231,8 +300,8 @@ redial. These binding seams do not implement RFC 5626 Outbound.
 
 ## Proxy options
 
-`sip.ProxyOptions` configures the proxy. The proxy owns an independent copy
-of all values after `NewProxy` returns.
+`proxy.Options` configures the proxy. The proxy owns an independent copy
+of all values after `proxy.New` returns.
 
 | Field | Meaning |
 | --- | --- |
@@ -278,7 +347,7 @@ continues only what the application binds back.
 ### Capturing
 
 `rq.Snapshot()` returns a detached, serializable
-`sip.ProxyRequestSnapshot` of one owned request — route name, mode,
+`proxy.RequestSnapshot` of one owned request — route name, mode,
 upstream transaction key, target plan progress, attempt records,
 response context, cancellation intent, and armed absolute deadlines.
 It carries both the original request as admitted (the transaction-matching
@@ -287,17 +356,22 @@ identity) and the post-preprocess working request — the validated output of
 target groups and address failover continue from. Snapshot version 1 retains
 these as independently owned values, including for a promoted request whose
 named route is configured stateless.
-`prx.LookupRequest(srvKey)` locates the coordinator of an upstream server
-transaction key, and `prx.BindSnapshotHandler(h)` subscribes to future
-committed revisions; each handler receives an independent clone and runs
-outside the coordinator locks.
+`prx.LookupRequest(elm, srvKey)` locates the coordinator of an upstream
+server transaction key inside that element's processing namespace — a nil
+or unseen element reports no association — and `prx.BindSnapshotHandler(h)`
+subscribes to future committed revisions; each handler receives an
+independent clone and runs outside the coordinator locks.
+Neither the event nor the snapshot payload serializes the element: the
+processing element is context-only observation data that
+`BindEventHandler` and `BindSnapshotHandler` callbacks read from the
+delivered context through `sip.ElementFromContext`.
 
 Transaction state is captured separately through the optional
 `sip.ServerTransactionSnapshotter` and
 `sip.ClientTransactionSnapshotter` contracts. A request whose upstream
 transaction cannot snapshot — or whose opaque metadata is not
 JSON-serializable — fails capture with
-`sip.ErrProxySnapshotUnsupported`; ordinary forwarding is unaffected.
+`proxy.ErrSnapshotUnsupported`; ordinary forwarding is unaffected.
 
 The application owns checkpoint coordination: proxy and transaction
 snapshots are independent captures, and ordering them into one consistent
@@ -310,20 +384,30 @@ sockets.
 
 On the recovery side the application recreates dormant transactions with
 `sip.RestoreServerTransaction` and `sip.RestoreClientTransaction` and
-supplies them — plus every required delivery flow — through
-`sip.ProxyRestoreBindings`:
+supplies them — plus the processing element and every required delivery
+flow — through `proxy.RestoreBindings`:
 
+- `Element`: the processing element the restored request continues under.
+  Required and authoritative: it overrides an element carried by the
+  caller's context while the context's other values survive, and a nil
+  element fails with `proxy.ErrMissingElement` before anything is
+  staged — the context is never consulted for an element.
 - `ServerTransaction`: the dormant upstream transaction whose key and
   initial request must match the snapshot.
 - `ClientTransactions`: the dormant downstream transactions of live
   attempts, keyed by `sip.ClientTransactionKey`. Attempts already settled
   at capture need no binding; their recorded outcomes are restored
   instead.
-- `Deliveries`: a `map[sip.ProxyDeliveryRef]sip.ProxyBoundDelivery`
+- `Deliveries`: a `map[proxy.DeliveryRef]proxy.BoundDelivery`
   rebinding every nonzero delivery reference carried by an unfinished
   target to an existing bound transport and remote address. A missing
   required flow fails validation explicitly — it is never resolved or
   dialed implicitly.
+
+Every runtime binding is explicit: transactions are matched to recorded
+attempts by their keys but are never inferred or recreated from a key,
+and the element comes only from `bindings.Element` — never from the
+caller's context or a transaction key.
 
 `prx.RestoreRequest(ctx, snap, bindings)` validates the snapshot and
 every binding — version, route, plan coverage, transaction keys and
@@ -331,9 +415,9 @@ requests, both saved request messages' structure and method compatibility,
 metadata on both saved request envelopes, deadlines, and cancellation and
 outcome consistency — before claiming transaction ownership or installing
 subscriptions, indexes, or timers. Missing or malformed saved request state
-returns `sip.ErrInvalidProxySnapshot`, preserving the message validation
+returns `proxy.ErrInvalidSnapshot`, preserving the message validation
 cause; unsupported opaque metadata returns
-`sip.ErrProxySnapshotUnsupported` without silently dropping values.
+`proxy.ErrSnapshotUnsupported` without silently dropping values.
 Direct caller-supplied snapshots are checked too, even though capture
 normally guarantees serializable metadata.
 
@@ -359,7 +443,7 @@ and any existing index entry are untouched.
 ### Activating
 
 `rq.Start(ctx)` activates a dormant restored request exactly once; a
-repeated call fails with `sip.ErrProxyRequestStarted`. The supplied
+repeated call fails with `proxy.ErrRequestStarted`. The supplied
 transactions start only after the subscriptions installed at restore are
 in place, then the preserved state resumes: absolute Timer C deadlines
 re-arm (an expired deadline applies the timeout policy immediately),
@@ -379,7 +463,73 @@ and a binding reporting a different mode fails validation before
 activation.
 
 See `ExampleProxy_RestoreRequest` in
-`sip/proxy_recovery_example_test.go` for the compile-checked composition.
+`sip/proxy/recovery_example_test.go` for the compile-checked composition.
+
+## Message metadata
+
+Every request or response copy the proxy processes carries a serializable
+`proxy.Metadata` stamp under the `proxy.MetadataKey` (`"sip.proxy"`) key of
+its `sip.MessageMetadata`. The stamp survives envelope cloning and JSON
+serialization — snapshot checkpoints restore it — while never appearing
+in the rendered SIP message.
+
+`Metadata.Stage` names the processing boundary the stamp describes:
+
+| Stage | Boundary |
+| --- | --- |
+| `proxy.StageClaim` (`"claim"`) | Route-claim phase of an inbound request: records the minted request identity, the claiming route, and the effective mode; target and attempt stay empty. |
+| `proxy.StageForward` (`"forward"`) | One owned downstream request copy: carries the request identity plus the target and physical-attempt identities of that send. |
+| `proxy.StageResponse` (`"response"`) | Downstream response processing: an attributed response carries the owning request, target, and attempt identities. |
+| `proxy.StageUpstream` (`"upstream"`) | Upstream-facing processing of a request attempt: carries the request identity plus the single-attempt source only when one attempt provably owns the copy. |
+
+The remaining fields correlate the stamp. `RequestID` is the proxy request
+identity minted at claim; events, errors, and outcomes of the same request
+join through the shared `RequestID`, and `Event.Sequence` orders the
+request's events. `RelatedRequestID` links a matched CANCEL or a forwarded
+ACK to the live parent request it relates to, recorded only when the
+relationship is really known. `TargetID` and `AttemptID` name the logical
+plan target and the concrete physical attempt; `RouteName` and `Mode`
+record the claiming route and its effective forward mode.
+
+Correlation fields are populated only when the stamped boundary actually
+knows them — unknown fields stay empty rather than being invented. A local
+or aggregated upstream response keeps target and attempt empty because no
+single attempt owns it, and a stateless response without recoverable
+provenance stamps only mode and stage: its JSON form is the partial
+`{"mode":1,"stage":"response"}` record.
+
+Serialization and access follow these rules:
+
+- `Mode` serializes as the numeric `proxy.ForwardMode` (`0` stateful, `1`
+  stateless): the field is a `uint`, and JSON keeps the numeric form. The
+  readable `stateful`/`stateless` names are the `ForwardMode.String()`
+  rendering used in logs, not the JSON contract — a decoded map carrying a
+  string mode is rejected.
+- `proxy.SetMetadata` stores the whole value: stamps are written and
+  replaced atomically, never merged or patched per field. A message
+  looping back through the proxy is stamped with the fresh traversal's
+  claim record only — the stamp describes the current boundary, not a
+  history of traversals.
+- `proxy.MetadataFrom` accepts the stored `proxy.Metadata` or the
+  `map[string]any` a JSON decode restores. It validates mode and stage,
+  rejects malformed known fields, ignores unknown fields so newer
+  producers stay readable, and never mutates the source map.
+- `proxy.Metadata` implements `slog.LogValuer`: a correlation-aware proxy
+  log record attaches the boundary's stamp once as `slog.Any("proxy", md)`,
+  rendering a single `proxy` group — request, related, target, attempt,
+  route, mode, and stage fields, with empty correlation fields omitted.
+  It is never split into separate correlation attributes, and arbitrary
+  application metadata stored on the envelope is never logged.
+
+The stamp is local, non-authenticated observation data with explicit
+non-goals: it is not cross-network transport (metadata lives on the
+in-process envelope, never on the wire), not a wire identifier (Via branch
+values and transaction keys remain the wire identities), not
+authentication (a decoded value asserts only what the producing
+application stored), and not routing authority (claim, loop, and Via
+ownership checks never consult it).
+
+See `ExampleMetadataFrom` in `sip/proxy/metadata_example_test.go`.
 
 ## Example
 
@@ -390,11 +540,11 @@ served domain and resolves a static literal-IP target plan:
 elm := &sip.Element{}
 defer elm.Close()
 
-prx, err := sip.NewProxy(elm, []sip.ProxyRoute{
+prx, err := proxy.New([]proxy.Route{
  {
   Name: "static-location",
-  ResolveRequestTargets: func(ctx context.Context, req *sip.RequestEnvelope) (sip.ProxyTargetPlan, error) {
-   return sip.ProxyTargetPlan{Groups: [][]sip.ProxyTarget{
+  ResolveRequestTargets: func(ctx context.Context, req *sip.RequestEnvelope) (proxy.TargetPlan, error) {
+   return proxy.TargetPlan{Groups: [][]proxy.Target{
     {{
      ID: "alice-desk",
      URI: &sip.URI{
@@ -405,9 +555,19 @@ prx, err := sip.NewProxy(elm, []sip.ProxyRoute{
    }}, nil
   },
  },
-}, sip.ProxyOptions{
+}, proxy.Options{
  ServedDomains: []string{"example.com"},
 })
+if err != nil {
+ // handle error
+}
+
+// Registration is explicit; retire the proxy before unbinding.
+unbind := elm.UseMiddleware(prx)
+defer func() {
+ _ = prx.Close()
+ unbind()
+}()
 ```
 
-See `sip/proxy_example_test.go` for the compile-checked version.
+See `sip/proxy/example_test.go` for the compile-checked version.

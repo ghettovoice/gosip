@@ -248,9 +248,9 @@ func (elm *Element) InterceptOutboundRequest(
 ) error {
 	ctx = ContextWithElement(ctx, elm)
 
+	req.PrepareVia(req.Transport().Proto, Addr{})
+	req.EnsureFromTag()
 	req.WithMessage(func(r *Request) {
-		EnsureRequestVia(r, req.Transport().Proto, Addr{})
-		EnsureRequestFromTag(r)
 		EnsureRequestMaxForwards(r)
 		EnsureMessageContentLength(r)
 	})
@@ -284,10 +284,12 @@ func (elm *Element) InterceptOutboundResponse(
 	elm.ensureInit()
 	ctx = ContextWithElement(ctx, elm)
 
+	var tag string
 	res.WithMessage(func(r *Response) {
-		EnsureResponseToTag(r, GenerateStableToTag(r, elm.id[:]))
+		tag = GenerateStableToTag(r, elm.id[:])
 		EnsureMessageContentLength(r)
 	})
+	res.EnsureToTag(tag)
 
 	return errors.Wrap(next.SendResponse(ctx, res, opts...))
 }
@@ -481,6 +483,14 @@ func (elm *Element) BindErrorHandler(hndlr ErrorHandler) (unbind func()) {
 	defer release()
 
 	return elm.errHdlrs.Add(hndlr)
+}
+
+// ReportError delivers err to the bound error handlers with ctx values preserved.
+// Nil errors, canceled contexts, and reports during closing are ignored.
+// Handlers run under a callback lease and must not synchronously close the element.
+func (elm *Element) ReportError(ctx context.Context, err error) {
+	elm.ensureInit()
+	elm.reportRunErr(ctx, err)
 }
 
 // reportRunErr forwards an unexpected failure from a managed Start/Serve
@@ -901,6 +911,40 @@ func (elm *Element) NewClientTransaction(
 	return errors.Wrap2(elm.txm.NewClientTransaction(ctx, req, tp, txOpts))
 }
 
+// NewCancelClientTransaction creates a CANCEL for invTx, waiting for an active
+// INVITE to reach Proceeding if needed. It registers but does not start the CANCEL.
+// Closing the element terminates the INVITE and unblocks a pending wait.
+func (elm *Element) NewCancelClientTransaction(
+	ctx context.Context,
+	invTx ClientTransaction,
+	opts ...ClientTransactionOptions,
+) (ClientTransaction, error) {
+	elm.ensureInit()
+	if err := ctx.Err(); err != nil {
+		return nil, errors.Wrap(err)
+	}
+	release, ok := elm.admitOp()
+	if !ok {
+		return nil, errors.Wrap(NewElementClosedError())
+	}
+	if err := ctx.Err(); err != nil {
+		release()
+		return nil, errors.Wrap(err)
+	}
+	ctx = ContextWithElement(ctx, elm)
+	txOpts := util.LastSliceElem(opts, ClientTransactionOptions{})
+	if txOpts.Logger == nil {
+		txOpts.Logger = elm.log
+	} else {
+		txOpts.Logger = txOpts.Logger.With(slog.Any("element", elm))
+	}
+	txm := elm.txm
+	// Close must be able to terminate the INVITE while the factory waits for
+	// Proceeding. The manager itself guards registration against closure.
+	release()
+	return errors.Wrap2(txm.NewCancelClientTransaction(ctx, invTx, txOpts))
+}
+
 func (elm *Element) LoadClientTransaction(key ClientTransactionKey) (ClientTransaction, bool) {
 	elm.ensureInit()
 	return elm.txm.LoadClientTransaction(key)
@@ -995,20 +1039,23 @@ func (ra *RequestAttempt) prepareReq(tpMeta TransportMetadata, reuseBranch bool)
 		ra.Request.Metadata().Delete(forceUnrelMetaKey)
 	}
 
-	ra.Request.
-		SetTransport(tpMeta).
-		SetRemoteAddr(ra.Addr.Addr).
-		WithMessage(func(r *Request) {
-			// ensure that each attempt sends request with unique branch
-			EnsureRequestVia(r, tpMeta.Proto, Addr{})
-			via, _ := r.Headers.FirstVia()
-			currBranch, _ := via.Branch()
-			if !reuseBranch && currBranch == ra.state.prevBranch {
-				currBranch = GenerateBranch(0)
-				via.Params.Set("branch", currBranch)
-			}
-			ra.state.prevBranch = currBranch
-		})
+	ra.Request.SetTransport(tpMeta).SetRemoteAddr(ra.Addr.Addr)
+	ra.Request.PrepareVia(tpMeta.Proto, Addr{})
+	forwarded := ra.Request.Forwarded()
+	ra.Request.WithMessage(func(r *Request) {
+		// Endpoint address retries receive a fresh branch. Forwarding middleware
+		// owns transit branch selection and designates its local hop explicitly.
+		via, ok := r.Headers.FirstVia()
+		if !ok {
+			return
+		}
+		currBranch, _ := via.Branch()
+		if !forwarded && !reuseBranch && currBranch == ra.state.prevBranch {
+			currBranch = GenerateBranch(0)
+			via.Params.Set("branch", currBranch)
+		}
+		ra.state.prevBranch = currBranch
+	})
 
 	return ra
 }
@@ -1284,7 +1331,7 @@ func (elm *Element) resolveMsgTarget(ctx context.Context, r *Request) (*URI, err
 		r.Headers.
 			AppendRoute(header.RouteHop{URI: reqURI.Clone()}).
 			PopFirstRoute()
-		r.URI = cleanReqURI(routeURI)
+		r.URI = CleanRequestURI(routeURI)
 	}
 	return trgt, nil
 }

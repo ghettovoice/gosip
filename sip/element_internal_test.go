@@ -6,10 +6,71 @@ import (
 	"slices"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 )
+
+func TestElement_ReportError(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		elm := &Element{}
+		defer elm.Close()
+		type contextKey struct{}
+		ctx := context.WithValue(t.Context(), contextKey{}, "caller")
+		want := errors.New("reported failure")
+		entered, resume, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		calls := 0
+		elm.BindErrorHandler(ErrorHandlerFunc(func(ctx context.Context, err error) {
+			calls++
+			if !errors.Is(err, want) {
+				t.Errorf("error = %v, want reported failure", err)
+			}
+			if ctx.Value(contextKey{}) != "caller" {
+				t.Error("caller context value lost")
+			}
+			if owner, ok := ElementFromContext(ctx); !ok || owner != elm {
+				t.Error("element context missing")
+			}
+			close(entered)
+			<-resume
+		}))
+		elm.ReportError(ctx, nil)
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		elm.ReportError(cancelled, want)
+		if calls != 0 {
+			t.Fatalf("filtered callbacks = %d, want 0", calls)
+		}
+		go func() { elm.ReportError(ctx, want); close(done) }()
+		<-entered
+		closeDone := make(chan error, 1)
+		go func() { closeDone <- elm.Close() }()
+		synctest.Wait()
+		elm.lcMu.Lock()
+		sealed := elm.cbSealed
+		elm.lcMu.Unlock()
+		if !sealed {
+			t.Error("Close has not reached callback drain")
+		}
+		select {
+		case err := <-closeDone:
+			t.Fatalf("Close completed during callback: %v", err)
+		default:
+		}
+		elm.ReportError(ctx, want)
+		close(resume)
+		<-done
+		if err := <-closeDone; err != nil {
+			t.Fatal(err)
+		}
+		elm.ReportError(ctx, want)
+		if calls != 1 {
+			t.Fatalf("callbacks = %d, want 1", calls)
+		}
+	})
+}
 
 type countingClnTxHandler struct {
 	calls atomic.Int32

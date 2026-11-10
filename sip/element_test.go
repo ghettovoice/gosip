@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 	"uuid"
 
@@ -27,6 +28,109 @@ import (
 	"github.com/ghettovoice/gosip/sip/transport"
 	"github.com/ghettovoice/gosip/uri"
 )
+
+type cancelSubscriptionProbe struct {
+	sip.ClientTransaction
+	subscriptions int
+}
+
+func (tx *cancelSubscriptionProbe) BindStateHandler(h sip.TransactionStateHandler) func() {
+	tx.subscriptions++
+	return tx.ClientTransaction.BindStateHandler(h)
+}
+
+func TestElement_NewCancelClientTransaction(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"deferred cancel plus close", "pre-cancelled context", "duplicate cancel", "nil invite", "proceeding success"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				elm := &sip.Element{}
+				defer elm.Close()
+				ctx := t.Context()
+				if name == "nil invite" {
+					if _, err := elm.NewCancelClientTransaction(ctx, nil); err == nil {
+						t.Fatal("elm.NewCancelClientTransaction(nil) error = nil, want error")
+					}
+					return
+				}
+				tp := newStubClnTransp(false)
+				req := newOutInviteReq(t, "UDP", "", netip.MustParseAddrPort("192.0.2.1:5060"), netip.MustParseAddrPort("192.0.2.2:5060"))
+				inv, err := elm.NewClientTransaction(ctx, req, tp)
+				if err != nil {
+					t.Fatal(err)
+				}
+				startClnTx(t, inv)
+				tp.waitSendReq(t)
+				if name == "pre-cancelled context" {
+					ctx, cancel := context.WithCancel(ctx)
+					cancel()
+					probe := &cancelSubscriptionProbe{ClientTransaction: inv}
+					if _, err := elm.NewCancelClientTransaction(ctx, probe); !errors.Is(err, context.Canceled) {
+						t.Fatalf("error = %v, want context.Canceled", err)
+					}
+					if probe.subscriptions != 0 {
+						t.Fatalf("subscriptions = %d, want 0", probe.subscriptions)
+					}
+					if got := len(slices.Collect(elm.AllClientTransactions())); got != 1 {
+						t.Fatalf("transactions = %d, want 1", got)
+					}
+					return
+				}
+				if name == "deferred cancel plus close" {
+					done := make(chan error, 1)
+					go func() { _, err := elm.NewCancelClientTransaction(ctx, inv); done <- err }()
+					synctest.Wait()
+					select {
+					case err := <-done:
+						t.Fatalf("factory returned early: %v", err)
+					default:
+					}
+					if err := elm.Close(); err != nil {
+						t.Fatal(err)
+					}
+					if err := <-done; err == nil {
+						t.Fatal("factory error = nil, want error after close")
+					}
+					if got := len(slices.Collect(elm.AllClientTransactions())); got != 0 {
+						t.Fatalf("transactions = %d, want 0", got)
+					}
+					return
+				}
+				if err := inv.RecvResponse(ctx, newInRes(t, req, sip.ResponseStatusRinging)); err != nil {
+					t.Fatal(err)
+				}
+				synctest.Wait()
+				if got := inv.State(); got != sip.TransactionStateProceeding {
+					t.Fatalf("state = %v, want Proceeding", got)
+				}
+				calls := 0
+				elm.UseMiddleware(sip.ClientTransactionHandlerFunc(func(ctx context.Context, tx sip.ClientTransaction) {
+					owner, ok := sip.ElementFromContext(ctx)
+					if !ok || owner != elm {
+						t.Error("factory callback context does not carry element")
+					}
+					calls++
+				}))
+				cnc, err := elm.NewCancelClientTransaction(ctx, inv)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if cnc.Request().Method() != sip.RequestMethodCancel {
+					t.Fatal("method != CANCEL")
+				}
+				if calls != 1 {
+					t.Fatalf("callbacks = %d, want 1", calls)
+				}
+				if name == "duplicate cancel" {
+					if _, err := elm.NewCancelClientTransaction(ctx, inv); !errors.Is(err, sip.ErrTransactionDuplicate) {
+						t.Fatalf("error = %v, want ErrTransactionDuplicate", err)
+					}
+				}
+			})
+		})
+	}
+}
 
 const asyncEvtTimeout = 5 * time.Second
 

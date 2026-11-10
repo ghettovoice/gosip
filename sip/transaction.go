@@ -666,6 +666,15 @@ const (
 	txTypeMetaKey = "sip.transaction_type"
 )
 
+// ClearTransactionBinding removes the transaction binding metadata keys from
+// meta. No other key is touched; a nil container is a safe no-op.
+func ClearTransactionBinding(meta *MessageMetadata) {
+	if meta == nil {
+		return
+	}
+	meta.Delete(txKeyMetaKey, txTypeMetaKey)
+}
+
 func newTxTriggerErr(trigger stateless.Trigger, state stateless.State, err error) error {
 	return errors.Errorf("trigger %q in state %q: %w", trigger, state, err)
 }

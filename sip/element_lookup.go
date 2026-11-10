@@ -17,6 +17,38 @@ import (
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
+// LookupRequestAddrs lazily resolves uri using the element's server locator.
+// Iteration stops when ctx is canceled or the element begins closing. Borrowed
+// locator work does not block Close; the caller controls its cancellation.
+func (elm *Element) LookupRequestAddrs(
+	ctx context.Context,
+	uri *URI,
+	opts ...LookupMessageAddrsOptions,
+) iter.Seq[ResolvedAddr] {
+	return func(yield func(ResolvedAddr) bool) {
+		elm.ensureInit()
+		if ctx.Err() != nil {
+			return
+		}
+		release, ok := elm.admitOp()
+		if !ok {
+			return
+		}
+		locator := elm.srvLctr
+		lookupCtx := ContextWithElement(ctx, elm)
+		// DNS can block independently of element shutdown, just as in SendRequest.
+		release()
+		if lookupCtx.Err() != nil || elm.state.Load() >= elmStateClosing {
+			return
+		}
+		for addr := range locator.LookupRequestAddrs(lookupCtx, uri, opts...) {
+			if lookupCtx.Err() != nil || elm.state.Load() >= elmStateClosing || !yield(addr) {
+				return
+			}
+		}
+	}
+}
+
 // lookupIP resolves host to all A and AAAA addresses returned by the resolver.
 //
 // The caller decides whether an IP lookup is a terminal resolution step or a
