@@ -923,7 +923,7 @@ func TestProxy_RestoreObservations(t *testing.T) {
 				"version", "revision", "time", "route_name", "mode", "upstream_key",
 				"original_request", "working_request", "target_plan", "target_states",
 				"attempts", "candidates", "final_forwarded", "completed", "outcome",
-				"final_status", "cancelled", "request_id", "sequence",
+				"final_status", "final_candidate_index", "cancelled", "request_id", "sequence",
 				"first_forward_committed", "completion_committed",
 			}
 			slices.Sort(wantKeys)

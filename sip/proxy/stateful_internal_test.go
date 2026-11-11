@@ -11,6 +11,7 @@ import (
 	"testing/synctest"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/testutil"
@@ -151,6 +152,282 @@ func admitInternalReq(
 		tb.Fatal("admitted request not associated with the server transaction")
 	}
 	return rq
+}
+
+func TestProxy_FinalResponseResolver_Coordinator(t *testing.T) {
+	t.Parallel()
+
+	const cause errors.Error = "coordinator resolver failed"
+	tests := []struct {
+		name       string
+		err        error
+		success    bool
+		shutdown   bool
+		mismatched bool
+	}{
+		{name: "ordinary index 1"},
+		{name: "returned error", err: cause},
+		{name: "retained 200 before index 1", success: true},
+		{name: "retained 200 before error", success: true, err: cause},
+		{name: "shutdown before index 1", shutdown: true},
+		{name: "shutdown before error", shutdown: true, err: cause},
+		{name: "mismatched token before index 1", mismatched: true},
+		{name: "mismatched token before error", mismatched: true, err: cause},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				entered := make(chan struct{})
+				gate := make(chan struct{})
+				release := sync.OnceFunc(func() { close(gate) })
+				defer release()
+
+				var calls atomic.Int32
+				var elm *sip.Element
+				var prx *Proxy
+				var rq *Request
+				route := Route{
+					Name: "resolver-coordinator",
+					ResolveFinalResponse: func(ctx context.Context, selection FinalResponseSelection) (int, error) {
+						call := calls.Add(1)
+						owner, ok := sip.ElementFromContext(ctx)
+						if !ok || owner != elm {
+							t.Errorf("resolver element = (%v, %t), want owning element", owner, ok)
+						}
+						key, err := sip.MakeServerTransactionKey(selection.Request)
+						if err != nil {
+							t.Errorf("sip.MakeServerTransactionKey() error = %v, want nil", err)
+						}
+						if live, ok := prx.LookupRequest(owner, key); !ok || live != rq {
+							t.Errorf("resolver lookup = (%p, %t), want (%p, true)", live, ok, rq)
+						} else if _, err := live.Snapshot(); !errors.Is(err, errSnapshotUnstable) {
+							t.Errorf("reentrant Snapshot() error = %v, want %v", err, errSnapshotUnstable)
+						}
+						if got := resStatusList(selection.Candidates); !slices.Equal(got, []int{480, 486}) {
+							t.Errorf("resolver candidate statuses = %v, want [480 486]", got)
+						}
+						if call == 1 {
+							close(entered)
+						}
+						<-gate
+						return 1, errors.Wrap(tt.err)
+					},
+				}
+				req := newInternalInviteReq(sip.MagicCookie + ".resolver-coordinator")
+				var tp *internalTransp
+				elm, tp, rq = admitFinalResolverFork(t, route, req)
+				prx = rq.prx
+				var completions []Event
+				defer prx.BindEventHandler(EventHandlerFunc(func(_ context.Context, ev Event) {
+					if ev.Kind == EventKindRequestCompleted {
+						completions = append(completions, ev)
+					}
+				}))()
+				for i, id := range []string{"A", "B"} {
+					tx := finalResolverTarget(t, elm, rq, id)
+					status := []sip.ResponseStatus{480, 486}[i]
+					if err := tx.RecvResponse(t.Context(), newInternalInRes(t, tx.Request(), status)); err != nil {
+						t.Fatalf("tx.RecvResponse() error = %v, want nil", err)
+					}
+					synctest.Wait()
+				}
+				<-entered
+				drainInternalReqs(tp)
+
+				type decision struct {
+					Done        bool
+					Closed      bool
+					Outcome     RequestOutcome
+					Index       int
+					Final       *sip.ResponseEnvelope
+					LastErr     error
+					EvDone      bool
+					EvSeq       uint64
+					Resolving   bool
+					Generation  uint64
+					SchedClosed bool
+					Finals      []*sip.ResponseEnvelope
+				}
+				readDecision := func() decision {
+					rq.mu.Lock()
+					defer rq.mu.Unlock()
+					return decision{
+						Done: rq.done, Closed: rq.closed, Outcome: rq.outcome,
+						Index: rq.finalResIndex, Final: rq.final, LastErr: rq.lastErr,
+						EvDone: rq.evDone, EvSeq: rq.evSeq,
+						Resolving: rq.finalResolving, Generation: rq.finalResGen,
+						SchedClosed: rq.schedClosed, Finals: slices.Clone(rq.finals),
+					}
+				}
+				identity := cmp.Options{
+					cmpopts.EquateErrors(),
+					cmp.Comparer(func(a, b *sip.ResponseEnvelope) bool { return a == b }),
+				}
+				pending := readDecision()
+				if pending.Done || pending.Closed || !pending.Resolving || pending.Generation == 0 ||
+					pending.Index != -1 || pending.Final != nil || pending.LastErr != nil || pending.EvDone {
+					t.Fatalf("pending decision = %+v, want unresolved without completion or selection", pending)
+				}
+				if got := resStatusList(pending.Finals); !slices.Equal(got, []int{480, 486}) {
+					t.Errorf("pending originals = %v, want [480 486]", got)
+				}
+
+				rq.enqueue(t.Context(), workEvent{kind: evtSchedule})
+				rq.enqueue(t.Context(), workEvent{kind: evtSchedule})
+				rq.mu.Lock()
+				effects := rq.finishLocked()
+				effects = append(effects, rq.finishLocked()...)
+				rq.mu.Unlock()
+				if len(effects) != 0 {
+					t.Errorf("pending finish effects = %d, want 0", len(effects))
+				}
+				if tt.mismatched {
+					for _, err := range []error{nil, cause} {
+						rq.enqueue(t.Context(), workEvent{
+							kind: evtFinalSelection, resolution: pending.Generation + 1,
+							finalIndex: 0, err: err,
+						})
+					}
+				}
+				synctest.Wait()
+				if diff := cmp.Diff(pending, readDecision(), identity); diff != "" {
+					t.Errorf("duplicate pending work (-before +after):\n%s", diff)
+				}
+				if got := calls.Load(); got != 1 {
+					t.Errorf("pending resolver calls = %d, want 1", got)
+				}
+				if sent := drainInternalRess(tp); len(sent) != 0 || len(completions) != 0 {
+					t.Errorf("pending sends/completions = (%v, %d), want ([], 0)", resStatusList(sent), len(completions))
+				}
+
+				var success *sip.ResponseEnvelope
+				if tt.success {
+					tx := finalResolverTarget(t, elm, rq, "A")
+					success = newInternalInRes(t, tx.Request(), sip.ResponseStatusOK)
+					rq.mu.Lock()
+					gen := rq.attempts[tx.Key()].gen
+					rq.mu.Unlock()
+					// A real client transaction has already consumed its negative
+					// final; reuse the detached retained-attempt attribution seam.
+					rq.enqueue(t.Context(), workEvent{kind: evtClnRes, key: tx.Key(), gen: gen, res: success})
+				}
+				if tt.shutdown {
+					if err := prx.Shutdown(t.Context()); err != nil {
+						t.Fatalf("prx.Shutdown() error = %v, want nil", err)
+					}
+					synctest.Wait()
+					want := pending
+					want.Closed, want.Resolving = true, false
+					want.Generation++
+					if diff := cmp.Diff(want, readDecision(), identity); diff != "" {
+						t.Errorf("shutdown decision (-want +got):\n%s", diff)
+					}
+					if got, ok := prx.LookupRequest(elm, rq.srvKey); ok || got != nil {
+						t.Errorf("shutdown lookup = (%p, %t), want (nil, false)", got, ok)
+					}
+				}
+				beforeReturn := readDecision()
+				release()
+				synctest.Wait()
+				committed := readDecision()
+				if tt.shutdown {
+					if diff := cmp.Diff(beforeReturn, committed, identity); diff != "" {
+						t.Errorf("retired callback return (-before +after):\n%s", diff)
+					}
+				} else {
+					wantOutcome, wantIndex, wantStatus := OutcomeResponse, 1, 486
+					wantFinals := pending.Finals
+					if tt.success {
+						wantIndex, wantStatus = 2, 200
+						wantFinals = append(slices.Clone(wantFinals), success)
+					} else if tt.err != nil {
+						wantOutcome, wantIndex, wantStatus = OutcomeAbandoned, -1, 500
+					}
+					if !committed.Done || committed.Closed || committed.Resolving ||
+						!committed.EvDone || committed.Generation != pending.Generation+1 ||
+						committed.Outcome != wantOutcome || committed.Index != wantIndex {
+						t.Errorf("committed decision = %+v, want done %v at index %d with invalidated token",
+							committed, wantOutcome, wantIndex)
+					}
+					if diff := cmp.Diff(wantFinals, committed.Finals, identity); diff != "" {
+						t.Errorf("original response evidence (-want +got):\n%s", diff)
+					}
+					if wantIndex >= 0 {
+						if committed.Final != wantFinals[wantIndex] || committed.LastErr != nil {
+							t.Errorf("selected final/error = (%p, %v), want (%p, nil)",
+								committed.Final, committed.LastErr, wantFinals[wantIndex])
+						}
+					} else if committed.Final != nil || !errors.Is(committed.LastErr, cause) ||
+						!errors.Is(committed.LastErr, ErrClass) {
+						t.Errorf("failed final/error = (%p, %v), want nil and classified callback cause",
+							committed.Final, committed.LastErr)
+					}
+					if got := resStatusList(drainInternalRess(tp)); !slices.Equal(got, []int{wantStatus}) {
+						t.Errorf("upstream statuses = %v, want [%d]", got, wantStatus)
+					}
+					if len(completions) != 1 {
+						t.Fatalf("completions = %+v, want one %v completion", completions, wantOutcome)
+					}
+					completion := completions[0]
+					if completion.Outcome != wantOutcome ||
+						wantIndex >= 0 && (completion.StatusCode != wantStatus || completion.Error != nil) ||
+						wantIndex < 0 && !errors.Is(completion.Error, cause) {
+						t.Errorf("completion = %+v, want %v with committed status/error", completion, wantOutcome)
+					}
+					snap, err := rq.Snapshot()
+					if err != nil {
+						t.Fatalf("committed Snapshot() error = %v, want nil", err)
+					}
+					if !snap.Completed || !snap.CompletionCommitted || snap.Outcome != wantOutcome {
+						t.Errorf("committed snapshot = %+v, want completed %v", snap, wantOutcome)
+					}
+				}
+
+				for _, err := range []error{nil, cause} {
+					rq.enqueue(t.Context(), workEvent{
+						kind: evtFinalSelection, resolution: pending.Generation,
+						finalIndex: 0, err: err,
+					})
+				}
+				rq.enqueue(t.Context(), workEvent{kind: evtSchedule})
+				rq.enqueue(t.Context(), workEvent{kind: evtSchedule})
+				rq.mu.Lock()
+				effects = rq.finishLocked()
+				rq.mu.Unlock()
+				if len(effects) != 0 {
+					t.Errorf("settled finish effects = %d, want 0", len(effects))
+				}
+				synctest.Wait()
+				if diff := cmp.Diff(committed, readDecision(), identity); diff != "" {
+					t.Errorf("stale successful/error result (-before +after):\n%s", diff)
+				}
+				wantCompletions := 1
+				if tt.shutdown {
+					wantCompletions = 0
+					if got, ok := prx.LookupRequest(elm, rq.srvKey); ok || got != nil {
+						t.Errorf("retired lookup after callback = (%p, %t), want (nil, false)", got, ok)
+					}
+				}
+				if got := calls.Load(); got != 1 || len(completions) != wantCompletions {
+					t.Errorf("resolver calls/completions = (%d, %d), want (1, %d)", got, len(completions), wantCompletions)
+				}
+				if sent := drainInternalRess(tp); len(sent) != 0 {
+					t.Errorf("extra upstream statuses = %v, want []", resStatusList(sent))
+				}
+				if sent := drainInternalReqs(tp); len(sent) != 0 {
+					t.Errorf("new downstream sends = %d, want 0", len(sent))
+				}
+				rq.mu.Lock()
+				draining, queued := rq.draining, len(rq.queue)
+				rq.mu.Unlock()
+				if draining || queued != 0 {
+					t.Errorf("coordinator drain/queue = (%t, %d), want (false, 0)", draining, queued)
+				}
+			})
+		})
+	}
 }
 
 func TestProxy_promotion_admission(t *testing.T) {

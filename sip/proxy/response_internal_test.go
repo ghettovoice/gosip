@@ -51,6 +51,379 @@ func resToTag(res *sip.ResponseEnvelope) string {
 	return tag
 }
 
+func TestDefaultFinalResponseResolver(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name     string
+		statuses []sip.ResponseStatus
+		want     int
+		wantErr  bool
+	}{
+		{
+			name:     "nil and provisional entries preserve the original index",
+			statuses: []sip.ResponseStatus{0, 180, 404},
+			want:     2,
+			wantErr:  false,
+		},
+		{
+			name:     "success outranks an earlier 6xx",
+			statuses: []sip.ResponseStatus{600, 200},
+			want:     1,
+			wantErr:  false,
+		},
+		{
+			name:     "6xx outranks an earlier redirection",
+			statuses: []sip.ResponseStatus{302, 600},
+			want:     1,
+			wantErr:  false,
+		},
+		{
+			name:     "401 is preferred over 486",
+			statuses: []sip.ResponseStatus{486, 401},
+			want:     1,
+			wantErr:  false,
+		},
+		{
+			name:     "arrival order decides a plain 4xx tie",
+			statuses: []sip.ResponseStatus{480, 486},
+			want:     0,
+			wantErr:  false,
+		},
+		{
+			name:     "arrival order decides a 6xx tie",
+			statuses: []sip.ResponseStatus{604, 600},
+			want:     0,
+			wantErr:  false,
+		},
+		{
+			name:     "arrival order decides a preferred 4xx tie",
+			statuses: []sip.ResponseStatus{484, 401},
+			want:     0,
+			wantErr:  false,
+		},
+		{
+			name:     "lowest class wins without 6xx",
+			statuses: []sip.ResponseStatus{500, 404, 302},
+			want:     2,
+			wantErr:  false,
+		},
+		{
+			name:     "407 is preferred over 486",
+			statuses: []sip.ResponseStatus{486, 407},
+			want:     1,
+			wantErr:  false,
+		},
+		{
+			name:     "415 is preferred over 486",
+			statuses: []sip.ResponseStatus{486, 415},
+			want:     1,
+			wantErr:  false,
+		},
+		{
+			name:     "420 is preferred over 486",
+			statuses: []sip.ResponseStatus{486, 420},
+			want:     1,
+			wantErr:  false,
+		},
+		{
+			name:     "484 is preferred over 486",
+			statuses: []sip.ResponseStatus{486, 484},
+			want:     1,
+			wantErr:  false,
+		},
+		{
+			name:     "empty candidates",
+			statuses: []sip.ResponseStatus{},
+			want:     -1,
+			wantErr:  true,
+		},
+		{
+			name:     "all nil candidates",
+			statuses: []sip.ResponseStatus{0, 0},
+			want:     -1,
+			wantErr:  true,
+		},
+		{
+			name:     "nil and provisional only candidates",
+			statuses: []sip.ResponseStatus{0, 180, 183},
+			want:     -1,
+			wantErr:  true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := newInternalInviteReq(sip.MagicCookie + ".default-final-resolver")
+			candidates := make([]*sip.ResponseEnvelope, len(tt.statuses))
+			for i, status := range tt.statuses {
+				if status != 0 {
+					candidates[i] = newSelectCandidate(t, req, status)
+				}
+			}
+
+			type candidateState struct {
+				Status  sip.ResponseStatus
+				Headers []string
+			}
+			snapshot := func() []candidateState {
+				states := make([]candidateState, len(candidates))
+				for i, candidate := range candidates {
+					if candidate == nil {
+						continue
+					}
+					candidate.WithMessage(func(msg *sip.Response) {
+						states[i].Status = msg.Status
+						for _, hdr := range msg.Headers.All() {
+							states[i].Headers = append(
+								states[i].Headers, string(hdr.CanonicName())+": "+hdr.RenderValue(),
+							)
+						}
+					})
+				}
+				return states
+			}
+			before := snapshot()
+			want, wantErr := tt.want, tt.wantErr
+
+			got, err := DefaultFinalResponseResolver(t.Context(), FinalResponseSelection{Candidates: candidates})
+			if (err != nil) != wantErr || got != want {
+				t.Fatalf("DefaultFinalResponseResolver() = (%d, %v), want (%d, error=%t)", got, err, want, wantErr)
+			}
+			if diff := cmp.Diff(before, snapshot()); diff != "" {
+				t.Errorf("candidate mutation (-before +after):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestFinalizeRes(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name     string
+		statuses []sip.ResponseStatus
+		index    int
+		want     sip.ResponseStatus
+		rewrite  bool
+		wantErr  bool
+	}{
+		{name: "empty candidates", index: 0, wantErr: true},
+		{name: "negative index", statuses: []sip.ResponseStatus{486}, index: -1, wantErr: true},
+		{name: "out of range", statuses: []sip.ResponseStatus{486}, index: 1, wantErr: true},
+		{name: "selected nil", statuses: []sip.ResponseStatus{0, 486}, index: 0, wantErr: true},
+		{name: "selected provisional", statuses: []sip.ResponseStatus{180, 486}, index: 0, wantErr: true},
+		{name: "plain 486 keeps selected pointer", statuses: []sip.ResponseStatus{302, 486}, index: 1, want: 486},
+		{name: "success keeps selected pointer", statuses: []sip.ResponseStatus{600, 200}, index: 1, want: 200},
+		{name: "does not impose precedence", statuses: []sip.ResponseStatus{600, 200}, index: 0, want: 600},
+		{name: "does not impose method rules", statuses: []sip.ResponseStatus{408}, index: 0, want: 408},
+		{name: "lone 503 becomes owned 500", statuses: []sip.ResponseStatus{503}, index: 0, want: 500, rewrite: true},
+		{
+			name:     "lone final 503 ignores nil and provisional entries",
+			statuses: []sip.ResponseStatus{0, 180, 503},
+			index:    2,
+			want:     500,
+			rewrite:  true,
+		},
+		{name: "two 503s keep selected pointer", statuses: []sip.ResponseStatus{503, 503}, index: 1, want: 503},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := newInternalInviteReq(sip.MagicCookie + ".finalize")
+			candidates := make([]*sip.ResponseEnvelope, len(tt.statuses))
+			before := make([]string, len(candidates))
+			for i, status := range tt.statuses {
+				if status != 0 {
+					candidates[i] = newSelectCandidate(t, req, status)
+				}
+				before[i] = candidates[i].String()
+			}
+
+			selected, err := finalizeRes(candidates, tt.index)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("finalizeRes() error = %v, want error=%t", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if selected != nil || !errors.Is(err, ErrClass) {
+					t.Fatalf("finalizeRes() = (%p, %v), want nil and proxy error", selected, err)
+				}
+				return
+			}
+			if selected == nil {
+				t.Fatal("finalizeRes() = nil, want selected response")
+			}
+			if got := selected.Status(); got != tt.want {
+				t.Fatalf("finalizeRes() status = %v, want %v", got, tt.want)
+			}
+			source := candidates[tt.index]
+			wantReason := source.Reason()
+			if tt.rewrite {
+				wantReason = tt.want.Reason()
+			}
+			if got := selected.Reason(); got != wantReason {
+				t.Errorf("finalizeRes() reason = %q, want %q", got, wantReason)
+			}
+			if tag := resToTag(selected); tag != resToTag(source) {
+				t.Errorf("finalizeRes() To tag = %q, want %q", tag, resToTag(source))
+			}
+			if tt.rewrite {
+				if selected == source {
+					t.Fatal("finalizeRes() returned source pointer, want owned response")
+				}
+				selected.WithMessage(func(msg *sip.Response) {
+					if to, ok := msg.Headers.To(); ok {
+						to.Params.Set("tag", "rewritten-final-tag")
+					}
+				})
+			} else if selected != source {
+				t.Fatalf("finalizeRes() = (%p, %v), want original %p", selected, err, source)
+			}
+			for i, candidate := range candidates {
+				if diff := cmp.Diff(before[i], candidate.String()); diff != "" {
+					t.Errorf("candidate %d mutation (-before +after):\n%s", i, diff)
+				}
+			}
+		})
+	}
+
+	for _, status := range []sip.ResponseStatus{401, 407} {
+		t.Run(status.String()+" keeps selected tag and aggregates challenges", func(t *testing.T) {
+			t.Parallel()
+
+			req := newInternalInviteReq(sip.MagicCookie + ".finalize-auth")
+			wwwA := sip.Header(&header.WWWAuthenticate{
+				AuthChallenge: &header.DigestChallenge{Realm: "a.example", Nonce: "n-a"},
+			})
+			wwwA2 := sip.Header(&header.WWWAuthenticate{
+				AuthChallenge: &header.DigestChallenge{Realm: "a2.example", Nonce: "n-a2"},
+			})
+			wwwB := sip.Header(&header.WWWAuthenticate{
+				AuthChallenge: &header.DigestChallenge{Realm: "b.example", Nonce: "n-b"},
+			})
+			wwwC := sip.Header(&header.WWWAuthenticate{
+				AuthChallenge: &header.DigestChallenge{Realm: "c.example", Nonce: "n-c"},
+			})
+			prxA := sip.Header(&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{Realm: "pa.example", Nonce: "np-a"},
+			})
+			prxB := sip.Header(&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{Realm: "pb.example", Nonce: "np-b"},
+			})
+			prxC := sip.Header(&header.ProxyAuthenticate{
+				AuthChallenge: &header.DigestChallenge{Realm: "pc.example", Nonce: "np-c"},
+			})
+			candidates := []*sip.ResponseEnvelope{
+				newSelectCandidate(t, req, 401, wwwA, wwwA2, prxA),
+				newSelectCandidate(t, req, status, wwwB, prxB),
+				newSelectCandidate(t, req, 407, wwwC, prxC),
+				newSelectCandidate(t, req, 180, wwwA),
+				nil,
+			}
+			before := make([]string, len(candidates))
+			for i, candidate := range candidates {
+				before[i] = candidate.String()
+			}
+
+			selected, err := finalizeRes(candidates, 1)
+			if err != nil || selected == nil {
+				t.Fatalf("finalizeRes() = (%p, %v), want response and nil error", selected, err)
+			}
+			if selected == candidates[1] {
+				t.Fatal("finalizeRes() returned source pointer, want owned response")
+			}
+			if got := selected.Status(); got != status {
+				t.Errorf("finalizeRes() status = %v, want %v", got, status)
+			}
+			if tag := resToTag(selected); tag != resToTag(candidates[1]) {
+				t.Errorf("finalizeRes() To tag = %q, want %q", tag, resToTag(candidates[1]))
+			}
+			wantChallenges := []sip.Header{wwwB, wwwA, wwwA2, wwwC, prxB, prxA, prxC}
+			if diff := cmp.Diff(wantChallenges, resChallenges(selected)); diff != "" {
+				t.Errorf("challenges (-want +got):\n%s", diff)
+			}
+			selected.WithMessage(func(msg *sip.Response) {
+				if to, ok := msg.Headers.To(); ok {
+					to.Params.Set("tag", "aggregated-final-tag")
+				}
+			})
+			for i, candidate := range candidates {
+				if diff := cmp.Diff(before[i], candidate.String()); diff != "" {
+					t.Errorf("candidate %d mutation (-before +after):\n%s", i, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateFinalResIndex(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name     string
+		statuses []sip.ResponseStatus
+		index    int
+		invite   bool
+		wantErr  bool
+	}{
+		{name: "empty candidates", index: 0, wantErr: true},
+		{name: "negative index", statuses: []sip.ResponseStatus{486}, index: -1, wantErr: true},
+		{name: "out of range", statuses: []sip.ResponseStatus{486}, index: 1, wantErr: true},
+		{name: "selected nil", statuses: []sip.ResponseStatus{0, 486}, index: 0, wantErr: true},
+		{name: "selected provisional", statuses: []sip.ResponseStatus{180, 486}, index: 0, wantErr: true},
+		{name: "non-INVITE 408", statuses: []sip.ResponseStatus{408}, index: 0, invite: false, wantErr: true},
+		{name: "INVITE 408", statuses: []sip.ResponseStatus{408}, index: 0, invite: true, wantErr: false},
+		{name: "486 cannot bypass 600", statuses: []sip.ResponseStatus{486, 600}, index: 0, wantErr: true},
+		{name: "600 outranks 486", statuses: []sip.ResponseStatus{486, 600}, index: 1, wantErr: false},
+		{name: "600 cannot bypass 200", statuses: []sip.ResponseStatus{600, 200}, index: 0, wantErr: true},
+		{name: "200 outranks 600", statuses: []sip.ResponseStatus{600, 200}, index: 1, wantErr: false},
+		{name: "486 may bypass 302", statuses: []sip.ResponseStatus{302, 486}, index: 1, wantErr: false},
+		{name: "404 may bypass 401", statuses: []sip.ResponseStatus{401, 404}, index: 1, wantErr: false},
+		{name: "later 6xx is selectable", statuses: []sip.ResponseStatus{604, 600}, index: 1, wantErr: false},
+		{name: "later success is selectable", statuses: []sip.ResponseStatus{200, 202}, index: 1, wantErr: false},
+		{
+			name:     "non-INVITE 408 cannot bypass another final",
+			statuses: []sip.ResponseStatus{408, 500},
+			index:    0,
+			invite:   false,
+			wantErr:  true,
+		},
+		{
+			name:     "nil and provisional entries do not block selected final",
+			statuses: []sip.ResponseStatus{0, 180, 486},
+			index:    2,
+			wantErr:  false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := newInternalInviteReq(sip.MagicCookie + ".validate-final")
+			candidates := make([]*sip.ResponseEnvelope, len(tt.statuses))
+			before := make([]string, len(candidates))
+			for i, status := range tt.statuses {
+				if status != 0 {
+					candidates[i] = newSelectCandidate(t, req, status)
+				}
+				before[i] = candidates[i].String()
+			}
+
+			err := validateFinalResIndex(candidates, tt.index, tt.invite)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateFinalResIndex() error = %v, want error=%t", err, tt.wantErr)
+			}
+			if err != nil && !errors.Is(err, ErrClass) {
+				t.Errorf("validateFinalResIndex() error = %v, want proxy error", err)
+			}
+			for i, candidate := range candidates {
+				if diff := cmp.Diff(before[i], candidate.String()); diff != "" {
+					t.Errorf("candidate %d mutation (-before +after):\n%s", i, diff)
+				}
+			}
+		})
+	}
+}
+
 func TestProxy_SelectFinalResponse(t *testing.T) {
 	t.Parallel()
 

@@ -2,9 +2,13 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/netip"
+	"sync"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -575,4 +579,496 @@ func TestProxy_Hooks(t *testing.T) {
 	if diff := cmp.Diff(want, calls); diff != "" {
 		t.Fatalf("hook order (-want +got):\n%s", diff)
 	}
+}
+
+func admitFinalResolverFork(
+	tb testing.TB,
+	route Route,
+	req *sip.RequestEnvelope,
+) (*sip.Element, *internalTransp, *Request) {
+	tb.Helper()
+
+	plan := newInternalLitPlan()
+	plan.Groups[0] = append(plan.Groups[0], Target{
+		ID: "B",
+		URI: &sip.URI{
+			User: sip.MakeUserInfo("alice"),
+			Addr: sip.MakeHostPortAddr("10.0.0.10", 5060),
+		},
+	})
+	route.ResolveRequestTargets = func(context.Context, *sip.RequestEnvelope) (TargetPlan, error) {
+		return plan, nil
+	}
+	route.ServerTransactionOptions.Timing.Time100 = time.Hour
+	elm, prx, tp := newInternalTestProxy(tb, route, Options{ServedDomains: []string{"alice.voip.com"}})
+	rq := admitInternalReq(tb, elm, prx, req)
+	synctest.Wait()
+	return elm, tp, rq
+}
+
+func finalResolverTarget(tb testing.TB, elm *sip.Element, rq *Request, id string) sip.ClientTransaction {
+	tb.Helper()
+
+	rq.mu.Lock()
+	key := rq.targets[id].txKey
+	rq.mu.Unlock()
+	tx, ok := elm.LoadClientTransaction(key)
+	if !ok {
+		tb.Fatalf("client transaction for target %q not registered", id)
+	}
+	return tx
+}
+
+func TestProxy_FinalResponseResolver_InputIsolation(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		opaque := &struct{ Value int }{Value: 42}
+		req := newInternalInviteReq(sip.MagicCookie + ".resolver-isolation")
+		req.Metadata().Set("opaque", opaque).Set("entry", "original")
+		wantRequest := req.Render()
+		var elm *sip.Element
+		var rq *Request
+		var calls int
+		route := Route{
+			Name: "resolver-isolation",
+			ResolveFinalResponse: func(ctx context.Context, selection FinalResponseSelection) (int, error) {
+				calls++
+				if got, ok := sip.ElementFromContext(ctx); !ok || got != elm {
+					return -1, errors.ErrorWrap("resolver context lost owning element")
+				}
+				if _, err := rq.Snapshot(); !errors.Is(err, errSnapshotUnstable) {
+					return -1, errors.ErrorfWrap("pending snapshot error = %v, want unstable", err)
+				}
+				if got, _ := selection.Request.Metadata().Get("opaque"); got != opaque {
+					return -1, errors.ErrorWrap("request opaque metadata identity changed")
+				}
+				selection.Request.WithMessage(func(msg *sip.Request) {
+					msg.Method = sip.RequestMethodOptions
+					msg.URI = &sip.URI{Addr: sip.MakeHostAddr("mutated.example.com")}
+					msg.Proto = sip.ProtoInfo{}
+					msg.Headers.Set(header.CallID("mutated-request"))
+				})
+				selection.Request.Metadata().Clear().Set("replacement", true)
+				for _, candidate := range selection.Candidates {
+					if got, _ := candidate.Metadata().Get("opaque"); got != opaque {
+						return -1, errors.ErrorWrap("candidate opaque metadata identity changed")
+					}
+					candidate.WithMessage(func(msg *sip.Response) {
+						msg.Status = sip.ResponseStatusOK
+						msg.Reason = sip.ResponseStatusOK.Reason()
+						msg.Headers.Set(header.CallID("mutated-response"))
+						if to, ok := msg.Headers.To(); ok {
+							to.Params.Set("tag", "mutated-tag")
+						}
+						msg.Body[0] = 'X'
+					})
+					candidate.Metadata().Set("entry", "mutated").Delete("opaque")
+				}
+				selection.Candidates[0], selection.Candidates[1] = selection.Candidates[1], selection.Candidates[0]
+				selection.Candidates[1] = nil
+				return 1, nil
+			},
+		}
+		var tp *internalTransp
+		elm, tp, rq = admitFinalResolverFork(t, route, req)
+		txA := finalResolverTarget(t, elm, rq, "A")
+		txB := finalResolverTarget(t, elm, rq, "B")
+		first := newSelectCandidate(t, txA.Request(), sip.ResponseStatusTemporarilyUnavailable)
+		second := newSelectCandidate(t, txB.Request(), sip.ResponseStatusBusyHere)
+		for _, res := range []*sip.ResponseEnvelope{first, second} {
+			res.Metadata().Set("opaque", opaque).Set("entry", "original")
+			res.WithMessage(func(msg *sip.Response) {
+				if to, ok := msg.Headers.To(); ok {
+					to.Params.Set("tag", "original-tag")
+				}
+				msg.Body = []byte("original body")
+			})
+		}
+		wantCandidates := []string{first.Render(), second.Render()}
+		wantWire := cloneResEnvelope(second)
+		wantWire.WithMessage(func(msg *sip.Response) { msg.Headers.PopFirstVia() })
+		if err := txA.RecvResponse(t.Context(), first); err != nil {
+			t.Fatalf("txA.RecvResponse() error = %v, want nil", err)
+		}
+		synctest.Wait()
+		snap, err := rq.Snapshot()
+		if err != nil {
+			t.Fatalf("rq.Snapshot() error = %v, want nil", err)
+		}
+		before, err := json.Marshal(snap)
+		if err != nil {
+			t.Fatalf("json.Marshal(snapshot) error = %v, want nil", err)
+		}
+		if err := txB.RecvResponse(t.Context(), second); err != nil {
+			t.Fatalf("txB.RecvResponse() error = %v, want nil", err)
+		}
+		synctest.Wait()
+
+		sent := drainInternalRess(tp)
+		if got := resStatusList(sent); cmp.Diff([]int{486}, got) != "" {
+			t.Fatalf("upstream statuses = %v, want [486]", got)
+		}
+		if diff := cmp.Diff(wantWire.Render(), sent[0].Render()); diff != "" {
+			t.Errorf("selected wire content (-want +got):\n%s", diff)
+		}
+		forwardedHeaders := sent[0].Headers()
+		gotCallID, _ := forwardedHeaders.CallID()
+		wantCallID, _ := req.Headers().CallID()
+		if count := len(forwardedHeaders.Get("Call-ID")); count != 1 || gotCallID != wantCallID {
+			t.Errorf("forwarded Call-ID = (%d, %q), want (1, %q)", count, gotCallID, wantCallID)
+		}
+		if calls != 1 {
+			t.Errorf("resolver calls = %d, want 1", calls)
+		}
+		if diff := cmp.Diff(wantRequest, req.Render()); diff != "" {
+			t.Errorf("admitted request mutation (-want +got):\n%s", diff)
+		}
+		if got, _ := req.Metadata().Get("opaque"); got != opaque || req.Metadata().Has("replacement") {
+			t.Error("resolver metadata replacements leaked into admitted request")
+		}
+		if got, _ := req.Metadata().Get("entry"); got != "original" {
+			t.Errorf("admitted request metadata entry = %v, want original", got)
+		}
+		rq.mu.Lock()
+		gotCandidates := make([]string, len(rq.finals))
+		for i, candidate := range rq.finals {
+			gotCandidates[i] = candidate.Render()
+			if got, _ := candidate.Metadata().Get("entry"); got != "original" {
+				t.Errorf("candidate %d metadata entry = %v, want original", i, got)
+			}
+			if got, _ := candidate.Metadata().Get("opaque"); got != opaque {
+				t.Errorf("candidate %d opaque metadata = %v, want original pointer", i, got)
+			}
+		}
+		index, final := rq.finalResIndex, rq.final
+		rq.mu.Unlock()
+		if diff := cmp.Diff(wantCandidates, gotCandidates); diff != "" {
+			t.Errorf("stored candidates (-want +got):\n%s", diff)
+		}
+		if index != 1 || final == nil || final.Status() != sip.ResponseStatusBusyHere {
+			t.Errorf("committed selection = (%d, %v), want original index 1 / 486", index, final)
+		}
+		after, err := json.Marshal(snap)
+		if err != nil {
+			t.Fatalf("json.Marshal(snapshot) error = %v, want nil", err)
+		}
+		if diff := cmp.Diff(string(before), string(after)); diff != "" {
+			t.Errorf("earlier snapshot mutation (-before +after):\n%s", diff)
+		}
+	})
+}
+
+func TestProxy_FinalResponseResolver_OrdinaryError(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		cause := errors.ErrorWrap("resolver unavailable")
+		route := Route{
+			Name: "resolver-error",
+			ResolveFinalResponse: func(context.Context, FinalResponseSelection) (int, error) {
+				return 1, errors.Wrap(cause)
+			},
+		}
+		req := newInternalInviteReq(sip.MagicCookie + ".resolver-error")
+		elm, tp, rq := admitFinalResolverFork(t, route, req)
+		prx := rq.prx
+		var completions []Event
+		defer prx.BindEventHandler(EventHandlerFunc(func(_ context.Context, ev Event) {
+			if ev.Kind == EventKindRequestCompleted {
+				completions = append(completions, ev)
+			}
+		}))()
+		for i, id := range []string{"A", "B"} {
+			tx := finalResolverTarget(t, elm, rq, id)
+			status := []sip.ResponseStatus{480, 486}[i]
+			if err := tx.RecvResponse(t.Context(), newInternalInRes(t, tx.Request(), status)); err != nil {
+				t.Fatalf("tx.RecvResponse() error = %v, want nil", err)
+			}
+			synctest.Wait()
+		}
+		rq.mu.Lock()
+		done, outcome, lastErr, index, final := rq.done, rq.outcome, rq.lastErr, rq.finalResIndex, rq.final
+		rq.mu.Unlock()
+		if !done || outcome != OutcomeAbandoned || final != nil || index != -1 {
+			t.Errorf("request = (done=%t, %v, final=%v, index=%d), want abandoned without selection",
+				done, outcome, final, index)
+		}
+		if !errors.Is(lastErr, cause) || !errors.Is(lastErr, ErrClass) {
+			t.Errorf("last error = %v, want preserved cause and proxy class", lastErr)
+		}
+		if len(completions) != 1 || completions[0].Outcome != OutcomeAbandoned {
+			t.Errorf("completions = %+v, want one abandoned completion", completions)
+		}
+		if got := resStatusList(drainInternalRess(tp)); cmp.Diff([]int{500}, got) != "" {
+			t.Errorf("upstream statuses = %v, want [500] without default fallback", got)
+		}
+	})
+}
+
+func TestProxy_FinalResponseResolver_Failure(t *testing.T) {
+	t.Parallel()
+
+	const cause errors.Error = "final response policy failed"
+	tests := []struct {
+		name     string
+		statuses [2]sip.ResponseStatus
+		index    int
+		atEnd    bool
+		cause    error
+		typed    bool
+	}{
+		{name: "negative index", statuses: [2]sip.ResponseStatus{480, 486}, index: -1},
+		{name: "index at candidate count", statuses: [2]sip.ResponseStatus{480, 486}, atEnd: true},
+		{name: "486 cannot override 600", statuses: [2]sip.ResponseStatus{600, 486}, index: 1},
+		{name: "callback error", statuses: [2]sip.ResponseStatus{480, 486}, index: 1, cause: cause},
+		{name: "typed callback rejection 403", statuses: [2]sip.ResponseStatus{480, 486}, index: 1, cause: cause, typed: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, upstream := range []string{"usable", "nil", "unavailable", "terminated"} {
+				t.Run(upstream, func(t *testing.T) {
+					t.Parallel()
+
+					synctest.Test(t, func(t *testing.T) {
+						callbackErr := tt.cause
+						if tt.typed {
+							callbackErr = sip.NewRequestRejectedError(tt.cause, slog.LevelWarn, sip.ResponseStatusForbidden)
+						}
+						var calls int
+						route := Route{
+							Name: "resolver-failure",
+							ResolveFinalResponse: func(_ context.Context, selection FinalResponseSelection) (int, error) {
+								calls++
+								if tt.atEnd {
+									return len(selection.Candidates), nil
+								}
+								return tt.index, errors.Wrap(callbackErr)
+							},
+						}
+						req := newInternalInviteReq(sip.MagicCookie + ".resolver-failure")
+						elm, tp, rq := admitFinalResolverFork(t, route, req)
+						prx := rq.prx
+						rq.mu.Lock()
+						original, key := rq.srvTx, rq.srvKey
+						rq.mu.Unlock()
+						if tx, ok := elm.LoadServerTransaction(key); !ok || tx != original || original.Key() != key {
+							t.Fatal("original upstream transaction pointer/key not registered")
+						}
+						var replacements []sip.ServerTransaction
+						defer elm.UseMiddleware(sip.ServerTransactionHandlerFunc(func(_ context.Context, tx sip.ServerTransaction) {
+							replacements = append(replacements, tx)
+						}))()
+						var completions []Event
+						defer prx.BindEventHandler(EventHandlerFunc(func(_ context.Context, ev Event) {
+							if ev.Kind == EventKindRequestCompleted {
+								completions = append(completions, ev)
+							}
+						}))()
+						switch upstream {
+						case "nil":
+							rq.mu.Lock()
+							rq.srvTx = nil
+							rq.mu.Unlock()
+						case "unavailable":
+							rq.mu.Lock()
+							rq.srvGone = true
+							rq.mu.Unlock()
+						case "terminated":
+							if err := original.Terminate(t.Context(), nil); err != nil {
+								t.Fatalf("original.Terminate() error = %v, want nil", err)
+							}
+							synctest.Wait()
+						}
+						for i, id := range []string{"A", "B"} {
+							tx := finalResolverTarget(t, elm, rq, id)
+							if err := tx.RecvResponse(t.Context(), newInternalInRes(t, tx.Request(), tt.statuses[i])); err != nil {
+								t.Fatalf("tx.RecvResponse() error = %v, want nil", err)
+							}
+							synctest.Wait()
+						}
+
+						rq.mu.Lock()
+						done, outcome, lastErr, index, final := rq.done, rq.outcome, rq.lastErr, rq.finalResIndex, rq.final
+						held, heldKey := rq.srvTx, rq.srvKey
+						rq.mu.Unlock()
+						if !done || outcome != OutcomeAbandoned || index != -1 || final != nil {
+							t.Errorf("request = (done=%t, %v, index=%d, final=%v), want abandoned without selection",
+								done, outcome, index, final)
+						}
+						wantCause := tt.cause
+						if wantCause == nil {
+							wantCause = errInvalidFinalResIndex
+						}
+						if !errors.Is(lastErr, wantCause) || !errors.Is(lastErr, ErrClass) {
+							t.Errorf("recorded error = %v, want cause %v and proxy class", lastErr, wantCause)
+						}
+						if callbackErr != nil && !errors.Is(lastErr, callbackErr) {
+							t.Errorf("recorded error = %v, want callback error %v", lastErr, callbackErr)
+						}
+						if rej, ok := errors.AsType[*sip.RequestRejectedError](lastErr); !ok {
+							t.Errorf("recorded error = %v, want outer SIP rejection", lastErr)
+						} else {
+							if got := rej.ResponseStatus(); got != sip.ResponseStatusServerInternalError {
+								t.Errorf("outer rejection status = %v, want 500", got)
+							}
+							if got := rej.LogLevel(); got != slog.LevelError {
+								t.Errorf("outer rejection log level = %v, want ERROR", got)
+							}
+							if diff := cmp.Diff(sip.RespondOptions{}, rej.RespondOptions()); diff != "" {
+								t.Errorf("outer rejection options (-want +got):\n%s", diff)
+							}
+						}
+						if calls != 1 {
+							t.Errorf("resolver calls = %d, want 1", calls)
+						}
+						if len(completions) != 1 {
+							t.Fatalf("completions = %+v, want one abandoned completion", completions)
+						}
+						if completions[0].Outcome != OutcomeAbandoned || !errors.Is(completions[0].Error, wantCause) {
+							t.Errorf("completion = %+v, want abandoned with cause %v", completions[0], wantCause)
+						}
+						if heldKey != key || upstream != "nil" && held != original || upstream == "nil" && held != nil {
+							t.Error("failure changed original upstream transaction pointer/key")
+						}
+						if len(replacements) != 0 {
+							t.Errorf("replacement server admissions = %d, want 0", len(replacements))
+						}
+						for tx := range elm.AllServerTransactions() {
+							if tx != original {
+								t.Errorf("registered server transaction = %v, want only original", tx)
+							}
+						}
+						sent := drainInternalRess(tp)
+						if upstream == "usable" {
+							if got := resStatusList(sent); cmp.Diff([]int{500}, got) != "" {
+								t.Errorf("upstream statuses = %v, want [500] without default fallback", got)
+							}
+							if len(sent) == 1 {
+								if last := original.LastResponse(); last == nil || last.Render() != sent[0].Render() {
+									t.Error("original transaction did not retain the upstream response")
+								}
+								if got, err := sip.MakeServerTransactionKey(sent[0]); err != nil || got != key {
+									t.Errorf("upstream response key = (%v, %v), want (%v, nil)", got, err, key)
+								}
+							}
+						} else if len(sent) != 0 || original.LastResponse() != nil {
+							t.Errorf("unusable upstream sends = %d, last response = %v, want 0 and nil",
+								len(sent), original.LastResponse())
+						}
+					})
+				})
+			}
+		})
+	}
+}
+
+func TestProxy_FinalResponseResolver_GlobalFailure(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		var calls int
+		route := Route{
+			Name: "resolver-global-failure",
+			ResolveFinalResponse: func(_ context.Context, selection FinalResponseSelection) (int, error) {
+				calls++
+				if got := resStatusList(selection.Candidates); cmp.Diff([]int{604, 600}, got) != "" {
+					return -1, errors.ErrorfWrap("candidate statuses = %v, want [604 600]", got)
+				}
+				return 1, nil
+			},
+		}
+		req := newInternalInviteReq(sip.MagicCookie + ".resolver-global-failure")
+		elm, tp, rq := admitFinalResolverFork(t, route, req)
+		prx := rq.prx
+		var completions []Event
+		defer prx.BindEventHandler(EventHandlerFunc(func(_ context.Context, ev Event) {
+			if ev.Kind == EventKindRequestCompleted {
+				completions = append(completions, ev)
+			}
+		}))()
+		for i, id := range []string{"A", "B"} {
+			tx := finalResolverTarget(t, elm, rq, id)
+			status := [2]sip.ResponseStatus{604, 600}[i]
+			if err := tx.RecvResponse(t.Context(), newInternalInRes(t, tx.Request(), status)); err != nil {
+				t.Fatalf("tx.RecvResponse() error = %v, want nil", err)
+			}
+			synctest.Wait()
+		}
+		if got := resStatusList(drainInternalRess(tp)); cmp.Diff([]int{600}, got) != "" {
+			t.Errorf("upstream statuses = %v, want [600]", got)
+		}
+		if calls != 1 {
+			t.Errorf("resolver calls = %d, want 1", calls)
+		}
+		if len(completions) != 1 || completions[0].Outcome != OutcomeResponse || completions[0].StatusCode != 600 {
+			t.Errorf("completions = %+v, want one response completion with status 600", completions)
+		}
+		rq.mu.Lock()
+		index := rq.finalResIndex
+		rq.mu.Unlock()
+		if index != 1 {
+			t.Errorf("committed index = %d, want 1", index)
+		}
+	})
+}
+
+func TestProxy_FinalResponseResolver_RetainedSuccess(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		defer unblock()
+		var calls int
+		route := Route{
+			Name: "resolver-retained-success",
+			ResolveFinalResponse: func(context.Context, FinalResponseSelection) (int, error) {
+				calls++
+				close(entered)
+				<-release
+				return 1, nil
+			},
+		}
+		req := newInternalInviteReq(sip.MagicCookie + ".resolver-retained-success")
+		elm, tp, rq := admitFinalResolverFork(t, route, req)
+		for i, id := range []string{"A", "B"} {
+			tx := finalResolverTarget(t, elm, rq, id)
+			status := []sip.ResponseStatus{480, 486}[i]
+			if err := tx.RecvResponse(t.Context(), newInternalInRes(t, tx.Request(), status)); err != nil {
+				t.Fatalf("tx.RecvResponse() error = %v, want nil", err)
+			}
+			synctest.Wait()
+		}
+		<-entered
+		rq.enqueue(t.Context(), workEvent{kind: evtSchedule})
+		rq.enqueue(t.Context(), workEvent{kind: evtSchedule})
+		tx := finalResolverTarget(t, elm, rq, "A")
+		success := newInternalInRes(t, tx.Request(), sip.ResponseStatusOK)
+		rq.mu.Lock()
+		gen := rq.attempts[tx.Key()].gen
+		rq.mu.Unlock()
+		// The retained attempt can still deliver a success after its negative
+		// settlement; enqueue at the existing detached attribution boundary.
+		rq.enqueue(t.Context(), workEvent{kind: evtClnRes, key: tx.Key(), gen: gen, res: success})
+		unblock()
+		synctest.Wait()
+
+		rq.mu.Lock()
+		done, outcome, index, final := rq.done, rq.outcome, rq.finalResIndex, rq.final
+		rq.mu.Unlock()
+		if !done || outcome != OutcomeResponse || index != 2 || final != success {
+			t.Errorf("committed selection = (done=%t, %v, index=%d, final=%v), want retained success at 2",
+				done, outcome, index, final)
+		}
+		if calls != 1 {
+			t.Errorf("resolver calls = %d, want 1", calls)
+		}
+		if got := resStatusList(drainInternalRess(tp)); cmp.Diff([]int{200}, got) != "" {
+			t.Errorf("upstream statuses = %v, want [200] with original-envelope dedup", got)
+		}
+	})
 }

@@ -58,6 +58,299 @@ func attemptOfTarget(snap *proxy.RequestSnapshot, id string) *proxy.AttemptSnaps
 	return nil
 }
 
+func TestProxy_FinalResponseResolutionRecovery_Public(t *testing.T) {
+	t.Parallel()
+
+	for _, policy := range []string{"error if called", "prefer A"} {
+		t.Run(policy, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				ctx := t.Context()
+				assertChoice := func(res *sip.ResponseEnvelope, tag, choice string) {
+					t.Helper()
+					res.WithMessage(func(msg *sip.Response) {
+						if got := resToTag(t, msg); got != tag {
+							t.Fatalf("proxy response To tag = %q, want %q", got, tag)
+						}
+						hdrs := msg.Headers.Get("X-Resolver-Choice")
+						if len(hdrs) != 1 {
+							t.Fatalf("proxy response X-Resolver-Choice headers = %d, want 1", len(hdrs))
+						}
+						if got := hdrs[0].RenderValue(); got != choice {
+							t.Fatalf("proxy response X-Resolver-Choice = %q, want %q", got, choice)
+						}
+						if msg.Status != 486 {
+							t.Fatalf("proxy response status = %v, want 486", msg.Status)
+						}
+					})
+				}
+				var originalCalls atomic.Int32
+				route := obsRoute("resolution-recovery", obsLitPlan("A", "B"))
+				route.ServerTransactionOptions.Timing.Time100 = time.Hour
+				route.ResolveFinalResponse = func(context.Context, proxy.FinalResponseSelection) (int, error) {
+					originalCalls.Add(1)
+					return 1, nil
+				}
+				opts := proxy.Options{ServedDomains: []string{"alice.voip.com"}}
+				elm, prx, tp := newConfiguredTestProxy(t, route, opts)
+				req := newInInviteReq(t, "UDP", sip.MagicCookie+".resolution-recovery-public",
+					netip.MustParseAddrPort("192.168.1.100:5060"), netip.MustParseAddrPort("10.0.0.5:5060"))
+				fwdIntercept(t, elm, prx, req)
+				synctest.Wait()
+				srvKey, err := sip.MakeServerTransactionKey(req)
+				if err != nil {
+					t.Fatalf("sip.MakeServerTransactionKey() error = %v, want nil", err)
+				}
+				rq, ok := prx.LookupRequest(elm, srvKey)
+				if !ok {
+					t.Fatal("proxy.LookupRequest() found no owned request")
+				}
+				initial, err := rq.Snapshot()
+				if err != nil {
+					t.Fatalf("rq.Snapshot() error = %v, want nil", err)
+				}
+				targetIDs := make(map[sip.ClientTransactionKey]string)
+				for _, attempt := range initial.Attempts {
+					targetIDs[attempt.Key] = attempt.TargetID
+				}
+				branches := make(map[string]*sip.RequestEnvelope)
+				for _, out := range drainReqs(tp) {
+					key, err := sip.MakeClientTransactionKey(out)
+					if err != nil {
+						t.Fatalf("sip.MakeClientTransactionKey() error = %v, want nil", err)
+					}
+					id := targetIDs[key]
+					if id == "" || branches[id] != nil {
+						t.Fatalf("outbound target ID = %q, want distinct known target", id)
+					}
+					branches[id] = out
+				}
+				if len(branches) != 2 || branches["A"] == nil || branches["B"] == nil {
+					t.Fatalf("proxy outbound branches = %v, want A and B", branches)
+				}
+				for i, id := range []string{"A", "B"} {
+					out := branches[id]
+					res := newInRes(t, out, 486)
+					res.WithMessage(func(msg *sip.Response) {
+						to, _ := msg.Headers.To()
+						to.Params.Set("tag", []string{"first", "second"}[i])
+						msg.Headers.Append(&header.Any{Name: "X-Resolver-Choice", Value: id})
+					})
+					if err := fwdClnTx(t, elm, out).RecvResponse(ctx, res); err != nil {
+						t.Fatalf("clnTx.RecvResponse(486) error = %v, want nil", err)
+					}
+					synctest.Wait()
+				}
+				upstream := drainRess(tp)
+				if len(upstream) != 1 {
+					t.Fatalf("proxy upstream sends = %d, want 1", len(upstream))
+				}
+				assertChoice(upstream[0], "second", "B")
+				if got := originalCalls.Load(); got != 1 {
+					t.Fatalf("proxy original resolver calls = %d, want 1", got)
+				}
+
+				snap, err := rq.Snapshot()
+				if err != nil {
+					t.Fatalf("rq.Snapshot() error = %v, want nil", err)
+				}
+				srvTx, ok := elm.LoadServerTransaction(srvKey)
+				if !ok {
+					t.Fatal("upstream server transaction not registered")
+				}
+				srvSnap := mustSrvTxSnapshot(t, srvTx.(sip.ServerTransactionSnapshotter))
+				raw, err := json.Marshal(snap)
+				if err != nil {
+					t.Fatalf("json.Marshal(snap) error = %v, want nil", err)
+				}
+				var decoded proxy.RequestSnapshot
+				if err := json.Unmarshal(raw, &decoded); err != nil {
+					t.Fatalf("json.Unmarshal(snapshot) error = %v, want nil", err)
+				}
+				if len(decoded.Candidates) != 2 {
+					t.Fatalf("proxy decoded candidates = %d, want 2", len(decoded.Candidates))
+				}
+				assertChoice(decoded.Candidates[0], "first", "A")
+				assertChoice(decoded.Candidates[1], "second", "B")
+				if !decoded.Completed || !decoded.FinalForwarded || !decoded.CompletionCommitted ||
+					decoded.Outcome != proxy.OutcomeResponse || decoded.FinalStatus != 486 {
+					t.Fatalf("proxy decoded decision = %+v, want committed forwarded response 486", decoded)
+				}
+
+				var calls, completions atomic.Int32
+				restoredRoute := *route
+				restoredRoute.ResolveFinalResponse = func(context.Context, proxy.FinalResponseSelection) (int, error) {
+					calls.Add(1)
+					if policy == "error if called" {
+						return -1, errors.ErrorWrap("resolver must not run during recovery")
+					}
+					return 0, nil
+				}
+				elm2, prx2, tp2 := newConfiguredTestProxy(t, &restoredRoute, opts)
+				defer prx2.BindEventHandler(proxy.EventHandlerFunc(func(_ context.Context, ev proxy.Event) {
+					if ev.Kind == proxy.EventKindRequestCompleted {
+						completions.Add(1)
+					}
+				}))()
+				restoredSrv, err := sip.RestoreServerTransaction(srvSnap, tp2)
+				if err != nil {
+					t.Fatalf("sip.RestoreServerTransaction() error = %v, want nil", err)
+				}
+				restored, err := prx2.RestoreRequest(sip.ContextWithElement(ctx, elm2), &decoded, proxy.RestoreBindings{
+					Element:           elm2,
+					ServerTransaction: restoredSrv,
+				})
+				if err != nil {
+					t.Fatalf("proxy.RestoreRequest() error = %v, want nil", err)
+				}
+				for _, phase := range []string{"restore", "Start"} {
+					if phase == "Start" {
+						if err := restored.Start(ctx); err != nil {
+							t.Fatalf("restored.Start() error = %v, want nil", err)
+						}
+					}
+					synctest.Wait()
+					if got := len(drainRess(tp2)) + len(drainReqs(tp2)); got != 0 {
+						t.Fatalf("proxy sends after %s = %d, want 0", phase, got)
+					}
+					if got := completions.Load(); got != 0 {
+						t.Fatalf("proxy completion observations after %s = %d, want 0", phase, got)
+					}
+					if got := calls.Load(); got != 0 {
+						t.Fatalf("proxy resolver calls after %s = %d, want 0", phase, got)
+					}
+				}
+			})
+		})
+	}
+}
+
+func TestRequestSnapshot_FinalCandidateIndexJSON(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		route := obsRoute("index-zero-json", obsLitPlan("A"))
+		elm, prx, tp := newConfiguredTestProxy(t, route, proxy.Options{
+			ServedDomains: []string{"alice.voip.com"},
+		})
+		req := newInInviteReq(t, "UDP", sip.MagicCookie+".index-zero-json",
+			netip.MustParseAddrPort("192.168.1.100:5060"), netip.MustParseAddrPort("10.0.0.5:5060"))
+		fwdIntercept(t, elm, prx, req)
+		synctest.Wait()
+		key, err := sip.MakeServerTransactionKey(req)
+		if err != nil {
+			t.Fatalf("sip.MakeServerTransactionKey() error = %v, want nil", err)
+		}
+		rq, ok := prx.LookupRequest(elm, key)
+		if !ok {
+			t.Fatal("proxy.LookupRequest() found no owned request")
+		}
+		sends := drainReqs(tp)
+		if len(sends) != 1 {
+			t.Fatalf("proxy outbound sends = %d, want 1", len(sends))
+		}
+		if err := fwdClnTx(t, elm, sends[0]).RecvResponse(ctx, newInRes(t, sends[0], 200)); err != nil {
+			t.Fatalf("clnTx.RecvResponse(200) error = %v, want nil", err)
+		}
+		synctest.Wait()
+		snap, err := rq.Snapshot()
+		if err != nil {
+			t.Fatalf("rq.Snapshot() error = %v, want nil", err)
+		}
+		if snap.Version != 1 || !snap.Completed || snap.Outcome != proxy.OutcomeResponse ||
+			snap.FinalStatus != 200 || len(snap.Candidates) != 1 {
+			t.Fatalf("proxy captured decision = %+v, want version-1 completed response 200 with one candidate", snap)
+		}
+		if snap.FinalCandidateIndex == nil || *snap.FinalCandidateIndex != 0 {
+			t.Fatalf("captured selection = %v, want non-nil index 0", snap.FinalCandidateIndex)
+		}
+		data, err := json.Marshal(snap)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded proxy.RequestSnapshot
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded.FinalCandidateIndex == nil || *decoded.FinalCandidateIndex != 0 {
+			t.Fatalf("decoded selection = %v, want non-nil index 0", decoded.FinalCandidateIndex)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if got := string(fields["final_candidate_index"]); got != "0" {
+			t.Fatalf("proxy snapshot JSON final_candidate_index = %q, want 0", got)
+		}
+	})
+}
+
+func TestRequestSnapshot_FinalCandidateIndexIsolation(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		route := obsRoute("index-isolation", obsLitPlan("A", "B"))
+		route.ServerTransactionOptions.Timing.Time100 = time.Hour
+		route.ResolveFinalResponse = func(context.Context, proxy.FinalResponseSelection) (int, error) {
+			return 1, nil
+		}
+		elm, prx, tp := newConfiguredTestProxy(t, route, proxy.Options{ServedDomains: []string{"alice.voip.com"}})
+		req := newInInviteReq(t, "UDP", sip.MagicCookie+".index-isolation",
+			netip.MustParseAddrPort("192.168.1.100:5060"), netip.MustParseAddrPort("10.0.0.5:5060"))
+		fwdIntercept(t, elm, prx, req)
+		synctest.Wait()
+		key, err := sip.MakeServerTransactionKey(req)
+		if err != nil {
+			t.Fatalf("sip.MakeServerTransactionKey() error = %v, want nil", err)
+		}
+		rq, ok := prx.LookupRequest(elm, key)
+		if !ok {
+			t.Fatal("proxy.LookupRequest() found no owned request")
+		}
+		sends := drainReqs(tp)
+		if len(sends) != 2 {
+			t.Fatalf("proxy outbound sends = %d, want 2", len(sends))
+		}
+		for _, out := range sends {
+			if err := fwdClnTx(t, elm, out).RecvResponse(t.Context(), newInRes(t, out, 486)); err != nil {
+				t.Fatalf("clnTx.RecvResponse(486) error = %v, want nil", err)
+			}
+			synctest.Wait()
+		}
+		snap, err := rq.Snapshot()
+		if err != nil {
+			t.Fatalf("rq.Snapshot() error = %v, want nil", err)
+		}
+		if !snap.Completed || snap.Outcome != proxy.OutcomeResponse || snap.FinalCandidateIndex == nil ||
+			*snap.FinalCandidateIndex != 1 || len(snap.Candidates) != 2 ||
+			snap.Candidates[0].Status() != 486 || snap.Candidates[1].Status() != 486 {
+			t.Fatalf("proxy captured decision = %+v, want actual [486,486]/index 1", snap)
+		}
+		cloned, other := snap.Clone(), snap.Clone()
+		if cloned.FinalCandidateIndex == nil || other.FinalCandidateIndex == nil ||
+			cloned.FinalCandidateIndex == snap.FinalCandidateIndex || other.FinalCandidateIndex == snap.FinalCandidateIndex ||
+			cloned.FinalCandidateIndex == other.FinalCandidateIndex ||
+			*cloned.FinalCandidateIndex != 1 || *other.FinalCandidateIndex != 1 {
+			t.Fatal("proxy snapshot clones do not own three distinct index-1 pointers")
+		}
+		*cloned.FinalCandidateIndex = 0
+		if *snap.FinalCandidateIndex != 1 || *other.FinalCandidateIndex != 1 {
+			t.Fatal("selected-index mutation aliases the original snapshot or other clone")
+		}
+		later, err := rq.Snapshot()
+		if err != nil {
+			t.Fatalf("rq.Snapshot() error = %v, want nil", err)
+		}
+		if later.FinalCandidateIndex == nil || *later.FinalCandidateIndex != 1 ||
+			later.FinalCandidateIndex == snap.FinalCandidateIndex || later.FinalCandidateIndex == other.FinalCandidateIndex ||
+			later.FinalCandidateIndex == cloned.FinalCandidateIndex {
+			t.Fatal("proxy later live capture lost index 1 or shared a selected-index pointer")
+		}
+	})
+}
+
 func TestProxy_Snapshot(t *testing.T) {
 	t.Parallel()
 
@@ -1171,6 +1464,8 @@ func TestProxy_RestoreDormant(t *testing.T) {
 						s.Completed = true
 						s.Outcome = proxy.OutcomeResponse
 						s.FinalStatus = sip.ResponseStatusOK
+						index := 0
+						s.FinalCandidateIndex = &index
 						return s
 					},
 				},

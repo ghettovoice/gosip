@@ -1116,15 +1116,6 @@ func runIntegration(t *testing.T, proto sip.TransportProto) {
 	tpRef = side.tp
 	uac := newWireUAC(t, proto, side.addr)
 	events := collectEvts(side.prx)
-	snapCh := make(chan *proxy.RequestSnapshot, 32)
-	side.prx.BindSnapshotHandler(proxy.RequestSnapshotHandlerFunc(
-		func(_ context.Context, snap *proxy.RequestSnapshot) {
-			select {
-			case snapCh <- snap:
-			default:
-			}
-		},
-	))
 
 	sendToSide := func(p *wirePeer, msg sip.Message) { p.send(t, msg, side.addr) }
 
@@ -1540,6 +1531,16 @@ func runIntegration(t *testing.T, proto sip.TransportProto) {
 		},
 	}}, proxy.Options{})
 
+	snapCh := make(chan *proxy.RequestSnapshot, 32)
+	side2.prx.BindSnapshotHandler(proxy.RequestSnapshotHandlerFunc(
+		func(_ context.Context, snap *proxy.RequestSnapshot) {
+			select {
+			case snapCh <- snap:
+			default:
+			}
+		},
+	))
+
 	srvTx2, err := sip.RestoreServerTransaction(srvSnap, side2.tp)
 	if err != nil {
 		t.Fatalf("sip.RestoreServerTransaction() error = %v, want nil", err)
@@ -1553,17 +1554,6 @@ func runIntegration(t *testing.T, proto sip.TransportProto) {
 	if err := side2.elm.RegisterClientTransaction(ctx, clnTx2); err != nil {
 		t.Fatalf("elm.RegisterClientTransaction() error = %v, want nil", err)
 	}
-
-	// Earlier scenarios may have left published revisions in the channel:
-	// drain them so the dormant check observes only new publications.
-	for {
-		select {
-		case <-snapCh:
-		default:
-			goto drained
-		}
-	}
-drained:
 
 	rq2, err := side2.prx.RestoreRequest(sip.ContextWithElement(ctx, side2.elm), snap, proxy.RestoreBindings{
 		Element:            side2.elm,
@@ -1579,8 +1569,8 @@ drained:
 		t.Fatal("uas B observed traffic while dormant, want none")
 	}
 	select {
-	case snap := <-snapCh:
-		t.Fatalf("snapshot revision published while dormant: %+v", snap)
+	case published := <-snapCh:
+		t.Fatalf("snapshot revision published while dormant: %+v", published)
 	default:
 	}
 
@@ -1612,6 +1602,17 @@ drained:
 				break
 			}
 		}
+	}
+
+	select {
+	case published := <-snapCh:
+		if published.RequestID != snap.RequestID ||
+			!published.UpstreamKey.Equal(snap.UpstreamKey) ||
+			published.Revision <= snap.Revision {
+			t.Fatalf("proxy restored snapshot = %+v, want the same request with revision > %d", published, snap.Revision)
+		}
+	case <-time.After(wireReadTimeout):
+		t.Fatal("proxy emitted no snapshot after restored request activation")
 	}
 
 	// --- Lifecycle: a sealed proxy claims nothing further on the wire. ---

@@ -2,7 +2,10 @@ package proxy_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/netip"
+	"time"
 
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/proxy"
@@ -189,4 +192,140 @@ func ExampleProxy_RestoreRequest() {
 
 	// Output:
 	// recovery halves: 2
+}
+
+// ExampleRequestSnapshot_finalCandidateIndex captures orchestration state
+// from a live in-memory request, independently of transaction checkpoints.
+func ExampleRequestSnapshot_finalCandidateIndex() {
+	// Runnable examples have no testing context; bound both channel waits.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tp := newStubTransp()
+	elm := &sip.Element{}
+	defer func() { _ = elm.Close() }()
+	if err := elm.TrackTransport(tp); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	prx, err := proxy.New([]proxy.Route{
+		{
+			Name:        "snapshot-selection",
+			ForwardMode: proxy.ForwardModeStateful,
+			ResolveRequestTargets: func(context.Context, *sip.RequestEnvelope) (proxy.TargetPlan, error) {
+				return proxy.TargetPlan{Groups: [][]proxy.Target{
+					{{
+						ID: "alice-desk",
+						URI: &sip.URI{
+							User: sip.MakeUserInfo("alice"),
+							Addr: sip.MakeHostPortAddr("192.0.2.10", 5060),
+						},
+					}},
+				}}, nil
+			},
+		},
+	}, proxy.Options{ServedDomains: []string{"alice.voip.com"}})
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	detach := elm.UseMiddleware(prx)
+	defer func() {
+		_ = prx.Close()
+		detach()
+	}()
+
+	completed := make(chan *proxy.RequestSnapshot, 1)
+	unbind := prx.BindSnapshotHandler(proxy.RequestSnapshotHandlerFunc(
+		func(_ context.Context, snap *proxy.RequestSnapshot) {
+			if !snap.Completed || snap.Outcome != proxy.OutcomeResponse {
+				return
+			}
+			// Later completed revisions must not block the coordinator.
+			select {
+			case completed <- snap:
+			default:
+			}
+		},
+	))
+	defer unbind()
+
+	from := &sip.URI{User: sip.MakeUserInfo("bob"), Addr: sip.MakeHostAddr("bob.voip.com")}
+	to := &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("alice.voip.com")}
+	msg, err := sip.NewRequest(sip.RequestMethodInfo, to, from, to)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	req := sip.NewRequestEnvelope(msg).
+		SetTransport(tp.Metadata()).
+		SetLocalAddr(netip.MustParseAddrPort("192.0.2.1:5060")).
+		SetRemoteAddr(netip.MustParseAddrPort("192.0.2.5:5060"))
+	req.PrepareVia(tp.Metadata().Proto, sip.MakeHostPortAddr("192.0.2.5", 5060))
+	next := sip.RequestReceiverFunc(func(context.Context, *sip.RequestEnvelope) error { return nil })
+	if err := prx.InterceptInboundRequest(sip.ContextWithElement(ctx, elm), next, req); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	var out *sip.RequestEnvelope
+	select {
+	case call := <-tp.sendReqCalls:
+		out = call.req
+	case <-ctx.Done():
+		fmt.Println("error waiting for outgoing request:", ctx.Err())
+		return
+	}
+	key, err := sip.MakeClientTransactionKey(out)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	tx, ok := elm.LoadClientTransaction(key)
+	if !ok {
+		fmt.Println("error: forwarding client transaction not registered")
+		return
+	}
+	res, err := out.NewResponse(sip.ResponseStatusOK)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	if err := tx.RecvResponse(ctx, res); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	var snap *proxy.RequestSnapshot
+	select {
+	case snap = <-completed:
+	case <-ctx.Done():
+		fmt.Println("error waiting for completed snapshot:", ctx.Err())
+		return
+	}
+	if snap.FinalStatus != sip.ResponseStatusOK || len(snap.Candidates) != 1 ||
+		snap.Candidates[0].Status() != sip.ResponseStatusOK {
+		fmt.Println("error: expected one committed 200 candidate")
+		return
+	}
+	data, err := json.Marshal(snap)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	var decoded proxy.RequestSnapshot
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	if decoded.FinalCandidateIndex == nil {
+		fmt.Println("error: selected candidate missing after JSON round trip")
+		return
+	}
+	fmt.Println("snapshot version:", decoded.Version)
+	fmt.Println("selected candidate:", *decoded.FinalCandidateIndex)
+
+	// Output:
+	// snapshot version: 1
+	// selected candidate: 0
 }

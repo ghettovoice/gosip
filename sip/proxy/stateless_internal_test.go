@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 
@@ -309,6 +310,158 @@ func statelessHostPolicyTarget() Target {
 		ID:  "h1",
 		URI: &sip.URI{User: sip.MakeUserInfo("alice"), Addr: sip.MakeHostAddr("alice.example.org")},
 	}
+}
+
+func TestProxy_FinalResponseResolver_StatelessPromotion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("true stateless bypass", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			var calls atomic.Int32
+			route := Route{
+				Name:        "resolver-stateless",
+				ForwardMode: ForwardModeStateless,
+				ResolveRequestTargets: func(context.Context, *sip.RequestEnvelope) (TargetPlan, error) {
+					return statelessPolicyPlan(statelessTestTarget()), nil
+				},
+				ResolveFinalResponse: func(context.Context, FinalResponseSelection) (int, error) {
+					calls.Add(1)
+					return -1, errors.ErrorWrap("unexpected stateless resolver invocation")
+				},
+			}
+			elm, prx, tp := newInternalTestProxy(t, route, Options{
+				StatelessKey: []byte("resolver-stateless-key"), ServedDomains: []string{"alice.voip.com"},
+			})
+			var completions []RequestOutcome
+			prx.BindEventHandler(EventHandlerFunc(func(_ context.Context, ev Event) {
+				if ev.Kind == EventKindRequestCompleted {
+					completions = append(completions, ev.Outcome)
+				}
+			}))
+			req := newInternalInviteReq(sip.MagicCookie + ".resolver-stateless")
+			ctx := sip.ContextWithElement(t.Context(), elm)
+			if err := prx.InterceptInboundRequest(ctx,
+				sip.RequestReceiverFunc(func(context.Context, *sip.RequestEnvelope) error { return nil }), req,
+			); err != nil {
+				t.Fatalf("prx.InterceptInboundRequest() error = %v, want nil", err)
+			}
+			synctest.Wait()
+			sends := drainInternalReqs(tp)
+			if len(sends) != 1 {
+				t.Fatalf("stateless sends = %d, want 1", len(sends))
+			}
+			md, ok := MetadataFrom(sends[0].Metadata())
+			if !ok || md.Mode != ForwardModeStateless {
+				t.Errorf("stateless send metadata = (%+v, %t), want stateless", md, ok)
+			}
+			if got := lcLiveTxCount(elm); got != 0 {
+				t.Fatalf("stateless transactions before response = %d, want 0", got)
+			}
+			if got := srvReqCount(prx, elm); got != 0 {
+				t.Fatalf("stateless coordinators before response = %d, want 0", got)
+			}
+			res := newInternalInRes(t, sends[0], sip.ResponseStatusTemporarilyUnavailable)
+			next := sip.ResponseReceiverFunc(func(context.Context, *sip.ResponseEnvelope) error {
+				return errors.ErrorWrap("stateless response escaped proxy ownership")
+			})
+			if err := prx.InterceptInboundResponse(ctx, next, res); err != nil {
+				t.Fatalf("prx.InterceptInboundResponse() error = %v, want nil", err)
+			}
+			synctest.Wait()
+			if diff := cmp.Diff([]int{480}, resStatusList(drainInternalRess(tp))); diff != "" {
+				t.Errorf("stateless wire statuses (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff([]RequestOutcome{OutcomeSent}, completions); diff != "" {
+				t.Errorf("stateless completion outcomes (-want +got):\n%s", diff)
+			}
+			if got := lcLiveTxCount(elm); got != 0 {
+				t.Errorf("stateless transactions after response = %d, want 0", got)
+			}
+			if got := srvReqCount(prx, elm); got != 0 {
+				t.Errorf("stateless coordinators after response = %d, want 0", got)
+			}
+			if got := calls.Load(); got != 0 {
+				t.Errorf("route.ResolveFinalResponse calls = %d, want 0", got)
+			}
+		})
+	})
+
+	t.Run("pre-send forking retains configured callback", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			plan := newInternalLitPlan()
+			plan.Groups[0] = append(plan.Groups[0], lcTarget("B", "10.0.0.10"))
+			var resolved, calls atomic.Int32
+			var selection FinalResponseSelection
+			route := Route{
+				Name:        "resolver-promotion",
+				ForwardMode: ForwardModeStateless,
+				ResolveRequestTargets: func(context.Context, *sip.RequestEnvelope) (TargetPlan, error) {
+					resolved.Add(1)
+					return plan, nil
+				},
+				ResolveFinalResponse: func(_ context.Context, input FinalResponseSelection) (int, error) {
+					calls.Add(1)
+					selection = input
+					return 1, nil
+				},
+			}
+			elm, prx, tp := newInternalTestProxy(t, route, Options{
+				StatelessKey: []byte("resolver-promotion-key"), ServedDomains: []string{"alice.voip.com"},
+			})
+			req := newInternalInviteReq(sip.MagicCookie + ".resolver-promotion")
+			rq := admitInternalReq(t, elm, prx, req)
+			synctest.Wait()
+			sends := drainInternalReqs(tp)
+			if len(sends) != 2 {
+				t.Fatalf("promoted branch sends = %d, want 2", len(sends))
+			}
+			for _, out := range sends {
+				md, ok := MetadataFrom(out.Metadata())
+				if !ok || md.Mode != ForwardModeStateful || md.RouteName != route.Name || md.Stage != StageForward {
+					t.Errorf("promoted send metadata = (%+v, %t), want stateful original route", md, ok)
+				}
+			}
+			for i, id := range []string{"A", "B"} {
+				tx := finalResolverTarget(t, elm, rq, id)
+				if err := tx.RecvResponse(t.Context(), newInternalInRes(t, tx.Request(), []sip.ResponseStatus{480, 486}[i])); err != nil {
+					t.Fatalf("promoted clnTx.RecvResponse() error = %v, want nil", err)
+				}
+				synctest.Wait()
+				if i == 0 {
+					if got := len(drainInternalRess(tp)); got != 0 {
+						t.Errorf("promoted upstream sends with live sibling = %d, want 0", got)
+					}
+					if got := calls.Load(); got != 0 {
+						t.Errorf("promoted resolver calls with live sibling = %d, want 0", got)
+					}
+				}
+			}
+			if got := resolved.Load(); got != 1 {
+				t.Errorf("route.ResolveRequestTargets calls = %d, want 1 (no replay on promotion)", got)
+			}
+			if got := calls.Load(); got != 1 {
+				t.Fatalf("configured route.ResolveFinalResponse calls = %d, want 1", got)
+			}
+			if diff := cmp.Diff([]int{480, 486}, resStatusList(selection.Candidates)); diff != "" {
+				t.Errorf("promoted arrival-ordered candidates (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff([]int{486}, resStatusList(drainInternalRess(tp))); diff != "" {
+				t.Errorf("promoted selected wire statuses (-want +got):\n%s", diff)
+			}
+			snap, err := rq.Snapshot()
+			if err != nil {
+				t.Fatalf("rq.Snapshot() error = %v, want nil", err)
+			}
+			if !snap.Completed || snap.Mode != ForwardModeStateful || snap.Outcome != OutcomeResponse || snap.FinalStatus != 486 {
+				t.Errorf("promoted completed/mode/outcome/final = %t/%v/%v/%d, want true/stateful/response/486",
+					snap.Completed, snap.Mode, snap.Outcome, snap.FinalStatus)
+			}
+		})
+	})
 }
 
 // TestProxy_StatelessSendPolicy exercises the private send-policy path of

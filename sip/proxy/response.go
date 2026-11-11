@@ -7,6 +7,7 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/shared"
+	"github.com/ghettovoice/gosip/pkg/errclass"
 	"github.com/ghettovoice/gosip/sip"
 )
 
@@ -169,6 +170,23 @@ func (rq *Request) markResForwarding(res *sip.ResponseEnvelope) bool {
 // still provisional.
 const errNoFinalResCandidate errors.Error = "no final response candidate"
 
+// DefaultFinalResponseResolver returns the original Candidates index of the
+// highest-ranked final response. It ignores nil and provisional entries and
+// returns (-1, error) when no final response exists.
+//
+// Ranking prefers 2xx, then 6xx, then the lowest remaining status class.
+// Within 4xx, 401, 407, 415, 420, and 484 outrank other statuses.
+// Equal ranks keep the first arrival, regardless of numeric status code.
+//
+// The request and context do not affect the default ranking. The resolver does
+// not mutate the request, candidate slice, envelopes, messages, or metadata.
+// It only ranks: proxy eligibility, method-specific suppression, and immediate
+// INVITE success forwarding remain proxy responsibilities. Response finalization
+// is separate, including lone-503 mapping and authentication-challenge aggregation.
+func DefaultFinalResponseResolver(_ context.Context, selection FinalResponseSelection) (int, error) {
+	return errors.Wrap2(defaultFinalResIndex(selection.Candidates))
+}
+
 // selectFinalRes applies the RFC 3261 Section 16.7 response-context
 // selection to the settled candidate responses in arrival order.
 //
@@ -194,14 +212,75 @@ const errNoFinalResCandidate errors.Error = "no final response candidate"
 // policy proving general unavailability exists yet, so the mapping is
 // unconditional.
 func selectFinalRes(candidates []*sip.ResponseEnvelope) (*sip.ResponseEnvelope, error) {
+	index, err := defaultFinalResIndex(candidates)
+	if err != nil {
+		return nil, errors.Wrap(err)
+	}
+	return errors.Wrap2(finalizeRes(candidates, index))
+}
+
+const errInvalidFinalResIndex errors.Error = "invalid final response index"
+
+func (rq *Request) failFinalSelectionLocked(err error) []effect {
+	return rq.failLocked(errors.Wrap(sip.NewRequestRejectedError(
+		errclass.Classify(err, ErrClass),
+		slog.LevelError,
+		sip.ResponseStatusServerInternalError,
+	)))
+}
+
+// applyFinalSelectionLocked validates the original frozen response context,
+// never the detached candidate containers the callback was allowed to inspect.
+func (rq *Request) applyFinalSelectionLocked(_ context.Context, ev workEvent) []effect {
+	if rq.closed || rq.done || !rq.finalResolving || ev.resolution != rq.finalResGen {
+		return nil
+	}
+	if ev.err != nil {
+		return rq.failFinalSelectionLocked(ev.err)
+	}
+	if err := validateFinalResIndex(rq.finals, ev.finalIndex, rq.req.Method().Equal(sip.RequestMethodInvite)); err != nil {
+		return rq.failFinalSelectionLocked(err)
+	}
+	if rq.finals[ev.finalIndex].Status().IsSuccessful() {
+		return rq.failFinalSelectionLocked(
+			errors.Prefix(errInvalidFinalResIndex, "%d selects a core-owned success", ev.finalIndex),
+		)
+	}
+	return rq.commitFinalSelectionLocked(ev.finalIndex)
+}
+
+// commitFinalSelectionLocked preserves the original envelope identity unless
+// finalization needs a rewrite, so earlier success forwarding stays deduplicated.
+func (rq *Request) commitFinalSelectionLocked(index int) []effect {
+	if rq.done || rq.closed {
+		return nil
+	}
+	final, err := finalizeRes(rq.finals, index)
+	if err != nil {
+		return rq.failFinalSelectionLocked(err)
+	}
+	rq.final = final
+	rq.finalResIndex = index
+	rq.done = true
+	rq.outcome = OutcomeResponse
+	rq.finalResolving = false
+	rq.finalResGen++
+	rq.queueLocked(workEvent{kind: evtFinalRes})
+	return []effect{rq.obsCompletionEffectLocked()}
+}
+
+func finalizeRes(candidates []*sip.ResponseEnvelope, index int) (*sip.ResponseEnvelope, error) {
+	if index < 0 || index >= len(candidates) || candidates[index] == nil || !candidates[index].Status().IsFinal() {
+		return nil, errors.Wrap(errclass.Classify(
+			errors.Prefix(errInvalidFinalResIndex, "%d is not a final candidate", index),
+			ErrClass,
+		))
+	}
 	finals := make([]*sip.ResponseEnvelope, 0, len(candidates))
 	for _, res := range candidates {
 		if res != nil && res.Status().IsFinal() {
 			finals = append(finals, res)
 		}
-	}
-	if len(finals) == 0 {
-		return nil, errors.Wrap(errNoFinalResCandidate)
 	}
 	if len(finals) == 1 && finals[0].Status().Equal(sip.ResponseStatusServiceUnavailable) {
 		return cloneResEnvelope(finals[0]).WithMessage(func(msg *sip.Response) {
@@ -210,12 +289,7 @@ func selectFinalRes(candidates []*sip.ResponseEnvelope) (*sip.ResponseEnvelope, 
 		}), nil
 	}
 
-	best := finals[0]
-	for _, cand := range finals[1:] {
-		if resOutranks(cand.Status(), best.Status()) {
-			best = cand
-		}
-	}
+	best := candidates[index]
 
 	// The winner is returned by pointer identity whenever the selection
 	// needs no rewrite, so the send dedup still recognizes a response that
@@ -225,6 +299,55 @@ func selectFinalRes(candidates []*sip.ResponseEnvelope) (*sip.ResponseEnvelope, 
 		return mergeAuthChallenges(best, finals), nil
 	}
 	return best, nil
+}
+
+func defaultFinalResIndex(candidates []*sip.ResponseEnvelope) (int, error) {
+	best := -1
+	for i, cand := range candidates {
+		if cand == nil || !cand.Status().IsFinal() {
+			continue
+		}
+		if best == -1 || resOutranks(cand.Status(), candidates[best].Status()) {
+			best = i
+		}
+	}
+	if best == -1 {
+		return -1, errors.Wrap(errNoFinalResCandidate)
+	}
+	return best, nil
+}
+
+func validateFinalResIndex(candidates []*sip.ResponseEnvelope, index int, invite bool) error {
+	if index < 0 || index >= len(candidates) || candidates[index] == nil || !candidates[index].Status().IsFinal() {
+		return errors.Wrap(errclass.Classify(
+			errors.Prefix(errInvalidFinalResIndex, "%d is not a final candidate", index),
+			ErrClass,
+		))
+	}
+	selected := candidates[index].Status()
+	if !invite && selected.Equal(sip.ResponseStatusRequestTimeout) {
+		return errors.Wrap(errclass.Classify(
+			errors.Prefix(errInvalidFinalResIndex, "%d selects a non-INVITE 408", index),
+			ErrClass,
+		))
+	}
+	if selected.IsSuccessful() {
+		return nil
+	}
+	for _, candidate := range candidates {
+		if candidate == nil {
+			continue
+		}
+		status := candidate.Status()
+		if status.IsSuccessful() ||
+			status.Class() == shared.ResponseClassGlobalFailure && selected.Class() != shared.ResponseClassGlobalFailure {
+			return errors.Wrap(errclass.Classify(
+				errors.Prefix(errInvalidFinalResIndex, "%d violates mandatory response precedence", index),
+				ErrClass,
+			))
+		}
+	}
+	return nil
 }
 
 // resOutranks reports whether a candidate status outranks the

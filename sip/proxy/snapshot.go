@@ -81,6 +81,12 @@ type RequestSnapshot struct {
 	// FinalStatus is the status of the committed final response, zero when
 	// no final decision exists.
 	FinalStatus sip.ResponseStatus `json:"final_status,omitempty"`
+	// FinalCandidateIndex indexes the full Candidates slice in original
+	// arrival order, identifying the committed response source. It is required
+	// exactly when Completed is true and Outcome is OutcomeResponse, including
+	// core-selected success. A non-nil zero selects the first candidate and is
+	// serialized; nil means absence and is omitted for every other state.
+	FinalCandidateIndex *int `json:"final_candidate_index,omitempty"`
 	// Cancelled reports whether cancellation was requested for the request.
 	Cancelled bool `json:"cancelled"`
 	// NonInviteServerTransactionBehavior is the frozen behavior profile of the upstream
@@ -113,6 +119,10 @@ func (snap *RequestSnapshot) Clone() *RequestSnapshot {
 	}
 
 	clone := *snap
+	if snap.FinalCandidateIndex != nil {
+		clone.FinalCandidateIndex = new(int)
+		*clone.FinalCandidateIndex = *snap.FinalCandidateIndex
+	}
 	clone.OriginalRequest = cloneReqEnvelope(snap.OriginalRequest)
 	clone.WorkingRequest = cloneReqEnvelope(snap.WorkingRequest)
 	// Stored plans are always normalized by construction, so the cloning
@@ -288,7 +298,7 @@ func (rq *Request) buildSnapshotLocked() (*RequestSnapshot, error) {
 	// before the plan is committed, or while a client-transaction admission
 	// is still pending, the branch decision is partial and nothing may be
 	// captured or published.
-	if !rq.begun || len(rq.pendingAdms) > 0 || rq.srvTx == nil || rq.work == nil {
+	if !rq.begun || rq.finalResolving || len(rq.pendingAdms) > 0 || rq.srvTx == nil || rq.work == nil {
 		return nil, errors.Wrap(errSnapshotUnstable)
 	}
 	// The upstream transaction must support its own snapshot capture: the
@@ -329,6 +339,16 @@ func (rq *Request) buildSnapshotLocked() (*RequestSnapshot, error) {
 	}
 	if rq.final != nil {
 		snap.FinalStatus = rq.final.Status()
+	}
+	if rq.done && rq.outcome == OutcomeResponse {
+		if rq.final == nil {
+			return nil, errors.Wrap(NewInvalidSnapshotError("completed response outcome without a final response"))
+		}
+		if err := validateFinalResIndex(rq.finals, rq.finalResIndex, rq.req.Method().Equal(sip.RequestMethodInvite)); err != nil {
+			return nil, errors.JoinWrap(NewInvalidSnapshotError("invalid committed final candidate index"), err)
+		}
+		snap.FinalCandidateIndex = new(int)
+		*snap.FinalCandidateIndex = rq.finalResIndex
 	}
 	if err := snapshotMetaErr("original request", snap.OriginalRequest.Metadata()); err != nil {
 		return nil, err
@@ -382,7 +402,7 @@ func (rq *Request) snapshotTargetStatesLocked() []TargetSnapshot {
 			Started:            st.started,
 			Completed:          st.done,
 			Declined:           !st.started && st.done,
-			Cancelling:         st.cancelling,
+			Cancelling:         st.cancelling && !st.done,
 			AttemptedAddresses: slices.Clone(st.attemptAddrs),
 		}
 		if st.started && !st.done {
@@ -993,7 +1013,7 @@ func validateRestoreOutcome(invite bool, snap *RequestSnapshot) error {
 	if err := validateRestoreOutcomeState(snap); err != nil {
 		return err
 	}
-	if err := validateRestoreFinalStatus(snap); err != nil {
+	if err := validateRestoreFinalStatus(invite, snap); err != nil {
 		return err
 	}
 	if invite {
@@ -1032,14 +1052,22 @@ func validateRestoreOutcomeState(snap *RequestSnapshot) error {
 // valid final response, that it matches the stored response context on a
 // committed response outcome, and that a forwarded final names a final
 // candidate or a committed request decision.
-func validateRestoreFinalStatus(snap *RequestSnapshot) error {
+func validateRestoreFinalStatus(invite bool, snap *RequestSnapshot) error {
+	response := snap.Completed && snap.Outcome == OutcomeResponse
+	if response != (snap.FinalCandidateIndex != nil) {
+		return errors.Wrap(NewInvalidSnapshotError("final candidate index must be present exactly for a completed response outcome"))
+	}
 	if snap.FinalStatus != 0 && (!snap.FinalStatus.IsValid() || !snap.FinalStatus.IsFinal()) {
 		return errors.Wrap(NewInvalidSnapshotError("invalid final status %v", snap.FinalStatus))
 	}
-	if snap.Outcome == OutcomeResponse && snap.Completed {
-		final, err := selectFinalRes(snap.Candidates)
+	if response {
+		index := *snap.FinalCandidateIndex
+		if err := validateFinalResIndex(snap.Candidates, index, invite); err != nil {
+			return errors.JoinWrap(NewInvalidSnapshotError("invalid final candidate index"), err)
+		}
+		final, err := finalizeRes(snap.Candidates, index)
 		if err != nil {
-			return errors.Wrap(NewInvalidSnapshotError("response outcome without a selectable final"))
+			return errors.JoinWrap(NewInvalidSnapshotError("response outcome without a selectable final"), err)
 		}
 		if !final.Status().Equal(snap.FinalStatus) {
 			return errors.Wrap(NewInvalidSnapshotError("final status %v does not match the response context", snap.FinalStatus))
@@ -1329,7 +1357,8 @@ func (s *restoreStage) install(ctx context.Context, snap *RequestSnapshot) *Requ
 	}
 	if snap.Completed && snap.Outcome == OutcomeResponse {
 		// Validation already proved the selection commits.
-		rq.final, _ = selectFinalRes(rq.finals)
+		rq.finalResIndex = *snap.FinalCandidateIndex
+		rq.final, _ = finalizeRes(rq.finals, rq.finalResIndex)
 	}
 	// The explicit bindings never alias the caller's map: a later caller
 	// mutation must not rewrite the coordinator's restored flows.

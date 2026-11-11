@@ -142,6 +142,29 @@ After a committed final decision, additionally received eligible INVITE
 the request completion is not repeated. Non-INVITE suppression guards
 (non-100 provisionals, 408) apply in either transaction behavior mode.
 
+### Standalone final-response ranking
+
+`proxy.DefaultFinalResponseResolver(ctx, selection)` ranks responses without
+constructing a proxy. Its `proxy.FinalResponseSelection` input contains the
+inbound `Request` and `Candidates` in arrival order; the default ranking does
+not inspect the request or context. The returned index addresses the original
+`Candidates` slice, not a filtered or reordered list. Nil and provisional
+entries are ignored; when no final response exists, it returns `(-1, error)`.
+The request, candidate slice, envelopes, messages, and metadata are not mutated.
+
+The ranking prefers 2xx, then 6xx, then the lowest remaining status class.
+Within 4xx, 401, 407, 415, 420, and 484 outrank other statuses. Equal ranks
+keep the first arrival, rather than the lowest numeric status code.
+
+Ranking does not decide proxy eligibility or finalize a response. The proxy
+still owns method-specific suppression and immediate INVITE success forwarding,
+and separately finalizes the selected response with lone-503-to-500 mapping or
+authentication-challenge aggregation as applicable. The standalone resolver
+does not rewrite or forward any response.
+
+See `ExampleDefaultFinalResponseResolver` in `sip/proxy/example_test.go`:
+480 followed by 486 returns the original index `0`.
+
 ### Route hooks
 
 All hooks are optional; a nil hook selects the documented default.
@@ -153,6 +176,7 @@ All hooks are optional; a nil hook selects the documented default.
 | `PreprocessRoute` | Standard routing preprocessing is unchanged. | Inspects or rewrites routing information on an owned working copy. Cannot bypass local-identity, security, or loop rules. |
 | `AdjustOutboundRequest` | The outbound copy is used as constructed. | Customizes one outbound branch copy before final invariant checks and Via insertion. |
 | `SelectTargets` | The first remaining plan group is the next selection. | Chooses the unstarted target IDs to attempt next; returned IDs must name unstarted targets exactly once. |
+| `ResolveFinalResponse` | `proxy.DefaultFinalResponseResolver` ranks the candidates. | Selects an original arrival-order index from eligible negative finals after every target settles; see the contract below. |
 
 Authorization, route preprocessing, and logical target resolution belong
 to one inbound routing operation. Pre-send promotion continues that same
@@ -167,6 +191,64 @@ each per-target preparation (including a pre-send stateless preparation
 that later requires promotion), `SelectTargets` runs per selection cycle,
 and address resolution/delivery work follows the attempt lifecycle.
 Promotion does not make these hooks globally once-only.
+
+### Custom final-response selection
+
+`Route.ResolveFinalResponse` runs only for a stateful request after all plan
+targets settle, when the response context contains an eligible negative final
+and no success. It does not wait for transaction cleanup timers. A success
+remains a core decision: immediate INVITE 2xx forwarding, later eligible INVITE
+successes, and non-INVITE success handling bypass the callback. Completion
+without a final candidate also bypasses it, including timeout or cancellation
+without a candidate. Truly stateless forwarding never calls it; a request
+promoted to stateful forwarding before the first send retains the configured
+callback. Non-INVITE suppression, including 408, is unchanged.
+
+The callback context identifies the request's owning element through
+`sip.ElementFromContext`, even when one proxy serves multiple elements.
+`FinalResponseSelection.Request` represents the admitted original inbound
+request, not a per-target branch or a preprocessed/outbound working copy.
+`Candidates` preserves original arrival order, indices, and response metadata,
+including target/attempt attribution. The returned index addresses that
+original slice, not a filtered or reordered view.
+
+Only the custom callback's proxy-supplied inputs are detached from live state:
+envelopes, protocol fields, the candidate slice, and metadata containers are
+defensive copies. All inputs remain contractually read-only. Opaque metadata
+values are shared, not recursively deep-copied; do not mutate them through the
+callback. A direct caller of `DefaultFinalResponseResolver` supplies its own
+inputs; the standalone function only ranks them without mutation.
+
+Mandatory precedence is not customizable: successes remain authoritative,
+and a 6xx must beat every other negative class. The selected index must name
+an eligible negative final; out-of-range indices, nil/provisional entries,
+core-owned successes, non-INVITE 408, and precedence violations are invalid.
+In contrast, preferring the lowest remaining class, informative 4xx responses
+(401, 407, 415, 420, 484), and the first arrival on ties are default
+recommendations that a custom policy may change. Nil uses the default policy;
+custom policies can explicitly
+`return proxy.DefaultFinalResponseResolver(ctx, selection)` for default ranking.
+
+A returned error or invalid selection has no silent fallback to the default.
+It commits `proxy.OutcomeAbandoned` with a `proxy.ErrClass` error and, when the
+original upstream transaction remains usable, a generated outer 500. Even a
+returned `sip.RequestRejectedError` cannot replace that 500 or supply response
+options; underlying causes remain inspectable through the error chain.
+
+Selection does not replace response finalization. A lone received 503 still
+maps to 500, regardless of how many targets failed or were declined without
+responses. A selected 503 among multiple final candidates stays 503.
+Selecting 401/407 still aggregates authentication challenges from the response
+context onto an owned copy without rewriting the stored candidates.
+
+The callback runs outside the request mutex, but the existing serial drain
+waits for its return. There is no new execution pool, automatic timeout, or
+latency guarantee for a blocking callback.
+
+See `ExampleRoute_finalResponseResolver` in `sip/proxy/example_test.go` for an
+inline callback that first delegates successes/6xx to the default, then prefers
+486 by original index, and otherwise explicitly delegates to the default.
+Ordinary SIP envelopes with candidates [480, 486] yield the literal index `1`.
 
 ### Secure forwarding
 
@@ -366,6 +448,18 @@ processing element is context-only observation data that
 `BindEventHandler` and `BindSnapshotHandler` callbacks read from the
 delivered context through `sip.ElementFromContext`.
 
+`Candidates` retains the full response context in original arrival order.
+`FinalCandidateIndex` (`final_candidate_index` in JSON) indexes that stored
+slice, not a filtered or re-ranked candidate list. It is required exactly
+when `Completed` is true and `Outcome` is `proxy.OutcomeResponse`, including
+a success selected by the core rather than a route policy. A non-nil
+pointer to zero records the first candidate and survives JSON `omitempty`;
+a nil pointer means no committed response selection and omits the field.
+
+A pending final-response policy decision is unstable: direct capture
+fails and no snapshot revision is published until the decision settles.
+The callback's in-flight execution is never checkpointed.
+
 Transaction state is captured separately through the optional
 `sip.ServerTransactionSnapshotter` and
 `sip.ClientTransactionSnapshotter` contracts. A request whose upstream
@@ -421,14 +515,28 @@ cause; unsupported opaque metadata returns
 Direct caller-supplied snapshots are checked too, even though capture
 normally guarantees serializable metadata.
 
+For a completed response, validation requires an in-range, final,
+method-eligible indexed candidate: success must beat negatives, and a
+6xx must beat other negatives when no success exists. A non-INVITE 408
+cannot be selected. The stored `FinalStatus` must match deterministic
+post-processing of that indexed source, including 401/407 challenge
+aggregation and lone-503-to-500 mapping. These checks precede all
+ownership claims and effects. Restoration never calls
+`ResolveFinalResponse` or re-ranks the candidates with the default policy;
+default response-class and preferred-4xx recommendations are not validity
+rules for a committed selection.
+
 Only a stateful-mode record can restore: a
 stateless-mode checkpoint has no owned coordinator and is rejected, and a
 version-1 record without `working_request` is rejected without migration
-or reconstruction. Valid version-1 snapshots are unchanged: the original
-request remains the upstream transaction-matching identity, while the
-saved working request is adopted as the coordinator's working copy, so
-target preparation resumes from the post-preprocess envelope without
-rerunning `PreprocessRoute` or local-route consumption.
+or reconstruction. The current layout changes in place with `Version`
+remaining literal `1`: an old-layout completed response without the
+required `final_candidate_index` is rejected, not reconstructed. There is
+no new version, migration, dual reader, or old-layout compatibility
+guarantee. The original request remains the upstream transaction-matching
+identity, while the saved working request is adopted as the coordinator's
+working copy, so target preparation resumes from the post-preprocess
+envelope without rerunning `PreprocessRoute` or local-route consumption.
 The saved complete plan also avoids replaying authorization or logical
 target resolution. Observation correlation and sequence progress resume
 from the checkpoint without replaying historical handled, attempt,
@@ -451,6 +559,12 @@ live targets rebuild their deferred address work, recorded cancellation
 resumes only its permitted steps, and completed targets never rerun. A
 request completed at capture is inspect-only: activation emits nothing.
 
+An unfinished restored request runs the current route's final-response
+policy only when it first becomes eligible after `Start`, whether its
+stored candidates are already sufficient or more branch work must settle.
+This is a new decision, not replay of a committed policy choice, send, or
+completion observation.
+
 Bind application observers before `Start` so no new revision is missed —
 binding observes future revisions only and never replays the last one.
 The `unbind` function returned by `BindSnapshotHandler` is idempotent and
@@ -464,6 +578,10 @@ activation.
 
 See `ExampleProxy_RestoreRequest` in
 `sip/proxy/recovery_example_test.go` for the compile-checked composition.
+The same file's runnable `ExampleRequestSnapshot_finalCandidateIndex`
+captures a committed in-memory response and JSON-round-trips its version-1,
+non-nil index-zero selection. It captures orchestration state only, not an
+atomic transaction or network checkpoint.
 
 ## Message metadata
 
@@ -541,32 +659,32 @@ elm := &sip.Element{}
 defer elm.Close()
 
 prx, err := proxy.New([]proxy.Route{
- {
-  Name: "static-location",
-  ResolveRequestTargets: func(ctx context.Context, req *sip.RequestEnvelope) (proxy.TargetPlan, error) {
-   return proxy.TargetPlan{Groups: [][]proxy.Target{
-    {{
-     ID: "alice-desk",
-     URI: &sip.URI{
-      User: sip.MakeUserInfo("alice"),
-      Addr: sip.MakeHostPortAddr("192.0.2.10", 5060),
-     },
-    }},
-   }}, nil
-  },
- },
+    {
+        Name: "static-location",
+        ResolveRequestTargets: func(ctx context.Context, req *sip.RequestEnvelope) (proxy.TargetPlan, error) {
+            return proxy.TargetPlan{Groups: [][]proxy.Target{
+                {{
+                    ID: "alice-desk",
+                    URI: &sip.URI{
+                        User: sip.MakeUserInfo("alice"),
+                        Addr: sip.MakeHostPortAddr("192.0.2.10", 5060),
+                    },
+                }},
+            }}, nil
+        },
+    },
 }, proxy.Options{
- ServedDomains: []string{"example.com"},
+    ServedDomains: []string{"example.com"},
 })
 if err != nil {
- // handle error
+    // handle error
 }
 
 // Registration is explicit; retire the proxy before unbinding.
 unbind := elm.UseMiddleware(prx)
 defer func() {
- _ = prx.Close()
- unbind()
+    _ = prx.Close()
+    unbind()
 }()
 ```
 

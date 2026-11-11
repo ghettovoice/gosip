@@ -118,6 +118,35 @@ type Route struct {
 	// name unstarted targets exactly once. An empty result waits while
 	// attempts are active and declines the remaining targets otherwise.
 	SelectTargets func(context.Context, Selection) ([]string, error)
+	// ResolveFinalResponse optionally selects an original arrival-order index
+	// from detached negative final candidates once every target settles.
+	// A nil resolver uses the default policy; successful responses remain
+	// authoritative core decisions. Errors abandon the request without fallback.
+	//
+	// Only stateful requests with final candidates and no success use this hook.
+	// Stateless forwarding bypasses it; pre-send promotion to stateful forwarding
+	// retains it. No-candidate completion also bypasses it. The context carries
+	// the request's owning element via [sip.ElementFromContext].
+	//
+	// The proxy supplies read-only inputs as described by [FinalResponseSelection].
+	// Return an index into the original Candidates slice, not a filtered copy.
+	// A selection must name an eligible negative final and must choose a 6xx
+	// when present. Non-INVITE 408 responses are never eligible. The default
+	// class, informative-4xx, and arrival-order tie preferences are recommendations,
+	// not requirements; delegate explicitly to [DefaultFinalResponseResolver]
+	// to retain them.
+	//
+	// An error or invalid selection produces [OutcomeAbandoned], classified with
+	// [ErrClass], and a generated outer 500 through the usable original upstream
+	// transaction. Even a [sip.RequestRejectedError] cannot override that status
+	// or supply response options; its cause remains inspectable in the error chain.
+	// Selection does not bypass lone-503-to-500 mapping or authentication-challenge
+	// aggregation; a selected 503 among multiple final candidates remains 503.
+	//
+	// The hook runs outside the request mutex, but the serial drain waits for
+	// it to return. There is no execution pool, automatic timeout, or latency
+	// guarantee for a blocking callback.
+	ResolveFinalResponse func(context.Context, FinalResponseSelection) (int, error)
 }
 
 func (r *Route) LogValue() slog.Value {
@@ -312,6 +341,27 @@ type Selection struct {
 	ActiveTargetIDs []string
 	// CompletedOutcomes are the settled attempt outcomes.
 	CompletedOutcomes []BranchOutcome
+}
+
+// FinalResponseSelection is the read-only input to final-response ranking.
+// Resolver results index Candidates in its original arrival order, not a
+// filtered or reordered slice.
+//
+// For a custom final-response callback on [Route], the proxy detaches the
+// envelopes, protocol fields, candidate slice, and metadata containers from
+// live state. Response metadata and candidate order/indices are preserved.
+// These defensive copies do not permit mutation: all inputs remain read-only.
+// Opaque metadata values are shared, not recursively deep-copied.
+// Direct callers of [DefaultFinalResponseResolver] supply their own inputs;
+// the standalone resolver does not detach them.
+type FinalResponseSelection struct {
+	// Request is the admitted original inbound request, not a per-target branch
+	// or a preprocessed/outbound working copy.
+	// [DefaultFinalResponseResolver] does not inspect it.
+	Request *sip.RequestEnvelope
+	// Candidates holds responses in arrival order. Nil and provisional entries
+	// are ignored by [DefaultFinalResponseResolver] without changing indices.
+	Candidates []*sip.ResponseEnvelope
 }
 
 // RequestOutcome classifies the committed result of a proxied request.

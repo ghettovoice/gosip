@@ -79,6 +79,8 @@ const (
 	// evtFinalRes signals that the committed final response is
 	// ready for the forwarding decision.
 	evtFinalRes
+	// evtFinalSelection applies a custom final-response resolver result.
+	evtFinalSelection
 	// evtSrvSend carries the actual wire result of a proxy-initiated
 	// upstream response send, correlated by the one-shot send token.
 	evtSrvSend
@@ -106,14 +108,17 @@ type workEvent struct {
 	// relID carries the related child identity of an accepted CANCEL —
 	// the child's own claim identity — so the downstream CANCELs the
 	// cancellation spawns share its attribution.
-	relID string
-	gen   uint64
-	key   sip.ClientTransactionKey
-	ids   []string
-	res   *sip.ResponseEnvelope
-	err   error
-	from  sip.TransactionState
-	to    sip.TransactionState
+	relID      string
+	gen        uint64
+	key        sip.ClientTransactionKey
+	ids        []string
+	res        *sip.ResponseEnvelope
+	err        error
+	from       sip.TransactionState
+	to         sip.TransactionState
+	finalIndex int
+	// resolution belongs to the final-response decision, not admission gen.
+	resolution uint64
 }
 
 // effect is one transport/transaction or application effect computed by
@@ -242,6 +247,12 @@ type Request struct {
 	srvGone bool
 	srvErr  error
 	final   *sip.ResponseEnvelope
+	// finalResIndex names the original arrival-order source of final.
+	// Pending custom decisions keep finals frozen until this token commits
+	// or a retained INVITE success supersedes it.
+	finalResIndex  int
+	finalResolving bool
+	finalResGen    uint64
 
 	// closed marks the coordinator retired by the proxy lifecycle end:
 	// queued and later work events are dropped, and transaction
@@ -350,15 +361,16 @@ func newReq(
 	requestID string,
 ) *Request {
 	return &Request{
-		prx:         prx,
-		elm:         elm,
-		route:       route,
-		req:         req,
-		ctx:         context.WithoutCancel(sip.ContextWithElement(ctx, elm)),
-		targets:     make(map[string]*targetState),
-		attempts:    make(map[sip.ClientTransactionKey]*attempt),
-		pendingAdms: make(map[uint64]*admission),
-		id:          requestID,
+		prx:           prx,
+		elm:           elm,
+		route:         route,
+		req:           req,
+		ctx:           context.WithoutCancel(sip.ContextWithElement(ctx, elm)),
+		targets:       make(map[string]*targetState),
+		attempts:      make(map[sip.ClientTransactionKey]*attempt),
+		pendingAdms:   make(map[uint64]*admission),
+		finalResIndex: -1,
+		id:            requestID,
 	}
 }
 
@@ -485,7 +497,7 @@ func (rq *Request) applyEvtLocked(ctx context.Context, ev workEvent) []effect {
 	if rq.closed {
 		return nil
 	}
-	if adm, ok := rq.pendingAdms[ev.gen]; ok {
+	if adm, ok := rq.pendingAdms[ev.gen]; ok && ev.kind != evtFinalSelection {
 		adm.events = append(adm.events, ev)
 		return nil
 	}
@@ -510,6 +522,8 @@ func (rq *Request) applyEvtLocked(ctx context.Context, ev workEvent) []effect {
 		return nil
 	case evtFinalRes:
 		return rq.applyFinalResLocked(ctx)
+	case evtFinalSelection:
+		return rq.applyFinalSelectionLocked(ctx, ev)
 	case evtSrvSend:
 		return rq.applySrvSendLocked(ctx, ev)
 	case evtCancel:
@@ -836,7 +850,16 @@ func (rq *Request) applyClnResLocked(_ context.Context, ev workEvent) []effect {
 		if !att.settled {
 			settleAttemptLocked(att, st)
 		}
+		if rq.finalResolving {
+			// Unlike a historical completion, a pending custom decision must
+			// yield to this success before its callback result can commit.
+			rq.finals = append(rq.finals, ev.res)
+			return append([]effect{fwd}, rq.commitFinalSelectionLocked(len(rq.finals)-1)...)
+		}
 		return []effect{fwd}
+	}
+	if rq.finalResolving {
+		return nil
 	}
 	// A response on an already settled attempt is a hard discard: only the
 	// eligible INVITE 2xx above bypasses settlement.
@@ -852,31 +875,7 @@ func (rq *Request) applyClnResLocked(_ context.Context, ev workEvent) []effect {
 	}
 
 	if !ev.res.Status().IsFinal() {
-		att.sawRes = true
-		st.lastRes = ev.res
-		// A 101-199 provisional proves the downstream branch is working on
-		// the request and re-arms its Timer C; a 100 Trying never refreshes
-		// the deadline.
-		if !ev.res.Status().Equal(sip.ResponseStatusTrying) {
-			rq.rearmTmrCLocked(st)
-		}
-		effects := []effect{fwd}
-		// A provisional moves the branch transaction to Proceeding: the
-		// first one is the earliest point a deferred branch cancellation
-		// may legally emit its downstream CANCEL. The initiated CANCEL
-		// keeps Timer C armed — cancellation never settles the branch, so
-		// a cancelled branch that never answers its final response is
-		// still bounded by the deadline.
-		if st.cancelling && !att.cancelled {
-			att.cancelled = true
-			if tx := att.tx; tx != nil && tx.Type() == sip.TransactionTypeClientInvite {
-				targetID, attID := att.targetID, att.attID
-				effects = append(effects, func(ctx context.Context) {
-					rq.cancelAttemptTx(ctx, tx, targetID, attID)
-				})
-			}
-		}
-		return effects
+		return rq.applyClnProvResLocked(att, st, ev.res, fwd)
 	}
 
 	// Every attributed final joins the request's response context in
@@ -932,6 +931,34 @@ func (rq *Request) applyClnResLocked(_ context.Context, ev workEvent) []effect {
 	effects = append(effects, detachAttemptRunnerLocked(st)...)
 	effects = append(effects, fwd)
 	return append(effects, rq.finishLocked()...)
+}
+
+func (rq *Request) applyClnProvResLocked(att *attempt, st *targetState, res *sip.ResponseEnvelope, fwd effect) []effect {
+	att.sawRes = true
+	st.lastRes = res
+	// A 101-199 provisional proves the downstream branch is working on
+	// the request and re-arms its Timer C; a 100 Trying never refreshes
+	// the deadline.
+	if !res.Status().Equal(sip.ResponseStatusTrying) {
+		rq.rearmTmrCLocked(st)
+	}
+	effects := []effect{fwd}
+	// A provisional moves the branch transaction to Proceeding: the
+	// first one is the earliest point a deferred branch cancellation
+	// may legally emit its downstream CANCEL. The initiated CANCEL
+	// keeps Timer C armed — cancellation never settles the branch, so
+	// a cancelled branch that never answers its final response is
+	// still bounded by the deadline.
+	if st.cancelling && !att.cancelled {
+		att.cancelled = true
+		if tx := att.tx; tx != nil && tx.Type() == sip.TransactionTypeClientInvite {
+			targetID, attID := att.targetID, att.attID
+			effects = append(effects, func(ctx context.Context) {
+				rq.cancelAttemptTx(ctx, tx, targetID, attID)
+			})
+		}
+	}
+	return effects
 }
 
 // processResEffect returns the outside-guard effect that feeds one
@@ -1353,6 +1380,8 @@ func (rq *Request) failLocked(err error) []effect {
 		return nil
 	}
 	rq.done = true
+	rq.finalResolving = false
+	rq.finalResGen++
 	rq.lastErr = err
 	rq.outcome = OutcomeAbandoned
 
@@ -1394,13 +1423,38 @@ func (rq *Request) failLocked(err error) []effect {
 // transaction is retired silently instead of being abandoned to stale
 // transaction cleanup.
 func (rq *Request) finishLocked() []effect {
-	if rq.done || !rq.begun || len(rq.targets) == 0 {
+	if rq.done || rq.closed || rq.finalResolving || !rq.begun || len(rq.targets) == 0 {
 		return nil
 	}
 	for _, st := range rq.targets {
 		if !st.done {
 			return nil
 		}
+	}
+	if index, err := defaultFinalResIndex(rq.finals); err == nil {
+		if rq.route == nil || rq.route.ResolveFinalResponse == nil || rq.finals[index].Status().IsSuccessful() {
+			return rq.commitFinalSelectionLocked(index)
+		}
+		resolver := rq.route.ResolveFinalResponse
+		selection := FinalResponseSelection{
+			Request:    cloneReqEnvelope(rq.req),
+			Candidates: make([]*sip.ResponseEnvelope, len(rq.finals)),
+		}
+		for i, candidate := range rq.finals {
+			selection.Candidates[i] = cloneResEnvelope(candidate)
+		}
+		rq.finalResolving = true
+		rq.finalResGen++
+		resolution := rq.finalResGen
+		return []effect{func(ctx context.Context) {
+			index, err := resolver(ctx, selection)
+			rq.enqueue(ctx, workEvent{
+				kind:       evtFinalSelection,
+				resolution: resolution,
+				finalIndex: index,
+				err:        errors.Wrap(err),
+			})
+		}}
 	}
 	rq.done = true
 	rq.outcome = rq.chooseOutcomeLocked()
@@ -1445,9 +1499,12 @@ func (rq *Request) finishLocked() []effect {
 // and an all-declined request — silence for the upstream caller —
 // classifies as a timeout.
 func (rq *Request) chooseOutcomeLocked() RequestOutcome {
-	if final, err := selectFinalRes(rq.finals); err == nil {
-		rq.final = final
-		return OutcomeResponse
+	if index, err := defaultFinalResIndex(rq.finals); err == nil {
+		if final, err := finalizeRes(rq.finals, index); err == nil {
+			rq.final = final
+			rq.finalResIndex = index
+			return OutcomeResponse
+		}
 	}
 	// An accepted CANCEL ends the request without a usable final: the
 	// original INVITE is answered by a generated 487 rather than the
@@ -2038,6 +2095,8 @@ func (rq *Request) shutdown(ctx context.Context) {
 	}
 	rq.closed = true
 	rq.queue = nil
+	rq.finalResolving = false
+	rq.finalResGen++
 
 	rq.disarmAllTmrsLocked()
 	var (

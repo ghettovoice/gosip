@@ -10,6 +10,107 @@ import (
 	"github.com/ghettovoice/gosip/sip/proxy"
 )
 
+func ExampleDefaultFinalResponseResolver() {
+	from := &sip.URI{
+		User: sip.MakeUserInfo("alice"),
+		Addr: sip.MakeHostAddr("a.example.com"),
+	}
+	to := &sip.URI{
+		User: sip.MakeUserInfo("bob"),
+		Addr: sip.MakeHostAddr("b.example.com"),
+	}
+	msg, err := sip.NewRequest(sip.RequestMethodInvite, to, from, to)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	req := sip.NewRequestEnvelope(msg)
+	unavailable, err := req.NewResponse(sip.ResponseStatusTemporarilyUnavailable)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	busy, err := req.NewResponse(sip.ResponseStatusBusyHere)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	index, err := proxy.DefaultFinalResponseResolver(context.Background(), proxy.FinalResponseSelection{
+		Request:    req,
+		Candidates: []*sip.ResponseEnvelope{unavailable, busy},
+	})
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(index)
+
+	// Output:
+	// 0
+}
+
+// ExampleRoute_finalResponseResolver prefers 486 while preserving mandatory
+// success/6xx precedence and explicitly delegating all other cases.
+func ExampleRoute_finalResponseResolver() {
+	route := proxy.Route{
+		ResolveFinalResponse: func(ctx context.Context, selection proxy.FinalResponseSelection) (int, error) {
+			// Successes belong to the core; a 6xx must beat other negatives.
+			for _, candidate := range selection.Candidates {
+				if candidate == nil {
+					continue
+				}
+				if status := candidate.Status(); status.IsSuccessful() || status.IsGlobalFailure() {
+					return proxy.DefaultFinalResponseResolver(ctx, selection)
+				}
+			}
+			for i, candidate := range selection.Candidates {
+				if candidate != nil && candidate.Status().Equal(sip.ResponseStatusBusyHere) {
+					return i, nil
+				}
+			}
+			return proxy.DefaultFinalResponseResolver(ctx, selection)
+		},
+	}
+
+	from := &sip.URI{
+		User: sip.MakeUserInfo("alice"),
+		Addr: sip.MakeHostAddr("a.example.com"),
+	}
+	to := &sip.URI{
+		User: sip.MakeUserInfo("bob"),
+		Addr: sip.MakeHostAddr("b.example.com"),
+	}
+	msg, err := sip.NewRequest(sip.RequestMethodInvite, to, from, to)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	req := sip.NewRequestEnvelope(msg)
+	unavailable, err := req.NewResponse(sip.ResponseStatusTemporarilyUnavailable)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	busy, err := req.NewResponse(sip.ResponseStatusBusyHere)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	// This runnable example calls the field directly, without starting a proxy.
+	index, err := route.ResolveFinalResponse(context.Background(), proxy.FinalResponseSelection{
+		Request:    req,
+		Candidates: []*sip.ResponseEnvelope{unavailable, busy},
+	})
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(index)
+
+	// Output:
+	// 1
+}
+
 // ExampleNew configures a proxy with a single route that claims every
 // request addressed to a served domain and resolves a static literal-IP
 // target plan. sip.ServerTransactionOptions stay at their zero value, so the

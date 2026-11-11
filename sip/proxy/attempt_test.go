@@ -193,6 +193,112 @@ func admitAttemptReq(ctx context.Context, tb testing.TB, elm *sip.Element, prx *
 	}
 }
 
+func TestProxy_FinalResponseResolver_AddressRetry(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		log := &attemptActionLog{}
+		var lookups, calls atomic.Int32
+		loc := &attemptLocator{
+			log:     log,
+			lookups: &lookups,
+			candidates: map[string][]attemptCandidate{
+				"10.0.0.9": {
+					udpAttemptCandidate("a-first", "10.0.0.9:5060"),
+					udpAttemptCandidate("a-second", "10.0.0.10:5060"),
+				},
+			},
+		}
+		route := attemptRoute("resolver-address-retry", attemptPlan(
+			[]proxy.Target{attemptURITarget("A", "10.0.0.9")},
+		))
+		var selection proxy.FinalResponseSelection
+		route.ResolveFinalResponse = func(_ context.Context, input proxy.FinalResponseSelection) (int, error) {
+			calls.Add(1)
+			selection = input
+			return 0, nil
+		}
+		elm, prx, tp := newAttemptTestProxy(t, route,
+			proxy.Options{ServedDomains: []string{"alice.voip.com"}}, loc)
+		tp.sendReqHook = attemptRecSend(log, map[string]string{
+			"10.0.0.9": "a-first", "10.0.0.10": "a-second",
+		})
+		req := newInInviteReq(t, "UDP", sip.MagicCookie+".resolver-address-retry",
+			netip.MustParseAddrPort("192.168.1.100:5060"), netip.MustParseAddrPort("10.0.0.5:5060"))
+		admitAttemptReq(t.Context(), t, elm, prx, req)
+		synctest.Wait()
+		var attempts [2]*sip.RequestEnvelope
+		for i, status := range []sip.ResponseStatus{503, 486} {
+			sends := attemptInviteSends(drainReqs(tp))
+			if len(sends) != 1 {
+				t.Fatalf("proxy address attempt %d sends = %d, want 1", i, len(sends))
+			}
+			attempts[i] = sends[0]
+			if err := attemptClnTx(t, elm, sends[0]).RecvResponse(t.Context(), newInRes(t, sends[0], status)); err != nil {
+				t.Fatalf("clnTx.RecvResponse(%d) error = %v, want nil", status, err)
+			}
+			synctest.Wait()
+			if i == 0 {
+				if got := calls.Load(); got != 0 {
+					t.Errorf("route.ResolveFinalResponse calls during retry = %d, want 0", got)
+				}
+				if got := len(drainRess(tp)); got != 0 {
+					t.Errorf("proxy upstream sends during retry = %d, want 0", got)
+				}
+			}
+		}
+		if diff := cmp.Diff([]string{
+			"resolve:a-first", "send:a-first@UDP",
+			"resolve:a-second", "send:a-second@UDP",
+		}, log.get()); diff != "" {
+			t.Errorf("proxy retry order (-want +got):\n%s", diff)
+		}
+		if got := lookups.Load(); got != 2 {
+			t.Errorf("proxy address lookups = %d, want 2", got)
+		}
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("route.ResolveFinalResponse calls = %d, want 1", got)
+		}
+		if diff := cmp.Diff([]int{503, 486}, fwdStatuses(selection.Candidates)); diff != "" {
+			t.Fatalf("proxy arrival-ordered retry candidates (-want +got):\n%s", diff)
+		}
+		claim, ok := proxy.MetadataFrom(req.Metadata())
+		if !ok || claim.RequestID == "" || selection.Request == nil {
+			t.Fatal("proxy resolver missing the claimed request identity")
+		}
+		if got := selection.Request.Render(); got != req.Render() {
+			t.Errorf("proxy resolver request = %q, want %q", got, req.Render())
+		}
+		var attemptIDs [2]string
+		for i, out := range attempts {
+			md, ok := proxy.MetadataFrom(out.Metadata())
+			if !ok || md.RequestID != claim.RequestID || md.TargetID != "A" || md.AttemptID == "" ||
+				md.Stage != proxy.StageForward {
+				t.Fatalf("proxy attempt %d metadata = (%+v, %t), want known target A and attempt identity", i, md, ok)
+			}
+			attemptIDs[i] = md.AttemptID
+			candidateMD, ok := proxy.MetadataFrom(selection.Candidates[i].Metadata())
+			if !ok {
+				t.Fatalf("proxy candidate %d metadata missing", i)
+			}
+			md.Stage = proxy.StageResponse
+			if diff := cmp.Diff(md, candidateMD); diff != "" {
+				t.Errorf("proxy candidate %d attempt attribution (-want +got):\n%s", i, diff)
+			}
+		}
+		if attemptIDs[0] == attemptIDs[1] {
+			t.Errorf("proxy retry AttemptIDs = %q/%q, want distinct corresponding attempts", attemptIDs[0], attemptIDs[1])
+		}
+		// Two recorded finals prevent lone-503 mapping, even when index 0 wins.
+		if diff := cmp.Diff([]int{503}, fwdStatuses(drainRess(tp))); diff != "" {
+			t.Errorf("proxy selected retry wire statuses (-want +got):\n%s", diff)
+		}
+		if got := len(attemptInviteSends(drainReqs(tp))); got != 0 {
+			t.Errorf("proxy extra address attempts = %d, want 0", got)
+		}
+	})
+}
+
 func TestProxy_AttemptFailover(t *testing.T) {
 	t.Parallel()
 

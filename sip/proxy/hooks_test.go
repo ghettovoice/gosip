@@ -242,3 +242,179 @@ func TestProxy_Hooks(t *testing.T) {
 		}
 	})
 }
+
+func TestProxy_FinalResponseResolver(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		resolve func(context.Context, proxy.FinalResponseSelection) (int, error)
+		want    []int
+	}{
+		{
+			name: "custom selects second arrival",
+			resolve: func(ctx context.Context, selection proxy.FinalResponseSelection) (int, error) {
+				return 1, nil
+			},
+			want: []int{486},
+		},
+		{
+			name: "nil uses default",
+			want: []int{480},
+		},
+		{
+			name:    "explicit default delegation",
+			resolve: proxy.DefaultFinalResponseResolver,
+			want:    []int{480},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				var (
+					gotSelection proxy.FinalResponseSelection
+					calls        int
+					resolver     func(context.Context, proxy.FinalResponseSelection) (int, error)
+				)
+				if tt.resolve != nil {
+					resolver = func(ctx context.Context, selection proxy.FinalResponseSelection) (int, error) {
+						calls++
+						gotSelection = selection
+						return tt.resolve(ctx, selection)
+					}
+				}
+				route := &proxy.Route{
+					Name:                 "final-resolver",
+					ForwardMode:          proxy.ForwardModeStateful,
+					ResolveFinalResponse: resolver,
+				}
+				req, branches, upstream := runFinalResponseResolver(t, route, [2]sip.ResponseStatus{480, 486}, nil)
+				if diff := cmp.Diff(tt.want, fwdStatuses(upstream)); diff != "" {
+					t.Fatalf("forwarded statuses (-want +got):\n%s", diff)
+				}
+				if tt.resolve == nil {
+					return
+				}
+				if calls != 1 {
+					t.Fatalf("route.ResolveFinalResponse called %d times, want 1", calls)
+				}
+				if gotSelection.Request == nil {
+					t.Fatal("proxy.FinalResponseSelection.Request = nil, want the inbound request")
+				}
+				if got, want := gotSelection.Request.String(), req.String(); got != want {
+					t.Errorf("proxy.FinalResponseSelection.Request = %q, want %q", got, want)
+				}
+				claim, ok := proxy.MetadataFrom(req.Metadata())
+				if !ok || claim.RequestID == "" {
+					t.Fatalf("inbound proxy.MetadataFrom() = (%+v, %v), want a claimed request identity", claim, ok)
+				}
+				requestMD, ok := proxy.MetadataFrom(gotSelection.Request.Metadata())
+				if !ok {
+					t.Fatal("proxy.FinalResponseSelection.Request metadata missing")
+				}
+				if diff := cmp.Diff(claim, requestMD); diff != "" {
+					t.Errorf("resolver request metadata (-want +got):\n%s", diff)
+				}
+				if len(gotSelection.Candidates) != 2 {
+					t.Fatalf("proxy.FinalResponseSelection.Candidates length = %d, want 2", len(gotSelection.Candidates))
+				}
+				if diff := cmp.Diff([]int{480, 486}, fwdStatuses(gotSelection.Candidates)); diff != "" {
+					t.Errorf("arrival-ordered candidate statuses (-want +got):\n%s", diff)
+				}
+				var attemptIDs [2]string
+				for i, targetID := range []string{"A", "B"} {
+					branchMD, ok := proxy.MetadataFrom(branches[i].Metadata())
+					if !ok || branchMD.RequestID != claim.RequestID || branchMD.TargetID != targetID ||
+						branchMD.AttemptID == "" || branchMD.Stage != proxy.StageForward {
+						t.Fatalf("branch %s metadata = (%+v, %v), want its request, target, and attempt identity",
+							targetID, branchMD, ok)
+					}
+					attemptIDs[i] = branchMD.AttemptID
+					candidateMD, ok := proxy.MetadataFrom(gotSelection.Candidates[i].Metadata())
+					if !ok {
+						t.Fatalf("candidate %d proxy.MetadataFrom() ok = false, want true", i)
+					}
+					want := proxy.Metadata{
+						RequestID: claim.RequestID,
+						TargetID:  targetID,
+						AttemptID: branchMD.AttemptID,
+						RouteName: "final-resolver",
+						Mode:      proxy.ForwardModeStateful,
+						Stage:     proxy.StageResponse,
+					}
+					if diff := cmp.Diff(want, candidateMD); diff != "" {
+						t.Errorf("candidate %d metadata (-want +got):\n%s", i, diff)
+					}
+				}
+				if attemptIDs[0] == attemptIDs[1] {
+					t.Errorf("fork attempt IDs = %q/%q, want distinct branch identities", attemptIDs[0], attemptIDs[1])
+				}
+			})
+		})
+	}
+}
+
+func runFinalResponseResolver(
+	t *testing.T,
+	route *proxy.Route,
+	statuses [2]sip.ResponseStatus,
+	prepare func(*sip.ResponseEnvelope),
+) (*sip.RequestEnvelope, [2]*sip.RequestEnvelope, []*sip.ResponseEnvelope) {
+	t.Helper()
+
+	route.ResolveRequestTargets = func(context.Context, *sip.RequestEnvelope) (proxy.TargetPlan, error) {
+		return obsLitPlan("A", "B"), nil
+	}
+	elm, prx, tp := newConfiguredTestProxy(t, route, proxy.Options{ServedDomains: []string{"alice.voip.com"}})
+	req := newInInviteReq(t, "UDP", sip.MagicCookie+".final-resolver",
+		netip.MustParseAddrPort("192.168.1.100:5060"), netip.MustParseAddrPort("10.0.0.5:5060"))
+	fwdIntercept(t, elm, prx, req)
+	synctest.Wait()
+
+	sends := drainReqs(tp)
+	if len(sends) != 2 {
+		t.Fatalf("outbound request sends = %d, want 2", len(sends))
+	}
+	var branches [2]*sip.RequestEnvelope
+	for _, out := range sends {
+		uri, ok := out.URI().(*sip.URI)
+		if !ok {
+			t.Fatalf("outbound Request-URI type = %T, want *sip.URI", out.URI())
+		}
+		var index int
+		switch uri.Addr.Host() {
+		case "10.0.0.9":
+			index = 0
+		case "10.0.0.10":
+			index = 1
+		default:
+			t.Fatalf("outbound target host = %q, want 10.0.0.9 or 10.0.0.10", uri.Addr.Host())
+		}
+		if branches[index] != nil {
+			t.Fatalf("duplicate outbound branch for host %q", uri.Addr.Host())
+		}
+		branches[index] = out
+	}
+	for i, branch := range branches {
+		if branch == nil {
+			t.Fatalf("outbound branch %d missing", i)
+		}
+		res := newInRes(t, branch, statuses[i])
+		if prepare != nil {
+			prepare(res)
+		}
+		if err := fwdClnTx(t, elm, branch).RecvResponse(t.Context(), res); err != nil {
+			t.Fatalf("clnTx.RecvResponse(%d) error = %v, want nil", statuses[i], err)
+		}
+		synctest.Wait()
+		if i == 0 {
+			if got := len(drainRess(tp)); got != 0 {
+				t.Fatalf("upstream sends with an active sibling = %d, want 0", got)
+			}
+		}
+	}
+	return req, branches, drainRess(tp)
+}

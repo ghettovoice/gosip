@@ -102,6 +102,92 @@ func cancelFromTag(tb testing.TB, req *sip.RequestEnvelope) (tag string, ok bool
 	return tag, ok
 }
 
+func TestProxy_FinalResponseResolver_BypassCancel(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		route := &proxy.Route{
+			Name:        "resolver-cancel-no-finals",
+			ForwardMode: proxy.ForwardModeStateful,
+			ResolveRequestTargets: func(context.Context, *sip.RequestEnvelope) (proxy.TargetPlan, error) {
+				return proxy.TargetPlan{Groups: [][]proxy.Target{
+					{statelessLitTarget("A", "10.0.0.9")},
+					{statelessLitTarget("B", "10.0.0.10")},
+				}}, nil
+			},
+			ResolveFinalResponse: func(context.Context, proxy.FinalResponseSelection) (int, error) {
+				calls.Add(1)
+				return -1, errors.ErrorWrap("unexpected cancellation resolver invocation")
+			},
+		}
+		elm, prx, tp := newConfiguredTestProxy(t, route, proxy.Options{ServedDomains: []string{"alice.voip.com"}})
+		req := newInInviteReq(t, "UDP", sip.MagicCookie+".resolver-cancel-no-finals",
+			netip.MustParseAddrPort("192.168.1.100:5060"), netip.MustParseAddrPort("10.0.0.5:5060"))
+		fwdIntercept(t, elm, prx, req)
+		synctest.Wait()
+		key, err := sip.MakeServerTransactionKey(req)
+		if err != nil {
+			t.Fatalf("sip.MakeServerTransactionKey() error = %v, want nil", err)
+		}
+		rq, ok := prx.LookupRequest(elm, key)
+		if !ok {
+			t.Fatal("proxy.LookupRequest() missing admitted INVITE")
+		}
+		sends := drainReqs(tp)
+		if len(sends) != 1 {
+			t.Fatalf("proxy initial sends = %d, want 1", len(sends))
+		}
+		tx := fwdClnTx(t, elm, sends[0])
+		cancel, err := sip.NewCancelRequestEnvelope(req)
+		if err != nil {
+			t.Fatalf("sip.NewCancelRequestEnvelope() error = %v, want nil", err)
+		}
+		fwdIntercept(t, elm, prx, cancel)
+		synctest.Wait()
+		responses := drainRess(tp)
+		if diff := cmp.Diff([]int{200}, resStatuses(t, responses, sip.RequestMethodCancel)); diff != "" {
+			t.Errorf("proxy CANCEL wire statuses (-want +got):\n%s", diff)
+		}
+		if got := len(resStatuses(t, responses, sip.RequestMethodInvite)); got != 0 {
+			t.Errorf("proxy INVITE responses before branch exhaustion = %d, want 0", got)
+		}
+		if got := len(drainReqs(tp)); got != 0 {
+			t.Errorf("proxy sends before provisional = %d, want 0 (CANCEL deferred, scheduling closed)", got)
+		}
+
+		// Termination, not a downstream 487, leaves no candidate for the resolver.
+		if err := tx.Terminate(t.Context(), sip.NewTransactionTimedOutError()); err != nil {
+			t.Fatalf("clnTx.Terminate() error = %v, want nil", err)
+		}
+		synctest.Wait()
+		responses = drainRess(tp)
+		if diff := cmp.Diff([]int{487}, resStatuses(t, responses, sip.RequestMethodInvite)); diff != "" {
+			t.Errorf("proxy INVITE wire statuses (-want +got):\n%s", diff)
+		}
+		if got := len(responses); got != 1 {
+			t.Errorf("proxy generated responses = %d, want only the INVITE 487", got)
+		}
+		if got := len(drainReqs(tp)); got != 0 {
+			t.Errorf("proxy late sends = %d, want 0 (no retry or backup target)", got)
+		}
+		snap, err := rq.Snapshot()
+		if err != nil {
+			t.Fatalf("proxy.Request.Snapshot() error = %v, want nil", err)
+		}
+		if !snap.Completed || !snap.Cancelled || snap.Outcome != proxy.OutcomeCancelled || !snap.FinalForwarded {
+			t.Errorf("proxy cancelled completed/cancelled/outcome/forwarded = %t/%t/%v/%t, want true/true/cancelled/true",
+				snap.Completed, snap.Cancelled, snap.Outcome, snap.FinalForwarded)
+		}
+		if got := len(snap.Candidates); got != 0 {
+			t.Errorf("proxy cancelled candidates = %d, want 0", got)
+		}
+		if got := calls.Load(); got != 0 {
+			t.Errorf("route.ResolveFinalResponse calls = %d, want 0", got)
+		}
+	})
+}
+
 func TestProxy_Cancel(t *testing.T) {
 	t.Parallel()
 

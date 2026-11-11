@@ -116,7 +116,6 @@ func newInRes(tb testing.TB, req *sip.RequestEnvelope, sts sip.ResponseStatus) *
 	return siptest.NewInboundResponse(tb, req, sts)
 }
 
-//nolint:unparam // signature mirrors the sibling INVITE fixture
 func newInNonInviteReq(
 	tb testing.TB,
 	tp sip.TransportProto,

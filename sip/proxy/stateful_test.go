@@ -800,6 +800,8 @@ func TestProxy_RestoreStart(t *testing.T) {
 			snap.Completed = true
 			snap.Outcome = proxy.OutcomeResponse
 			snap.FinalStatus = sip.ResponseStatusNotFound
+			index := 0
+			snap.FinalCandidateIndex = &index
 			snap.FinalForwarded = true
 			stB := targetStateOf(snap, "B")
 			stB.Completed = true

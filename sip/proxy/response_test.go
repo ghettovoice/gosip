@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"context"
+	"log/slog"
 	"net/netip"
 	"sync/atomic"
 	"testing"
@@ -15,6 +16,388 @@ import (
 	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/sip/proxy"
 )
+
+func TestProxy_FinalResponseResolver_Bypass(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		nonInvite  bool
+		behavior   sip.NonInviteServerTransactionBehavior
+		statuses   []sip.ResponseStatus
+		retained   bool
+		wantWire   []int
+		wantFinal  sip.ResponseStatus
+		wantResult proxy.RequestOutcome
+	}{
+		{name: "INVITE success", statuses: []sip.ResponseStatus{200}, wantWire: []int{200}, wantFinal: 200},
+		{
+			name: "additional INVITE success", statuses: []sip.ResponseStatus{200, 202}, retained: true,
+			wantWire: []int{200, 202, 200}, wantFinal: 200,
+		},
+		{
+			name: "non-INVITE success", nonInvite: true, statuses: []sip.ResponseStatus{200},
+			wantWire: []int{200}, wantFinal: 200,
+		},
+		{name: "INVITE no-final timeout", wantWire: []int{408}, wantResult: proxy.OutcomeTimeout},
+		{name: "non-INVITE no-final timeout", nonInvite: true, wantWire: []int{}, wantResult: proxy.OutcomeTimeout},
+		{
+			name: "non-INVITE all 408 legacy", nonInvite: true,
+			statuses: []sip.ResponseStatus{408, 408}, wantWire: []int{}, wantResult: proxy.OutcomeTimeout,
+		},
+		{
+			name: "non-INVITE all 408 RFC4320", nonInvite: true,
+			behavior: sip.NonInviteServerTransactionBehaviorRFC4320,
+			statuses: []sip.ResponseStatus{408, 408}, wantWire: []int{}, wantResult: proxy.OutcomeTimeout,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				var calls atomic.Int32
+				ids := []string{"A"}
+				if len(tt.statuses) == 2 {
+					ids = append(ids, "B")
+				}
+				route := &proxy.Route{
+					Name:        "resolver-bypass",
+					ForwardMode: proxy.ForwardModeStateful,
+					ServerTransactionOptions: sip.ServerTransactionOptions{
+						Timing:                             sip.TimingConfig{Time100: time.Hour},
+						NonInviteServerTransactionBehavior: tt.behavior,
+					},
+					ResolveRequestTargets: func(context.Context, *sip.RequestEnvelope) (proxy.TargetPlan, error) {
+						return obsLitPlan(ids...), nil
+					},
+					ResolveFinalResponse: func(context.Context, proxy.FinalResponseSelection) (int, error) {
+						calls.Add(1)
+						return -1, errors.ErrorWrap("unexpected bypass resolver invocation")
+					},
+				}
+				elm, prx, tp := newConfiguredTestProxy(t, route, proxy.Options{ServedDomains: []string{"alice.voip.com"}})
+				makeReq := newInInviteReq
+				if tt.nonInvite {
+					makeReq = newInNonInviteReq
+				}
+				req := makeReq(t, "UDP", sip.MagicCookie+".resolver-bypass",
+					netip.MustParseAddrPort("192.168.1.100:5060"), netip.MustParseAddrPort("10.0.0.5:5060"))
+				fwdIntercept(t, elm, prx, req)
+				synctest.Wait()
+				key, err := sip.MakeServerTransactionKey(req)
+				if err != nil {
+					t.Fatalf("sip.MakeServerTransactionKey() error = %v, want nil", err)
+				}
+				rq, ok := prx.LookupRequest(elm, key)
+				if !ok {
+					t.Fatal("proxy.LookupRequest() missing admitted request")
+				}
+				sends := drainReqs(tp)
+				if len(sends) != len(ids) {
+					t.Fatalf("proxy branch sends = %d, want %d", len(sends), len(ids))
+				}
+				var wantMessages []string
+				var retainedRes *sip.ResponseEnvelope
+				for i, out := range sends {
+					tx := fwdClnTx(t, elm, out)
+					if len(tt.statuses) == 0 {
+						err = tx.Terminate(t.Context(), sip.NewTransactionTimedOutError())
+					} else {
+						res := newInRes(t, out, tt.statuses[i])
+						if tt.statuses[i].IsSuccessful() {
+							res.WithMessage(func(msg *sip.Response) {
+								msg.Body = []byte("bypass response body")
+								msg.Headers.Set(header.ContentLength(len(msg.Body)))
+							})
+							want := res.Clone().(*sip.ResponseEnvelope)
+							want.WithMessage(func(msg *sip.Response) { msg.Headers.PopFirstVia() })
+							wantMessages = append(wantMessages, want.Render())
+							if tt.retained && i == 0 {
+								retainedRes = res.Clone().(*sip.ResponseEnvelope)
+							}
+						}
+						err = tx.RecvResponse(t.Context(), res)
+					}
+					if err != nil {
+						t.Fatalf("proxy branch settlement error = %v, want nil", err)
+					}
+					synctest.Wait()
+				}
+				if tt.retained {
+					snap, err := rq.Snapshot()
+					if err != nil || !snap.Completed {
+						t.Fatalf("proxy before retained success snapshot = (%+v, %v), want completed request", snap, err)
+					}
+					res := retainedRes
+					want := res.Clone().(*sip.ResponseEnvelope)
+					want.WithMessage(func(msg *sip.Response) { msg.Headers.PopFirstVia() })
+					wantMessages = append(wantMessages, want.Render())
+					if err := fwdClnTx(t, elm, sends[0]).RecvResponse(t.Context(), res); err != nil {
+						t.Fatalf("clnTx.RecvResponse(retained 200) error = %v, want nil", err)
+					}
+					synctest.Wait()
+				}
+				upstream := drainRess(tp)
+				if diff := cmp.Diff(tt.wantWire, fwdStatuses(upstream)); diff != "" {
+					t.Errorf("proxy bypass wire statuses (-want +got):\n%s", diff)
+				}
+				var gotMessages []string
+				for _, res := range upstream {
+					if got := resCSeqMethod(t, res); !got.Equal(req.Method()) {
+						t.Errorf("proxy response CSeq method = %v, want %v", got, req.Method())
+					}
+					gotMessages = append(gotMessages, res.Render())
+				}
+				if tt.wantResult == proxy.OutcomeResponse {
+					if diff := cmp.Diff(wantMessages, gotMessages); diff != "" {
+						t.Errorf("proxy unchanged success messages (-want +got):\n%s", diff)
+					}
+				}
+				snap, err := rq.Snapshot()
+				if err != nil {
+					t.Fatalf("proxy.Request.Snapshot() error = %v, want nil", err)
+				}
+				if !snap.Completed || snap.Outcome != tt.wantResult || snap.FinalStatus != tt.wantFinal {
+					t.Errorf("proxy bypass completed/outcome/final = %t/%v/%d, want true/%v/%d",
+						snap.Completed, snap.Outcome, snap.FinalStatus, tt.wantResult, tt.wantFinal)
+				}
+				if tt.wantResult == proxy.OutcomeTimeout && len(snap.Candidates) != 0 {
+					t.Errorf("proxy timeout candidates = %d, want 0", len(snap.Candidates))
+				}
+				if snap.FinalForwarded != (len(tt.wantWire) > 0) {
+					t.Errorf("proxy final forwarded = %t, want %t", snap.FinalForwarded, len(tt.wantWire) > 0)
+				}
+				if got := calls.Load(); got != 0 {
+					t.Errorf("route.ResolveFinalResponse calls = %d, want 0", got)
+				}
+			})
+		})
+	}
+}
+
+func TestProxy_FinalResponseResolver_NonInvite408(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name     string
+		behavior sip.NonInviteServerTransactionBehavior
+	}{
+		{"legacy", sip.NonInviteServerTransactionBehaviorLegacy},
+		{"RFC4320", sip.NonInviteServerTransactionBehaviorRFC4320},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				var calls atomic.Int32
+				var selection proxy.FinalResponseSelection
+				route := &proxy.Route{
+					Name:        "resolver-non-invite-408",
+					ForwardMode: proxy.ForwardModeStateful,
+					ServerTransactionOptions: sip.ServerTransactionOptions{
+						NonInviteServerTransactionBehavior: tt.behavior,
+					},
+					ResolveRequestTargets: func(context.Context, *sip.RequestEnvelope) (proxy.TargetPlan, error) {
+						return obsLitPlan("A", "B"), nil
+					},
+					ResolveFinalResponse: func(_ context.Context, input proxy.FinalResponseSelection) (int, error) {
+						calls.Add(1)
+						selection = input
+						return 0, nil
+					},
+				}
+				elm, prx, tp := newConfiguredTestProxy(t, route, proxy.Options{ServedDomains: []string{"alice.voip.com"}})
+				req := newInNonInviteReq(t, "UDP", sip.MagicCookie+".resolver-non-invite-408",
+					netip.MustParseAddrPort("192.168.1.100:5060"), netip.MustParseAddrPort("10.0.0.5:5060"))
+				fwdIntercept(t, elm, prx, req)
+				synctest.Wait()
+				sends := drainReqs(tp)
+				if len(sends) != 2 {
+					t.Fatalf("proxy branch sends = %d, want 2", len(sends))
+				}
+				for i, status := range []sip.ResponseStatus{408, 486} {
+					if err := fwdClnTx(t, elm, sends[i]).RecvResponse(t.Context(), newInRes(t, sends[i], status)); err != nil {
+						t.Fatalf("clnTx.RecvResponse(%d) error = %v, want nil", status, err)
+					}
+					synctest.Wait()
+					if i == 0 {
+						if got := len(drainRess(tp)); got != 0 {
+							t.Errorf("proxy sends after non-INVITE 408 = %d, want 0", got)
+						}
+						if got := calls.Load(); got != 0 {
+							t.Errorf("route.ResolveFinalResponse calls before exhaustion = %d, want 0", got)
+						}
+					}
+				}
+				if got := calls.Load(); got != 1 {
+					t.Fatalf("route.ResolveFinalResponse calls = %d, want 1", got)
+				}
+				if selection.Request == nil || !selection.Request.Method().Equal(sip.RequestMethodInfo) {
+					t.Fatal("proxy resolver request missing valid non-INVITE method")
+				}
+				if diff := cmp.Diff([]int{486}, fwdStatuses(selection.Candidates)); diff != "" {
+					t.Errorf("proxy eligible candidates (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff([]int{486}, fwdStatuses(drainRess(tp))); diff != "" {
+					t.Errorf("proxy selected wire statuses (-want +got):\n%s", diff)
+				}
+			})
+		})
+	}
+}
+
+func TestProxy_FinalResponseResolver_FailureOptions(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		const cause errors.Error = "untrusted final response rejection"
+		route := &proxy.Route{
+			Name:        "resolver-failure-options",
+			ForwardMode: proxy.ForwardModeStateful,
+			ResolveFinalResponse: func(context.Context, proxy.FinalResponseSelection) (int, error) {
+				return 1, errors.Wrap(sip.NewRequestRejectedError(cause, slog.LevelWarn, sip.ResponseStatusForbidden,
+					sip.RespondOptions{ResponseOptions: sip.ResponseOptions{
+						Reason:   "Untrusted policy response",
+						Headers:  make(sip.Headers).Set(&header.Any{Name: "X-Policy-Rejection", Value: "untrusted"}),
+						Body:     []byte("untrusted policy body"),
+						LocalTag: "untrusted-policy-tag",
+					}},
+				))
+			},
+		}
+		req, _, upstream := runFinalResponseResolver(t, route, [2]sip.ResponseStatus{480, 486}, nil)
+		if diff := cmp.Diff([]int{500}, fwdStatuses(upstream)); diff != "" {
+			t.Errorf("proxy failure statuses (-want +got):\n%s", diff)
+		}
+		if len(upstream) != 1 {
+			t.Fatalf("proxy upstream responses = %d, want 1", len(upstream))
+		}
+		upstream[0].WithMessage(func(msg *sip.Response) {
+			reason := msg.Reason
+			if reason == "" {
+				reason = msg.Status.Reason()
+			}
+			if reason != sip.ResponseStatusServerInternalError.Reason() {
+				t.Errorf("proxy failure reason = %q, want default 500 reason", reason)
+			}
+			if got := len(msg.Headers.Get("X-Policy-Rejection")); got != 0 {
+				t.Errorf("proxy failure policy header count = %d, want 0", got)
+			}
+			if got := len(msg.Body); got != 0 {
+				t.Errorf("proxy failure body length = %d, want 0", got)
+			}
+			if to, ok := msg.Headers.To(); ok {
+				if got, _ := to.Tag(); got == "untrusted-policy-tag" {
+					t.Errorf("proxy failure To tag = %q, want generated tag", got)
+				}
+			}
+		})
+		gotKey, err := sip.MakeServerTransactionKey(upstream[0])
+		if err != nil {
+			t.Fatalf("sip.MakeServerTransactionKey(response) error = %v, want nil", err)
+		}
+		wantKey, err := sip.MakeServerTransactionKey(req)
+		if err != nil || gotKey != wantKey {
+			t.Errorf("proxy upstream response key = %v, request key = (%v, %v), want matching keys", gotKey, wantKey, err)
+		}
+	})
+}
+
+func TestProxy_FinalResponseResolver_Responses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		statuses       [2]sip.ResponseStatus
+		index          int
+		want           []int
+		wantChallenges []string
+	}{
+		{
+			name:     "custom selects 486 over 302",
+			statuses: [2]sip.ResponseStatus{302, 486},
+			index:    1,
+			want:     []int{486},
+		},
+		{
+			name:     "custom selects 404 over 401",
+			statuses: [2]sip.ResponseStatus{401, 404},
+			index:    1,
+			want:     []int{404},
+		},
+		{
+			name:     "selected 401 aggregates all challenges",
+			statuses: [2]sip.ResponseStatus{407, 401},
+			index:    1,
+			want:     []int{401},
+			wantChallenges: []string{
+				`WWW-Authenticate: Digest nonce="n-a", realm="a.example"`,
+				`Proxy-Authenticate: Digest nonce="n-p", realm="p.example"`,
+			},
+		},
+		{
+			name:     "selected 407 aggregates all challenges",
+			statuses: [2]sip.ResponseStatus{401, 407},
+			index:    1,
+			want:     []int{407},
+			wantChallenges: []string{
+				`WWW-Authenticate: Digest nonce="n-a", realm="a.example"`,
+				`Proxy-Authenticate: Digest nonce="n-p", realm="p.example"`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				var calls int
+				route := &proxy.Route{
+					Name:        "final-resolver-responses",
+					ForwardMode: proxy.ForwardModeStateful,
+					ResolveFinalResponse: func(ctx context.Context, selection proxy.FinalResponseSelection) (int, error) {
+						calls++
+						return tt.index, nil
+					},
+				}
+				_, _, upstream := runFinalResponseResolver(t, route, tt.statuses, func(res *sip.ResponseEnvelope) {
+					if res.Status() == sip.ResponseStatusUnauthorized {
+						res.WithMessage(func(msg *sip.Response) {
+							msg.Headers.Append(&header.WWWAuthenticate{
+								AuthChallenge: &header.DigestChallenge{Realm: "a.example", Nonce: "n-a"},
+							})
+						})
+					} else if res.Status() == sip.ResponseStatusProxyAuthenticationRequired {
+						res.WithMessage(func(msg *sip.Response) {
+							msg.Headers.Append(&header.ProxyAuthenticate{
+								AuthChallenge: &header.DigestChallenge{Realm: "p.example", Nonce: "n-p"},
+							})
+						})
+					}
+				})
+				if diff := cmp.Diff(tt.want, fwdStatuses(upstream)); diff != "" {
+					t.Fatalf("forwarded statuses (-want +got):\n%s", diff)
+				}
+				if calls != 1 {
+					t.Errorf("route.ResolveFinalResponse called %d times, want 1", calls)
+				}
+				var gotChallenges []string
+				upstream[0].WithMessage(func(msg *sip.Response) {
+					for _, name := range []sip.HeaderName{"WWW-Authenticate", "Proxy-Authenticate"} {
+						for _, challenge := range msg.Headers.Get(name) {
+							gotChallenges = append(gotChallenges, string(challenge.CanonicName())+": "+challenge.RenderValue())
+						}
+					}
+				})
+				if diff := cmp.Diff(tt.wantChallenges, gotChallenges); diff != "" {
+					t.Errorf("forwarded challenges (-want +got):\n%s", diff)
+				}
+			})
+		})
+	}
+}
 
 func TestProxy_ResponseForwarding(t *testing.T) {
 	t.Parallel()
