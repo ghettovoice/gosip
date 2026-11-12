@@ -254,6 +254,20 @@ func TestProxyAuthorization_IsValid(t *testing.T) {
 			},
 			true,
 		},
+		{
+			"valid sha-256 digest",
+			&header.ProxyAuthorization{
+				AuthCredentials: &header.DigestCredentials{
+					Username:  "root",
+					Realm:     "example.com",
+					Nonce:     "qwerty",
+					URI:       &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
+					Algorithm: "SHA-256",
+					Response:  "753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1",
+				},
+			},
+			true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -118,7 +118,10 @@ func buildAuthCredentialsFromNode(node *abnf.Node) AuthCredentials {
 			case "nonce":
 				crd.Nonce = grammar.Unquote(paramNode.Children[2].String())
 			case "digest-uri":
-				crd.URI = util.Must2(uri.FromABNF(grammar.MustGetNode(paramNode, "Request-URI").Children[0]))
+				uriNode := grammar.MustGetNode(paramNode, "Request-URI")
+				crd.URI = util.Must2(uri.FromABNF(uriNode.Children[0]))
+				crd.uriText = uriNode.String()
+				crd.uriRender = shared.Render(crd.URI)
 			case "dresponse":
 				crd.Response = grammar.Unquote(paramNode.Children[2].String())
 			case "algorithm":
@@ -160,6 +163,20 @@ func buildAuthCredentialsFromNode(node *abnf.Node) AuthCredentials {
 }
 
 // DigestCredentials represents the digest authentication credentials.
+//
+// IsValid checks header structure only: Response must be ASCII hexadecimal
+// sized for the declared algorithm (an omitted algorithm means MD5 per the
+// protocol), while unknown algorithm tokens keep even-length hexadecimal
+// syntax of at least 32 digits. The empty RFC 8760 pre-challenge placeholder
+// can parse but is never a valid proof, and structurally valid syntax for an
+// unknown algorithm does not imply a mechanism can compute it.
+//
+// Digest proofs sign the Request-URI as it appeared on the wire; URIText
+// preserves that spelling across clone, render, and JSON round trips while
+// the typed URI is unchanged, and falls back to the typed rendering once
+// URI is edited. Callers must recalculate the response after changing any
+// signed field. The typed URI and its Equal semantics stay authoritative
+// for target-acceptance policy.
 type DigestCredentials struct {
 	Username,
 	Realm,
@@ -172,6 +189,13 @@ type DigestCredentials struct {
 	NonceCount uint
 	URI        uri.URI
 	Params     Values
+
+	// uriText keeps the Request-URI exactly as it appeared in the parsed
+	// header and uriRender its typed rendering at parse time. Digest proofs
+	// sign the wire spelling; URIText returns it while URI still renders
+	// identically to uriRender.
+	uriText,
+	uriRender string
 }
 
 func (crd *DigestCredentials) Clone() AuthCredentials {
@@ -183,6 +207,38 @@ func (crd *DigestCredentials) Clone() AuthCredentials {
 	clone.URI = shared.Clone[uri.URI](crd.URI)
 	clone.Params = crd.Params.Clone()
 	return &clone
+}
+
+// URIText returns the Digest Request-URI text for signing and rendering.
+// Parsed credentials keep the original wire spelling while the typed URI
+// still renders identically to its parse-time snapshot; once URI is
+// mutated or replaced, the current typed rendering is returned.
+// Programmatically constructed credentials use the typed rendering.
+// A nil receiver or nil URI returns an empty string.
+func (crd *DigestCredentials) URIText() string {
+	text, _ := crd.renderURIText()
+	return text
+}
+
+// renderURIText renders the typed URI once with the given options and
+// selects the original wire text only while the option-aware rendering
+// still matches the parse-time snapshot.
+func (crd *DigestCredentials) renderURIText(opts ...shared.RenderOptions) (string, error) {
+	if crd == nil || crd.URI == nil {
+		return "", nil
+	}
+
+	sb := util.GetStringBuilder()
+	defer util.FreeStringBuilder(sb)
+	if _, err := crd.URI.RenderTo(sb, opts...); err != nil {
+		return "", errors.Wrap(err)
+	}
+
+	rendered := sb.String()
+	if crd.uriText == "" || rendered != crd.uriRender {
+		return rendered, nil
+	}
+	return crd.uriText, nil
 }
 
 //nolint:gocognit // per-field rendering per RFC 7616
@@ -239,7 +295,11 @@ func (crd *DigestCredentials) RenderTo(w io.Writer, opts ...RenderOptions) (num 
 		}
 		cw.Fprint("uri=\"")
 		cw.Call(func(w io.Writer) (int, error) {
-			return errors.Wrap2(crd.URI.RenderTo(w, opts...))
+			text, err := crd.renderURIText(opts...)
+			if err != nil {
+				return 0, err
+			}
+			return errors.Wrap2(fmt.Fprint(w, text))
 		})
 		cw.Fprint("\"")
 	}
@@ -306,11 +366,43 @@ func (crd *DigestCredentials) IsValid() bool {
 		crd.Username != "" &&
 		crd.Realm != "" &&
 		crd.Nonce != "" &&
-		len(crd.Response) == 32 &&
 		(crd.Algorithm == "" || grammar.IsToken(crd.Algorithm)) &&
 		(crd.QOP == "" || grammar.IsToken(crd.QOP)) &&
 		shared.IsValid(crd.URI) &&
-		validateHdrParams(crd.Params)
+		validateHdrParams(crd.Params) &&
+		isValidDigestRes(crd.Algorithm, crd.Response)
+}
+
+// isValidDigestRes reports whether response has ASCII hexadecimal
+// syntax of the size required for the declared algorithm.
+func isValidDigestRes(algorithm, response string) bool {
+	if len(response) == 0 || !isASCIIHex(response) {
+		return false
+	}
+
+	const (
+		md5ResponseLen    = 32
+		sha256ResponseLen = 64
+	)
+	switch util.ToLower(algorithm) {
+	case "", "md5", "md5-sess":
+		return len(response) == md5ResponseLen
+	case "sha-256", "sha-256-sess", "sha-512-256", "sha-512-256-sess":
+		return len(response) == sha256ResponseLen
+	default:
+		return len(response) >= md5ResponseLen && len(response)%2 == 0
+	}
+}
+
+// isASCIIHex reports whether s contains only ASCII hexadecimal digits.
+func isASCIIHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 // BearerCredentials represents the bearer authentication credentials.

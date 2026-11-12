@@ -2,15 +2,49 @@ package header_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
+	"github.com/ghettovoice/gosip/internal/errors"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/uri"
 )
+
+// renderSpyURI is a uri.URI test double that records render options and can
+// fail rendering; DigestCredentials.RenderTo must propagate both faithfully.
+type renderSpyURI struct {
+	text     string
+	err      error
+	lastOpts []shared.RenderOptions
+}
+
+func (u *renderSpyURI) Scheme() string { return "sip" }
+
+func (u *renderSpyURI) RenderTo(w io.Writer, opts ...shared.RenderOptions) (int, error) {
+	u.lastOpts = opts
+	if u.err != nil {
+		return 0, u.err
+	}
+	return fmt.Fprint(w, u.text)
+}
+
+func (u *renderSpyURI) Clone() uri.URI {
+	clone := *u
+	return &clone
+}
+
+func (u *renderSpyURI) IsValid() bool { return u.text != "" }
+
+func (u *renderSpyURI) Equal(val any) bool {
+	other, ok := val.(*renderSpyURI)
+	return ok && u.text == other.text
+}
 
 func TestAuthorization_Render(t *testing.T) {
 	t.Parallel()
@@ -251,6 +285,20 @@ func TestAuthorization_IsValid(t *testing.T) {
 				AuthCredentials: &header.AnyCredentials{
 					Scheme: "Custom",
 					Params: make(header.Values).Set("p1", "abc"),
+				},
+			},
+			true,
+		},
+		{
+			"valid sha-256 digest",
+			&header.Authorization{
+				AuthCredentials: &header.DigestCredentials{
+					Username:  "root",
+					Realm:     "example.com",
+					Nonce:     "qwerty",
+					URI:       &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
+					Algorithm: "SHA-256",
+					Response:  "753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1",
 				},
 			},
 			true,
@@ -873,6 +921,26 @@ func TestDigestCredentials_Equal(t *testing.T) {
 func TestDigestCredentials_IsValid(t *testing.T) {
 	t.Parallel()
 
+	const (
+		resp32       = "587245234b3434cc3412213e5f113a54"
+		resp64       = "753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1"
+		resp64Upper  = "753927FA0E85D155564E2E272A28D1802CA10DAF4496794697CF8DB5856CB6C1"
+		resp40       = "0123456789abcdef0123456789abcdef01234567"
+		resp16       = "0123456789abcdef"
+		resp33       = "0123456789abcdef0123456789abcdef012"
+		resp32NonHex = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+	)
+	mkDigest := func(algorithm, response string) *header.DigestCredentials {
+		return &header.DigestCredentials{
+			Username:  "root",
+			Realm:     "example.com",
+			Nonce:     "qwerty",
+			URI:       &uri.SIP{Addr: uri.MakeHostAddr("example.com")},
+			Algorithm: algorithm,
+			Response:  response,
+		}
+	}
+
 	tests := []struct {
 		name string
 		crd  *header.DigestCredentials
@@ -900,6 +968,38 @@ func TestDigestCredentials_IsValid(t *testing.T) {
 			},
 			true,
 		},
+
+		// RFC 8760 algorithm-aware response lengths. Algorithm names are
+		// case-insensitive; an omitted algorithm means MD5. Unknown
+		// algorithm tokens keep even-length hexadecimal syntax of at least
+		// 32 digits: structural validity is not computational support.
+		{"md5", mkDigest("MD5", resp32), true},
+		{"md5-sess", mkDigest("MD5-sess", resp32), true},
+		{"omitted algorithm is md5", mkDigest("", resp32), true},
+		{"sha-256", mkDigest("SHA-256", resp64), true},
+		{"sha-256-sess", mkDigest("SHA-256-sess", resp64), true},
+		{"sha-512-256", mkDigest("SHA-512-256", resp64), true},
+		{"sha-512-256-sess", mkDigest("SHA-512-256-sess", resp64), true},
+		{"algorithm name case-insensitive", mkDigest("Sha-256", resp64), true},
+		{"uppercase hexadecimal", mkDigest("SHA-256", resp64Upper), true},
+		{"extension algorithm 40 digits", mkDigest("CustomHash", resp40), true},
+		{"extension algorithm 64 digits", mkDigest("CustomHash", resp64), true},
+
+		{"empty response placeholder is not proof", mkDigest("SHA-256", ""), false},
+		{"md5 length mismatch", mkDigest("MD5", resp64), false},
+		{"sha-256 length mismatch", mkDigest("SHA-256", resp32), false},
+		{"non-hex of valid length", mkDigest("MD5", resp32NonHex), false},
+		{"odd extension response", mkDigest("CustomHash", resp33), false},
+		{"short extension response", mkDigest("CustomHash", resp16), false},
+		{"non-token algorithm", mkDigest("SHA@256", resp64), false},
+		{
+			"missing URI",
+			&header.DigestCredentials{
+				Username: "root", Realm: "example.com", Nonce: "qwerty",
+				Algorithm: "SHA-256", Response: resp64,
+			},
+			false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -910,6 +1010,305 @@ func TestDigestCredentials_IsValid(t *testing.T) {
 				t.Errorf("crd.IsValid() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDigestCredentials_URIText(t *testing.T) {
+	t.Parallel()
+
+	mkDigestHeader := func(hdrName, uriText string) string {
+		return hdrName + `: Digest username="root", realm="example.com", nonce="qwerty",` +
+			` uri="` + uriText + `", response="587245234b3434cc3412213e5f113a54"`
+	}
+	parseDigest := func(t *testing.T, hdrName, uriText string) (header.Header, *header.DigestCredentials) {
+		t.Helper()
+
+		input := mkDigestHeader(hdrName, uriText)
+		got, err := header.Parse(input)
+		if err != nil {
+			t.Fatalf("header.Parse(%q) error = %v, want nil", input, err)
+		}
+		var crd *header.DigestCredentials
+		switch hdr := got.(type) {
+		case *header.Authorization:
+			crd, _ = hdr.AuthCredentials.(*header.DigestCredentials)
+		case *header.ProxyAuthorization:
+			crd, _ = hdr.AuthCredentials.(*header.DigestCredentials)
+		}
+		if crd == nil {
+			t.Fatalf("header.Parse(%q) credentials = %T, want *header.DigestCredentials", input, got)
+		}
+		return got, crd
+	}
+
+	// The digest response signs the raw Request-URI text, so parsed
+	// credentials keep the wire spelling even when it differs from the
+	// typed URI rendering (canonical parameter order, normalized escapes).
+	// A typed URI edit drops the snapshot and falls back to its rendering.
+	t.Run("parsed URI text", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name    string
+			hdrName string
+			uriText string
+			render  string
+		}{
+			{"noncanonical param order", "Authorization", "sip:alice@example.com;z=1;a=2", "sip:alice@example.com;a=2;z=1"},
+			{"escaped user", "Authorization", "sip:%61lice@example.com", "sip:alice@example.com"},
+			{"canonical", "Authorization", "sip:alice@example.com", "sip:alice@example.com"},
+			{"noncanonical param order", "Proxy-Authorization", "sip:alice@example.com;z=1;a=2", "sip:alice@example.com;a=2;z=1"},
+			{"escaped user", "Proxy-Authorization", "sip:%61lice@example.com", "sip:alice@example.com"},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.hdrName+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				hdr, crd := parseDigest(t, tt.hdrName, tt.uriText)
+
+				if got := crd.URIText(); got != tt.uriText {
+					t.Errorf("crd.URIText() = %q, want %q", got, tt.uriText)
+				}
+				if got := shared.Render(crd.URI); got != tt.render {
+					t.Errorf("typed URI render = %q, want %q", got, tt.render)
+				}
+				if rendered := shared.Render(hdr); !strings.Contains(rendered, `uri="`+tt.uriText+`"`) {
+					t.Errorf("hdr render = %q, want it to contain signed URI %q", rendered, tt.uriText)
+				}
+			})
+		}
+	})
+
+	t.Run("programmatic credentials", func(t *testing.T) {
+		t.Parallel()
+
+		crd := &header.DigestCredentials{
+			URI: &uri.SIP{User: uri.MakeUserInfo("alice"), Addr: uri.MakeHostAddr("example.com")},
+		}
+		if got, want := crd.URIText(), shared.Render(crd.URI); got != want {
+			t.Errorf("crd.URIText() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("nil", func(t *testing.T) {
+		t.Parallel()
+
+		if got := (*header.DigestCredentials)(nil).URIText(); got != "" {
+			t.Errorf("nil crd.URIText() = %q, want %q", got, "")
+		}
+		if got := (&header.DigestCredentials{}).URIText(); got != "" {
+			t.Errorf("nil URI crd.URIText() = %q, want %q", got, "")
+		}
+	})
+
+	t.Run("clone keeps and typed edit replaces", func(t *testing.T) {
+		t.Parallel()
+
+		_, crd := parseDigest(t, "Authorization", "sip:alice@example.com;z=1;a=2")
+
+		clone, ok := crd.Clone().(*header.DigestCredentials)
+		if !ok {
+			t.Fatalf("crd.Clone() = %T, want *header.DigestCredentials", crd.Clone())
+		}
+		if got, want := clone.URIText(), crd.URIText(); got != want {
+			t.Fatalf("clone.URIText() = %q, want %q", got, want)
+		}
+
+		// Mutating the cloned typed URI falls back to its rendering and
+		// leaves the original snapshot intact.
+		clone.URI.(*uri.SIP).Addr = uri.MakeHostAddr("example.org")
+		if got, want := clone.URIText(), shared.Render(clone.URI); got != want {
+			t.Errorf("mutated clone.URIText() = %q, want %q", got, want)
+		}
+		if got, want := crd.URIText(), "sip:alice@example.com;z=1;a=2"; got != want {
+			t.Errorf("crd.URIText() = %q, want %q", got, want)
+		}
+
+		// Replacing the typed URI falls back too.
+		crd.URI = &uri.SIP{Addr: uri.MakeHostAddr("example.net")}
+		if got, want := crd.URIText(), "sip:example.net"; got != want {
+			t.Errorf("replaced URI crd.URIText() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("JSON round trip", func(t *testing.T) {
+		t.Parallel()
+
+		hdr, _ := parseDigest(t, "Authorization", "sip:alice@example.com;z=1;a=2")
+
+		data, err := hdr.(*header.Authorization).MarshalJSON()
+		if err != nil {
+			t.Fatalf("hdr.MarshalJSON() error = %v, want nil", err)
+		}
+		var out header.Authorization
+		if err := out.UnmarshalJSON(data); err != nil {
+			t.Fatalf("out.UnmarshalJSON(%s) error = %v, want nil", data, err)
+		}
+		outCrd, ok := out.AuthCredentials.(*header.DigestCredentials)
+		if !ok {
+			t.Fatalf("out.AuthCredentials = %T, want *header.DigestCredentials", out.AuthCredentials)
+		}
+		if got, want := outCrd.URIText(), "sip:alice@example.com;z=1;a=2"; got != want {
+			t.Errorf("outCrd.URIText() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("render options and errors propagate", func(t *testing.T) {
+		t.Parallel()
+
+		const renderErr errors.Error = "digest URI render failed"
+		crd := &header.DigestCredentials{
+			Username: "root",
+			Realm:    "example.com",
+			Nonce:    "qwerty",
+			URI:      &renderSpyURI{text: "sip:example.com", err: renderErr},
+			Response: "587245234b3434cc3412213e5f113a54",
+		}
+
+		var sb strings.Builder
+		if _, err := crd.RenderTo(&sb); !errors.Is(err, renderErr) {
+			t.Fatalf("crd.RenderTo() error = %v, want %v", err, renderErr)
+		}
+
+		spy := &renderSpyURI{text: "sip:example.com"}
+		crd.URI = spy
+		if _, err := crd.RenderTo(&sb, header.RenderOptions{Compact: true}); err != nil {
+			t.Fatalf("crd.RenderTo() error = %v, want nil", err)
+		}
+		if len(spy.lastOpts) == 0 || !spy.lastOpts[len(spy.lastOpts)-1].Compact {
+			t.Fatalf("URI render options = %+v, want Compact forwarded", spy.lastOpts)
+		}
+		if got := sb.String(); !strings.Contains(got, `uri="sip:example.com"`) {
+			t.Errorf("rendered credentials = %q, want it to contain %q", got, `uri="sip:example.com"`)
+		}
+	})
+}
+
+func TestDigestCredentials_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const (
+		resp64 = "753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1"
+		resp40 = "0123456789abcdef0123456789abcdef01234567"
+	)
+	tests := []struct {
+		name      string
+		algorithm string
+		response  string
+		uriText   string
+	}{
+		{"sha-256", "SHA-256", resp64, "sip:alice@example.com;z=1;a=2"},
+		{"sha-512-256", "SHA-512-256", resp64, "sip:%61lice@example.com;z=1;a=2"},
+		{"extension", "CustomHash", resp40, "sip:%61lice@example.com;z=1;a=2"},
+	}
+
+	for _, hdrName := range []string{"Authorization", "Proxy-Authorization"} {
+		for _, tt := range tests {
+			t.Run(hdrName+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				input := hdrName + `: Digest username="root", realm="example.com", nonce="qwerty",` +
+					` uri="` + tt.uriText + `", response="` + tt.response + `", algorithm=` + tt.algorithm
+
+				got, err := header.Parse(input)
+				if err != nil {
+					t.Fatalf("header.Parse(%q) error = %v, want nil", input, err)
+				}
+
+				var crd *header.DigestCredentials
+				var roundTrip func(t *testing.T) *header.DigestCredentials
+				switch hdr := got.(type) {
+				case *header.Authorization:
+					crd, _ = hdr.AuthCredentials.(*header.DigestCredentials)
+					roundTrip = func(t *testing.T) *header.DigestCredentials {
+						t.Helper()
+
+						data, err := hdr.MarshalJSON()
+						if err != nil {
+							t.Fatalf("hdr.MarshalJSON() error = %v, want nil", err)
+						}
+						var out header.Authorization
+						if err := out.UnmarshalJSON(data); err != nil {
+							t.Fatalf("out.UnmarshalJSON(%s) error = %v, want nil", data, err)
+						}
+						outCrd, _ := out.AuthCredentials.(*header.DigestCredentials)
+						return outCrd
+					}
+				case *header.ProxyAuthorization:
+					crd, _ = hdr.AuthCredentials.(*header.DigestCredentials)
+					roundTrip = func(t *testing.T) *header.DigestCredentials {
+						t.Helper()
+
+						data, err := hdr.MarshalJSON()
+						if err != nil {
+							t.Fatalf("hdr.MarshalJSON() error = %v, want nil", err)
+						}
+						var out header.ProxyAuthorization
+						if err := out.UnmarshalJSON(data); err != nil {
+							t.Fatalf("out.UnmarshalJSON(%s) error = %v, want nil", data, err)
+						}
+						outCrd, _ := out.AuthCredentials.(*header.DigestCredentials)
+						return outCrd
+					}
+				}
+				if crd == nil {
+					t.Fatalf("header.Parse(%q) credentials = %T, want *header.DigestCredentials", input, got)
+				}
+
+				if crd.Algorithm != tt.algorithm || crd.Response != tt.response {
+					t.Fatalf(
+						"digest algorithm/response = %q/%q, want %q/%q",
+						crd.Algorithm, crd.Response, tt.algorithm, tt.response,
+					)
+				}
+				if got := crd.URIText(); got != tt.uriText {
+					t.Errorf("crd.URIText() = %q, want %q", got, tt.uriText)
+				}
+				if !crd.IsValid() {
+					t.Errorf("crd.IsValid() = false, want true")
+				}
+
+				// Semantic Equal ignores private raw-text metadata; the
+				// clone's own snapshot stays independent after a typed edit.
+				clone, ok := crd.Clone().(*header.DigestCredentials)
+				if !ok {
+					t.Fatalf("crd.Clone() = %T, want *header.DigestCredentials", crd.Clone())
+				}
+				if !clone.Equal(crd) {
+					t.Fatalf("clone.Equal(crd) = false, want true")
+				}
+				clone.URI.(*uri.SIP).Addr = uri.MakeHostAddr("example.org")
+				if got := crd.URIText(); got != tt.uriText {
+					t.Errorf("crd.URIText() = %q after clone edit, want %q", got, tt.uriText)
+				}
+
+				// Render and re-parse: the signed URI spelling survives.
+				reparsed, err := header.Parse(shared.Render(got))
+				if err != nil {
+					t.Fatalf("header.Parse(rendered) error = %v, want nil", err)
+				}
+				var reparsedCrd *header.DigestCredentials
+				switch hdr := reparsed.(type) {
+				case *header.Authorization:
+					reparsedCrd, _ = hdr.AuthCredentials.(*header.DigestCredentials)
+				case *header.ProxyAuthorization:
+					reparsedCrd, _ = hdr.AuthCredentials.(*header.DigestCredentials)
+				}
+				if reparsedCrd == nil {
+					t.Fatalf("reparsed credentials = %T, want *header.DigestCredentials", reparsed)
+				}
+				if got := reparsedCrd.URIText(); got != tt.uriText {
+					t.Errorf("reparsedCrd.URIText() = %q, want %q", got, tt.uriText)
+				}
+
+				if outCrd := roundTrip(t); outCrd == nil {
+					t.Fatalf("JSON round trip credentials = %T, want *header.DigestCredentials", outCrd)
+				} else if got := outCrd.URIText(); got != tt.uriText {
+					t.Errorf("outCrd.URIText() = %q, want %q", got, tt.uriText)
+				}
+			})
+		}
 	}
 }
 

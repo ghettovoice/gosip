@@ -1,2 +1,3 @@
 singleQuote: true
 quoteProps: as-needed
+printWidth: 120

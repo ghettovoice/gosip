@@ -374,7 +374,7 @@ cnonce-value      =  nonce-value
 nonce-count       =  "nc" EQUAL nc-value
 nc-value          =  8LHEX
 dresponse         =  "response" EQUAL request-digest
-request-digest    =  LDQUOT 32LHEX RDQUOT
+request-digest    =  LDQUOT *LHEX RDQUOT ; RFC 8760 patch
 auth-param        =  auth-param-name EQUAL
                      ( token / quoted-string )
 auth-param-name   =  token
@@ -492,13 +492,13 @@ other-priority  =  token
 
 Proxy-Authenticate  =  "Proxy-Authenticate" HCOLON challenge
 challenge           =  ("Digest" LWS digest-cln *(COMMA digest-cln))
-                     / ("Bearer" LWS bearer-cln *(COMMA bearer-cln)) ; RFC 8898 patch
-                     / other-challenge
+                       / ("Bearer" LWS bearer-cln *(COMMA bearer-cln)) ; RFC 8898 patch
+                       / other-challenge
 other-challenge     =  auth-scheme LWS auth-param
                        *(COMMA auth-param)
 digest-cln          =  realm / domain / nonce
-                        / opaque / stale / algorithm
-                        / qop-options / auth-param
+                       / opaque / stale / algorithm
+                       / qop-options / auth-param
 realm               =  "realm" EQUAL realm-value
 realm-value         =  quoted-string
 domain              =  "domain" EQUAL LDQUOT URI
@@ -509,6 +509,7 @@ nonce-value         =  quoted-string
 opaque              =  "opaque" EQUAL quoted-string
 stale               =  "stale" EQUAL ( "true" / "false" )
 algorithm           =  "algorithm" EQUAL ( "MD5" / "MD5-sess"
+                       / "SHA-256" / "SHA-256-sess" / "SHA-512-256" /  "SHA-512-256-sess" ; RFC 8760 patch
                        / token )
 qop-options         =  "qop" EQUAL LDQUOT qop-value
                        *("," qop-value) RDQUOT

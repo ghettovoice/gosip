@@ -397,6 +397,17 @@ interfaces of the core plus the proxy event-handler contract; `Report()`
 returns a JSON-serializable report with Transports, Transactions, and Proxy
 counter sections.
 
+### 6.3 `sip/auth` (`sip/auth/`)
+
+Optional basic authentication mechanisms (Digest, Bearer) built on the
+consumer-owned `sip.ClientAuthenticator` and `sip.ServerAuthenticator[P]`
+contracts declared in the core package. Authentication mechanics are opt-in:
+no middleware is registered automatically, credentials/tokens/account stores
+stay with the application, a server authenticator returns a typed principal
+instead of inferring identity, and the package never sends, retries, or owns
+SIP exchanges. See `docs/authentication.md` for the contract and ownership
+model.
+
 ## 7. Support packages
 
 - **`uri/`** — `SIP`/`SIPS` (RFC 3261 §19.1 with §19.1.4 equality), `Tel`
@@ -447,7 +458,9 @@ counter sections.
 - **Public facade** — root `doc.go` is a TODO; README installation/usage/
   features sections are TODO; no runnable examples yet (`examples/` holds
   only TLS certs).
-- **Higher layers** — dialogs, UA/registrar, authentication are not
-  implemented; `Element` is explicitly scoped below them.
+- **Higher layers** — dialogs and UA/registrar are not implemented;
+  `Element` is explicitly scoped below them. Authentication contracts in
+  `sip` and optional `sip/auth` mechanics are landing incrementally but no
+  automatic authentication is attached.
 - **Flow tokens** — `FlowToken` exists but is not used by connection
   management (outbound interface setting, RFC 5626, would be its consumer).

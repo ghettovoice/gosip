@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/ghettovoice/gosip/internal/grammar"
+	"github.com/ghettovoice/gosip/internal/shared"
 	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/uri"
 )
@@ -1093,4 +1094,122 @@ func (h *customHeader) IsValid() bool {
 
 func (h *customHeader) Equal(val any) bool {
 	return reflect.DeepEqual(h, val)
+}
+
+func TestParse_DigestRFC8760(t *testing.T) {
+	t.Parallel()
+
+	// RFC 8760 extends request-digest from a fixed 32LHEX MD5 value to
+	// *LHEX so responses can carry other algorithm digests or an empty
+	// pre-challenge placeholder. These cases pin the existing
+	// grammar/parser behavior for both credential header families.
+	tests := []struct {
+		name          string
+		algorithm     string
+		response      string
+		wantAlgorithm string
+		wantResponse  string
+	}{
+		{"md5", "MD5", "587245234b3434cc3412213e5f113a54", "MD5", "587245234b3434cc3412213e5f113a54"},
+		{"sha-256", "SHA-256", "753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1", "SHA-256", "753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1"},
+		{"sha-512-256", "SHA-512-256", "753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1", "SHA-512-256", "753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1"},
+		{"extension", "CustomHash", "0123456789abcdef0123456789abcdef01234567", "CustomHash", "0123456789abcdef0123456789abcdef01234567"},
+		{"omitted algorithm", "", "587245234b3434cc3412213e5f113a54", "", "587245234b3434cc3412213e5f113a54"},
+		{"empty placeholder", "SHA-256", "", "SHA-256", ""},
+	}
+
+	for _, hdrName := range []string{"Authorization", "Proxy-Authorization"} {
+		for _, tt := range tests {
+			t.Run(hdrName+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				input := hdrName + `: Digest username="root", realm="example.com", nonce="qwerty",` +
+					` uri="sip:example.com", response="` + tt.response + `"`
+				if tt.algorithm != "" {
+					input += ", algorithm=" + tt.algorithm
+				}
+
+				got, err := header.Parse(input)
+				if err != nil {
+					t.Fatalf("header.Parse(%q) error = %v, want nil", input, err)
+				}
+				if _, generic := got.(*header.Any); generic {
+					t.Fatalf("header.Parse(%q) fell back to generic header: %T", input, got)
+				}
+
+				var credentials header.AuthCredentials
+				switch hdr := got.(type) {
+				case *header.Authorization:
+					credentials = hdr.AuthCredentials
+				case *header.ProxyAuthorization:
+					credentials = hdr.AuthCredentials
+				default:
+					t.Fatalf("header.Parse(%q) = %T, want typed Authorization/Proxy-Authorization", input, got)
+				}
+
+				digest, ok := credentials.(*header.DigestCredentials)
+				if !ok {
+					t.Fatalf("credentials type = %T, want *header.DigestCredentials", credentials)
+				}
+				if digest.Username != "root" || digest.Realm != "example.com" || digest.Nonce != "qwerty" {
+					t.Fatalf("digest identity fields = %+v, want parsed username/realm/nonce", digest)
+				}
+				if digest.URI == nil || shared.Render(digest.URI) != "sip:example.com" {
+					t.Fatalf("digest URI = %v, want sip:example.com", digest.URI)
+				}
+				if digest.Response != tt.wantResponse || digest.Algorithm != tt.wantAlgorithm {
+					t.Fatalf(
+						"digest response/algorithm = %q/%q, want %q/%q",
+						digest.Response, digest.Algorithm, tt.wantResponse, tt.wantAlgorithm,
+					)
+				}
+			})
+		}
+	}
+}
+
+func TestParse_DigestRFC8760Malformed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"non-hex response", `Digest username="root", realm="example.com", nonce="qwerty", uri="sip:example.com", response="zzzz"`},
+		{"odd hex response", `Digest username="root", realm="example.com", nonce="qwerty", uri="sip:example.com", response="abc"`},
+		{"unterminated response", `Digest username="root", realm="example.com", nonce="qwerty", uri="sip:example.com", response="abc`},
+		{"non-token algorithm", `Digest username="root", realm="example.com", nonce="qwerty", uri="sip:example.com", response="0123456789abcdef0123456789abcdef01234567", algorithm=SHA@256`},
+	}
+
+	for _, hdrName := range []string{"Authorization", "Proxy-Authorization"} {
+		for _, tt := range tests {
+			t.Run(hdrName+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				input := hdrName + ": " + tt.value
+				got, err := header.Parse(input)
+				if err != nil {
+					// Rejected input is a valid outcome; nothing to extract.
+					return
+				}
+				// The established fallback contract may yield a generic header
+				// or a typed wrapper holding non-Digest credentials. Neither is
+				// a structurally valid digest proof.
+				var credentials header.AuthCredentials
+				switch hdr := got.(type) {
+				case *header.Authorization:
+					credentials = hdr.AuthCredentials
+				case *header.ProxyAuthorization:
+					credentials = hdr.AuthCredentials
+				case *header.Any:
+					return
+				default:
+					t.Fatalf("header.Parse(%q) = %T, want Any or typed auth header", input, got)
+				}
+				if digest, ok := credentials.(*header.DigestCredentials); ok && digest.IsValid() {
+					t.Fatalf("header.Parse(%q) accepted malformed digest credentials: %+v", input, digest)
+				}
+			})
+		}
+	}
 }

@@ -1448,7 +1448,7 @@ func (desc *OperatorsDescr) AlertParam(in []byte, pos uint, ns *abnf.Nodes) erro
 	return desc.alertParam(in, pos, ns)
 }
 
-// Algorithm operator: algorithm = "algorithm" EQUAL ( "MD5" / "MD5-sess" / token )
+// Algorithm operator: algorithm = "algorithm" EQUAL ( "MD5" / "MD5-sess" / "SHA-256" / "SHA-256-sess" / "SHA-512-256" / "SHA-512-256-sess" ; RFC 8760 patch / token )
 func (desc *OperatorsDescr) Algorithm(in []byte, pos uint, ns *abnf.Nodes) error {
 	desc.algorithmOnce.Do(func() {
 		desc.algorithm = abnf.Concat(
@@ -1456,9 +1456,13 @@ func (desc *OperatorsDescr) Algorithm(in []byte, pos uint, ns *abnf.Nodes) error
 			abnf.Literal("\"algorithm\"", []byte{97, 108, 103, 111, 114, 105, 116, 104, 109}),
 			desc.EQUAL,
 			abnf.Alt(
-				"\"MD5\" / \"MD5-sess\" / token",
+				"\"MD5\" / \"MD5-sess\" / \"SHA-256\" / \"SHA-256-sess\" / \"SHA-512-256\" / \"SHA-512-256-sess\" ; RFC 8760 patch / token",
 				abnf.Literal("\"MD5\"", []byte{77, 68, 53}),
 				abnf.Literal("\"MD5-sess\"", []byte{77, 68, 53, 45, 115, 101, 115, 115}),
+				abnf.Literal("\"SHA-256\"", []byte{83, 72, 65, 45, 50, 53, 54}),
+				abnf.Literal("\"SHA-256-sess\"", []byte{83, 72, 65, 45, 50, 53, 54, 45, 115, 101, 115, 115}),
+				abnf.Literal("\"SHA-512-256\"", []byte{83, 72, 65, 45, 53, 49, 50, 45, 50, 53, 54}),
+				abnf.Literal("\"SHA-512-256-sess\"", []byte{83, 72, 65, 45, 53, 49, 50, 45, 50, 53, 54, 45, 115, 101, 115, 115}),
 				desc.Token,
 			),
 		)
@@ -4764,15 +4768,14 @@ func (desc *OperatorsDescr) Request(in []byte, pos uint, ns *abnf.Nodes) error {
 	return desc.request(in, pos, ns)
 }
 
-// RequestDigest operator: request-digest = LDQUOT 32LHEX RDQUOT
+// RequestDigest operator: request-digest = LDQUOT *LHEX RDQUOT
 func (desc *OperatorsDescr) RequestDigest(in []byte, pos uint, ns *abnf.Nodes) error {
 	desc.requestDigestOnce.Do(func() {
 		desc.requestDigest = abnf.Concat(
 			"request-digest",
 			desc.LDQUOT,
-			abnf.RepeatN(
-				"32LHEX",
-				uint(0x20),
+			abnf.Repeat0Inf(
+				"*LHEX",
 				desc.LHEX,
 			),
 			desc.RDQUOT,
@@ -6460,7 +6463,7 @@ func (*RulesDescr) AlertParam(in []byte, ns *abnf.Nodes) error {
 	return oprsDescr.AlertParam(in, 0, ns)
 }
 
-// Algorithm rule: algorithm = "algorithm" EQUAL ( "MD5" / "MD5-sess" / token )
+// Algorithm rule: algorithm = "algorithm" EQUAL ( "MD5" / "MD5-sess" / "SHA-256" / "SHA-256-sess" / "SHA-512-256" / "SHA-512-256-sess" ; RFC 8760 patch / token )
 func (*RulesDescr) Algorithm(in []byte, ns *abnf.Nodes) error {
 	return oprsDescr.Algorithm(in, 0, ns)
 }
@@ -7415,7 +7418,7 @@ func (*RulesDescr) Request(in []byte, ns *abnf.Nodes) error {
 	return oprsDescr.Request(in, 0, ns)
 }
 
-// RequestDigest rule: request-digest = LDQUOT 32LHEX RDQUOT
+// RequestDigest rule: request-digest = LDQUOT *LHEX RDQUOT
 func (*RulesDescr) RequestDigest(in []byte, ns *abnf.Nodes) error {
 	return oprsDescr.RequestDigest(in, 0, ns)
 }
