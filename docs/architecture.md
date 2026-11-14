@@ -1,7 +1,9 @@
 # gosip Architecture
 
 This document describes the **current** architecture of the gosip SIP stack.
-The target architecture is covered in a separate section and is not decided yet.
+Candidate directions for the target architecture are captured in
+[future-architecture.md](future-architecture.md); that document records a
+discussion and is not a finalized design.
 
 Audience: maintainers, contributors, and coding agents working on this
 repository. Every section points to the packages and files it describes, so it
