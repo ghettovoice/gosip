@@ -876,7 +876,7 @@ func TestProxy_FinalResponseResolver_Failure(t *testing.T) {
 							t.Fatal("original upstream transaction pointer/key not registered")
 						}
 						var replacements []sip.ServerTransaction
-						defer elm.UseMiddleware(sip.ServerTransactionHandlerFunc(func(_ context.Context, tx sip.ServerTransaction) {
+						defer elm.UseComponent(sip.ServerTransactionHandlerFunc(func(_ context.Context, tx sip.ServerTransaction) {
 							replacements = append(replacements, tx)
 						}))()
 						var completions []Event

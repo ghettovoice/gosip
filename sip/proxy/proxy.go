@@ -15,7 +15,7 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 )
 
-// Proxy is a SIP proxy middleware for an [sip.Element].
+// Proxy is a SIP proxy component for an [sip.Element].
 // It claims inbound requests matching its routes and forwards them according
 // to the route configuration.
 type Proxy struct {
@@ -64,12 +64,12 @@ var (
 	_ sip.OutboundResponseInterceptor = (*Proxy)(nil)
 )
 
-// New creates a [Proxy] middleware.
+// New creates a [Proxy] component.
 //
 // Routes and options are validated and copied: later changes to the caller's
 // slices, maps, and URIs do not affect the running proxy, and a failed
 // construction installs nothing. The constructor has no element and performs
-// no attachment work: an explicit [sip.Element.UseMiddleware] registration
+// no attachment work: an explicit [sip.Element.UseComponent] registration
 // binds the proxy to an element's processing chain, and every claimed
 // interception resolves its processing element from the interception context.
 // The constructor rejects duplicate route names, unsupported forward modes or
@@ -161,7 +161,7 @@ func (prx *Proxy) InterceptInboundRequest(
 	}
 
 	// The claim binds the processing element carried by the interception
-	// context — installed by the owning element's middleware chain — before
+	// context — installed by the owning element's component interceptors — before
 	// any metadata, index state, or traffic is produced.
 	elm, ok := sip.ElementFromContext(ctx)
 	if !ok {
@@ -629,7 +629,7 @@ func (prx *Proxy) InterceptOutboundResponse(
 // relayed to the prior hop recorded in the Via stack by
 // [Proxy.forwardStatelessRes]. A response carrying the stateful mark
 // belongs to a client transaction of the stateful path: the transaction
-// manager claims it ahead of this middleware while the transaction is
+// manager claims it ahead of this component while the transaction is
 // live, and a stray response that outlived its transaction is discarded
 // (RFC 4320, RFC 6026). A claimed Via that fails sent-by validation is
 // consumed rather than relayed. A response outside the proxy namespace
@@ -683,8 +683,8 @@ func (prx *Proxy) InterceptInboundResponse(
 
 // Shutdown gracefully shuts the proxy down.
 //
-// It is the optional element middleware shutdown hook: the owning element
-// invokes it before middleware and transport closure, and a direct call is
+// It is the optional element component shutdown hook: the owning element
+// invokes it before component and transport closure, and a direct call is
 // equivalent to [Proxy.Close]. The lifecycle is instance-wide: a proxy
 // registered on several elements has one shutdown that seals admission on
 // every element. Shutdown seals admission first — new inbound requests
@@ -692,9 +692,9 @@ func (prx *Proxy) InterceptInboundResponse(
 // subscription can register — then releases every tracked subscription,
 // retires each owned request coordinator under the element that claimed
 // it, and clears every element scope so no later lookup or registration
-// can resurrect one. The middleware registration itself belongs to the
+// can resurrect one. The component registration itself belongs to the
 // caller: it is detached by the unbind returned from
-// [sip.Element.UseMiddleware], never by shutdown. Coordinator retirement
+// [sip.Element.UseComponent], never by shutdown. Coordinator retirement
 // drops queued scheduling, disarms owned timers, detaches staged
 // transaction subscriptions, and terminates owned transactions; borrowed
 // transports, application storage, and transactions the proxy does not own
@@ -716,7 +716,7 @@ func (prx *Proxy) Shutdown(ctx context.Context) error {
 
 // Close releases every resource owned by the proxy. It is equivalent to
 // [Proxy.Shutdown] and idempotent: repeated calls share the first result.
-// Close also serves as the middleware close hook of the owning element.
+// Close also serves as the component close hook of the owning element.
 func (prx *Proxy) Close() error {
 	return prx.Shutdown(context.Background())
 }
@@ -756,8 +756,8 @@ func (prx *Proxy) shutdown(ctx context.Context) {
 	clear(prx.elms)
 	prx.reqsMu.Unlock()
 
-	// The middleware registration detachment belongs to the caller's
-	// explicit [sip.Element.UseMiddleware] unbind; shutdown releases only
+	// The component registration detachment belongs to the caller's
+	// explicit [sip.Element.UseComponent] unbind; shutdown releases only
 	// the subscriptions the proxy itself tracked.
 	for _, unbind := range subs {
 		unbind()

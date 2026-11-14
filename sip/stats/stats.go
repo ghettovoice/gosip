@@ -100,7 +100,7 @@ type Proxy struct {
 
 // Recorder records various SIP statistics.
 // It implements [sip.MessageInterceptor], [sip.TransactionHandler] and
-// [proxy.EventHandler] interfaces: it can be used as a middleware for
+// [proxy.EventHandler] interfaces: it can be used as a component for
 // Element and as a proxy observation event handler at the same time —
 // the proxy counters count committed forwarding events only, so one
 // recorder serving both roles never counts a logical event twice.
@@ -113,7 +113,7 @@ type Recorder struct {
 var (
 	_ sip.MessageInterceptor = (*Recorder)(nil)
 	_ sip.TransactionHandler = (*Recorder)(nil)
-	_ sip.ElementMiddleware  = (*Recorder)(nil)
+	_ sip.ElementComponent   = (*Recorder)(nil)
 	_ proxy.EventHandler     = (*Recorder)(nil)
 )
 

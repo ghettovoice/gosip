@@ -100,7 +100,7 @@ func newWireProxy(
 	}
 
 	rcdr := &stats.Recorder{}
-	elm.UseMiddleware(rcdr)
+	elm.UseComponent(rcdr)
 
 	lis, err := elm.Listen(tb.Context(), proto, "127.0.0.1:0")
 	if err != nil {
@@ -123,7 +123,7 @@ func newWireProxy(
 	if err != nil {
 		tb.Fatalf("proxy.New() error = %v, want nil", err)
 	}
-	elm.UseMiddleware(prx)
+	elm.UseComponent(prx)
 	prx.BindEventHandler(rcdr)
 
 	return &wireProxy{elm: elm, tp: tp, lis: lis, addr: lis.LocalAddr(), prx: prx, rcdr: rcdr}

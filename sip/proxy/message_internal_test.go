@@ -90,7 +90,7 @@ func TestProxy_owned_via_loop_scan(t *testing.T) {
 						if err != nil {
 							t.Fatalf("proxy.New() error = %v, want nil", err)
 						}
-						elm.UseMiddleware(prx)
+						elm.UseComponent(prx)
 						return elm, prx, tp
 					}
 					elmA, prxA, tpA := newProxy(a, "independent-proxy-a-key")

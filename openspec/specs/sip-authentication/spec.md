@@ -18,7 +18,7 @@ The library SHALL expose a non-generic client authenticator and a server authent
 #### Scenario: Application-defined implementation
 
 - **WHEN** an application provides its own implementation of a client or server contract
-- **THEN** callers can use it without constructing a built-in mechanism or attaching middleware.
+- **THEN** callers can use it without constructing a built-in mechanism or attaching components.
 
 ### Requirement: Direct typed principal return
 
@@ -36,7 +36,7 @@ Successful server authentication SHALL return `P` directly with a nil error. Fai
 
 ### Requirement: Explicit construction and configuration
 
-Basic authenticators SHALL validate required callbacks and realm/trust configuration at construction, copy mutable options, and reject invalid capacities, durations, or algorithms. Construction SHALL NOT register middleware, send messages, contact external services, or start background processing. Uninitialized instances SHALL fail rather than panic or authenticate.
+Basic authenticators SHALL validate required callbacks and realm/trust configuration at construction, copy mutable options, and reject invalid capacities, durations, or algorithms. Construction SHALL NOT register components, send messages, contact external services, or start background processing. Uninitialized instances SHALL fail rather than panic or authenticate.
 
 #### Scenario: Invalid server configuration
 

@@ -229,7 +229,7 @@ func ExampleRequestSnapshot_finalCandidateIndex() {
 		fmt.Println("error:", err)
 		return
 	}
-	detach := elm.UseMiddleware(prx)
+	detach := elm.UseComponent(prx)
 	defer func() {
 		_ = prx.Close()
 		detach()

@@ -255,7 +255,7 @@ func TestProxy_Configuration(t *testing.T) {
 		}
 	})
 
-	t.Run("failed construction installs no middleware", func(t *testing.T) {
+	t.Run("failed construction installs no component", func(t *testing.T) {
 		t.Parallel()
 
 		tp := newStubTransp()
@@ -276,8 +276,8 @@ func TestProxy_Configuration(t *testing.T) {
 			t.Fatalf("inbound request interceptors = %d, want unchanged %d", got, before)
 		}
 
-		// Construction never installs middleware; only the caller's
-		// explicit UseMiddleware registration attaches the proxy.
+		// Construction never installs components; only the caller's
+		// explicit UseComponent registration attaches the proxy.
 		prx, err := proxy.New([]proxy.Route{{Name: "good"}})
 		if err != nil {
 			t.Fatalf("proxy.New() error = %v, want nil", err)
@@ -285,7 +285,7 @@ func TestProxy_Configuration(t *testing.T) {
 		if got := tp.InboundRequestInterceptors.Len(); got != before {
 			t.Fatalf("inbound request interceptors after New = %d, want unchanged %d", got, before)
 		}
-		elm.UseMiddleware(prx)
+		elm.UseComponent(prx)
 		if got, want := tp.InboundRequestInterceptors.Len(), before+1; got != want {
 			t.Fatalf("inbound request interceptors = %d, want %d", got, want)
 		}

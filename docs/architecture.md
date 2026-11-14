@@ -25,9 +25,9 @@ These recur throughout the code and explain most API shapes:
 
 - **Composition root with private managers.** `sip.Element` owns a
   `TransportManager` and a `TransactionManager`; they are unexported fields and
-  all operations go through element methods or middleware hooks.
-- **Middleware over inheritance.** Extensions attach via
-  `Element.UseMiddleware` and implement optional interceptor/handler
+  all operations go through element methods or component hooks.
+- **Components over inheritance.** Extensions attach via
+  `Element.UseComponent` and implement optional interceptor/handler
   interfaces; the core never depends on extensions (`sip/proxy` and
   `sip/stats` depend on `sip`, not the other way around).
 - **Explicit lifecycle with admission control.** `Start`/`Shutdown`/`Close`
@@ -55,8 +55,8 @@ github.com/ghettovoice/gosip
 ├── sip/                      # CORE: messages, transactions, transports, Element
 │   ├── header/               # typed SIP header implementations
 │   ├── transport/            # transport implementations (conn-oriented / conn-less)
-│   ├── proxy/                # proxy middleware (route-based forwarding)
-│   └── stats/                # statistics recorder middleware
+│   ├── proxy/                # proxy component (route-based forwarding)
+│   └── stats/                # statistics recorder component
 ├── pkg/                      # public support packages (importable by users)
 │   ├── dns/                  # RFC 3263 resolver (SRV/NAPTR/A/AAAA) + opt-in cache
 │   ├── errclass/             # error classification helpers
@@ -95,10 +95,10 @@ Conceptual layers, bottom-up:
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│ application / extension middleware (sip/proxy, sip/stats, ...) │
+│ application / extension components (sip/proxy, sip/stats, ...) │
 ├───────────────────────────────────────────────────────────────┤
 │ Element (sip/element.go) — composition root, send/recv paths,  │
-│   capabilities, middleware chain, lifecycle                    │
+│   capabilities, component wiring, lifecycle                    │
 ├───────────────────────────────────────────────────────────────┤
 │ Transactions (sip/transaction_*.go) — RFC 3261 §17 FSMs,       │
 │   keys, retransmissions, snapshots/restore, TransactionManager │
@@ -124,16 +124,16 @@ inbound-request, inbound-response, outbound-request, outbound-response.
 
 During `Element.init` the manager registers, in order:
 the `TransactionManager` (message matcher) first, the `Element` itself second,
-then every user middleware in `UseMiddleware` order. So the effective
+then every user component in `UseComponent` order. So the effective
 pipelines are:
 
 ```
-inbound request:   txm ─► element ─► mw1 ─► mw2 ─► ... ─► final receiver
-outbound request:   ... ─► mw2 ─► mw1 ─► element ─► txm ─► transport write
+inbound request:   txm ─► element ─► component1 ─► component2 ─► ... ─► final receiver
+outbound request:   ... ─► component2 ─► component1 ─► element ─► txm ─► transport write
 ```
 
-A middleware that "claims" a message (e.g. proxy forwarding) stops calling
-`next`; a middleware that only observes calls `next` and inspects the result.
+A component that "claims" a message (e.g. proxy forwarding) stops calling
+`next`; a component that only observes calls `next` and inspects the result.
 
 ### 4.2 Inbound request flow
 
@@ -149,7 +149,7 @@ TransportManager inbound-request interceptors
   │    • if a downstream receiver produced a RequestRejectedError and a
   │      server transaction was created, responds statefully through it
   ├─ Element.InterceptInboundRequest                  (context injection)
-  ├─ user middleware (proxy claims matching routes, stats counts, ...)
+  ├─ user components (proxy claims matching routes, stats counts, ...)
   ▼
 final receiver: unhandled request → 503 Service Unavailable (transport level)
 ```
@@ -176,8 +176,8 @@ application
   │   4. confirmClnTx: wait for accepted/completed final response;
   │      503/transport failure/timeout before any response → next candidate
   ▼
-TransportManager outbound-request interceptors (LIFO: middleware first)
-  ├─ user middleware
+TransportManager outbound-request interceptors (LIFO: components first)
+  ├─ user components
   ├─ Element.InterceptOutboundRequest
   │    • PrepareVia (top Via: transport, sent-by, branch)
   │    • EnsureFromTag, Max-Forwards, Content-Length
@@ -312,24 +312,24 @@ Responsibilities:
   `BindErrorHandler` (e.g. `*ListenerServeError`).
 
 Lifecycle (`sip/element.go`): states `ready → running → closing → closed`.
-Operations are admitted via `opsWg`; element-wired middleware callbacks via
+Operations are admitted via `opsWg`; element-wired component callbacks via
 `cbWg` (sealed only during close, so final transaction termination can still
-reach middleware). `Shutdown(ctx)` runs middleware `Shutdown` hooks in
+reach components). `Shutdown(ctx)` runs component `Shutdown` hooks in
 registration order, then `Close()`. `Close()` sends best-effort CANCELs,
 cancels the runtime context, closes the transaction and transport managers,
-drains operations and callbacks, then unbinds and closes middleware in
+drains operations and callbacks, then unbinds and closes components in
 registration order. An explicit **draining phase does not exist yet** — see
 `TODO.md`.
 
 Capabilities (`sip/element_capabilities.go`): `ElementCapabilities`
 (methods, option tags, MIME types) merged from `BaseCapabilities` and every
-middleware implementing `Capabilities()`; recompute is
+component implementing `Capabilities()`; recompute is
 revision-guarded against concurrent registration.
 
-### 5.6 Middleware model (`sip/element_middleware.go`)
+### 5.6 Component model (`sip/element_component.go`)
 
-`ElementMiddleware` is `any`; `UseMiddleware` type-switches the optional
-interfaces a middleware may implement:
+`ElementComponent` is `any`; `UseComponent` type-switches the optional
+interfaces a component may implement:
 
 | Interface | Effect |
 | --- | --- |
@@ -339,7 +339,7 @@ interfaces a middleware may implement:
 | `Shutdown(ctx) error` | invoked by `Element.Shutdown` |
 | `io.Closer` | invoked by `Element.Close` |
 
-Element adapters wrap every middleware callback with callback admission and
+Element adapters wrap every component callback with callback admission and
 the element in the context. Registration order is significant (see §4.1).
 Unbind is idempotent; after closing began it is a no-op because shutdown
 retains ownership.
@@ -373,11 +373,11 @@ the same way.
 
 ### 6.1 `sip/proxy` (`sip/proxy/`, user guide `docs/proxy.md`)
 
-An inbound middleware claiming requests that match configured routes and
+An inbound component claiming requests that match configured routes and
 forwarding them in **stateful** (default) or **stateless** mode.
 
 - `New(routes, opts)` is pure: validates and copies config, binds nothing;
-  registration is an explicit `elm.UseMiddleware(prx)`; one instance may
+  registration is an explicit `elm.UseComponent(prx)`; one instance may
   serve several elements.
 - Routing: ordered `Route` list; per-route targets, branch selection,
   request snapshots and observation `Event`s (`BindEventHandler`,
@@ -392,7 +392,7 @@ forwarding them in **stateful** (default) or **stateless** mode.
 
 ### 6.2 `sip/stats` (`sip/stats/`)
 
-`Recorder` implements the element middleware and transaction-handler
+`Recorder` implements the element component and transaction-handler
 interfaces of the core plus the proxy event-handler contract; `Report()`
 returns a JSON-serializable report with Transports, Transactions, and Proxy
 counter sections.
@@ -402,7 +402,7 @@ counter sections.
 Optional basic authentication mechanisms (Digest, Bearer) built on the
 consumer-owned `sip.ClientAuthenticator` and `sip.ServerAuthenticator[P]`
 contracts declared in the core package. Authentication mechanics are opt-in:
-no middleware is registered automatically, credentials/tokens/account stores
+no component is registered automatically, credentials/tokens/account stores
 stay with the application, a server authenticator returns a typed principal
 instead of inferring identity, and the package never sends, retries, or owns
 SIP exchanges. See `docs/authentication.md` for the contract and ownership
@@ -453,7 +453,7 @@ model.
 ## 10. Known gaps and deferred work
 
 - **Element draining** — designed as an explicit phase for
-  `Element.Shutdown` (admission rules for completion traffic, middleware
+  `Element.Shutdown` (admission rules for completion traffic, component registration
   freeze, drain criteria); open questions listed in `TODO.md`.
 - **Public facade** — root `doc.go` is a TODO; README installation/usage/
   features sections are TODO; no runnable examples yet (`examples/` holds

@@ -10,7 +10,7 @@ import (
 )
 
 // ExampleRecorder_proxy composes one [stats.Recorder] for both of
-// its observer roles. Bound as element middleware it counts transport
+// its observer roles. Bound as an element component it counts transport
 // traffic and transaction lifecycles exactly as before; bound to the proxy
 // it derives the cumulative [stats.Proxy] counters of
 // [stats.Report.Proxy] from the committed [proxy.Event] stream. The
@@ -27,10 +27,10 @@ func ExampleRecorder_proxy() {
 
 	rcdr := &stats.Recorder{}
 
-	// The middleware role installs the transport interceptors and the
+	// The component role installs the transport interceptors and the
 	// transaction handler; the returned unbind detaches them all.
-	unbindMw := elm.UseMiddleware(rcdr)
-	defer unbindMw()
+	unbindComp := elm.UseComponent(rcdr)
+	defer unbindComp()
 
 	prx, err := proxy.New([]proxy.Route{
 		{
@@ -55,11 +55,11 @@ func ExampleRecorder_proxy() {
 		return
 	}
 
-	// The proxy itself is explicit element middleware; the recorder's
-	// middleware role above stays independent of this registration.
-	// Closing the proxy retires its owned work before the middleware
+	// The proxy itself is an explicitly registered element component; the
+	// recorder's component role above stays independent of this registration.
+	// Closing the proxy retires its owned work before the component
 	// unbind detaches the registration.
-	unbindPrx := elm.UseMiddleware(prx)
+	unbindPrx := elm.UseComponent(prx)
 	defer func() {
 		_ = prx.Close()
 		unbindPrx()

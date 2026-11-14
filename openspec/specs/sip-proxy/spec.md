@@ -6,9 +6,9 @@ Provide an embeddable SIP proxy that routes requests and responses correctly whi
 
 ## Requirements
 
-### Requirement: Middleware integration and useful defaults
+### Requirement: Component integration and useful defaults
 
-The library SHALL offer proxy middleware in `sip/proxy`, constructed without an element or automatic attachment and explicitly registered through the element middleware API. Stateful forwarding SHALL remain the default. Unmatched messages SHALL continue to the next receiver. Optional callbacks SHALL have documented defaults rather than causing nil-callback panics.
+The library SHALL offer a proxy component in `sip/proxy`, constructed without an element or automatic attachment and explicitly registered through the element component API. Stateful forwarding SHALL remain the default. Unmatched messages SHALL continue to the next receiver. Optional callbacks SHALL have documented defaults rather than causing nil-callback panics.
 
 #### Scenario: Minimal stateful forwarding
 
@@ -23,12 +23,12 @@ The library SHALL offer proxy middleware in `sip/proxy`, constructed without an 
 #### Scenario: Construction does not attach
 
 - **WHEN** an application constructs a valid proxy without registering it
-- **THEN** construction requires no element and installs no middleware, transactions, timers, or transport bindings.
+- **THEN** construction requires no element and installs no components, transactions, timers, or transport bindings.
 
 #### Scenario: Invalid configuration has no attachment effects
 
 - **WHEN** proxy construction rejects invalid routes or options
-- **THEN** no element or middleware registration has been modified.
+- **THEN** no element or component registration has been modified.
 
 ### Requirement: Server transaction behavior is explicit
 
@@ -337,9 +337,9 @@ Configured loop detection SHALL distinguish a true loop from a changed-route spi
 - **WHEN** loop detection is enabled and a request returns with a Via owned by this proxy and unchanged routing-relevant information, including when foreign Via entries precede the owned Via
 - **THEN** the proxy recognizes the true loop under the applicable method response rules.
 
-### Requirement: Safe middleware lifecycle
+### Requirement: Safe component lifecycle
 
-Explicit middleware detachment SHALL stop new deliveries through that registration. Proxy shutdown and close SHALL seal instance-wide admission and release owned timers, callbacks, indexes, and subscriptions without closing unrelated application resources. Applications SHALL retire active proxy work before removing its required interception bindings; unbinding SHALL NOT implicitly close the proxy. Repeated shutdown and close SHALL be safe.
+Explicit component detachment SHALL stop new deliveries through that registration. Proxy shutdown and close SHALL seal instance-wide admission and release owned timers, callbacks, indexes, and subscriptions without closing unrelated application resources. Applications SHALL retire active proxy work before removing its required interception bindings; unbinding SHALL NOT implicitly close the proxy. Repeated shutdown and close SHALL be safe.
 
 #### Scenario: Shutdown with active requests
 
@@ -349,11 +349,11 @@ Explicit middleware detachment SHALL stop new deliveries through that registrati
 #### Scenario: Explicit detachment after retirement
 
 - **WHEN** an application closes the proxy and invokes the registration's unbind function
-- **THEN** new requests are not claimed, cleanup is idempotent, and unrelated middleware remains registered.
+- **THEN** new requests are not claimed, cleanup is idempotent, and unrelated components remain registered.
 
 #### Scenario: Shared instance has one lifecycle
 
-- **WHEN** a proxy used by multiple elements is shut down directly or through an owning element's middleware lifecycle
+- **WHEN** a proxy used by multiple elements is shut down directly or through an owning element's component lifecycle
 - **THEN** that proxy instance stops admission on every element and retires each request using its own processing element.
 
 ### Requirement: Optional proxy observation subscriptions
@@ -439,7 +439,7 @@ The statistics API SHALL reside in `sip/stats` with a zero-value `stats.Recorder
 
 #### Scenario: Explicit recorder attachment
 
-- **WHEN** an application binds its statistics recorder to proxy events alongside its existing Element middleware binding
+- **WHEN** an application binds its statistics recorder to proxy events alongside its existing Element component binding
 - **THEN** the report includes proxy counters while existing transport and transaction statistics retain their own meanings.
 
 #### Scenario: Package migration preserves reports

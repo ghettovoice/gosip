@@ -182,7 +182,7 @@ func newConfiguredTestProxy(
 	if err != nil {
 		tb.Fatalf("proxy.New() error = %v, want nil", err)
 	}
-	unbind := elm.UseMiddleware(prx)
+	unbind := elm.UseComponent(prx)
 	tb.Cleanup(func() {
 		_ = prx.Close()
 		unbind()

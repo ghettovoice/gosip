@@ -176,7 +176,7 @@ func newConfiguredTestProxy(
 	if err != nil {
 		tb.Fatalf("proxy.New() error = %v, want nil", err)
 	}
-	unbind := elm.UseMiddleware(prx)
+	unbind := elm.UseComponent(prx)
 	tb.Cleanup(func() {
 		// Retire the proxy's owned work before detaching the registration.
 		_ = prx.Close()
@@ -400,7 +400,7 @@ func TestProxy_NewIsPure(t *testing.T) {
 			t.Fatal("proxy.New() returned nil proxy")
 		}
 
-		// A valid construction installs no middleware, transaction, or
+		// A valid construction installs no component, transaction, or
 		// transport binding: every spy double records zero calls and the
 		// element-bound interceptor chains stay untouched.
 		if got := srvTxCalls.Load() + clnTxCalls.Load(); got != 0 {
@@ -436,9 +436,9 @@ func TestProxy_NewIsPure(t *testing.T) {
 			t.Fatalf("unbound delivery claimed the request route, stamp = %+v", md)
 		}
 
-		// The explicit UseMiddleware registration is what binds the proxy
+		// The explicit UseComponent registration is what binds the proxy
 		// to the element's processing chain.
-		unbind := elm.UseMiddleware(prx)
+		unbind := elm.UseComponent(prx)
 		t.Cleanup(unbind)
 		inRecv = sip.InterceptInboundRequest(
 			slices.Collect(tp.InboundRequestInterceptors.All()),
@@ -550,7 +550,7 @@ func TestProxy_NewIsPure(t *testing.T) {
 			if err != nil {
 				t.Fatalf("proxy.New() error = %v, want nil", err)
 			}
-			unbind := elm.UseMiddleware(prx)
+			unbind := elm.UseComponent(prx)
 			t.Cleanup(unbind)
 
 			// Mutating every caller-owned input must not alter the
@@ -626,7 +626,7 @@ func TestProxy_NewIsPure(t *testing.T) {
 		if err != nil {
 			t.Fatalf("proxy.New() error = %v, want nil", err)
 		}
-		unbind := elm.UseMiddleware(prx)
+		unbind := elm.UseComponent(prx)
 		t.Cleanup(unbind)
 
 		branchOf := func(req *sip.RequestEnvelope) string {
@@ -850,7 +850,7 @@ type sharedSide struct {
 	tp  *stubTransp
 }
 
-// newSharedTestProxy builds one proxy middleware bound to count fresh
+// newSharedTestProxy builds one proxy component bound to count fresh
 // elements carrying deliberately equal identity and address configuration:
 // every element shares one InstanceID and tracks an identical UDP stub
 // transport. Element identity is the pointer alone, so equal configuration
@@ -878,7 +878,7 @@ func newSharedTestProxy(
 		if err := elm.TrackTransport(tp); err != nil {
 			tb.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 		}
-		tb.Cleanup(elm.UseMiddleware(prx))
+		tb.Cleanup(elm.UseComponent(prx))
 		sides = append(sides, sharedSide{elm: elm, tp: tp})
 	}
 	return prx, sides

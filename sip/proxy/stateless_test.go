@@ -64,7 +64,7 @@ func TestProxy_foreign_via_ownership(t *testing.T) {
 						if err != nil {
 							t.Fatalf("proxy.New() error = %v, want nil", err)
 						}
-						elm.UseMiddleware(prx)
+						elm.UseComponent(prx)
 						return elm, prx, tp
 					}
 					elmA, prxA, tpA := newProxy(a, b, "independent-proxy-a-key")
@@ -1854,7 +1854,7 @@ func TestProxy_ResponseOwnership(t *testing.T) {
 			if err != nil {
 				t.Fatalf("proxy.New() error = %v, want nil", err)
 			}
-			elm.UseMiddleware(prx)
+			elm.UseComponent(prx)
 
 			// A stateful admission leaves a live client transaction whose
 			// outbound Via carries the proxy-stateful mark.

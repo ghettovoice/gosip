@@ -103,7 +103,7 @@ func newInternalTestProxy(
 		tb.Fatalf("proxy.New() error = %v, want nil", err)
 	}
 
-	elm.UseMiddleware(prx)
+	elm.UseComponent(prx)
 
 	return elm, prx, tp
 }

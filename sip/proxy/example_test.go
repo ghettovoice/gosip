@@ -162,7 +162,7 @@ func ExampleRoute_targetSelector() {
 // upstream non-INVITE transactions keep the default-off RFC 4320 behavior.
 //
 // Construction is pure: proxy.New installs nothing. An explicit
-// elm.UseMiddleware registration attaches the proxy to the element's
+// elm.UseComponent registration attaches the proxy to the element's
 // processing chain, and the returned unbind detaches only that
 // registration — it is never a shutdown path.
 func ExampleNew() {
@@ -198,7 +198,7 @@ func ExampleNew() {
 		return
 	}
 
-	unbind := elm.UseMiddleware(prx)
+	unbind := elm.UseComponent(prx)
 	defer func() {
 		// Retire owned proxy work before detaching the registration: the
 		// outbound response interceptor must still be installed to settle
@@ -268,8 +268,8 @@ func ExampleProxy_stateless() {
 	}
 
 	// Same explicit registration as ExampleNew: retire the shared proxy
-	// lifecycle before detaching the middleware registration.
-	unbind := elm.UseMiddleware(prx)
+	// lifecycle before detaching the component registration.
+	unbind := elm.UseComponent(prx)
 	defer func() {
 		_ = prx.Close()
 		unbind()
@@ -334,7 +334,7 @@ func ExampleProxy_statelessDestination() {
 		return
 	}
 
-	unbind := elm.UseMiddleware(prx)
+	unbind := elm.UseComponent(prx)
 	defer func() {
 		_ = prx.Close()
 		unbind()
@@ -383,7 +383,7 @@ func ExampleNew_rfc4320() {
 		return
 	}
 
-	unbind := elm.UseMiddleware(prx)
+	unbind := elm.UseComponent(prx)
 	defer func() {
 		_ = prx.Close()
 		unbind()

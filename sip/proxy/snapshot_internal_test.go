@@ -2515,7 +2515,7 @@ func trackRestoreElm(tb testing.TB, prx *Proxy) (*sip.Element, *internalTransp) 
 	if err := elm.TrackTransport(tp); err != nil {
 		tb.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
-	elm.UseMiddleware(prx)
+	elm.UseComponent(prx)
 	return elm, tp
 }
 

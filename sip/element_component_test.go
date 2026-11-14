@@ -8,27 +8,27 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 )
 
-type elemCapabilsMidware struct {
+type elemCapabilsComponent struct {
 	methods []sip.RequestMethod
 }
 
-func (mw elemCapabilsMidware) Capabilities() sip.ElementCapabilities {
-	return sip.ElementCapabilities{Methods: mw.methods}
+func (component elemCapabilsComponent) Capabilities() sip.ElementCapabilities {
+	return sip.ElementCapabilities{Methods: component.methods}
 }
 
-func TestElement_UseMiddleware_PreservesRegistrationOrder(t *testing.T) {
+func TestElement_UseComponent_PreservesRegistrationOrder(t *testing.T) {
 	t.Parallel()
 
 	elm := &sip.Element{}
 	t.Cleanup(func() { _ = elm.Close() })
 
-	removeFirst := elm.UseMiddleware(elemCapabilsMidware{
+	removeFirst := elm.UseComponent(elemCapabilsComponent{
 		methods: []sip.RequestMethod{sip.RequestMethodInvite},
 	})
-	removeSecond := elm.UseMiddleware(elemCapabilsMidware{
+	removeSecond := elm.UseComponent(elemCapabilsComponent{
 		methods: []sip.RequestMethod{sip.RequestMethodBye},
 	})
-	removeThird := elm.UseMiddleware(elemCapabilsMidware{
+	removeThird := elm.UseComponent(elemCapabilsComponent{
 		methods: []sip.RequestMethod{sip.RequestMethodCancel},
 	})
 
@@ -49,7 +49,7 @@ func TestElement_UseMiddleware_PreservesRegistrationOrder(t *testing.T) {
 		sip.RequestMethodCancel,
 	}
 	if diff := cmp.Diff(want, elm.Capabilities()); diff != "" {
-		t.Errorf("elm.Capabilities() after middleware removal mismatch (-want +got):\n%s", diff)
+		t.Errorf("elm.Capabilities() after component removal mismatch (-want +got):\n%s", diff)
 	}
 
 	removeFirst()

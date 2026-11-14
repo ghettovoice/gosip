@@ -18,7 +18,7 @@ consume them without depending on a concrete mechanism:
   success signal; failures return the zero value of `P` plus a non-nil error.
 
 Basic Digest and Bearer mechanisms live in the optional `sip/auth` package.
-Applications may equally supply their own implementations; no middleware or
+Applications may equally supply their own implementations; no component or
 account model is required to satisfy a contract.
 
 Shared error conditions declared in `sip`:

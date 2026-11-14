@@ -276,7 +276,7 @@ func TestElement_CallbackLeaseBlocksClose(t *testing.T) {
 
 // TestElement_CallbackAdmissionSealed covers the callback drain lease:
 // callbacks are admitted while the element is running and rejected once Close
-// sealed admission before closing middleware.
+// sealed admission before closing components.
 func TestElement_CallbackAdmissionSealed(t *testing.T) {
 	t.Parallel()
 
@@ -309,7 +309,7 @@ func TestElement_CallbackAdmissionSealed(t *testing.T) {
 // TestElement_AdaptersAfterSeal covers saved Element-wired callbacks
 // invoked after callback admission was sealed: transaction notifications
 // become no-ops and interceptors report the element as closed instead of
-// reaching closed middleware.
+// reaching closed components.
 func TestElement_AdaptersAfterSeal(t *testing.T) {
 	t.Parallel()
 
@@ -328,14 +328,14 @@ func TestElement_AdaptersAfterSeal(t *testing.T) {
 
 	wrappedCln.HandleClientTransaction(ctx, nil)
 	if got := clnHdlr.calls.Load(); got != 0 {
-		t.Errorf("middleware handler calls after seal = %d, want 0", got)
+		t.Errorf("component handler calls after seal = %d, want 0", got)
 	}
 
 	if err := wrappedOutReq.InterceptOutboundRequest(ctx, nil, nil); !errors.Is(err, ErrElementClosed) {
 		t.Errorf("interceptor after seal error = %v, want %v", err, ErrElementClosed)
 	}
 	if got := outReq.calls.Load(); got != 0 {
-		t.Errorf("middleware interceptor calls after seal = %d, want 0", got)
+		t.Errorf("component interceptor calls after seal = %d, want 0", got)
 	}
 }
 

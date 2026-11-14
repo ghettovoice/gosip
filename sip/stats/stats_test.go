@@ -258,15 +258,15 @@ func TestRecorder_ReportTransactionStats(t *testing.T) {
 	}
 }
 
-func TestRecorder_UseMiddleware_TransportStats(t *testing.T) {
+func TestRecorder_UseComponent_TransportStats(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		mwBeforeTrack bool
+		name            string
+		compBeforeTrack bool
 	}{
-		{"middleware_before_transport", true},
-		{"middleware_after_transport", false},
+		{"component before transport", true},
+		{"component after transport", false},
 	}
 
 	for _, tt := range tests {
@@ -284,14 +284,14 @@ func TestRecorder_UseMiddleware_TransportStats(t *testing.T) {
 
 			var unbind func()
 
-			if tt.mwBeforeTrack {
-				unbind = elm.UseMiddleware(rcdr)
+			if tt.compBeforeTrack {
+				unbind = elm.UseComponent(rcdr)
 			}
 			if err := elm.TrackTransport(tp); err != nil {
 				t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 			}
-			if !tt.mwBeforeTrack {
-				unbind = elm.UseMiddleware(rcdr)
+			if !tt.compBeforeTrack {
+				unbind = elm.UseComponent(rcdr)
 			}
 
 			runTrafficRound := func(round string, expectTstamp bool) {
@@ -332,7 +332,7 @@ func TestRecorder_UseMiddleware_TransportStats(t *testing.T) {
 					}),
 				)
 
-				branch := sip.MagicCookie + ".rcdr-middleware-" + tt.name + "-" + round
+				branch := sip.MagicCookie + ".rcdr-component-" + tt.name + "-" + round
 				outReq := newOutInviteReq(t, tpProto, branch+"-out", locAddr, rmtAddr)
 				outReq.WithMessage(func(req *sip.Request) {
 					req.Headers.Delete("Timestamp")
@@ -351,7 +351,7 @@ func TestRecorder_UseMiddleware_TransportStats(t *testing.T) {
 						t.Fatalf("outbound request Timestamp header = %#v, want a timestamp with request time", tstampHdrs[0])
 					}
 				} else if len(tstampHdrs) != 0 {
-					t.Fatalf("outbound request Timestamp headers = %#v, want none after middleware unbind", tstampHdrs)
+					t.Fatalf("outbound request Timestamp headers = %#v, want none after component unbind", tstampHdrs)
 				}
 
 				inRes := newInRes(t, outReq, sip.ResponseStatusRinging)
@@ -412,20 +412,20 @@ func TestRecorder_UseMiddleware_TransportStats(t *testing.T) {
 
 			report = rcdr.Report()
 			if len(report.Transports) != 1 {
-				t.Fatalf("rcdr.Report() transport entries after middleware unbind = %d, want 1", len(report.Transports))
+				t.Fatalf("rcdr.Report() transport entries after component unbind = %d, want 1", len(report.Transports))
 			}
 			if diff := cmp.Diff(
 				wantTpStats,
 				report.Transports[0],
 				cmpopts.IgnoreFields(stats.Transport{}, "AvgRTT"),
 			); diff != "" {
-				t.Errorf("rcdr.Report() transport rcdr after middleware unbind mismatch (-want +got):\n%s", diff)
+				t.Errorf("rcdr.Report() transport rcdr after component unbind mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestRecorder_UseMiddleware_TransactionStats(t *testing.T) {
+func TestRecorder_UseComponent_TransactionStats(t *testing.T) {
 	t.Parallel()
 
 	const tpProto sip.TransportProto = "UDP"
@@ -438,7 +438,7 @@ func TestRecorder_UseMiddleware_TransactionStats(t *testing.T) {
 
 	t.Cleanup(func() { _ = elm.Close() })
 
-	unbind := elm.UseMiddleware(rcdr)
+	unbind := elm.UseComponent(rcdr)
 
 	newTxs := func(suffix string) []sip.Transaction {
 		t.Helper()
@@ -520,7 +520,7 @@ func TestRecorder_UseMiddleware_TransactionStats(t *testing.T) {
 	assertStats("after termination", wantTermStats)
 
 	newTxs("after-unbind")
-	assertStats("after middleware unbind", wantTermStats)
+	assertStats("after component unbind", wantTermStats)
 }
 
 func TestRecorder_Proxy(t *testing.T) {
@@ -532,7 +532,6 @@ func TestRecorder_Proxy(t *testing.T) {
 
 	t.Run("three forks count one handled request, three attempts, one forward", func(t *testing.T) {
 		t.Parallel()
-
 		synctest.Test(t, func(t *testing.T) {
 			ctx := t.Context()
 			rcdr := &stats.Recorder{}
@@ -543,10 +542,10 @@ func TestRecorder_Proxy(t *testing.T) {
 			if err := elm.TrackTransport(tp); err != nil {
 				t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 			}
-			// The recorder serves the middleware role bound ahead of the
+			// The recorder serves the component role bound ahead of the
 			// proxy, so the inbound request is counted before the route
 			// claim consumes it.
-			unbindMw := elm.UseMiddleware(rcdr)
+			unbindComponent := elm.UseComponent(rcdr)
 
 			prx, err := proxy.New(
 				[]proxy.Route{*obsRoute("rcdr-fork", obsLitPlan("A", "B", "C"))},
@@ -555,14 +554,14 @@ func TestRecorder_Proxy(t *testing.T) {
 			if err != nil {
 				t.Fatalf("proxy.New() error = %v, want nil", err)
 			}
-			elm.UseMiddleware(prx)
+			elm.UseComponent(prx)
 			unbindEv := prx.BindEventHandler(rcdr)
 			t.Cleanup(func() {
 				unbindEv()
-				unbindMw()
+				unbindComponent()
 			})
 
-			// Drive the wire-level inbound path: the middleware intercepts
+			// Drive the wire-level inbound path: the component intercepts
 			// the request first, then the proxy claims it.
 			inRecv := sip.InterceptInboundRequest(
 				slices.Collect(tp.InboundRequestInterceptors.All()),
@@ -593,7 +592,7 @@ func TestRecorder_Proxy(t *testing.T) {
 				t.Fatalf("proxy rcdr (-want +got): %s", diff)
 			}
 
-			// The same recorder's middleware counters keep their own
+			// The same recorder's component counters keep their own
 			// meanings: one upstream server transaction and three
 			// downstream client transactions, one inbound request on the
 			// transport — no proxy event leaks into them.
@@ -642,7 +641,7 @@ func TestRecorder_Proxy(t *testing.T) {
 				t.Fatalf("proxy rcdr after 403 (-want +got): %s", diff)
 			}
 			// The forwarded 403 carries the upstream addressing of the held
-			// request, so the middleware charges its send to the transport
+			// request, so the component charges its send to the transport
 			// entry alongside the counted inbound request.
 			tpStats, ok = findTpStats(report, "UDP", laddr)
 			if !ok || tpStats.RequestsReceived != 1 || tpStats.ResponsesSent != 1 {

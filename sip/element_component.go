@@ -9,13 +9,13 @@ import (
 	"github.com/ghettovoice/gosip/sip/header"
 )
 
-type ElementMiddleware any
+type ElementComponent any
 
-// elemMidwareEntry tracks one registered middleware together with the
+// elemCompEntry tracks one registered component together with the
 // transport/transaction bindings that were installed for it, so shutdown can
-// detach them before closing the middleware.
-type elemMidwareEntry struct {
-	mw ElementMiddleware
+// detach them before closing the component.
+type elemCompEntry struct {
+	comp ElementComponent
 	// unbinds is assigned under lcMu while the registration lease is held and
 	// read under lcMu or after all admitted operations have drained.
 	unbinds []func()
@@ -24,15 +24,15 @@ type elemMidwareEntry struct {
 	removed bool
 }
 
-// UseMiddleware registers middleware on the element.
+// UseComponent registers a component on the element.
 //
 // Registration is rejected once the element begins closing; the returned unbind
-// is then a non-nil no-op and the middleware remains caller-owned. Otherwise
+// is then a non-nil no-op and the component remains caller-owned. Otherwise
 // the returned unbind is idempotent: while the element is running it removes
 // the registration, detaches the installed bindings and recomputes
 // capabilities; after closing began it is a no-op because shutdown retains
 // ownership of removal and detachment.
-func (elm *Element) UseMiddleware(mw ElementMiddleware) (unbind func()) {
+func (elm *Element) UseComponent(comp ElementComponent) (unbind func()) {
 	elm.ensureInit()
 
 	release, ok := elm.admitOp()
@@ -41,16 +41,16 @@ func (elm *Element) UseMiddleware(mw ElementMiddleware) (unbind func()) {
 	}
 	defer release()
 
-	entry := &elemMidwareEntry{mw: mw}
+	entry := &elemCompEntry{comp: comp}
 
 	elm.lcMu.Lock()
-	remove := elm.mws.Add(entry)
+	remove := elm.comps.Add(entry)
 	elm.capabilsRev++
 	elm.lcMu.Unlock()
 
 	var unbinds []func()
 	// bind to transport manager
-	if v, ok := mw.(MessageInterceptor); ok {
+	if v, ok := comp.(MessageInterceptor); ok {
 		unbinds = append(unbinds, elm.tpm.UseMessageInterceptor(elemMsgInceptor{
 			elemInReqInceptor:  elemInReqInceptor{elm, v},
 			elemInResInceptor:  elemInResInceptor{elm, v},
@@ -58,31 +58,31 @@ func (elm *Element) UseMiddleware(mw ElementMiddleware) (unbind func()) {
 			elemOutResInceptor: elemOutResInceptor{elm, v},
 		}))
 	} else {
-		if v, ok := mw.(InboundRequestInterceptor); ok {
+		if v, ok := comp.(InboundRequestInterceptor); ok {
 			unbinds = append(unbinds, elm.tpm.UseInboundRequestInterceptor(elemInReqInceptor{elm, v}))
 		}
-		if v, ok := mw.(InboundResponseInterceptor); ok {
+		if v, ok := comp.(InboundResponseInterceptor); ok {
 			unbinds = append(unbinds, elm.tpm.UseInboundResponseInterceptor(elemInResInceptor{elm, v}))
 		}
-		if v, ok := mw.(OutboundRequestInterceptor); ok {
+		if v, ok := comp.(OutboundRequestInterceptor); ok {
 			unbinds = append(unbinds, elm.tpm.UseOutboundRequestInterceptor(elemOutReqInceptor{elm, v}))
 		}
-		if v, ok := mw.(OutboundResponseInterceptor); ok {
+		if v, ok := comp.(OutboundResponseInterceptor); ok {
 			unbinds = append(unbinds, elm.tpm.UseOutboundResponseInterceptor(elemOutResInceptor{elm, v}))
 		}
 	}
 
 	// bind to transaction manager
-	if v, ok := mw.(TransactionHandler); ok {
+	if v, ok := comp.(TransactionHandler); ok {
 		unbinds = append(unbinds, elm.txm.BindTransactionHandler(elemTxHandler{
 			elemClnTxHandler: elemClnTxHandler{elm, v},
 			elemSrvTxHandler: elemSrvTxHandler{elm, v},
 		}))
 	} else {
-		if v, ok := mw.(ClientTransactionHandler); ok {
+		if v, ok := comp.(ClientTransactionHandler); ok {
 			unbinds = append(unbinds, elm.txm.BindClientTransactionHandler(elemClnTxHandler{elm, v}))
 		}
-		if v, ok := mw.(ServerTransactionHandler); ok {
+		if v, ok := comp.(ServerTransactionHandler); ok {
 			unbinds = append(unbinds, elm.txm.BindServerTransactionHandler(elemSrvTxHandler{elm, v}))
 		}
 	}
@@ -96,7 +96,7 @@ func (elm *Element) UseMiddleware(mw ElementMiddleware) (unbind func()) {
 	return func() {
 		// The removal itself is an admitted operation: it may recombine
 		// capabilities by calling into live providers, so shutdown must wait
-		// for it before closing the remaining middleware. An unbind begun
+		// for it before closing the remaining components. An unbind begun
 		// after closing is a no-op because shutdown retains ownership.
 		release, ok := elm.admitOp()
 		if !ok {
@@ -130,13 +130,13 @@ type elemCapabilsProvider interface {
 	Capabilities() ElementCapabilities
 }
 
-// elemShutdowner is the optional middleware hook invoked by
+// elemShutdowner is the optional component hook invoked by
 // [Element.Shutdown] before the element closes.
 type elemShutdowner interface {
 	Shutdown(ctx context.Context) error
 }
 
-// updateCapabils recomputes the element capabilities from a live middleware
+// updateCapabils recomputes the element capabilities from a live component
 // snapshot. A registration or removal committed concurrently advances capabilitiesRevision
 // and invalidates the snapshot, so the computation retries with fresh data
 // instead of publishing a stale result. User provider calls never run under
@@ -144,9 +144,9 @@ type elemShutdowner interface {
 func (elm *Element) updateCapabils() {
 	for {
 		elm.lcMu.Lock()
-		var mws []ElementMiddleware
-		for entry := range elm.mws.All() {
-			mws = append(mws, entry.mw)
+		var comps []ElementComponent
+		for entry := range elm.comps.All() {
+			comps = append(comps, entry.comp)
 		}
 		rev := elm.capabilsRev
 		elm.lcMu.Unlock()
@@ -156,18 +156,30 @@ func (elm *Element) updateCapabils() {
 			Options:   slices.Clone(elm.baseCapabils.Options),
 			MIMETypes: slices.Clone(elm.baseCapabils.MIMETypes),
 		}
-		for _, mw := range mws {
-			if cpbPrvdr, ok := mw.(elemCapabilsProvider); ok {
-				mwCpb := cpbPrvdr.Capabilities()
-				cpb.Methods = util.AppendSliceUniqFunc(cpb.Methods, mwCpb.Methods, func(e RequestMethod) string {
-					return string(e)
-				})
-				cpb.Options = util.AppendSliceUniqFunc(cpb.Options, mwCpb.Options, func(e header.OptionTag) string {
-					return string(e)
-				})
-				cpb.MIMETypes = util.AppendSliceUniqFunc(cpb.MIMETypes, mwCpb.MIMETypes, func(e header.MIMERange) string {
-					return e.String()
-				})
+		for _, comp := range comps {
+			if cpbPrvdr, ok := comp.(elemCapabilsProvider); ok {
+				componentCapabilities := cpbPrvdr.Capabilities()
+				cpb.Methods = util.AppendSliceUniqFunc(
+					cpb.Methods,
+					componentCapabilities.Methods,
+					func(e RequestMethod) string {
+						return string(e)
+					},
+				)
+				cpb.Options = util.AppendSliceUniqFunc(
+					cpb.Options,
+					componentCapabilities.Options,
+					func(e header.OptionTag) string {
+						return string(e)
+					},
+				)
+				cpb.MIMETypes = util.AppendSliceUniqFunc(
+					cpb.MIMETypes,
+					componentCapabilities.MIMETypes,
+					func(e header.MIMERange) string {
+						return e.String()
+					},
+				)
 			}
 		}
 
@@ -181,13 +193,13 @@ func (elm *Element) updateCapabils() {
 	}
 }
 
-// shutdownMidware runs the optional Shutdown hook of every registered
-// middleware in registration order. The whole pass is one admitted operation,
-// so a concurrent Close cannot close middleware while a hook is still
+// shutdownComps runs the optional Shutdown hook of every registered
+// component in registration order. The whole pass is one admitted operation,
+// so a concurrent Close cannot close components while a hook is still
 // running; hooks must cooperate with the passed context. Every hook runs even
 // after a hook error or context cancellation, and the lease is released
 // before the caller proceeds to Close.
-func (elm *Element) shutdownMidware(ctx context.Context) error {
+func (elm *Element) shutdownComps(ctx context.Context) error {
 	release, ok := elm.admitOp()
 	if !ok {
 		return nil
@@ -196,8 +208,8 @@ func (elm *Element) shutdownMidware(ctx context.Context) error {
 
 	ctx = ContextWithElement(ctx, elm)
 	var errs []error
-	for entry := range elm.mws.All() {
-		sh, ok := entry.mw.(elemShutdowner)
+	for entry := range elm.comps.All() {
+		sh, ok := entry.comp.(elemShutdowner)
 		if !ok {
 			continue
 		}
@@ -208,8 +220,8 @@ func (elm *Element) shutdownMidware(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// elemInReqInceptor adapts a middleware inbound request interceptor to the
-// element callback lease: the middleware is invoked only while callbacks are
+// elemInReqInceptor adapts a component's inbound request interceptor to the
+// element callback lease: the component is invoked only while callbacks are
 // admitted, and a call after shutdown reports the element as closed.
 type elemInReqInceptor struct {
 	elm     *Element
@@ -230,7 +242,7 @@ func (i elemInReqInceptor) InterceptInboundRequest(
 	return errors.Wrap(i.intcptr.InterceptInboundRequest(ContextWithElement(ctx, i.elm), next, req))
 }
 
-// elemInResInceptor adapts a middleware inbound response interceptor to the
+// elemInResInceptor adapts a component's inbound response interceptor to the
 // element callback lease.
 type elemInResInceptor struct {
 	elm     *Element
@@ -251,7 +263,7 @@ func (i elemInResInceptor) InterceptInboundResponse(
 	return errors.Wrap(i.intcptr.InterceptInboundResponse(ContextWithElement(ctx, i.elm), next, res))
 }
 
-// elemOutReqInceptor adapts a middleware outbound request interceptor to the
+// elemOutReqInceptor adapts a component's outbound request interceptor to the
 // element callback lease.
 type elemOutReqInceptor struct {
 	elm     *Element
@@ -273,7 +285,7 @@ func (i elemOutReqInceptor) InterceptOutboundRequest(
 	return errors.Wrap(i.intcptr.InterceptOutboundRequest(ContextWithElement(ctx, i.elm), next, req, opts...))
 }
 
-// elemOutResInceptor adapts a middleware outbound response interceptor to the
+// elemOutResInceptor adapts a component's outbound response interceptor to the
 // element callback lease.
 type elemOutResInceptor struct {
 	elm     *Element
@@ -295,7 +307,7 @@ func (i elemOutResInceptor) InterceptOutboundResponse(
 	return errors.Wrap(i.intcptr.InterceptOutboundResponse(ContextWithElement(ctx, i.elm), next, res, opts...))
 }
 
-// elemMsgInceptor adapts a middleware [MessageInterceptor] to the element
+// elemMsgInceptor adapts a component's [MessageInterceptor] to the element
 // callback lease on all four interception points by composing the individual
 // interceptor adapters.
 type elemMsgInceptor struct {
@@ -305,16 +317,16 @@ type elemMsgInceptor struct {
 	elemOutResInceptor
 }
 
-// elemTxHandler adapts a middleware [TransactionHandler] to the
+// elemTxHandler adapts a component's [TransactionHandler] to the
 // element callback lease by composing the individual handler adapters.
 type elemTxHandler struct {
 	elemClnTxHandler
 	elemSrvTxHandler
 }
 
-// elemClnTxHandler adapts a middleware [ClientTransactionHandler] to the element
+// elemClnTxHandler adapts a component's [ClientTransactionHandler] to the element
 // callback lease: a notification captured after callback admission was sealed
-// is skipped instead of reaching closed middleware.
+// is skipped instead of reaching a closed component.
 type elemClnTxHandler struct {
 	elm  *Element
 	hdlr ClientTransactionHandler
@@ -330,7 +342,7 @@ func (h elemClnTxHandler) HandleClientTransaction(ctx context.Context, tx Client
 	h.hdlr.HandleClientTransaction(ContextWithElement(ctx, h.elm), tx)
 }
 
-// elemSrvTxHandler adapts a middleware [ServerTransactionHandler] to the element
+// elemSrvTxHandler adapts a component's [ServerTransactionHandler] to the element
 // callback lease.
 type elemSrvTxHandler struct {
 	elm  *Element

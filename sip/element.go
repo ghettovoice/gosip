@@ -31,8 +31,8 @@ func NextElementID() ElementID { return uuid.New() }
 //
 // The transport and transaction managers owned by the element are private:
 // all operations go through the element's own methods, and extensions attach
-// via [Element.UseMiddleware] or the configured factories.
-// Element methods and middleware callbacks carry the element in their context;
+// via [Element.UseComponent] or the configured factories.
+// Element methods and component callbacks carry the element in their context;
 // transactions called directly outside the element do not acquire it automatically.
 //
 // The zero value is a usable element with default configuration and no transports.
@@ -88,16 +88,16 @@ type Element struct {
 	shutdownOnce sync.Once
 	shutdownErr  error
 
-	// lcMu serializes lifecycle admission, middleware registration and
+	// lcMu serializes lifecycle admission, component registration and
 	// capabilities revision updates. It is never held while calling factories,
-	// managers, transports or user-provided middleware code.
+	// managers, transports or user-provided component code.
 	lcMu  sync.Mutex
 	state atomic.Uint32
 	// opsWg counts operations admitted before closing starts; Close waits for
-	// them before shutting down owned middleware.
+	// them before shutting down owned components.
 	opsWg sync.WaitGroup
-	// cbWg counts in-flight Element-wired middleware callbacks; Close waits for
-	// them after sealing callback admission and before closing middleware.
+	// cbWg counts in-flight Element-wired component callbacks; Close waits for
+	// them after sealing callback admission and before closing components.
 	cbWg     sync.WaitGroup
 	cbSealed bool
 
@@ -122,9 +122,9 @@ type Element struct {
 	// [Element.BindErrorHandler].
 	errHdlrs shared.CallbackManager[ErrorHandler]
 
-	mws syncutil.OrderedList[*elemMidwareEntry]
+	comps syncutil.OrderedList[*elemCompEntry]
 
-	// capabilsRev is the middleware/capabilities revision; every accepted
+	// capabilsRev is the component/capabilities revision; every accepted
 	// registration or removal advances it under lcMu.
 	capabilsRev  uint64
 	baseCapabils ElementCapabilities
@@ -312,7 +312,7 @@ func (elm *Element) InterceptInboundResponse(
 
 // admitOp records an in-flight element operation while the element is running.
 // Admission is serialized with Close under lcMu, so a racing operation
-// either completes before middleware shutdown or is rejected. The returned
+// either completes before component shutdown or is rejected. The returned
 // release must be deferred by the caller.
 func (elm *Element) admitOp() (release func(), ok bool) {
 	elm.lcMu.Lock()
@@ -326,9 +326,9 @@ func (elm *Element) admitOp() (release func(), ok bool) {
 	return elm.opsWg.Done, true
 }
 
-// admitCallback records an in-flight Element-wired middleware callback.
+// admitCallback records an in-flight Element-wired component callback.
 // Callback admission stays open while the element is closing so final
-// transaction termination and transport activity can still reach middleware;
+// transaction termination and transport activity can still reach components;
 // it is sealed by Close after managers close and admitted operations drain.
 func (elm *Element) admitCallback() (release func(), ok bool) {
 	elm.lcMu.Lock()
@@ -497,7 +497,7 @@ func (elm *Element) ReportError(ctx context.Context, err error) {
 // goroutine to the bound element error handlers. Nil errors and the expected
 // completions (runtime context cancellation or element closing) are
 // filtered out, and the callback lease lets Close drain in-flight handlers
-// before middleware shutdown.
+// before component shutdown.
 func (elm *Element) reportRunErr(ctx context.Context, err error) {
 	if err == nil || ctx.Err() != nil || elm.state.Load() >= elmStateClosing {
 		return
@@ -527,10 +527,10 @@ func (elm *Element) reportRunErr(ctx context.Context, err error) {
 // live transports; it then waits for the
 // admitted operations and the managed transaction-start/listener-serve
 // goroutines, and then for in-flight
-// middleware callbacks that Element itself wired before closing middleware,
-// so middleware never observes an Element-wired notification after
-// its own Close. Callbacks or asynchronous work created directly by middleware
-// remain that middleware's lifecycle responsibility.
+// component callbacks that Element itself wired before closing components,
+// so a component never observes an Element-wired notification after
+// its own Close. Callbacks or asynchronous work created directly by a
+// component remain that component's lifecycle responsibility.
 // Close must not be invoked synchronously from one of those operations or
 // callbacks, since it would then wait for itself.
 func (elm *Element) Close() error {
@@ -554,7 +554,7 @@ func (elm *Element) Close() error {
 
 func (elm *Element) close(cncRun context.CancelFunc) error {
 	// Cancel proceeding INVITE client transactions best-effort while transports
-	// and middleware are still alive. The private send path bypasses the
+	// and components are still alive. The private send path bypasses the
 	// admission lease, which is already closed for new work.
 	for tx := range elm.AllClientTransactions() {
 		if tx.Type() == TransactionTypeClientInvite && tx.State() == TransactionStateProceeding {
@@ -585,7 +585,7 @@ func (elm *Element) close(cncRun context.CancelFunc) error {
 	txmErr := elm.txm.Close()
 	tpmErr := elm.tpm.Close()
 
-	// Admitted operations may still interact with middleware; wait for them to
+	// Admitted operations may still interact with components; wait for them to
 	// finish, then drain the managed Start/Serve goroutines: runtime group
 	// entries are added only under an operation lease, so this Wait cannot
 	// race an Add. Afterwards seal callback admission so no new Element-wired
@@ -599,18 +599,18 @@ func (elm *Element) close(cncRun context.CancelFunc) error {
 
 	elm.cbWg.Wait()
 
-	// Detach the bindings Element installed for each middleware, then close the
-	// middleware in registration order.
-	for entry := range elm.mws.All() {
+	// Detach the bindings Element installed for each component, then close the
+	// components in registration order.
+	for entry := range elm.comps.All() {
 		for _, unbind := range entry.unbinds {
 			unbind()
 		}
-		if c, ok := entry.mw.(io.Closer); ok {
+		if c, ok := entry.comp.(io.Closer); ok {
 			if closeErr := c.Close(); closeErr != nil {
 				elm.log.Warn(
-					"failed to close middleware",
+					"failed to close component",
 					slog.Any("error", closeErr),
-					slog.Any("middleware", entry.mw),
+					slog.Any("component", entry.comp),
 				)
 			}
 		}
@@ -625,11 +625,11 @@ func (elm *Element) close(cncRun context.CancelFunc) error {
 //
 //	Shutdown(ctx context.Context) error
 //
-// of every registered middleware that implements it, sequentially in
-// registration order over the middleware snapshot taken when Shutdown begins,
-// and then closes the element with [Element.Close]. A middleware is assumed
+// of every registered component that implements it, sequentially in
+// registration order over the component snapshot taken when Shutdown begins,
+// and then closes the element with [Element.Close]. A component is assumed
 // to have completed its own work when its hook returns; Close then terminates
-// the remaining transactions and transports and closes all middleware. Close
+// the remaining transactions and transports and closes all components. Close
 // always follows the returned hooks, even when a hook fails or ctx is
 // canceled, and the collected hook errors are joined with the Close result.
 //
@@ -643,22 +643,22 @@ func (elm *Element) close(cncRun context.CancelFunc) error {
 // Ordinary element operations remain usable while the hooks run unless a
 // concurrent direct [Element.Close] begins; such a close is a hard override
 // that starts transport/transaction shutdown without waiting for the hooks,
-// while still waiting for them before closing middleware. The caller must
+// while still waiting for them before closing components. The caller must
 // stop new application work
-// and middleware mutation before invoking Shutdown, which deliberately does
+// and component registration changes before invoking Shutdown, which deliberately does
 // not seal operation admission before running the hooks. Like Close, Shutdown
 // must not be invoked synchronously from an admitted element operation, an
-// Element-wired middleware callback or a shutdown hook, since it would then
+// Element-wired component callback or a shutdown hook, since it would then
 // wait for itself.
 func (elm *Element) Shutdown(ctx context.Context) error {
 	elm.ensureInit()
 	ctx = ContextWithElement(ctx, elm)
 	elm.shutdownOnce.Do(func() {
-		mwErr := elm.shutdownMidware(ctx)
+		compErr := elm.shutdownComps(ctx)
 		// The hooks released their operation lease before returning, so the
 		// final Close cannot wait for this call.
 		closeErr := elm.Close() //nolint:contextcheck // Close is a lifecycle call and cannot wait on the caller ctx
-		elm.shutdownErr = errors.JoinPrefix("element shutdown errors:", mwErr, closeErr)
+		elm.shutdownErr = errors.JoinPrefix("element shutdown errors:", compErr, closeErr)
 	})
 	return errors.Wrap(elm.shutdownErr)
 }

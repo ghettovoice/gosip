@@ -105,7 +105,7 @@ func TestElement_NewCancelClientTransaction(t *testing.T) {
 					t.Fatalf("state = %v, want Proceeding", got)
 				}
 				calls := 0
-				elm.UseMiddleware(sip.ClientTransactionHandlerFunc(func(ctx context.Context, tx sip.ClientTransaction) {
+				elm.UseComponent(sip.ClientTransactionHandlerFunc(func(ctx context.Context, tx sip.ClientTransaction) {
 					owner, ok := sip.ElementFromContext(ctx)
 					if !ok || owner != elm {
 						t.Error("factory callback context does not carry element")
@@ -208,7 +208,7 @@ func TestElement_ReceiveRequestResponse(t *testing.T) {
 	reqCh := make(chan *sip.RequestEnvelope, 1)
 	resCh := make(chan *sip.ResponseEnvelope, 1)
 
-	elm.UseMiddleware(sip.StdMessageInterceptor{
+	elm.UseComponent(sip.StdMessageInterceptor{
 		InboundRequestInterceptor: sip.InboundRequestInterceptorFunc(
 			func(ctx context.Context, next sip.RequestReceiver, req *sip.RequestEnvelope) error {
 				reqCh <- req
@@ -1644,14 +1644,14 @@ func TestElement_BaseCapabilitiesSnapshot(t *testing.T) {
 		t.Fatalf("elm.Capabilities() after input mutation mismatch (-want +got):\n%s", diff)
 	}
 
-	unbind := elm.UseMiddleware(elemCapabilsMidware{
+	unbind := elm.UseComponent(elemCapabilsComponent{
 		methods: []sip.RequestMethod{sip.RequestMethodCancel},
 	})
 
 	augmented := want
 	augmented.Methods = append(slices.Clone(want.Methods), sip.RequestMethodCancel)
 	if diff := cmp.Diff(augmented, elm.Capabilities()); diff != "" {
-		t.Fatalf("elm.Capabilities() with middleware mismatch (-want +got):\n%s", diff)
+		t.Fatalf("elm.Capabilities() with component mismatch (-want +got):\n%s", diff)
 	}
 
 	unbind()
@@ -2006,11 +2006,11 @@ type lcGatedCloser struct {
 	returned atomic.Bool
 }
 
-func (mw *lcGatedCloser) Close() error {
-	mw.closes.Add(1)
-	mw.gate.enter()
-	<-mw.gate.release
-	mw.returned.Store(true)
+func (c *lcGatedCloser) Close() error {
+	c.closes.Add(1)
+	c.gate.enter()
+	<-c.gate.release
+	c.returned.Store(true)
 	return nil
 }
 
@@ -2023,22 +2023,22 @@ type lcCapsCloser struct {
 	closes   atomic.Int32
 }
 
-func (mw *lcCapsCloser) Capabilities() sip.ElementCapabilities {
-	call := mw.capCalls.Add(1)
-	if mw.capFn != nil {
-		mw.capFn(call)
+func (c *lcCapsCloser) Capabilities() sip.ElementCapabilities {
+	call := c.capCalls.Add(1)
+	if c.capFn != nil {
+		c.capFn(call)
 	}
-	return sip.ElementCapabilities{Methods: mw.methods}
+	return sip.ElementCapabilities{Methods: c.methods}
 }
 
-func (mw *lcCapsCloser) Close() error {
-	mw.closes.Add(1)
+func (c *lcCapsCloser) Close() error {
+	c.closes.Add(1)
 	return nil
 }
 
-// lcTxHandlerMidware records client/server transaction notifications, whether they
-// arrived after the middleware was closed, and the middleware Close itself.
-type lcTxHandlerMidware struct {
+// lcTxHandlerComponent records client/server transaction notifications, whether they
+// arrived after the component was closed, and the component Close itself.
+type lcTxHandlerComponent struct {
 	closed  atomic.Bool
 	closes  atomic.Int32
 	closeFn func()
@@ -2050,37 +2050,37 @@ type lcTxHandlerMidware struct {
 	srvFn           func(ctx context.Context, tx sip.ServerTransaction)
 }
 
-func (mw *lcTxHandlerMidware) HandleClientTransaction(ctx context.Context, tx sip.ClientTransaction) {
-	if mw.closed.Load() {
-		mw.callsAfterClose.Add(1)
+func (c *lcTxHandlerComponent) HandleClientTransaction(ctx context.Context, tx sip.ClientTransaction) {
+	if c.closed.Load() {
+		c.callsAfterClose.Add(1)
 	}
-	mw.clnCalls.Add(1)
-	if mw.clnFn != nil {
-		mw.clnFn(ctx, tx)
-	}
-}
-
-func (mw *lcTxHandlerMidware) HandleServerTransaction(ctx context.Context, tx sip.ServerTransaction) {
-	if mw.closed.Load() {
-		mw.callsAfterClose.Add(1)
-	}
-	mw.srvCalls.Add(1)
-	if mw.srvFn != nil {
-		mw.srvFn(ctx, tx)
+	c.clnCalls.Add(1)
+	if c.clnFn != nil {
+		c.clnFn(ctx, tx)
 	}
 }
 
-func (mw *lcTxHandlerMidware) Close() error {
-	mw.closed.Store(true)
-	mw.closes.Add(1)
-	if mw.closeFn != nil {
-		mw.closeFn()
+func (c *lcTxHandlerComponent) HandleServerTransaction(ctx context.Context, tx sip.ServerTransaction) {
+	if c.closed.Load() {
+		c.callsAfterClose.Add(1)
+	}
+	c.srvCalls.Add(1)
+	if c.srvFn != nil {
+		c.srvFn(ctx, tx)
+	}
+}
+
+func (c *lcTxHandlerComponent) Close() error {
+	c.closed.Store(true)
+	c.closes.Add(1)
+	if c.closeFn != nil {
+		c.closeFn()
 	}
 	return nil
 }
 
 // lcOutReqObserver counts outbound request interceptions, CANCEL interceptions
-// delivered while the middleware was open, and any delivered after it closed.
+// delivered while the component was open, and any delivered after it closed.
 type lcOutReqObserver struct {
 	closed           atomic.Bool
 	closes           atomic.Int32
@@ -2090,28 +2090,28 @@ type lcOutReqObserver struct {
 	cancelAfterClose atomic.Int32
 }
 
-func (mw *lcOutReqObserver) InterceptOutboundRequest(
+func (o *lcOutReqObserver) InterceptOutboundRequest(
 	ctx context.Context,
 	next sip.RequestSender,
 	req *sip.RequestEnvelope,
 	opts ...sip.SendRequestOptions,
 ) error {
-	mw.calls.Add(1)
+	o.calls.Add(1)
 	isCancel := req.Method().Equal(sip.RequestMethodCancel)
-	if mw.closed.Load() {
-		mw.afterClose.Add(1)
+	if o.closed.Load() {
+		o.afterClose.Add(1)
 		if isCancel {
-			mw.cancelAfterClose.Add(1)
+			o.cancelAfterClose.Add(1)
 		}
 	} else if isCancel {
-		mw.cancelCalls.Add(1)
+		o.cancelCalls.Add(1)
 	}
 	return errors.Wrap(next.SendRequest(ctx, req, opts...))
 }
 
-func (mw *lcOutReqObserver) Close() error {
-	mw.closed.Store(true)
-	mw.closes.Add(1)
+func (o *lcOutReqObserver) Close() error {
+	o.closed.Store(true)
+	o.closes.Add(1)
 	return nil
 }
 
@@ -2127,26 +2127,26 @@ type lcGatedOutReqInceptor struct {
 	calls  atomic.Int32
 }
 
-func (mw *lcGatedOutReqInceptor) InterceptOutboundRequest(
+func (i *lcGatedOutReqInceptor) InterceptOutboundRequest(
 	ctx context.Context,
 	next sip.RequestSender,
 	req *sip.RequestEnvelope,
 	opts ...sip.SendRequestOptions,
 ) error {
-	mw.calls.Add(1)
-	mw.gate.enter()
-	<-mw.gate.release
-	if mw.doneFn != nil {
-		mw.doneFn()
+	i.calls.Add(1)
+	i.gate.enter()
+	<-i.gate.release
+	if i.doneFn != nil {
+		i.doneFn()
 	}
 	return errors.Wrap(next.SendRequest(ctx, req, opts...))
 }
 
-func (mw *lcGatedOutReqInceptor) Close() error {
-	mw.closed.Store(true)
-	mw.closes.Add(1)
-	if mw.closeFn != nil {
-		mw.closeFn()
+func (i *lcGatedOutReqInceptor) Close() error {
+	i.closed.Store(true)
+	i.closes.Add(1)
+	if i.closeFn != nil {
+		i.closeFn()
 	}
 	return nil
 }
@@ -2231,7 +2231,7 @@ func assertElemMethods(tb testing.TB, elm *sip.Element, want ...sip.RequestMetho
 	}
 }
 
-func TestElement_UseMiddleware_RejectedOnClose(t *testing.T) {
+func TestElement_UseComponent_RejectedOnClose(t *testing.T) {
 	t.Parallel()
 
 	elm := &sip.Element{}
@@ -2240,25 +2240,25 @@ func TestElement_UseMiddleware_RejectedOnClose(t *testing.T) {
 	gate := newLcGate()
 	t.Cleanup(gate.open)
 
-	elm.UseMiddleware(&lcGatedCloser{gate: gate})
+	elm.UseComponent(&lcGatedCloser{gate: gate})
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- elm.Close() }()
 
-	// Close reached the middleware shutdown stage and is blocked inside the
+	// Close reached the component shutdown stage and is blocked inside the
 	// gated closer, so new-work admission is already sealed.
 	gate.waitEnter(t)
 
 	late := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}}
-	unbindLate := elm.UseMiddleware(late)
+	unbindLate := elm.UseComponent(late)
 	if unbindLate == nil {
-		t.Fatal("elm.UseMiddleware() during close returned nil unbind")
+		t.Fatal("elm.UseComponent() during close returned nil unbind")
 	}
 	if elm.Capabilities().SupportsMethod(sip.RequestMethodBye) {
 		t.Error("elm.Capabilities() supports BYE after a rejected registration, want unchanged")
 	}
 	if got := late.closes.Load(); got != 0 {
-		t.Errorf("late.closes = %d during close, want 0 (rejected middleware stays caller-owned)", got)
+		t.Errorf("late.closes = %d during close, want 0 (rejected component stays caller-owned)", got)
 	}
 
 	gate.open()
@@ -2271,9 +2271,9 @@ func TestElement_UseMiddleware_RejectedOnClose(t *testing.T) {
 
 	// Registration stays rejected after Close completed.
 	late2 := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}}
-	unbindLate2 := elm.UseMiddleware(late2)
+	unbindLate2 := elm.UseComponent(late2)
 	if unbindLate2 == nil {
-		t.Fatal("elm.UseMiddleware() after close returned nil unbind")
+		t.Fatal("elm.UseComponent() after close returned nil unbind")
 	}
 	if elm.Capabilities().SupportsMethod(sip.RequestMethodBye) {
 		t.Error("elm.Capabilities() supports BYE after a post-close registration, want unchanged")
@@ -2289,7 +2289,7 @@ func TestElement_UseMiddleware_RejectedOnClose(t *testing.T) {
 	unbindLate2()
 }
 
-func TestElement_Close_CallbacksBeforeMiddlewareClose(t *testing.T) {
+func TestElement_Close_CallbacksBeforeComponentClose(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -2301,16 +2301,16 @@ func TestElement_Close_CallbacksBeforeMiddlewareClose(t *testing.T) {
 	}
 
 	events := &lcEventLog{}
-	mw := &lcTxHandlerMidware{
-		closeFn: func() { events.add("mw:closed") },
+	comp := &lcTxHandlerComponent{
+		closeFn: func() { events.add("component:closed") },
 	}
-	mw.clnFn = func(_ context.Context, tx sip.ClientTransaction) {
+	comp.clnFn = func(_ context.Context, tx sip.ClientTransaction) {
 		tx.BindStateHandler(sip.TransactionStateHandlerFunc(
 			func(_ context.Context, _, to sip.TransactionState) {
 				if to != sip.TransactionStateTerminated {
 					return
 				}
-				if mw.closed.Load() {
+				if comp.closed.Load() {
 					events.add("cb:terminated-after-close")
 					return
 				}
@@ -2318,7 +2318,7 @@ func TestElement_Close_CallbacksBeforeMiddlewareClose(t *testing.T) {
 			},
 		))
 	}
-	elm.UseMiddleware(mw)
+	elm.UseComponent(comp)
 
 	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	raddr := netip.MustParseAddrPort("10.0.0.5:5060")
@@ -2334,19 +2334,19 @@ func TestElement_Close_CallbacksBeforeMiddlewareClose(t *testing.T) {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
 	}
 
-	if got := mw.closes.Load(); got != 1 {
-		t.Errorf("mw.closes = %d, want 1", got)
+	if got := comp.closes.Load(); got != 1 {
+		t.Errorf("component.closes = %d, want 1", got)
 	}
-	if got := mw.callsAfterClose.Load(); got != 0 {
-		t.Errorf("transaction notifications after middleware close = %d, want 0", got)
+	if got := comp.callsAfterClose.Load(); got != 0 {
+		t.Errorf("transaction notifications after component close = %d, want 0", got)
 	}
 
 	cbIdx := events.index("cb:terminated")
 	if cbIdx < 0 {
-		t.Fatal("missing termination callback while middleware was alive")
+		t.Fatal("missing termination callback while the component was alive")
 	}
-	if closedIdx := events.index("mw:closed"); closedIdx <= cbIdx {
-		t.Errorf("middleware closed at event %d before termination callback at %d", closedIdx, cbIdx)
+	if closedIdx := events.index("component:closed"); closedIdx <= cbIdx {
+		t.Errorf("component closed at event %d before termination callback at %d", closedIdx, cbIdx)
 	}
 	if got := tx.State(); got != sip.TransactionStateTerminated {
 		t.Errorf("tx.State() = %v, want %v", got, sip.TransactionStateTerminated)
@@ -2383,8 +2383,8 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 		t.Cleanup(func() { _ = elm.Close() })
 		t.Cleanup(gate.open)
 
-		mw := &lcTxHandlerMidware{closeFn: func() { events.add("mw:closed") }}
-		elm.UseMiddleware(mw)
+		comp := &lcTxHandlerComponent{closeFn: func() { events.add("component:closed") }}
+		elm.UseComponent(comp)
 
 		type txResult struct {
 			tx  sip.ClientTransaction
@@ -2406,8 +2406,8 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 		if _, err := elm.NewClientTransaction(ctx, req, newPrxStubTransp()); !errors.Is(err, sip.ErrElementClosed) {
 			t.Fatalf("elm.NewClientTransaction() during close error = %v, want %v", err, sip.ErrElementClosed)
 		}
-		if got := mw.closes.Load(); got != 0 {
-			t.Fatalf("middleware closed %d times while an admitted operation is in flight, want 0", got)
+		if got := comp.closes.Load(); got != 0 {
+			t.Fatalf("component closed %d times while an admitted operation is in flight, want 0", got)
 		}
 
 		gate.open()
@@ -2421,14 +2421,14 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 			t.Fatalf("elm.Close() error = %v, want nil", err)
 		}
 
-		if got := mw.closes.Load(); got != 1 {
-			t.Errorf("mw.closes = %d, want 1", got)
+		if got := comp.closes.Load(); got != 1 {
+			t.Errorf("component.closes = %d, want 1", got)
 		}
-		if got := mw.callsAfterClose.Load(); got != 0 {
-			t.Errorf("handler notifications after middleware close = %d, want 0", got)
+		if got := comp.callsAfterClose.Load(); got != 0 {
+			t.Errorf("handler notifications after component close = %d, want 0", got)
 		}
-		if opIdx, closedIdx := events.index("op:done"), events.index("mw:closed"); opIdx < 0 || closedIdx <= opIdx {
-			t.Errorf("event order op:done=%d mw:closed=%d, want admitted operation to finish first", opIdx, closedIdx)
+		if opIdx, closedIdx := events.index("op:done"), events.index("component:closed"); opIdx < 0 || closedIdx <= opIdx {
+			t.Errorf("event order op:done=%d component:closed=%d, want admitted operation to finish first", opIdx, closedIdx)
 		}
 		if res.tx != nil && res.tx.State() != sip.TransactionStateTerminated {
 			t.Errorf("tx.State() = %v after close, want %v", res.tx.State(), sip.TransactionStateTerminated)
@@ -2462,8 +2462,8 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 		t.Cleanup(func() { _ = elm.Close() })
 		t.Cleanup(gate.open)
 
-		mw := &lcTxHandlerMidware{closeFn: func() { events.add("mw:closed") }}
-		elm.UseMiddleware(mw)
+		comp := &lcTxHandlerComponent{closeFn: func() { events.add("component:closed") }}
+		elm.UseComponent(comp)
 
 		type txResult struct {
 			tx  sip.ServerTransaction
@@ -2484,8 +2484,8 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 		if _, err := elm.NewServerTransaction(ctx, req, newPrxStubTransp()); !errors.Is(err, sip.ErrElementClosed) {
 			t.Fatalf("elm.NewServerTransaction() during close error = %v, want %v", err, sip.ErrElementClosed)
 		}
-		if got := mw.closes.Load(); got != 0 {
-			t.Fatalf("middleware closed %d times while an admitted operation is in flight, want 0", got)
+		if got := comp.closes.Load(); got != 0 {
+			t.Fatalf("component closed %d times while an admitted operation is in flight, want 0", got)
 		}
 
 		gate.open()
@@ -2499,14 +2499,14 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 			t.Fatalf("elm.Close() error = %v, want nil", err)
 		}
 
-		if got := mw.closes.Load(); got != 1 {
-			t.Errorf("mw.closes = %d, want 1", got)
+		if got := comp.closes.Load(); got != 1 {
+			t.Errorf("comp.closes = %d, want 1", got)
 		}
-		if got := mw.callsAfterClose.Load(); got != 0 {
-			t.Errorf("handler notifications after middleware close = %d, want 0", got)
+		if got := comp.callsAfterClose.Load(); got != 0 {
+			t.Errorf("handler notifications after component close = %d, want 0", got)
 		}
-		if opIdx, closedIdx := events.index("op:done"), events.index("mw:closed"); opIdx < 0 || closedIdx <= opIdx {
-			t.Errorf("event order op:done=%d mw:closed=%d, want admitted operation to finish first", opIdx, closedIdx)
+		if opIdx, closedIdx := events.index("op:done"), events.index("component:closed"); opIdx < 0 || closedIdx <= opIdx {
+			t.Errorf("event order op:done=%d component:closed=%d, want admitted operation to finish first", opIdx, closedIdx)
 		}
 		if res.tx != nil && res.tx.State() != sip.TransactionStateTerminated {
 			t.Errorf("tx.State() = %v after close, want %v", res.tx.State(), sip.TransactionStateTerminated)
@@ -2517,7 +2517,7 @@ func TestElement_NewTransaction_AdmitsBeforeClose(t *testing.T) {
 	})
 }
 
-func TestElement_MiddlewareCallback_DrainedAndSealed(t *testing.T) {
+func TestElement_ComponentCallback_DrainedAndSealed(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -2533,16 +2533,16 @@ func TestElement_MiddlewareCallback_DrainedAndSealed(t *testing.T) {
 	t.Cleanup(gate.open)
 
 	events := &lcEventLog{}
-	mwA := &lcTxHandlerMidware{closeFn: func() { events.add("mwA:closed") }}
-	mwA.clnFn = func(context.Context, sip.ClientTransaction) {
+	compA := &lcTxHandlerComponent{closeFn: func() { events.add("compA:closed") }}
+	compA.clnFn = func(context.Context, sip.ClientTransaction) {
 		gate.enter()
 		<-gate.release
 		events.add("cbA:done")
 	}
-	mwB := &lcTxHandlerMidware{}
+	compB := &lcTxHandlerComponent{}
 
-	elm.UseMiddleware(mwA)
-	elm.UseMiddleware(mwB)
+	elm.UseComponent(compA)
+	elm.UseComponent(compB)
 
 	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	raddr := netip.MustParseAddrPort("10.0.0.5:5060")
@@ -2562,13 +2562,13 @@ func TestElement_MiddlewareCallback_DrainedAndSealed(t *testing.T) {
 	go func() { closeDone <- elm.Close() }()
 	waitElemClosing(t, elm)
 
-	// Close is underway but must not close middleware while A's notification
+	// Close is underway but must not close components while A's notification
 	// is in flight.
 	if _, err := elm.NewClientTransaction(ctx, req, newPrxStubTransp()); !errors.Is(err, sip.ErrElementClosed) {
 		t.Fatalf("elm.NewClientTransaction() during close error = %v, want %v", err, sip.ErrElementClosed)
 	}
-	if got := mwA.closes.Load(); got != 0 {
-		t.Fatalf("mwA.closes = %d while its notification is in flight, want 0", got)
+	if got := compA.closes.Load(); got != 0 {
+		t.Fatalf("compA.closes = %d while its notification is in flight, want 0", got)
 	}
 
 	gate.open()
@@ -2580,22 +2580,22 @@ func TestElement_MiddlewareCallback_DrainedAndSealed(t *testing.T) {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
 	}
 
-	if got := mwA.clnCalls.Load(); got != 1 {
-		t.Errorf("mwA handler calls = %d, want 1", got)
+	if got := compA.clnCalls.Load(); got != 1 {
+		t.Errorf("compA handler calls = %d, want 1", got)
 	}
 	// B's notification was captured in the same snapshot and may still be
 	// delivered while callback admission is open during closing; the invariant
-	// is that no notification reaches middleware after its own Close.
-	for _, mw := range []*lcTxHandlerMidware{mwA, mwB} {
-		if got := mw.closes.Load(); got != 1 {
-			t.Errorf("middleware closes = %d, want 1", got)
+	// is that no notification reaches a component after its own Close.
+	for _, comp := range []*lcTxHandlerComponent{compA, compB} {
+		if got := comp.closes.Load(); got != 1 {
+			t.Errorf("component closes = %d, want 1", got)
 		}
-		if got := mw.callsAfterClose.Load(); got != 0 {
-			t.Errorf("notifications after middleware close = %d, want 0", got)
+		if got := comp.callsAfterClose.Load(); got != 0 {
+			t.Errorf("notifications after component close = %d, want 0", got)
 		}
 	}
-	if cbIdx, closedIdx := events.index("cbA:done"), events.index("mwA:closed"); cbIdx < 0 || closedIdx <= cbIdx {
-		t.Errorf("event order cbA:done=%d mwA:closed=%d, want callback drained before close", cbIdx, closedIdx)
+	if cbIdx, closedIdx := events.index("cbA:done"), events.index("compA:closed"); cbIdx < 0 || closedIdx <= cbIdx {
+		t.Errorf("event order cbA:done=%d compA:closed=%d, want callback drained before close", cbIdx, closedIdx)
 	}
 }
 
@@ -2608,8 +2608,8 @@ func TestElement_Capabilities_ConcurrentRecompute(t *testing.T) {
 	gateA := newLcGate()
 	t.Cleanup(gateA.open)
 
-	mwA := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodInvite}}
-	mwA.capFn = func(call int32) {
+	compA := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodInvite}}
+	compA.capFn = func(call int32) {
 		if call == 1 {
 			gateA.enter()
 			<-gateA.release
@@ -2621,14 +2621,14 @@ func TestElement_Capabilities_ConcurrentRecompute(t *testing.T) {
 	useADone := make(chan struct{})
 	go func() {
 		defer close(useADone)
-		elm.UseMiddleware(mwA)
+		elm.UseComponent(compA)
 	}()
 	gateA.waitEnter(t)
 
 	gateB := newLcGate()
 	t.Cleanup(gateB.open)
-	mwB := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}}
-	mwB.capFn = func(call int32) {
+	compB := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}}
+	compB.capFn = func(call int32) {
 		// call 1 runs in B's own registration recompute, call 2 in the retry
 		// recompute of A's registration; call 3 runs inside C's recomputation.
 		if call == 3 {
@@ -2638,22 +2638,22 @@ func TestElement_Capabilities_ConcurrentRecompute(t *testing.T) {
 	}
 
 	// The second recomputation snapshots [A,B]; A's second call does not block.
-	unbindB := elm.UseMiddleware(mwB)
+	unbindB := elm.UseComponent(compB)
 	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
 
 	gateA.open()
-	testutil.WaitResult(t, useADone, "UseMiddleware(A)")
+	testutil.WaitResult(t, useADone, "elm.UseComponent(A)")
 
 	// The stale [A] result must not overwrite the [A,B] capabilities.
 	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
 
 	// A removal committed while a recompute is in flight must not be
 	// resurrected by that recompute.
-	mwC := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodCancel}}
+	compC := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodCancel}}
 	useCDone := make(chan struct{})
 	go func() {
 		defer close(useCDone)
-		elm.UseMiddleware(mwC)
+		elm.UseComponent(compC)
 	}()
 	// B's third Capabilities call blocks inside C's [A,B,C] recomputation.
 	gateB.waitEnter(t)
@@ -2662,7 +2662,7 @@ func TestElement_Capabilities_ConcurrentRecompute(t *testing.T) {
 	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodCancel)
 
 	gateB.open()
-	testutil.WaitResult(t, useCDone, "UseMiddleware(C)")
+	testutil.WaitResult(t, useCDone, "elm.UseComponent(C)")
 	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodCancel)
 
 	// Repeated and concurrent unbinds stay idempotent.
@@ -2690,15 +2690,15 @@ func TestElement_Capabilities_ReentrantProvider(t *testing.T) {
 	self.capFn = func(call int32) {
 		if call == 1 && regOnce.CompareAndSwap(false, true) {
 			_ = elm.Capabilities()
-			elm.UseMiddleware(leaf)
+			elm.UseComponent(leaf)
 		}
 	}
-	elm.UseMiddleware(self)
+	elm.UseComponent(self)
 	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodOptions)
 
 	// A provider may also reenter an unbind: the removal is committed, the
 	// in-flight recompute is invalidated and retries without the removed entry.
-	unbindU := elm.UseMiddleware(&lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodInfo}})
+	unbindU := elm.UseComponent(&lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodInfo}})
 
 	var unbindOnce atomic.Bool
 	trigger := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodAck}}
@@ -2707,7 +2707,7 @@ func TestElement_Capabilities_ReentrantProvider(t *testing.T) {
 			unbindU()
 		}
 	}
-	elm.UseMiddleware(trigger)
+	elm.UseComponent(trigger)
 	assertElemMethods(
 		t, elm,
 		sip.RequestMethodInvite,
@@ -2728,7 +2728,7 @@ func TestElement_PublicOperations_RejectedDuringClose(t *testing.T) {
 	t.Cleanup(gate.open)
 
 	closer := &lcGatedCloser{gate: gate}
-	elm.UseMiddleware(closer)
+	elm.UseComponent(closer)
 
 	tp := newPrxStubTransp()
 	if err := elm.TrackTransport(tp); err != nil {
@@ -2796,7 +2796,7 @@ func TestElement_PublicOperations_RejectedDuringClose(t *testing.T) {
 			// gated closer, so every call observes the Closing state rather
 			// than a completed close.
 			if closer.returned.Load() {
-				t.Error("gated middleware Close returned before subtests ran")
+				t.Error("gated component Close returned before subtests ran")
 			}
 			if err := tt.call(); !errors.Is(err, sip.ErrElementClosed) {
 				t.Errorf("elm.%s() error = %v, want %v", tt.name, err, sip.ErrElementClosed)
@@ -2805,7 +2805,7 @@ func TestElement_PublicOperations_RejectedDuringClose(t *testing.T) {
 	}
 }
 
-func TestElement_Close_CancelProceedingInviteThroughMiddleware(t *testing.T) {
+func TestElement_Close_CancelProceedingInviteThroughComponent(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -2817,7 +2817,7 @@ func TestElement_Close_CancelProceedingInviteThroughMiddleware(t *testing.T) {
 	}
 
 	observer := &lcOutReqObserver{}
-	elm.UseMiddleware(observer)
+	elm.UseComponent(observer)
 
 	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	raddr := netip.MustParseAddrPort("10.0.0.5:5060")
@@ -2842,7 +2842,7 @@ func TestElement_Close_CancelProceedingInviteThroughMiddleware(t *testing.T) {
 	}
 
 	// The internal CANCEL bypassed the sealed public admission but still went
-	// through live middleware to the transport.
+	// through live components to the transport.
 	var methods []sip.RequestMethod
 	for done := false; !done; {
 		select {
@@ -2857,13 +2857,13 @@ func TestElement_Close_CancelProceedingInviteThroughMiddleware(t *testing.T) {
 	}
 
 	if got := observer.cancelCalls.Load(); got == 0 {
-		t.Error("CANCEL interceptions while middleware open = 0, want at least 1")
+		t.Error("CANCEL interceptions while the component was open = 0, want at least 1")
 	}
 	if got := observer.cancelAfterClose.Load(); got != 0 {
-		t.Errorf("CANCEL interceptions after middleware close = %d, want 0", got)
+		t.Errorf("CANCEL interceptions after component close = %d, want 0", got)
 	}
 	if got := observer.afterClose.Load(); got != 0 {
-		t.Errorf("interceptions after middleware close = %d, want 0", got)
+		t.Errorf("interceptions after component close = %d, want 0", got)
 	}
 	if got := observer.closes.Load(); got != 1 {
 		t.Errorf("observer.closes = %d, want 1", got)
@@ -2873,7 +2873,7 @@ func TestElement_Close_CancelProceedingInviteThroughMiddleware(t *testing.T) {
 	}
 }
 
-func TestElement_MiddlewareInterceptor_DrainedBeforeClose(t *testing.T) {
+func TestElement_ComponentInterceptor_DrainedBeforeClose(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -2885,12 +2885,12 @@ func TestElement_MiddlewareInterceptor_DrainedBeforeClose(t *testing.T) {
 	t.Cleanup(gate.open)
 	events := &lcEventLog{}
 
-	mw := &lcGatedOutReqInceptor{
+	comp := &lcGatedOutReqInceptor{
 		gate:    gate,
 		doneFn:  func() { events.add("intcptr:done") },
-		closeFn: func() { events.add("mw:closed") },
+		closeFn: func() { events.add("comp:closed") },
 	}
-	elm.UseMiddleware(mw)
+	elm.UseComponent(comp)
 
 	tp := newLcRecordingTransp()
 	if err := elm.TrackTransport(tp); err != nil {
@@ -2911,10 +2911,10 @@ func TestElement_MiddlewareInterceptor_DrainedBeforeClose(t *testing.T) {
 	go func() { closeDone <- elm.Close() }()
 	waitElemClosing(t, elm)
 
-	// Middleware must not be closed while its interceptor callback is in
+	// The component must not be closed while its interceptor callback is in
 	// flight.
-	if got := mw.closes.Load(); got != 0 {
-		t.Fatalf("mw.closes = %d while its interceptor is in flight, want 0", got)
+	if got := comp.closes.Load(); got != 0 {
+		t.Fatalf("comp.closes = %d while its interceptor is in flight, want 0", got)
 	}
 
 	gate.open()
@@ -2926,21 +2926,21 @@ func TestElement_MiddlewareInterceptor_DrainedBeforeClose(t *testing.T) {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
 	}
 
-	if got := mw.calls.Load(); got != 1 {
+	if got := comp.calls.Load(); got != 1 {
 		t.Errorf("interceptor calls = %d, want 1", got)
 	}
-	if got := mw.closes.Load(); got != 1 {
-		t.Errorf("mw.closes = %d, want 1", got)
+	if got := comp.closes.Load(); got != 1 {
+		t.Errorf("comp.closes = %d, want 1", got)
 	}
-	if doneIdx, closedIdx := events.index("intcptr:done"), events.index("mw:closed"); doneIdx < 0 || closedIdx <= doneIdx {
-		t.Errorf("event order intcptr:done=%d mw:closed=%d, want interceptor drained first", doneIdx, closedIdx)
+	if doneIdx, closedIdx := events.index("intcptr:done"), events.index("comp:closed"); doneIdx < 0 || closedIdx <= doneIdx {
+		t.Errorf("event order intcptr:done=%d comp:closed=%d, want interceptor drained first", doneIdx, closedIdx)
 	}
 	if got := len(tp.sendReqCalls); got != 1 {
 		t.Errorf("transport sent requests = %d, want 1", got)
 	}
 }
 
-func TestElement_UseMiddleware_UnbindReentry(t *testing.T) {
+func TestElement_UseComponent_UnbindReentry(t *testing.T) {
 	t.Parallel()
 
 	elm := &sip.Element{}
@@ -2948,8 +2948,8 @@ func TestElement_UseMiddleware_UnbindReentry(t *testing.T) {
 
 	var unbindB func()
 	var once atomic.Bool
-	mwA := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodInvite}}
-	mwA.capFn = func(int32) {
+	compA := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodInvite}}
+	compA.capFn = func(int32) {
 		// Reenter the same unbind while it is recomputing capabilities; the
 		// committed removal must make the nested call a prompt no-op.
 		if unbindB != nil && once.CompareAndSwap(false, true) {
@@ -2957,8 +2957,8 @@ func TestElement_UseMiddleware_UnbindReentry(t *testing.T) {
 		}
 	}
 
-	elm.UseMiddleware(mwA)
-	unbindB = elm.UseMiddleware(&lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}})
+	elm.UseComponent(compA)
+	unbindB = elm.UseComponent(&lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}})
 	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
 
 	unbindB()
@@ -2971,7 +2971,7 @@ func TestElement_UseMiddleware_UnbindReentry(t *testing.T) {
 	assertElemMethods(t, elm, sip.RequestMethodInvite)
 }
 
-func TestElement_UseMiddleware_UnbindCompletesBeforeMiddlewareClose(t *testing.T) {
+func TestElement_UseComponent_UnbindCompletesBeforeComponentClose(t *testing.T) {
 	t.Parallel()
 
 	elm := &sip.Element{}
@@ -2981,20 +2981,20 @@ func TestElement_UseMiddleware_UnbindCompletesBeforeMiddlewareClose(t *testing.T
 	t.Cleanup(gate.open)
 
 	var arm atomic.Bool
-	mwA := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodInvite}}
-	mwA.capFn = func(int32) {
+	compA := &lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodInvite}}
+	compA.capFn = func(int32) {
 		if arm.Load() {
 			gate.enter()
 			<-gate.release
 		}
 	}
 
-	elm.UseMiddleware(mwA)
-	unbindB := elm.UseMiddleware(&lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}})
+	elm.UseComponent(compA)
+	unbindB := elm.UseComponent(&lcCapsCloser{methods: []sip.RequestMethod{sip.RequestMethodBye}})
 	assertElemMethods(t, elm, sip.RequestMethodInvite, sip.RequestMethodBye)
 
 	// An admitted unbind recomputes capabilities through live providers; Close
-	// must wait for it before shutting down the remaining middleware.
+	// must wait for it before shutting down the remaining components.
 	arm.Store(true)
 	unbindDone := make(chan struct{})
 	go func() {
@@ -3007,8 +3007,8 @@ func TestElement_UseMiddleware_UnbindCompletesBeforeMiddlewareClose(t *testing.T
 	go func() { closeDone <- elm.Close() }()
 	waitElemClosing(t, elm)
 
-	if got := mwA.closes.Load(); got != 0 {
-		t.Fatalf("mwA.closes = %d while an admitted unbind is in flight, want 0", got)
+	if got := compA.closes.Load(); got != 0 {
+		t.Fatalf("compA.closes = %d while an admitted unbind is in flight, want 0", got)
 	}
 
 	gate.open()
@@ -3017,8 +3017,8 @@ func TestElement_UseMiddleware_UnbindCompletesBeforeMiddlewareClose(t *testing.T
 	if err := testutil.WaitResult(t, closeDone, "elm.Close()"); err != nil {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
 	}
-	if got := mwA.closes.Load(); got != 1 {
-		t.Errorf("mwA.closes = %d, want 1", got)
+	if got := compA.closes.Load(); got != 1 {
+		t.Errorf("compA.closes = %d, want 1", got)
 	}
 	assertElemMethods(t, elm, sip.RequestMethodInvite)
 }
@@ -3045,7 +3045,7 @@ func TestElement_SendRequest_LookupDoesNotBlockClose(t *testing.T) {
 		t.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 	}
 	observer := &lcOutReqObserver{}
-	elm.UseMiddleware(observer)
+	elm.UseComponent(observer)
 
 	laddr := netip.MustParseAddrPort("192.168.1.100:5060")
 	req := newInInviteReq(t, "UDP", "", laddr, raddr)
@@ -3061,7 +3061,7 @@ func TestElement_SendRequest_LookupDoesNotBlockClose(t *testing.T) {
 	}
 
 	// Once the lookup resumes, the attempt send is rejected by admission and
-	// never reaches closed middleware or the transport.
+	// never reaches closed components or the transport.
 	gate.open()
 	if err := testutil.WaitResult(t, sendDone, "elm.SendRequest()"); !errors.Is(err, sip.ErrElementClosed) {
 		t.Fatalf("elm.SendRequest() error = %v, want %v", err, sip.ErrElementClosed)
@@ -3077,9 +3077,9 @@ func TestElement_SendRequest_LookupDoesNotBlockClose(t *testing.T) {
 	}
 }
 
-// lcShutdownMW implements the optional middleware shutdown hook and Close,
+// lcShutdownComponent implements the optional component shutdown hook and Close,
 // recording both into a shared event log.
-type lcShutdownMW struct {
+type lcShutdownComponent struct {
 	name       string
 	events     *lcEventLog
 	shutdowns  atomic.Int32
@@ -3087,18 +3087,18 @@ type lcShutdownMW struct {
 	shutdownFn func(ctx context.Context) error
 }
 
-func (mw *lcShutdownMW) Shutdown(ctx context.Context) error {
-	mw.shutdowns.Add(1)
-	mw.events.add(mw.name + ":shutdown")
-	if mw.shutdownFn != nil {
-		return errors.Wrap(mw.shutdownFn(ctx))
+func (c *lcShutdownComponent) Shutdown(ctx context.Context) error {
+	c.shutdowns.Add(1)
+	c.events.add(c.name + ":shutdown")
+	if c.shutdownFn != nil {
+		return errors.Wrap(c.shutdownFn(ctx))
 	}
 	return nil
 }
 
-func (mw *lcShutdownMW) Close() error {
-	mw.closes.Add(1)
-	mw.events.add(mw.name + ":closed")
+func (c *lcShutdownComponent) Close() error {
+	c.closes.Add(1)
+	c.events.add(c.name + ":closed")
 	return nil
 }
 
@@ -3109,9 +3109,9 @@ type lcEventCloser struct {
 	closes atomic.Int32
 }
 
-func (mw *lcEventCloser) Close() error {
-	mw.closes.Add(1)
-	mw.events.add(mw.name + ":closed")
+func (c *lcEventCloser) Close() error {
+	c.closes.Add(1)
+	c.events.add(c.name + ":closed")
 	return nil
 }
 
@@ -3142,7 +3142,7 @@ func TestElement_Shutdown_ZeroValue(t *testing.T) {
 	}
 }
 
-func TestElement_Shutdown_MiddlewareBeforeClose(t *testing.T) {
+func TestElement_Shutdown_ComponentBeforeClose(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -3163,8 +3163,8 @@ func TestElement_Shutdown_MiddlewareBeforeClose(t *testing.T) {
 	// The first hook still uses the running element: it registers and starts
 	// a client transaction that the final Close must terminate.
 	var hookTx sip.ClientTransaction
-	mwA := &lcShutdownMW{name: "a", events: events}
-	mwA.shutdownFn = func(ctx context.Context) error {
+	compA := &lcShutdownComponent{name: "a", events: events}
+	compA.shutdownFn = func(ctx context.Context) error {
 		tx, err := elm.NewClientTransaction(ctx, req, tp)
 		if err != nil {
 			return errors.Wrap(err)
@@ -3175,18 +3175,18 @@ func TestElement_Shutdown_MiddlewareBeforeClose(t *testing.T) {
 		hookTx = tx
 		return nil
 	}
-	mwB := &lcShutdownMW{name: "b", events: events}
+	compB := &lcShutdownComponent{name: "b", events: events}
 	plain := &lcEventCloser{name: "plain", events: events}
 
-	elm.UseMiddleware(mwA)
-	elm.UseMiddleware(plain)
-	elm.UseMiddleware(mwB)
+	elm.UseComponent(compA)
+	elm.UseComponent(plain)
+	elm.UseComponent(compB)
 
 	if err := elm.Shutdown(ctx); err != nil {
 		t.Fatalf("elm.Shutdown() error = %v, want nil", err)
 	}
 
-	// Hooks ran once, in registration order, before any middleware closed.
+	// Hooks ran once, in registration order, before any component closed.
 	sdA, sdB := events.index("a:shutdown"), events.index("b:shutdown")
 	if sdA < 0 || sdB <= sdA {
 		t.Fatalf("shutdown event order a=%d b=%d, want a before b", sdA, sdB)
@@ -3195,12 +3195,12 @@ func TestElement_Shutdown_MiddlewareBeforeClose(t *testing.T) {
 	if firstClose < 0 || sdB >= firstClose {
 		t.Fatalf("last shutdown index = %d, first close index = %d, want all hooks before any close", sdB, firstClose)
 	}
-	for name, mw := range map[string]*lcShutdownMW{"a": mwA, "b": mwB} {
-		if got := mw.shutdowns.Load(); got != 1 {
-			t.Errorf("mw %s shutdown calls = %d, want 1", name, got)
+	for name, comp := range map[string]*lcShutdownComponent{"a": compA, "b": compB} {
+		if got := comp.shutdowns.Load(); got != 1 {
+			t.Errorf("component %s shutdown calls = %d, want 1", name, got)
 		}
-		if got := mw.closes.Load(); got != 1 {
-			t.Errorf("mw %s closes = %d, want 1", name, got)
+		if got := comp.closes.Load(); got != 1 {
+			t.Errorf("component %s closes = %d, want 1", name, got)
 		}
 	}
 	if got := plain.closes.Load(); got != 1 {
@@ -3234,18 +3234,18 @@ func TestElement_Shutdown_CollectsErrors(t *testing.T) {
 	t.Cleanup(func() { _ = elm.Close() })
 
 	events := &lcEventLog{}
-	mwA := &lcShutdownMW{
+	compA := &lcShutdownComponent{
 		name:       "a",
 		events:     events,
 		shutdownFn: func(context.Context) error { return errors.Wrap(errShutdownA) },
 	}
-	mwB := &lcShutdownMW{
+	compB := &lcShutdownComponent{
 		name:       "b",
 		events:     events,
 		shutdownFn: func(context.Context) error { return errors.Wrap(errShutdownB) },
 	}
-	elm.UseMiddleware(mwA)
-	elm.UseMiddleware(mwB)
+	elm.UseComponent(compA)
+	elm.UseComponent(compB)
 
 	tp := &lcCloseErrTransp{prxStubTransp: newPrxStubTransp(), err: errTransport}
 	if err := elm.TrackTransport(tp); err != nil {
@@ -3260,12 +3260,12 @@ func TestElement_Shutdown_CollectsErrors(t *testing.T) {
 			t.Errorf("elm.Shutdown() error = %v, want chain containing %v", err, want)
 		}
 	}
-	if got := mwB.shutdowns.Load(); got != 1 {
-		t.Errorf("mwB.shutdowns = %d after mwA error, want 1", got)
+	if got := compB.shutdowns.Load(); got != 1 {
+		t.Errorf("compB.shutdowns = %d after compA error, want 1", got)
 	}
-	for name, mw := range map[string]*lcShutdownMW{"a": mwA, "b": mwB} {
-		if got := mw.closes.Load(); got != 1 {
-			t.Errorf("mw %s closes = %d, want 1", name, got)
+	for name, comp := range map[string]*lcShutdownComponent{"a": compA, "b": compB} {
+		if got := comp.closes.Load(); got != 1 {
+			t.Errorf("component %s closes = %d, want 1", name, got)
 		}
 	}
 }
@@ -3282,7 +3282,7 @@ func TestElement_Shutdown_Context(t *testing.T) {
 	// Hooks inherit caller values and cancellation along with the element;
 	// even a canceled context does not skip the later hook or final Close.
 	var sawValue atomic.Bool
-	mwA := &lcShutdownMW{
+	compA := &lcShutdownComponent{
 		name:   "a",
 		events: &lcEventLog{},
 		shutdownFn: func(hookCtx context.Context) error {
@@ -3294,9 +3294,9 @@ func TestElement_Shutdown_Context(t *testing.T) {
 			return errors.Wrap(hookCtx.Err())
 		},
 	}
-	mwB := &lcShutdownMW{name: "b", events: &lcEventLog{}}
-	elm.UseMiddleware(mwA)
-	elm.UseMiddleware(mwB)
+	compB := &lcShutdownComponent{name: "b", events: &lcEventLog{}}
+	elm.UseComponent(compA)
+	elm.UseComponent(compB)
 
 	if err := elm.Shutdown(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("elm.Shutdown() error = %v, want %v", err, context.Canceled)
@@ -3304,11 +3304,11 @@ func TestElement_Shutdown_Context(t *testing.T) {
 	if !sawValue.Load() {
 		t.Error("hook did not observe the caller context value")
 	}
-	if got := mwB.shutdowns.Load(); got != 1 {
-		t.Errorf("mwB.shutdowns = %d after canceled context, want 1", got)
+	if got := compB.shutdowns.Load(); got != 1 {
+		t.Errorf("compB.shutdowns = %d after canceled context, want 1", got)
 	}
-	if got := mwA.closes.Load() + mwB.closes.Load(); got != 2 {
-		t.Errorf("middleware closes = %d, want 2", got)
+	if got := compA.closes.Load() + compB.closes.Load(); got != 2 {
+		t.Errorf("component closes = %d, want 2", got)
 	}
 }
 
@@ -3325,7 +3325,7 @@ func TestElement_Shutdown_ConcurrentCalls(t *testing.T) {
 
 	const errShutdown errors.Error = "shutdown error"
 
-	mw := &lcShutdownMW{
+	comp := &lcShutdownComponent{
 		name:   "a",
 		events: &lcEventLog{},
 		shutdownFn: func(context.Context) error {
@@ -3334,7 +3334,7 @@ func TestElement_Shutdown_ConcurrentCalls(t *testing.T) {
 			return errors.Wrap(errShutdown)
 		},
 	}
-	elm.UseMiddleware(mw)
+	elm.UseComponent(comp)
 
 	// Concurrent callers share the single shutdown: one runs the gated hook
 	// while the rest wait for the cached result.
@@ -3354,11 +3354,11 @@ func TestElement_Shutdown_ConcurrentCalls(t *testing.T) {
 			t.Errorf("concurrent elm.Shutdown() error = %v, want %v", err, errShutdown)
 		}
 	}
-	if got := mw.shutdowns.Load(); got != 1 {
+	if got := comp.shutdowns.Load(); got != 1 {
 		t.Errorf("hook calls = %d, want 1", got)
 	}
-	if got := mw.closes.Load(); got != 1 {
-		t.Errorf("mw.closes = %d, want 1", got)
+	if got := comp.closes.Load(); got != 1 {
+		t.Errorf("comp.closes = %d, want 1", got)
 	}
 	if err := elm.Shutdown(ctx); !errors.Is(err, errShutdown) {
 		t.Errorf("repeated elm.Shutdown() error = %v, want %v", err, errShutdown)
@@ -3370,8 +3370,8 @@ func TestElement_Shutdown_AfterClose(t *testing.T) {
 
 	elm := &sip.Element{}
 
-	mw := &lcShutdownMW{name: "a", events: &lcEventLog{}}
-	elm.UseMiddleware(mw)
+	comp := &lcShutdownComponent{name: "a", events: &lcEventLog{}}
+	elm.UseComponent(comp)
 
 	if err := elm.Close(); err != nil {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
@@ -3379,11 +3379,11 @@ func TestElement_Shutdown_AfterClose(t *testing.T) {
 	if err := elm.Shutdown(t.Context()); err != nil {
 		t.Fatalf("elm.Shutdown() after close error = %v, want nil", err)
 	}
-	if got := mw.shutdowns.Load(); got != 0 {
+	if got := comp.shutdowns.Load(); got != 0 {
 		t.Errorf("hook calls after close = %d, want 0", got)
 	}
-	if got := mw.closes.Load(); got != 1 {
-		t.Errorf("mw.closes = %d, want 1", got)
+	if got := comp.closes.Load(); got != 1 {
+		t.Errorf("comp.closes = %d, want 1", got)
 	}
 }
 
@@ -3400,7 +3400,7 @@ func TestElement_Shutdown_ConcurrentClose(t *testing.T) {
 	// blocked hook before the cleanup Close runs.
 	t.Cleanup(gate.open)
 
-	mw := &lcShutdownMW{
+	comp := &lcShutdownComponent{
 		name:   "a",
 		events: &lcEventLog{},
 		shutdownFn: func(context.Context) error {
@@ -3409,7 +3409,7 @@ func TestElement_Shutdown_ConcurrentClose(t *testing.T) {
 			return nil
 		},
 	}
-	elm.UseMiddleware(mw)
+	elm.UseComponent(comp)
 
 	sdDone := make(chan error, 1)
 	go func() { sdDone <- elm.Shutdown(ctx) }()
@@ -3421,9 +3421,9 @@ func TestElement_Shutdown_ConcurrentClose(t *testing.T) {
 
 	// The direct Close starts transport/transaction shutdown without waiting
 	// for the hooks, but still waits for the admitted hook operation before
-	// closing middleware.
-	if got := mw.closes.Load(); got != 0 {
-		t.Fatalf("mw.closes = %d while its shutdown hook is in flight, want 0", got)
+	// closing components.
+	if got := comp.closes.Load(); got != 0 {
+		t.Fatalf("comp.closes = %d while its shutdown hook is in flight, want 0", got)
 	}
 
 	gate.open()
@@ -3434,11 +3434,11 @@ func TestElement_Shutdown_ConcurrentClose(t *testing.T) {
 	if err := testutil.WaitResult(t, closeDone, "elm.Close()"); err != nil {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
 	}
-	if got := mw.shutdowns.Load(); got != 1 {
+	if got := comp.shutdowns.Load(); got != 1 {
 		t.Errorf("hook calls = %d, want 1", got)
 	}
-	if got := mw.closes.Load(); got != 1 {
-		t.Errorf("mw.closes = %d, want 1", got)
+	if got := comp.closes.Load(); got != 1 {
+		t.Errorf("comp.closes = %d, want 1", got)
 	}
 }
 
@@ -3663,17 +3663,17 @@ func (tp *startStubTransp) Listen(ctx context.Context, addr string) (sip.Transpo
 	return tp.listenFn(ctx, addr)
 }
 
-// lcStartCloser records middleware Close calls and an optional hook for
+// lcStartCloser records component Close calls and an optional hook for
 // ordering assertions.
 type lcStartCloser struct {
 	closes  atomic.Int32
 	closeFn func()
 }
 
-func (mw *lcStartCloser) Close() error {
-	mw.closes.Add(1)
-	if mw.closeFn != nil {
-		mw.closeFn()
+func (c *lcStartCloser) Close() error {
+	c.closes.Add(1)
+	if c.closeFn != nil {
+		c.closeFn()
 	}
 	return nil
 }
@@ -4188,8 +4188,8 @@ func TestElement_Start_CloseCancelsAndDrainsManagedWork(t *testing.T) {
 	t.Cleanup(func() { _ = elm.Close() })
 
 	events := &lcEventLog{}
-	mw := &lcStartCloser{closeFn: func() { events.add("mw:closed") }}
-	elm.UseMiddleware(mw)
+	comp := &lcStartCloser{closeFn: func() { events.add("comp:closed") }}
+	elm.UseComponent(comp)
 
 	lis := newStartStubListener()
 	lis.waitDone = make(chan struct{})
@@ -4245,9 +4245,9 @@ func TestElement_Start_CloseCancelsAndDrainsManagedWork(t *testing.T) {
 	}
 
 	// Close stays blocked until both background methods actually return:
-	// middleware shutdown cannot begin while they are held on resume.
-	if got := mw.closes.Load(); got != 0 {
-		t.Fatalf("mw.closes = %d while managed work is held, want 0", got)
+	// component shutdown cannot begin while they are held on resume.
+	if got := comp.closes.Load(); got != 0 {
+		t.Fatalf("comp.closes = %d while managed work is held, want 0", got)
 	}
 	select {
 	case err := <-closeDone:
@@ -4267,18 +4267,18 @@ func TestElement_Start_CloseCancelsAndDrainsManagedWork(t *testing.T) {
 	if err := testutil.WaitResult(t, closeDone, "elm.Close()"); err != nil {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
 	}
-	if got := mw.closes.Load(); got != 1 {
-		t.Errorf("mw.closes = %d, want 1", got)
+	if got := comp.closes.Load(); got != 1 {
+		t.Errorf("comp.closes = %d, want 1", got)
 	}
-	if closedIdx, txIdx, lisIdx := events.index("mw:closed"), events.index("tx:done"), events.index("lis:done"); closedIdx <= txIdx || closedIdx <= lisIdx {
-		t.Errorf("event order tx:done=%d lis:done=%d mw:closed=%d, want middleware closed last", txIdx, lisIdx, closedIdx)
+	if closedIdx, txIdx, lisIdx := events.index("comp:closed"), events.index("tx:done"), events.index("lis:done"); closedIdx <= txIdx || closedIdx <= lisIdx {
+		t.Errorf("event order tx:done=%d lis:done=%d comp:closed=%d, want component closed last", txIdx, lisIdx, closedIdx)
 	}
 	if got := handlerCalls.Load(); got != 0 {
 		t.Errorf("error handler calls = %d, want 0 for managed Close cancellation", got)
 	}
 }
 
-func TestElement_Close_DrainsErrorCallbacksBeforeMiddlewareClose(t *testing.T) {
+func TestElement_Close_DrainsErrorCallbacksBeforeComponentClose(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -4287,8 +4287,8 @@ func TestElement_Close_DrainsErrorCallbacksBeforeMiddlewareClose(t *testing.T) {
 	t.Cleanup(func() { _ = elm.Close() })
 
 	events := &lcEventLog{}
-	mw := &lcStartCloser{closeFn: func() { events.add("mw:closed") }}
-	elm.UseMiddleware(mw)
+	comp := &lcStartCloser{closeFn: func() { events.add("comp:closed") }}
+	elm.UseComponent(comp)
 
 	lis := newStartStubListener()
 	lis.serveErr = errStubRun
@@ -4321,9 +4321,9 @@ func TestElement_Close_DrainsErrorCallbacksBeforeMiddlewareClose(t *testing.T) {
 	waitElemClosing(t, elm)
 
 	// The blocked error callback holds a callback lease, so Close cannot
-	// reach middleware shutdown until it returns.
-	if got := mw.closes.Load(); got != 0 {
-		t.Fatalf("mw.closes = %d while error callback is in flight, want 0", got)
+	// reach component shutdown until it returns.
+	if got := comp.closes.Load(); got != 0 {
+		t.Fatalf("comp.closes = %d while error callback is in flight, want 0", got)
 	}
 
 	handlerGate.open()
@@ -4331,11 +4331,11 @@ func TestElement_Close_DrainsErrorCallbacksBeforeMiddlewareClose(t *testing.T) {
 		t.Fatalf("elm.Close() error = %v, want nil", err)
 	}
 
-	if got := mw.closes.Load(); got != 1 {
-		t.Errorf("mw.closes = %d, want 1", got)
+	if got := comp.closes.Load(); got != 1 {
+		t.Errorf("comp.closes = %d, want 1", got)
 	}
-	if doneIdx, closedIdx := events.index("handler:done"), events.index("mw:closed"); doneIdx < 0 || closedIdx <= doneIdx {
-		t.Errorf("event order handler:done=%d mw:closed=%d, want handler drained first", doneIdx, closedIdx)
+	if doneIdx, closedIdx := events.index("handler:done"), events.index("comp:closed"); doneIdx < 0 || closedIdx <= doneIdx {
+		t.Errorf("event order handler:done=%d comp:closed=%d, want handler drained first", doneIdx, closedIdx)
 	}
 }
 
@@ -5206,7 +5206,7 @@ func TestElement_Listen_TransportOwned(t *testing.T) {
 	}
 }
 
-type elemOwnerMidware struct {
+type elemOwnerComponent struct {
 	sip.NoopMessageInterceptor
 
 	inReqCtx  context.Context
@@ -5218,54 +5218,54 @@ type elemOwnerMidware struct {
 	closeCtx  context.Context
 }
 
-func (mw *elemOwnerMidware) InterceptInboundRequest(
+func (c *elemOwnerComponent) InterceptInboundRequest(
 	ctx context.Context,
 	next sip.RequestReceiver,
 	req *sip.RequestEnvelope,
 ) error {
-	mw.inReqCtx = ctx
+	c.inReqCtx = ctx
 	return errors.Wrap(next.RecvRequest(ctx, req))
 }
 
-func (mw *elemOwnerMidware) InterceptInboundResponse(
+func (c *elemOwnerComponent) InterceptInboundResponse(
 	ctx context.Context,
 	next sip.ResponseReceiver,
 	res *sip.ResponseEnvelope,
 ) error {
-	mw.inResCtx = ctx
+	c.inResCtx = ctx
 	return errors.Wrap(next.RecvResponse(ctx, res))
 }
 
-func (mw *elemOwnerMidware) InterceptOutboundRequest(
+func (c *elemOwnerComponent) InterceptOutboundRequest(
 	ctx context.Context,
 	next sip.RequestSender,
 	req *sip.RequestEnvelope,
 	opts ...sip.SendRequestOptions,
 ) error {
-	mw.outReqCtx = ctx
+	c.outReqCtx = ctx
 	return errors.Wrap(next.SendRequest(ctx, req, opts...))
 }
 
-func (mw *elemOwnerMidware) InterceptOutboundResponse(
+func (c *elemOwnerComponent) InterceptOutboundResponse(
 	ctx context.Context,
 	next sip.ResponseSender,
 	res *sip.ResponseEnvelope,
 	opts ...sip.SendResponseOptions,
 ) error {
-	mw.outResCtx = ctx
+	c.outResCtx = ctx
 	return errors.Wrap(next.SendResponse(ctx, res, opts...))
 }
 
-func (mw *elemOwnerMidware) HandleClientTransaction(ctx context.Context, _ sip.ClientTransaction) {
-	mw.clnCtx = ctx
+func (c *elemOwnerComponent) HandleClientTransaction(ctx context.Context, _ sip.ClientTransaction) {
+	c.clnCtx = ctx
 }
 
-func (mw *elemOwnerMidware) HandleServerTransaction(ctx context.Context, _ sip.ServerTransaction) {
-	mw.srvCtx = ctx
+func (c *elemOwnerComponent) HandleServerTransaction(ctx context.Context, _ sip.ServerTransaction) {
+	c.srvCtx = ctx
 }
 
-func (mw *elemOwnerMidware) Shutdown(ctx context.Context) error {
-	mw.closeCtx = ctx
+func (c *elemOwnerComponent) Shutdown(ctx context.Context) error {
+	c.closeCtx = ctx
 	return nil
 }
 
@@ -5280,7 +5280,7 @@ func assertElemOwner(t *testing.T, ctx context.Context, want *sip.Element) {
 	}
 }
 
-func TestElement_UseMiddleware_ContextOwnerIsScopedPerElement(t *testing.T) {
+func TestElement_UseComponent_ContextOwnerIsScopedPerElement(t *testing.T) {
 	t.Parallel()
 
 	tp := newPrxStubTransp()
@@ -5293,9 +5293,9 @@ func TestElement_UseMiddleware_ContextOwnerIsScopedPerElement(t *testing.T) {
 		}
 	}
 
-	mwFirst, mwSecond := &elemOwnerMidware{}, &elemOwnerMidware{}
-	first.UseMiddleware(mwFirst)
-	second.UseMiddleware(mwSecond)
+	compFirst, compSecond := &elemOwnerComponent{}, &elemOwnerComponent{}
+	first.UseComponent(compFirst)
+	second.UseComponent(compSecond)
 
 	locAddr := netip.MustParseAddrPort("11.11.11.11:5070")
 	rmtAddr := netip.MustParseAddrPort("55.55.55.55:5060")
@@ -5336,17 +5336,17 @@ func TestElement_UseMiddleware_ContextOwnerIsScopedPerElement(t *testing.T) {
 
 	for _, tt := range []struct {
 		name string
-		mw   *elemOwnerMidware
+		comp *elemOwnerComponent
 		elm  *sip.Element
 	}{
-		{"first", mwFirst, first},
-		{"second", mwSecond, second},
+		{"first", compFirst, first},
+		{"second", compSecond, second},
 	} {
-		assertElemOwner(t, tt.mw.inReqCtx, tt.elm)
-		assertElemOwner(t, tt.mw.inResCtx, tt.elm)
-		assertElemOwner(t, tt.mw.outReqCtx, tt.elm)
-		assertElemOwner(t, tt.mw.outResCtx, tt.elm)
-		if got := tt.mw.inReqCtx.Value(testCtxKey{}); got != "caller" {
+		assertElemOwner(t, tt.comp.inReqCtx, tt.elm)
+		assertElemOwner(t, tt.comp.inResCtx, tt.elm)
+		assertElemOwner(t, tt.comp.outReqCtx, tt.elm)
+		assertElemOwner(t, tt.comp.outResCtx, tt.elm)
+		if got := tt.comp.inReqCtx.Value(testCtxKey{}); got != "caller" {
 			t.Errorf("%s inbound callback context value = %v, want caller", tt.name, got)
 		}
 	}
@@ -5365,23 +5365,23 @@ func TestElement_UseMiddleware_ContextOwnerIsScopedPerElement(t *testing.T) {
 	if err := first.RegisterServerTransaction(ctx, serverTx); err != nil {
 		t.Fatalf("first.RegisterServerTransaction() error = %v, want nil", err)
 	}
-	assertElemOwner(t, mwFirst.srvCtx, first)
-	if got, ok := sip.ServerTransactionFromContext(mwFirst.srvCtx); !ok || got != serverTx {
+	assertElemOwner(t, compFirst.srvCtx, first)
+	if got, ok := sip.ServerTransactionFromContext(compFirst.srvCtx); !ok || got != serverTx {
 		t.Fatalf("server callback transaction = (%v, %t), want %v", got, ok, serverTx)
 	}
 	clientTx := newStartStubClnTransact(sip.MagicCookie + ".element-client")
 	if err := second.RegisterClientTransaction(ctx, clientTx); err != nil {
 		t.Fatalf("second.RegisterClientTransaction() error = %v, want nil", err)
 	}
-	assertElemOwner(t, mwSecond.clnCtx, second)
-	if got, ok := sip.ClientTransactionFromContext(mwSecond.clnCtx); !ok || got != clientTx {
+	assertElemOwner(t, compSecond.clnCtx, second)
+	if got, ok := sip.ClientTransactionFromContext(compSecond.clnCtx); !ok || got != clientTx {
 		t.Fatalf("client callback transaction = (%v, %t), want %v", got, ok, clientTx)
 	}
 
 	if err := first.Shutdown(ctx); err != nil {
 		t.Fatalf("first.Shutdown() error = %v, want nil", err)
 	}
-	assertElemOwner(t, mwFirst.closeCtx, first)
+	assertElemOwner(t, compFirst.closeCtx, first)
 }
 
 func TestElement_ProduceRequestAttempts_ContextOwner(t *testing.T) {

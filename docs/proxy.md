@@ -1,7 +1,7 @@
 # SIP Proxy
 
 The `github.com/ghettovoice/gosip/sip/proxy` package provides `Proxy`, an
-inbound middleware for a `sip.Element` that claims inbound requests matching
+element component for a `sip.Element` that claims inbound requests matching
 configured routes and forwards them according to each route's configuration.
 The core `sip` package does not depend on `sip/proxy`.
 
@@ -9,7 +9,7 @@ The core `sip` package does not depend on `sip/proxy`.
 
 ```go
 prx, err := proxy.New(routes, opts)
-unbind := elm.UseMiddleware(prx)
+unbind := elm.UseComponent(prx)
 ```
 
 - `routes` is a `[]proxy.Route` slice evaluated in order; the first
@@ -18,14 +18,14 @@ unbind := elm.UseMiddleware(prx)
 
 `proxy.New` validates and copies the routes and options: later changes to the
 caller's slices, maps, and URIs do not affect the running proxy, and a failed
-construction installs no middleware. Construction fails on duplicate route
+construction installs no components. Construction fails on duplicate route
 names, unsupported forward modes or non-INVITE server transaction behaviors,
 and out-of-range Timer C values.
 
-The constructor binds no element: an explicit `elm.UseMiddleware(prx)`
+The constructor binds no element: an explicit `elm.UseComponent(prx)`
 registration attaches the proxy to an element's processing chain, and one
 instance may be registered on several elements at once. The registration's
-`unbind` detaches the middleware from that element only — it is never a
+`unbind` detaches the component from that element only — it is never a
 shutdown path.
 
 ## Migrating from the `sip` package API
@@ -66,7 +66,7 @@ report JSON names are unchanged. `stats.Report` retains its `Transports`,
 
 Registration also changed: the removed constructor accepted an element and
 self-registered. `proxy.New` is pure — construct the proxy, then attach it
-with `elm.UseMiddleware(prx)`; see the lifecycle section for the required
+with `elm.UseComponent(prx)`; see the lifecycle section for the required
 retire-before-unbind ordering.
 
 ## Proxy lifecycle
@@ -77,9 +77,9 @@ idempotent and instance-wide: it seals admission on all elements at once so
 new matching requests pass through unclaimed, detaches the proxy's own
 subscriptions, retires each owned request under the element that claimed
 it, and clears every element scope. The owning element invokes `Shutdown`
-as its optional middleware hook, so shutting down any one element — for
+as its optional component hook, so shutting down any one element — for
 example by closing it — shuts the whole proxy down. Shutdown never closes
-borrowed resources: transports, elements, sibling middleware, and
+borrowed resources: transports, elements, sibling components, and
 transactions the proxy does not own are all left running. Applications
 that need independent lifetimes — for example draining one element while
 another keeps processing — must build an independent proxy instance per
@@ -703,7 +703,7 @@ if err != nil {
 }
 
 // Registration is explicit; retire the proxy before unbinding.
-unbind := elm.UseMiddleware(prx)
+unbind := elm.UseComponent(prx)
 defer func() {
     _ = prx.Close()
     unbind()

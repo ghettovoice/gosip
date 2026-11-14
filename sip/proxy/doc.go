@@ -1,14 +1,14 @@
-// Package proxy provides a SIP proxy element middleware: route-based
+// Package proxy provides a SIP proxy element component: route-based
 // request forwarding in stateful and stateless modes with observation
 // events, request snapshots, and restore bindings for durable forwarding
 // state.
 //
 // [New] is pure: it validates and copies routes and options without
-// binding an element. An explicit [sip.Element.UseMiddleware] call registers the
+// binding an element. An explicit [sip.Element.UseComponent] call registers the
 // proxy on an element's processing chain — construction installs no
-// middleware — and one instance may serve several elements at once. The
+// component — and one instance may serve several elements at once. The
 // lifecycle stays instance-wide: [Proxy.Shutdown], invoked as the
-// element's optional middleware hook or called directly, seals admission
+// element's optional component hook or called directly, seals admission
 // and retires owned work on every element. The registration's unbind
 // detaches one element only and is never a shutdown path; callers retire
 // active proxy work before unbinding because the outbound response

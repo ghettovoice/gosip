@@ -53,7 +53,7 @@ func newLifecycleTestProxy(
 		tb.Fatalf("proxy.New() error = %v, want nil", err)
 	}
 
-	elm.UseMiddleware(prx)
+	elm.UseComponent(prx)
 
 	return elm, prx, tp
 }
@@ -122,34 +122,34 @@ func countInternalRes(tp *internalTransp) int {
 	}
 }
 
-// lcProbeMW is a middleware carrying only the optional element shutdown hook,
+// lcProbeComponent is a component carrying only the optional element shutdown hook,
 // used to observe the proxy shutdown ordering inside sip.Element.Shutdown.
-type lcProbeMW struct {
+type lcProbeComponent struct {
 	onShutdown func(ctx context.Context)
 }
 
-func (mw *lcProbeMW) Shutdown(ctx context.Context) error {
-	if mw.onShutdown != nil {
-		mw.onShutdown(ctx)
+func (c *lcProbeComponent) Shutdown(ctx context.Context) error {
+	if c.onShutdown != nil {
+		c.onShutdown(ctx)
 	}
 	return nil
 }
 
-// lcCountingMW is an element middleware lifecycle spy counting the optional
+// lcCountingComponent is an element component lifecycle spy counting the optional
 // element Shutdown and Close hook calls, so lifecycle tests can prove the
-// proxy never drives the owning element's middleware lifecycle itself.
-type lcCountingMW struct {
+// proxy never drives the owning element's component lifecycle itself.
+type lcCountingComponent struct {
 	shutdownCalls atomic.Int32
 	closeCalls    atomic.Int32
 }
 
-func (mw *lcCountingMW) Shutdown(context.Context) error {
-	mw.shutdownCalls.Add(1)
+func (c *lcCountingComponent) Shutdown(context.Context) error {
+	c.shutdownCalls.Add(1)
 	return nil
 }
 
-func (mw *lcCountingMW) Close() error {
-	mw.closeCalls.Add(1)
+func (c *lcCountingComponent) Close() error {
+	c.closeCalls.Add(1)
 	return nil
 }
 
@@ -184,7 +184,7 @@ func newSharedLifecycleProxy(
 		if err := elm.TrackTransport(tp); err != nil {
 			tb.Fatalf("elm.TrackTransport() error = %v, want nil", err)
 		}
-		sides = append(sides, lcSharedSide{elm: elm, tp: tp, unbind: elm.UseMiddleware(prx)})
+		sides = append(sides, lcSharedSide{elm: elm, tp: tp, unbind: elm.UseComponent(prx)})
 	}
 	return prx, sides
 }
@@ -486,8 +486,8 @@ func TestProxy_Close(t *testing.T) {
 					}, nil
 				},
 			})
-			mwSpy := &lcCountingMW{}
-			elm.UseMiddleware(mwSpy)
+			compSpy := &lcCountingComponent{}
+			elm.UseComponent(compSpy)
 
 			// A foreign transaction owned by no proxy request must never be
 			// touched by the proxy lifecycle.
@@ -525,11 +525,11 @@ func TestProxy_Close(t *testing.T) {
 			// The borrowed element lifecycle stays untouched: the proxy
 			// close runs no element shutdown or close hooks and the element
 			// still admits work.
-			if got := mwSpy.shutdownCalls.Load(); got != 0 {
+			if got := compSpy.shutdownCalls.Load(); got != 0 {
 				t.Fatal("proxy close ran element shutdown hooks")
 			}
-			if got := mwSpy.closeCalls.Load(); got != 0 {
-				t.Fatal("proxy close closed element middleware")
+			if got := compSpy.closeCalls.Load(); got != 0 {
+				t.Fatal("proxy close closed an element component")
 			}
 			if err := elm.TrackTransport(newInternalTransp()); err != nil {
 				t.Fatalf("element unusable after proxy close: %v", err)
@@ -682,7 +682,7 @@ func TestProxy_Close(t *testing.T) {
 			}, elm)
 
 			var sawProxyClosed, sawTransportOpen atomic.Bool
-			elm.UseMiddleware(&lcProbeMW{onShutdown: func(context.Context) {
+			elm.UseComponent(&lcProbeComponent{onShutdown: func(context.Context) {
 				sawProxyClosed.Store(prx.closed.Load())
 				sawTransportOpen.Store(tp.closeCalls.Load() == 0)
 			}})
@@ -698,7 +698,7 @@ func TestProxy_Close(t *testing.T) {
 				t.Fatal("element shutdown did not route through proxy shutdown")
 			}
 			if !sawProxyClosed.Load() {
-				t.Fatal("later middleware hook observed the proxy still open")
+				t.Fatal("later component hook observed the proxy still open")
 			}
 			if !sawTransportOpen.Load() {
 				t.Fatal("transport closed before the proxy shutdown hook ran")
@@ -992,7 +992,7 @@ func TestProxy_Close(t *testing.T) {
 			rqB := admitInternalReq(t, b.elm, prx, newInternalInviteReq(sip.MagicCookie+".lc-shared-lc"))
 			synctest.Wait()
 
-			// Element A's middleware shutdown drives the whole instance:
+			// Element A's component shutdown drives the whole instance:
 			// one proxy registered on several elements has a single
 			// lifecycle and seals admission on every element.
 			if err := a.elm.Shutdown(ctx); err != nil {

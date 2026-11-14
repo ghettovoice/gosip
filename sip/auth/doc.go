@@ -9,5 +9,5 @@
 // credentials, tokens, account stores, authorization policy, and SIP
 // exchanges: an authenticator prepares credential headers or returns a
 // typed principal and never sends messages, retries exchanges, registers
-// middleware, or stores identity in context or message metadata.
+// components, or stores identity in context or message metadata.
 package auth
