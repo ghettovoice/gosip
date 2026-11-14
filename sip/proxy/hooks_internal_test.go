@@ -253,15 +253,30 @@ func TestProxy_HookWrappers(t *testing.T) {
 			},
 		}
 
-		t.Run("nil selector uses ordered groups", func(t *testing.T) {
+		t.Run("default selection uses ordered groups", func(t *testing.T) {
 			t.Parallel()
 
-			ids, err := prx.selectTargets(ctx, &Route{}, selection)
-			if err != nil {
-				t.Fatalf("prx.selectTargets() error = %v, want nil", err)
+			tests := []struct {
+				name  string
+				route *Route
+			}{
+				{name: "nil route", route: nil},
+				{name: "nil selector", route: &Route{}},
+				{name: "explicit default", route: &Route{SelectTargets: DefaultTargetSelector}},
 			}
-			if diff := cmp.Diff([]string{"a", "b"}, ids); diff != "" {
-				t.Fatalf("selected IDs (-want +got):\n%s", diff)
+
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					t.Parallel()
+
+					ids, err := prx.selectTargets(ctx, tt.route, selection)
+					if err != nil {
+						t.Fatalf("prx.selectTargets() error = %v, want nil", err)
+					}
+					if diff := cmp.Diff([]string{"a", "b"}, ids); diff != "" {
+						t.Fatalf("selected IDs (-want +got):\n%s", diff)
+					}
+				})
 			}
 		})
 
@@ -346,7 +361,10 @@ func TestProxy_HookWrappers(t *testing.T) {
 					t.Parallel()
 
 					route := &Route{
-						SelectTargets: func(context.Context, Selection) ([]string, error) {
+						SelectTargets: func(ctx context.Context, sel Selection) ([]string, error) {
+							if _, err := DefaultTargetSelector(ctx, sel); err != nil {
+								return nil, err
+							}
 							return tt.ids, nil
 						},
 					}

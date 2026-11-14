@@ -259,24 +259,24 @@ func TestProxy_ValidateRequest(t *testing.T) {
 		served := sip.MakeHostAddr("alice.example.com")
 		identity := sip.MakeHostAddr("pxy.example.net")
 
-		if prx.isSelfAddr(served, 0) {
-			t.Error("prx.isSelfAddr(served domain) = true, want false")
+		if prx.IsSelfAddr(served, 0) {
+			t.Error("prx.IsSelfAddr(served domain) = true, want false")
 		}
-		if !prx.isServedAddr(served) {
-			t.Error("prx.isServedAddr(served domain) = false, want true")
+		if !prx.IsServedAddr(served) {
+			t.Error("prx.IsServedAddr(served domain) = false, want true")
 		}
-		if !prx.isResponsibleAddr(served) {
-			t.Error("prx.isResponsibleAddr(served domain) = false, want true")
+		if !prx.IsResponsibleAddr(served) {
+			t.Error("prx.IsResponsibleAddr(served domain) = false, want true")
 		}
 
-		if !prx.isSelfAddr(identity, 0) {
-			t.Error("prx.isSelfAddr(local identity) = false, want true")
+		if !prx.IsSelfAddr(identity, 0) {
+			t.Error("prx.IsSelfAddr(local identity) = false, want true")
 		}
-		if prx.isServedAddr(identity) {
-			t.Error("prx.isServedAddr(local identity) = true, want false")
+		if prx.IsServedAddr(identity) {
+			t.Error("prx.IsServedAddr(local identity) = true, want false")
 		}
-		if !prx.isResponsibleAddr(identity) {
-			t.Error("prx.isResponsibleAddr(local identity) = false, want true")
+		if !prx.IsResponsibleAddr(identity) {
+			t.Error("prx.IsResponsibleAddr(local identity) = false, want true")
 		}
 	})
 }

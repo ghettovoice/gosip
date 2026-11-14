@@ -302,7 +302,7 @@ func (prx *Proxy) processReqStrictRouting(env *sip.RequestEnvelope, req *sip.Req
 	// the proxy MUST replace the Request-URI in the request with the last
 	// value from the Route header field, and remove that value from the
 	// Route header field.
-	if !prx.isSelfAddr(ru.Addr, env.Transport().DefaultPort) {
+	if !prx.IsSelfAddr(ru.Addr, env.Transport().DefaultPort) {
 		return
 	}
 
@@ -335,7 +335,7 @@ func (prx *Proxy) processReqURIMAddr(elm *sip.Element, env *sip.RequestEnvelope,
 	// non-default port or transport parameter and continue processing as if
 	// those values had not been present in the request.
 	maddr, ok := ru.MAddr()
-	if !ok || !maddr.IsValid() || !prx.isResponsibleAddr(maddr) {
+	if !ok || !maddr.IsValid() || !prx.IsResponsibleAddr(maddr) {
 		return
 	}
 
@@ -372,24 +372,31 @@ func (prx *Proxy) processReqFirstRoute(env *sip.RequestEnvelope, req *sip.Reques
 	}
 
 	hu, ok := hop.URI.(*sip.URI)
-	if !ok || !prx.isSelfAddr(hu.Addr, env.Transport().DefaultPort) {
+	if !ok || !prx.IsSelfAddr(hu.Addr, env.Transport().DefaultPort) {
 		return
 	}
 
 	req.Headers.PopFirstRoute()
 }
 
-// isSelfAddr reports whether the address names one of the proxy's own
-// advertised identities, for example a URI previously placed into a
-// Record-Route or Route header field value.
-func (prx *Proxy) isSelfAddr(addr sip.Addr, defPort uint16) bool {
-	return matchAddr(prx.selfAddrs, addr, defPort)
+// IsSelfAddr reports whether the address names one of the proxy's own
+// advertised identities configured through [Options.LocalIdentities], for
+// example a URI previously placed into a Record-Route or Route header field
+// value. A configured served domain is not a local routing identity; query
+// it with [Proxy.IsServedAddr] instead.
+//
+// A positive defaultPort fills a missing port on both sides of the
+// comparison; explicit ports remain authoritative. A zero defaultPort
+// ignores ports entirely.
+func (prx *Proxy) IsSelfAddr(addr sip.Addr, defaultPort uint16) bool {
+	return matchAddr(prx.selfAddrs, addr, defaultPort)
 }
 
-// isResponsibleAddr reports whether the address is one the proxy is
-// responsible for: either its own identity or a configured served domain.
-func (prx *Proxy) isResponsibleAddr(addr sip.Addr) bool {
-	return prx.isSelfAddr(addr, 0) || prx.isServedAddr(addr)
+// IsResponsibleAddr reports whether the address is one the proxy is
+// responsible for: either its own identity ([Proxy.IsSelfAddr]) or a
+// configured served domain ([Proxy.IsServedAddr]). Ports are ignored.
+func (prx *Proxy) IsResponsibleAddr(addr sip.Addr) bool {
+	return prx.IsSelfAddr(addr, 0) || prx.IsServedAddr(addr)
 }
 
 func matchAddr(addrs []sip.Addr, addr sip.Addr, defPort uint16) bool {

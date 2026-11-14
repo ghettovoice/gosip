@@ -291,3 +291,70 @@ func TestProxy_Configuration(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultTargetSelector(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		groups [][]proxy.Target
+		want   []string
+	}{
+		{name: "no groups"},
+		{name: "empty groups", groups: [][]proxy.Target{}},
+		{name: "nil first group", groups: [][]proxy.Target{nil, {{ID: "later"}}}},
+		{name: "empty first group", groups: [][]proxy.Target{{}, {{ID: "later"}}}},
+		{
+			name:   "first group only in original order",
+			groups: [][]proxy.Target{{{ID: "b"}, {ID: "a"}}, {{ID: "later"}}},
+			want:   []string{"b", "a"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := proxy.DefaultTargetSelector(
+				t.Context(),
+				proxy.Selection{RemainingGroups: tt.groups},
+			)
+			if err != nil {
+				t.Fatalf("proxy.DefaultTargetSelector() error = %v, want nil", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Fatalf("selected IDs (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	t.Run("result is independent of input", func(t *testing.T) {
+		t.Parallel()
+
+		groups := [][]proxy.Target{{{ID: "b"}, {ID: "a"}}, {{ID: "later"}}}
+		wantGroups := [][]proxy.Target{{{ID: "b"}, {ID: "a"}}, {{ID: "later"}}}
+
+		got, err := proxy.DefaultTargetSelector(
+			t.Context(),
+			proxy.Selection{RemainingGroups: groups},
+		)
+		if err != nil {
+			t.Fatalf("proxy.DefaultTargetSelector() error = %v, want nil", err)
+		}
+		got[0] = "mutated"
+
+		again, err := proxy.DefaultTargetSelector(
+			t.Context(),
+			proxy.Selection{RemainingGroups: groups},
+		)
+		if err != nil {
+			t.Fatalf("proxy.DefaultTargetSelector() error = %v, want nil", err)
+		}
+		if diff := cmp.Diff([]string{"b", "a"}, again); diff != "" {
+			t.Fatalf("re-selected IDs (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(wantGroups, groups); diff != "" {
+			t.Fatalf("input groups mutated (-want +got):\n%s", diff)
+		}
+	})
+}

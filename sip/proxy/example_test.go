@@ -111,6 +111,51 @@ func ExampleRoute_finalResponseResolver() {
 	// 1
 }
 
+// ExampleRoute_targetSelector composes a custom target-selection policy on
+// top of the default: while attempts are active it offers only the first ID
+// of the offered group, otherwise it delegates to the default first-group
+// policy.
+//
+// Calling the hook directly demonstrates the policy only: the coordinator
+// supplies at most one open group per selection and validates the returned
+// IDs against unstarted, unfinished targets.
+func ExampleRoute_targetSelector() {
+	route := proxy.Route{
+		SelectTargets: func(ctx context.Context, selection proxy.Selection) ([]string, error) {
+			if len(selection.ActiveTargetIDs) > 0 &&
+				len(selection.RemainingGroups) > 0 &&
+				len(selection.RemainingGroups[0]) > 0 {
+				return []string{selection.RemainingGroups[0][0].ID}, nil
+			}
+			return proxy.DefaultTargetSelector(ctx, selection)
+		},
+	}
+
+	// This runnable example calls the field directly, without starting a proxy.
+	ids, err := route.SelectTargets(context.Background(), proxy.Selection{
+		RemainingGroups: [][]proxy.Target{{{ID: "a"}, {ID: "b"}}},
+	})
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(ids)
+
+	ids, err = route.SelectTargets(context.Background(), proxy.Selection{
+		RemainingGroups: [][]proxy.Target{{{ID: "a"}, {ID: "b"}}},
+		ActiveTargetIDs: []string{"running"},
+	})
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(ids)
+
+	// Output:
+	// [a b]
+	// [a]
+}
+
 // ExampleNew configures a proxy with a single route that claims every
 // request addressed to a served domain and resolves a static literal-IP
 // target plan. sip.ServerTransactionOptions stay at their zero value, so the

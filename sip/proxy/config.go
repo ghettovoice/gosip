@@ -114,9 +114,10 @@ type Route struct {
 	// invariant checks and Via insertion.
 	AdjustOutboundRequest func(context.Context, *sip.RequestEnvelope, *sip.RequestEnvelope, Target) error
 	// SelectTargets optionally chooses the unstarted target IDs to attempt
-	// next. A nil selector uses the ordered plan groups. Returned IDs must
-	// name unstarted targets exactly once. An empty result waits while
-	// attempts are active and declines the remaining targets otherwise.
+	// next. A nil selector delegates to [DefaultTargetSelector]: the first
+	// remaining plan group is the next selection. Returned IDs must name
+	// unstarted targets exactly once. An empty result waits while attempts
+	// are active and declines the remaining targets otherwise.
 	SelectTargets func(context.Context, Selection) ([]string, error)
 	// ResolveFinalResponse optionally selects an original arrival-order index
 	// from detached negative final candidates once every target settles.
@@ -521,7 +522,7 @@ func (prx *Proxy) resolveTargets(
 		// not responsible for, the Request-URI MUST be placed into the target
 		// set as the only target, and the element MUST proceed to the task of
 		// Request Forwarding (Section 16.6).
-		if !prx.isResponsibleAddr(ru.Addr) {
+		if !prx.IsResponsibleAddr(ru.Addr) {
 			//nolint:forcetypeassert // the concrete type is fixed by construction
 			plan = TargetPlan{Groups: [][]Target{
 				{{URI: ru.Clone().(*sip.URI)}},
@@ -568,30 +569,46 @@ func (prx *Proxy) resolveTargets(
 	return cloned, nil
 }
 
+// DefaultTargetSelector implements the default [Route.SelectTargets] policy:
+// it returns the IDs of the first remaining plan group in order, or nil when
+// the first group is missing or empty.
+//
+// The context is accepted for callback compatibility with
+// [Route.SelectTargets] and is not inspected. The selection's read-only
+// inputs are not mutated, and the returned slice is independent of them.
+//
+// This is only the selection policy: it performs no unknown, active, or
+// completed target validation. Inside the proxy a configured hook's result
+// is still validated against the unstarted targets; a direct caller of this
+// helper supplies its own inputs and receives no such checks.
+func DefaultTargetSelector(_ context.Context, selection Selection) ([]string, error) {
+	var ids []string
+	if len(selection.RemainingGroups) > 0 {
+		for _, trgt := range selection.RemainingGroups[0] {
+			ids = append(ids, trgt.ID)
+		}
+	}
+	return ids, nil
+}
+
 // selectTargets runs the route's target-selection hook and validates its
 // result against the unstarted targets.
 //
-// A nil selector uses the ordered plan groups: the first remaining group is
-// the next selection. A configured hook must return unstarted target IDs
-// with no duplicates; unknown, already-started, finished, and repeated IDs
-// are rejected, so a hook cannot resurrect a finished target. An empty
-// result is legal: with active targets it means wait for their progress,
-// without them it declines the remaining targets and completes selection.
-// The caller distinguishes the two cases through
-// [Selection.ActiveTargetIDs].
+// A nil selector delegates to [DefaultTargetSelector]: the first
+// remaining group is the next selection.
+// A configured hook must return unstarted target IDs with no duplicates;
+// unknown, already-started, finished, and repeated IDs are rejected, so a
+// hook cannot resurrect a finished target. An empty result is legal: with
+// active targets it means wait for their progress, without them it declines
+// the remaining targets and completes selection. The caller distinguishes
+// the two cases through [Selection.ActiveTargetIDs].
 func (*Proxy) selectTargets(
 	ctx context.Context,
 	route *Route,
 	selection Selection,
 ) ([]string, error) {
 	if route == nil || route.SelectTargets == nil {
-		var ids []string
-		if len(selection.RemainingGroups) > 0 {
-			for _, trgt := range selection.RemainingGroups[0] {
-				ids = append(ids, trgt.ID)
-			}
-		}
-		return ids, nil
+		return errors.Wrap2(DefaultTargetSelector(ctx, selection))
 	}
 
 	ids, err := route.SelectTargets(ctx, selection)

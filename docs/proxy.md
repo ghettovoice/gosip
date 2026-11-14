@@ -175,7 +175,7 @@ All hooks are optional; a nil hook selects the documented default.
 | `AuthorizeRequest` | Forwarding is allowed. | Authorizes the inbound request; returning `sip.RequestRejectedError` produces the carried SIP rejection. |
 | `PreprocessRoute` | Standard routing preprocessing is unchanged. | Inspects or rewrites routing information on an owned working copy. Cannot bypass local-identity, security, or loop rules. |
 | `AdjustOutboundRequest` | The outbound copy is used as constructed. | Customizes one outbound branch copy before final invariant checks and Via insertion. |
-| `SelectTargets` | The first remaining plan group is the next selection. | Chooses the unstarted target IDs to attempt next; returned IDs must name unstarted targets exactly once. |
+| `SelectTargets` | `proxy.DefaultTargetSelector` returns the first remaining plan group (see [ExampleRoute_targetSelector](../sip/proxy/example_test.go)). | Chooses the unstarted target IDs to attempt next; returned IDs must name unstarted targets exactly once. |
 | `ResolveFinalResponse` | `proxy.DefaultFinalResponseResolver` ranks the candidates. | Selects an original arrival-order index from eligible negative finals after every target settles; see the contract below. |
 
 Authorization, route preprocessing, and logical target resolution belong
@@ -395,6 +395,28 @@ of all values after `proxy.New` returns.
 | `RecordRouteURI` | Supplies the advertised Record-Route URI for a forwarded request; nil selects a configured local identity. |
 | `ResolveDelivery` | Binds a custom delivery reference to an existing transport resource; nil accepts only ordinary next-hop delivery. |
 | `ResolveStatelessDestination` | Resolves an application-guaranteed stable stateless destination for a target. |
+
+### Address predicates
+
+Three methods expose the configured address classification for applications
+that compose proxy behavior:
+
+```go
+func (prx *Proxy) IsSelfAddr(addr sip.Addr, defaultPort uint16) bool
+func (prx *Proxy) IsServedAddr(addr sip.Addr) bool
+func (prx *Proxy) IsResponsibleAddr(addr sip.Addr) bool
+```
+
+| Predicate | Addresses consulted | Port semantics |
+| --- | --- | --- |
+| `IsSelfAddr` | `LocalIdentities` — the proxy's own routing identities used for self-route recognition and Record-Route. | A positive `defaultPort` fills a missing port on both sides; explicit ports remain authoritative. Zero ignores ports. |
+| `IsServedAddr` | `ServedDomains` — domains the location service is responsible for. | Always ignored. |
+| `IsResponsibleAddr` | The union of both sets. | Always ignored. |
+
+A served domain is not a local routing identity: `IsSelfAddr` answers only
+for configured identities, while `IsServedAddr` answers only for served
+domains. These checks classify configured addresses; they do not
+authenticate peers and do not establish Via sent-by ownership (see below).
 
 ### Local Via ownership and loop detection
 

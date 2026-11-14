@@ -199,9 +199,11 @@ func (prx *Proxy) consumeLocRouting(elm *sip.Element, out *sip.RequestEnvelope) 
 	})
 }
 
-// isServedAddr reports whether the address names a domain the proxy's
-// location service is responsible for. A served domain authorizes a location
-// lookup; it is not one of the proxy's owned routing identities.
-func (prx *Proxy) isServedAddr(addr sip.Addr) bool {
+// IsServedAddr reports whether the address names a domain the proxy's
+// location service is responsible for, configured through
+// [Options.ServedDomains]. A served domain authorizes a location lookup; it
+// is not one of the proxy's owned routing identities; query those with
+// [Proxy.IsSelfAddr] instead. Ports are ignored.
+func (prx *Proxy) IsServedAddr(addr sip.Addr) bool {
 	return matchAddr(prx.domainAddrs, addr, 0)
 }
