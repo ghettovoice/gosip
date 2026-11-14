@@ -159,6 +159,27 @@ func assertLogRec(tb testing.TB, e logRec, level string, want proxy.Metadata) {
 	}
 }
 
+// assertRouteResolvedRec asserts the route-resolution record: severity
+// DEBUG, the claiming route logs through the proxy_route attribute, and
+// the inbound envelope is attached. The record carries no proxy group —
+// the claim stamp itself lives on the envelope, not on the line.
+func assertRouteResolvedRec(tb testing.TB, e logRec, routeName string) {
+	tb.Helper()
+
+	if got := e.rec["level"]; got != "DEBUG" {
+		tb.Errorf("log level = %v, want %q", got, "DEBUG")
+	}
+	if got := e.rec["proxy_route"]; got != routeName {
+		tb.Errorf("proxy_route = %v, want %q", got, routeName)
+	}
+	if _, ok := e.rec["inbound_request"]; !ok {
+		tb.Errorf("log record has no inbound_request group: %s", e.line)
+	}
+	if _, ok := e.rec["proxy"]; ok {
+		tb.Errorf("log record carries a proxy group, want none: %s", e.line)
+	}
+}
+
 // mustLogRec returns the single record carrying msg: existing
 // messages stay one-shot at their log site.
 func mustLogRec(tb testing.TB, recs []logRec, msg string) logRec {
@@ -267,13 +288,13 @@ func TestProxy_MetadataLogs(t *testing.T) {
 			intercept(t, ctx, elm, prx, req)
 			synctest.Wait()
 
-			want := mustClaimMD(t, req)
+			mustClaimMD(t, req)
 			recs := logRecords(t, sink)
 
 			resolved := mustLogRec(t, recs, "proxy route resolved")
-			assertLogRec(t, resolved, "DEBUG", want)
-			if got := countLogPrxRecs(recs); got != 1 {
-				t.Fatalf("records carrying a proxy group = %d, want 1", got)
+			assertRouteResolvedRec(t, resolved, "log-claim")
+			if got := countLogPrxRecs(recs); got != 0 {
+				t.Fatalf("records carrying a proxy group = %d, want 0", got)
 			}
 		})
 	})
@@ -314,13 +335,13 @@ func TestProxy_MetadataLogs(t *testing.T) {
 			recs := logRecords(t, sink)
 
 			resolved := mustLogRec(t, recs, "proxy route resolved")
-			assertLogRec(t, resolved, "DEBUG", claim)
+			assertRouteResolvedRec(t, resolved, "log-selection")
 
 			failed := mustLogRec(t, recs, "proxy target selection failed")
 			assertLogRec(t, failed, "WARN", wantFwd)
 
-			if got := countLogPrxRecs(recs); got != 2 {
-				t.Fatalf("records carrying a proxy group = %d, want 2", got)
+			if got := countLogPrxRecs(recs); got != 1 {
+				t.Fatalf("records carrying a proxy group = %d, want 1", got)
 			}
 			// The abandoned request answers upstream with a mapped 500.
 			if got := len(drainRess(tp)); got != 1 {
@@ -396,7 +417,7 @@ func TestProxy_MetadataLogs(t *testing.T) {
 			recs := logRecords(t, sink)
 
 			resolved := mustLogRec(t, recs, "proxy route resolved")
-			assertLogRec(t, resolved, "DEBUG", mustClaimMD(t, req))
+			assertRouteResolvedRec(t, resolved, "log-upstream")
 
 			// The failed provisional send keeps the owning attempt's
 			// correlation; the failed committed final is answered without a
@@ -419,8 +440,8 @@ func TestProxy_MetadataLogs(t *testing.T) {
 				Stage:     proxy.StageUpstream,
 			})
 
-			if got := countLogPrxRecs(recs); got != 3 {
-				t.Fatalf("records carrying a proxy group = %d, want 3", got)
+			if got := countLogPrxRecs(recs); got != 2 {
+				t.Fatalf("records carrying a proxy group = %d, want 2", got)
 			}
 		})
 	})
@@ -458,13 +479,13 @@ func TestProxy_MetadataLogs(t *testing.T) {
 			recs := logRecords(t, sink)
 
 			resolved := mustLogRec(t, recs, "proxy route resolved")
-			assertLogRec(t, resolved, "DEBUG", want)
+			assertRouteResolvedRec(t, resolved, "log-panic")
 
 			panicked := mustLogRec(t, recs, "panic occurred in proxy request drain")
 			assertLogRec(t, panicked, "ERROR", want)
 
-			if got := countLogPrxRecs(recs); got != 2 {
-				t.Fatalf("records carrying a proxy group = %d, want 2", got)
+			if got := countLogPrxRecs(recs); got != 1 {
+				t.Fatalf("records carrying a proxy group = %d, want 1", got)
 			}
 		})
 	})

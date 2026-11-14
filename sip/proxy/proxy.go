@@ -183,11 +183,10 @@ func (prx *Proxy) InterceptInboundRequest(
 	}
 	stampClaim(req, md)
 
-	prx.logger(ctx).With(
+	prx.logger(ctx).DebugContext(ctx, "proxy route resolved",
 		slog.Any("inbound_request", req),
 		slog.Any("proxy_route", route),
-		slog.Any("proxy", md),
-	).DebugContext(ctx, "proxy route resolved")
+	)
 
 	// For all new inbound requests, including any with unknown methods,
 	// an element intending to proxy the request MUST:
