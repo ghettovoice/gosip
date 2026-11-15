@@ -51,7 +51,7 @@ These recur throughout the code and explain most API shapes:
 
 ## 3. Repository layout
 
-```
+```text
 github.com/ghettovoice/gosip
 ├── doc.go, gosip.go          # root package: TODO doc, Version const only
 ├── uri/                      # SIP/SIPS/TEL/generic URIs (RFC 3261 §19, RFC 3966)
@@ -80,7 +80,7 @@ github.com/ghettovoice/gosip
 
 Dependency direction (arrows mean "imports"):
 
-```
+```text
 uri ──► internal/{shared, grammar, ...}
 
 sip ──► uri, sip/header, pkg/{dns, errclass, log}, internal/*
@@ -99,7 +99,7 @@ nor `sip/stats`.
 
 Conceptual layers, bottom-up:
 
-```
+```text
 ┌───────────────────────────────────────────────────────────────┐
 │ application / extension components (sip/proxy, sip/stats, ...) │
 ├───────────────────────────────────────────────────────────────┤
@@ -133,7 +133,7 @@ the `TransactionManager` (message matcher) first, the `Element` itself second,
 then every user component in `UseComponent` order. So the effective
 pipelines are:
 
-```
+```text
 inbound request:   txm ─► element ─► component1 ─► component2 ─► ... ─► final receiver
 outbound request:   ... ─► component2 ─► component1 ─► element ─► txm ─► transport write
 ```
@@ -143,7 +143,7 @@ A component that "claims" a message (e.g. proxy forwarding) stops calling
 
 ### 4.2 Inbound request flow
 
-```
+```text
 socket (net.PacketConn | net.Conn)
   │  sip/transport: read, frame by Content-Length, parse via sip.Parser,
   │  fill RequestEnvelope {transport, local addr, remote addr}
@@ -172,7 +172,7 @@ destination per RFC 3261 §18.2.2 / RFC 3263 §5 (symmetric response routing,
 
 ### 4.3 Outbound request flow (stateful)
 
-```
+```text
 application
   │ Element.SendRequestStateful                       (sip/element.go)
   │   1. ResolveRequestTarget (request-URI → target URI)
