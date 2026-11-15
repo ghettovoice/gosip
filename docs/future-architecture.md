@@ -8,16 +8,17 @@ implementation plan.
 
 For the architecture as it exists today see
 [architecture.md](architecture.md); the proxy component has its own guide
-in [proxy.md](proxy.md) and the authentication contracts in
+in [proxy.md](proxy.md), the redirector in
+[redirector.md](redirector.md), and the authentication contracts in
 [authentication.md](authentication.md).
 
 Status of the pieces discussed below:
 
-- **Exists today**: `sip/proxy`, `sip/stats`, `sip/auth`, and the
-  `sip.ClientAuthenticator` / `sip.ServerAuthenticator[P]` contracts.
-- **Future work**: `UserAgent`, `Redirector`, `Registrar`, and an explicit
-  forwarding entry on the proxy (`ForwardRequest`). None of these are
-  implemented.
+- **Exists today**: `sip/proxy`, `sip/redirector`, `sip/stats`, `sip/auth`,
+  and the `sip.ClientAuthenticator` / `sip.ServerAuthenticator[P]`
+  contracts.
+- **Future work**: `UserAgent`, `Registrar`, and an explicit forwarding
+  entry on the proxy (`ForwardRequest`). None of these are implemented.
 - `Registrar` is recorded only as an unexplored future feature; it has not
   been designed or discussed beyond its name.
 - **Agreed framework direction**: gosip is intended to be a composable SIP
@@ -172,7 +173,9 @@ start.
 
 ## 4. Redirector
 
-A `Redirector` would be a small, independent SIP redirect server component:
+Implemented today as the `sip/redirector` package (`sip/redirector/`,
+user guide [redirector.md](redirector.md)): a small, independent SIP
+redirect server component:
 
 ```text
 inbound request -> match -> authorize -> resolve contacts -> 3xx response
@@ -182,18 +185,19 @@ It answers with redirection instead of forwarding: it does not follow
 remote redirects itself, and it is not "a proxy with sending disabled";
 there are no downstream client branches at all.
 
-Desired properties:
+Properties of the shipped component:
 
-- contacts in the response may carry `q` values and `expires` parameters;
-- 300, 301, and 302 have distinct semantics; supported statuses, defaults,
-  and whether selection is configured or per-request remain open;
-- server transaction behavior, retransmissions, and ACK/CANCEL handling
-  must remain correct under the existing transaction layer.
+- contacts in the response may carry `q` values and `expires` parameters
+  and are carried verbatim in resolved order;
+- 300, 301, and 302 keep their distinct semantics; the default is the
+  constant 302, and an optional per-request `SelectStatus` callback
+  selects from the request plus the resolved contacts;
+- server transaction behavior, retransmission absorption, and ACK/CANCEL
+  handling — including the late-CANCEL 481 — are provided by the existing
+  transaction layer.
 
-Open: the exact callback shape for contact resolution, and the mapping of
-policy failures to status codes and error values. No public
-`RedirectRequest`-style explicit entry has been designed, and none is
-obligatory.
+Still open: no public `RedirectRequest`-style explicit entry has been
+designed, and none is obligatory.
 
 ## 5. Registrar
 

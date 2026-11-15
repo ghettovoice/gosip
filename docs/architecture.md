@@ -30,8 +30,9 @@ These recur throughout the code and explain most API shapes:
   all operations go through element methods or component hooks.
 - **Components over inheritance.** Extensions attach via
   `Element.UseComponent` and implement optional interceptor/handler
-  interfaces; the core never depends on extensions (`sip/proxy` and
-  `sip/stats` depend on `sip`, not the other way around).
+  interfaces; the core never depends on extensions (`sip/proxy`,
+  `sip/redirector`, and `sip/stats` depend on `sip`, not the other way
+  around).
 - **Explicit lifecycle with admission control.** `Start`/`Shutdown`/`Close`
   are one-shot; operations and callbacks are admitted through WaitGroups so
   closing never races in-flight work.
@@ -58,6 +59,7 @@ github.com/ghettovoice/gosip
 │   ├── header/               # typed SIP header implementations
 │   ├── transport/            # transport implementations (conn-oriented / conn-less)
 │   ├── proxy/                # proxy component (route-based forwarding)
+│   ├── redirector/           # redirect server component (3xx answering)
 │   └── stats/                # statistics recorder component
 ├── pkg/                      # public support packages (importable by users)
 │   ├── dns/                  # RFC 3263 resolver (SRV/NAPTR/A/AAAA) + opt-in cache
@@ -72,7 +74,7 @@ github.com/ghettovoice/gosip
 │   ├── netutil/              # conn decorators (logging/deadline/keepalive), HostIP
 │   ├── ioutil/ util/ testutil/
 ├── openspec/                 # spec-driven workflow: specs/ + changes/archive/
-├── docs/                     # proxy.md, this file, superpowers plans
+├── docs/                     # proxy.md, redirector.md, authentication.md, this file, superpowers plans
 └── Taskfile.yml              # task runner (test, lint, cover, ...)
 ```
 
@@ -84,12 +86,14 @@ uri ──► internal/{shared, grammar, ...}
 sip ──► uri, sip/header, pkg/{dns, errclass, log}, internal/*
 sip/transport ──► sip, pkg/dns, internal/*
 sip/proxy   ──► sip, pkg/log, internal/*
+sip/redirector ──► sip, pkg/log, internal/*
 sip/stats   ──► sip, sip/proxy
 
 pkg/dns     ──► internal/* (standalone otherwise)
 ```
 
-The core `sip` package imports neither `sip/proxy` nor `sip/stats`.
+The core `sip` package imports neither `sip/proxy`, `sip/redirector`,
+nor `sip/stats`.
 
 ## 4. Layered model and message flow
 
@@ -151,7 +155,8 @@ TransportManager inbound-request interceptors
   │    • if a downstream receiver produced a RequestRejectedError and a
   │      server transaction was created, responds statefully through it
   ├─ Element.InterceptInboundRequest                  (context injection)
-  ├─ user components (proxy claims matching routes, stats counts, ...)
+  ├─ user components (proxy claims matching routes, redirector answers
+  │    matched requests, stats counts, ...)
   ▼
 final receiver: unhandled request → 503 Service Unavailable (transport level)
 ```
@@ -392,14 +397,36 @@ forwarding them in **stateful** (default) or **stateless** mode.
 - Lifecycle: `Proxy.Shutdown` seals admission and retires owned work across
   all elements; unbind detaches one element only.
 
-### 6.2 `sip/stats` (`sip/stats/`)
+### 6.2 `sip/redirector` (`sip/redirector/`, user guide `docs/redirector.md`)
+
+An inbound component claiming requests that match configured routes and
+answering them with redirection instead of forwarding: a 3xx response
+carrying the route's resolved contacts, or a failure response.
+
+- `New(routes, opts)` is pure: validates and copies config, binds nothing;
+  registration is an explicit `elm.UseComponent(rdr)`; one stateless
+  instance may serve several elements — the processing element is resolved
+  per request from the interception context.
+- Per-route `MatchRequest`, `AuthorizeRequest`, `ResolveContacts`, and
+  `SelectStatus` callbacks; constant status default 302, supported set
+  {300, 301, 302}.
+- Policy failures map to responses: authorization 403, no contacts 404,
+  resolver error or invalid selected status 500, matched CANCEL 481; ACK
+  is never claimed.
+- Responses go through `Element.RespondStateful`, so retransmission
+  absorption and non-2xx ACK confirmation come from the existing
+  transaction layer.
+- Lifecycle: `Close` is a one-shot `io.Closer` that seals claiming on all
+  elements at once; there is no `Shutdown` hook or request state to drain.
+
+### 6.3 `sip/stats` (`sip/stats/`)
 
 `Recorder` implements the element component and transaction-handler
 interfaces of the core plus the proxy event-handler contract; `Report()`
 returns a JSON-serializable report with Transports, Transactions, and Proxy
 counter sections.
 
-### 6.3 `sip/auth` (`sip/auth/`)
+### 6.4 `sip/auth` (`sip/auth/`)
 
 Optional basic authentication mechanisms (Digest, Bearer) built on the
 consumer-owned `sip.ClientAuthenticator` and `sip.ServerAuthenticator[P]`
