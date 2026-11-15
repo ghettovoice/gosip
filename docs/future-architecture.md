@@ -20,6 +20,16 @@ Status of the pieces discussed below:
   implemented.
 - `Registrar` is recorded only as an unexplored future feature; it has not
   been designed or discussed beyond its name.
+- **Agreed framework direction**: gosip is intended to be a composable SIP
+  framework, not a fixed stack. Public integration contracts should let
+  end users supply their own implementations, including from external Go
+  modules, without forking gosip. No such contract is finalized here.
+- **Agreed sequencing**: the main components (`UserAgent`, `Registrar`,
+  and peers) are developed **before** SIP extensions; extensions stay in
+  view now only to avoid architectural dead ends, not to start
+  implementation. The first future extension group is 100rel, Path,
+  outbound, and Replaces (see section 8); ordering within the group and
+  among component slices is undecided.
 
 ## 1. Shared boundaries and terminology
 
@@ -154,14 +164,17 @@ CANCEL, dialog state) is not optional and must work without them.
   policies, not the same feature.
 
 The whole UA is not a prerequisite for useful work: vertical slices (for
-example REGISTER-only or MESSAGE-only) are viable. The build order is not
-decided.
+example REGISTER-only or MESSAGE-only) are viable, and their order remains
+open. Per the agreed sequencing, main components come before SIP
+extensions; that means extensions are not immediate implementation
+pilots, not that every UA feature must exist before extension work may
+start.
 
 ## 4. Redirector
 
 A `Redirector` would be a small, independent SIP redirect server component:
 
-```
+```text
 inbound request -> match -> authorize -> resolve contacts -> 3xx response
 ```
 
@@ -226,7 +239,125 @@ is not a proxy mode and is not an agreed near-term feature.
 Dialog and session state abstractions are part of the UA design space; they
 are not automatically separate components registered on an element.
 
-## 7. Open next design decisions
+## 7. Framework and public integration contracts
+
+gosip aims to be a composable SIP framework, not a fixed stack. Public
+contracts should distinguish two surfaces:
+
+- **application API**: the operations and options an application calls;
+- **integration SPI** (service-provider interface): the contracts a
+  consumer implements to supply or replace framework behavior, such as
+  custom transports, resolvers, authenticators, or policy objects.
+
+The rule of thumb from the discussion: core and built-in implementations
+should be written against the same public capabilities an external
+consumer gets; implementing an equivalent feature must not require
+privileged access to private or internal APIs. Existing seams -- the
+transport interfaces, transaction factories,
+`sip.ClientAuthenticator` / `sip.ServerAuthenticator[P]`, and the
+`Element` component model -- are examples of this shape, not a complete
+solution.
+
+Two integration mechanisms are expected, at host level:
+
+- **supplement**: add behavior through typed hooks, policies, or stateful
+  protocol handlers;
+- **replace**: substitute a mechanism through an explicit strategy,
+  factory, or service interface.
+
+Replacement should not be forced through clever interception chains or a
+universal event bus. Interfaces stay consumer-owned in their host layers
+(element, component, registrar, ...): optional implementation packages
+depend on the host or core, and hosts never import concrete
+implementations. Exact package and interface boundaries are undecided.
+
+A SIP extension is a protocol feature and may span several role adapters
+(UA, registrar, proxy, transport); it is not necessarily one
+`ElementComponent` or one middleware, and there should be no giant
+mandatory all-roles interface. Typed host-level integration lets a state
+owner offer read-only views or events plus explicit actions, instead of
+exporting mutable internal fields or offering only after-the-fact
+observation.
+
+Any integration contract must define, at minimum:
+
+- state scope: element, component, operation, dialog, registration, or
+  flow;
+- ownership and concurrency/serialization guarantees;
+- callback reentrancy, deadlines, and cancellation;
+- timers, deterministic execution order, and cleanup/drain behavior.
+
+An optional feature does not promise live attach/detach while stateful
+work is in flight. Third-party implementability -- an external module can
+realize an equivalent feature -- is the eventual validation criterion for
+these contracts. There is no implementation or test plan yet, and the
+goal excludes a generic plugin or DI framework and speculative hooks for
+every RFC.
+
+## 8. SIP extensions (future work)
+
+Extensions come after the main components (see the status notes). The
+first future group, in no committed order:
+
+| Extension | RFC | Primary hosts | Scope notes |
+| --- | --- | --- | --- |
+| 100rel | [RFC 3262](https://www.rfc-editor.org/rfc/rfc3262) | UA (INVITE operations) | reliable 1xx (except 100 Trying); PRACK transactions; RSeq/RAck state; timers; early-dialog and offer-answer interaction |
+| Path | [RFC 3327](https://www.rfc-editor.org/rfc/rfc3327) | Registrar, proxies | registrar stores the path with the binding; proxies on the registration path collect it; the home proxy routes along it |
+| outbound | [RFC 5626](https://www.rfc-editor.org/rfc/rfc5626) | UA, Registrar, edge proxy, transport | UA flow registration and recovery; registrar instance-id/reg-id bindings; edge-proxy token and exact-flow routing; transport keepalive and liveness |
+| Replaces | [RFC 3891](https://www.rfc-editor.org/rfc/rfc3891) | UA | match an existing INVITE-created dialog and coordinate authorized replacement by a new INVITE |
+
+100rel and outbound carry the highest importance in this group. Later
+candidates are recorded, not scheduled: tdialog
+([RFC 4538](https://www.rfc-editor.org/rfc/rfc4538)) -- target-dialog
+knowledge used to authorize a new dialog-creating request outside that
+dialog (it is not replacement, and proxy behavior is unchanged); GRUU
+([RFC 5627](https://www.rfc-editor.org/rfc/rfc5627)) -- a UA obtaining and
+using a globally routable URI, the registrar issuing it, and the
+location/proxy path resolving the instance-specific target.
+
+Guardrails from the discussion:
+
+- **100rel** is UA-level protocol state, not just adding headers and not
+  necessarily a replacement for the base transaction FSMs: reliable
+  provisional responses exclude 100 Trying, and PRACK runs its own
+  transaction.
+- **Replaces** matches on Call-ID and tags, needs early vs confirmed
+  handling (including the early-only case), authorization (the
+  identifiers alone are not permission), and coordination between
+  accepting the new INVITE and tearing down the old dialog; failure to
+  accept the new INVITE must leave the old dialog unchanged. Replaces
+  alone is not attended transfer -- REFER/NOTIFY are separate work.
+- **Path** is independently useful: it applies to registration routing,
+  not per-dialog Record-Route and not the UA's outbound Service-Route. It
+  is an important foundation for the server side of outbound topologies
+  with edge proxies, not a blanket mandatory local dependency -- an
+  outbound UA may register with a remote registrar/edge proxy.
+- **outbound** needs neutral flow mechanisms that may live in the
+  transport runtime, with the outbound protocol policy optional outside
+  it: live flow identity and lifecycle, exact-flow delivery, and
+  keepalive plumbing -- not just an address tuple or a SIP message
+  interceptor. Selecting a dead existing flow must not silently open a
+  replacement connection under the same flow identity. There is no final
+  flow interface design.
+- **Capabilities** must distinguish four things: an implementation being
+  attached/available, the local enabled policy, the role- and
+  message-appropriate Supported/Require/Proxy-Require advertisement, and
+  the actual negotiated per-operation/per-dialog use. Aggregated
+  `Element` option tags alone are insufficient when several roles
+  coexist -- a globally enabled 100rel implementation must not be
+  advertised as proxy feature support. Local dependency and
+  configuration validation are separate from remote negotiation:
+  advertise only behavior that is both supported and configured.
+
+Optional dependency sketch (illustrative, no implementation ordering
+mandate within the group):
+
+- the UA/dialog foundation serves 100rel and Replaces;
+- registrar/location bindings plus proxy routing serve Path;
+- Path, the transport flow runtime, and UA registration inform outbound
+  (edge-proxy topologies are conditional).
+
+## 9. Open next design decisions
 
 The next round of discussion should settle, in no particular order:
 
@@ -237,12 +368,17 @@ The next round of discussion should settle, in no particular order:
   entries such as `ForwardRequest`;
 - dispatch: how inbound messages are routed between coexisting components;
 - session scope: where dialog/session state lives inside the UA and who may
-  touch it.
+  touch it;
+- SPI stability: versioning and compatibility expectations for the
+  integration contracts;
+- minimum host contracts: the smallest interface surface each host must
+  offer, and safe composition plus capability negotiation when several
+  roles coexist.
 
 Composition sketch (illustrative only, not settled ownership
 relationships):
 
-```
+```text
             +--------------------------------------------------+
             |          Element (transports, transactions)      |
             +--------------------------------------------------+
