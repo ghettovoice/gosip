@@ -351,6 +351,11 @@ the element in the context. Registration order is significant (see §4.1).
 Unbind is idempotent; after closing began it is a no-op because shutdown
 retains ownership.
 
+`sip.SoftwareIdentity` is the core opt-in component example: an outbound
+interceptor stamping configured `User-Agent`/`Server` headers on endpoint
+messages, skipping forwarded envelopes; registration is
+`elm.UseComponent(sip.SoftwareIdentity{UserAgent: ..., Server: ...})`.
+
 ### 5.7 Context propagation (`sip/context.go`)
 
 Three context keys carry the current `Element`, `Transport`, and
