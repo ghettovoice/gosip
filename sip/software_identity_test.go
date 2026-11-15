@@ -112,10 +112,10 @@ func TestSoftwareIdentity_InterceptOutboundRequest(t *testing.T) {
 			opts := []sip.SendRequestOptions{{LookupOptions: sip.LookupMessageAddrsOptions{StableDNSRecordsOrder: true}}}
 			err := tt.identity.InterceptOutboundRequest(ctx, next, env, opts...)
 			if err != nil {
-				t.Fatalf("InterceptOutboundRequest() error = %v, want nil", err)
+				t.Fatalf("ident.InterceptOutboundRequest() error = %v, want nil", err)
 			}
 			if !nextCalled {
-				t.Fatal("InterceptOutboundRequest() did not call next, want call")
+				t.Fatal("ident.InterceptOutboundRequest() did not call next, want call")
 			}
 			if diff := cmp.Diff(opts, nextOpts); diff != "" {
 				t.Errorf("next options mismatch (-want +got):\n%s", diff)
@@ -141,7 +141,7 @@ func TestSoftwareIdentity_InterceptOutboundRequest_SenderError(t *testing.T) {
 
 	err := id.InterceptOutboundRequest(t.Context(), next, env)
 	if !stderrs.Is(err, errSenderFailed) {
-		t.Fatalf("InterceptOutboundRequest() error = %v, want sender error", err)
+		t.Fatalf("ident.InterceptOutboundRequest() error = %v, want sender error", err)
 	}
 }
 
@@ -222,10 +222,10 @@ func TestSoftwareIdentity_InterceptOutboundResponse(t *testing.T) {
 			opts := []sip.SendResponseOptions{{LookupOptions: sip.LookupMessageAddrsOptions{StableDNSRecordsOrder: true}}}
 			err := tt.identity.InterceptOutboundResponse(ctx, next, env, opts...)
 			if err != nil {
-				t.Fatalf("InterceptOutboundResponse() error = %v, want nil", err)
+				t.Fatalf("ident.InterceptOutboundResponse() error = %v, want nil", err)
 			}
 			if !nextCalled {
-				t.Fatal("InterceptOutboundResponse() did not call next, want call")
+				t.Fatal("ident.InterceptOutboundResponse() did not call next, want call")
 			}
 			if diff := cmp.Diff(opts, nextOpts); diff != "" {
 				t.Errorf("next options mismatch (-want +got):\n%s", diff)
@@ -251,7 +251,7 @@ func TestSoftwareIdentity_InterceptOutboundResponse_SenderError(t *testing.T) {
 
 	err := id.InterceptOutboundResponse(t.Context(), next, env)
 	if !stderrs.Is(err, errSenderFailed) {
-		t.Fatalf("InterceptOutboundResponse() error = %v, want sender error", err)
+		t.Fatalf("ident.InterceptOutboundResponse() error = %v, want sender error", err)
 	}
 }
 
