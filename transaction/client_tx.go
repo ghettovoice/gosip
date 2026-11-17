@@ -39,6 +39,14 @@ type clientTx struct {
 }
 
 func NewClientTx(origin sip.Request, tpl sip.Transport, logger log.Logger) (ClientTx, error) {
+	tx, err := newClientTx(origin, tpl, logger)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
+}
+
+func newClientTx(origin sip.Request, tpl sip.Transport, logger log.Logger) (*clientTx, error) {
 	origin = prepareClientRequest(origin)
 	key, err := MakeClientTxKey(origin)
 	if err != nil {
@@ -93,18 +101,31 @@ func prepareClientRequest(origin sip.Request) sip.Request {
 }
 
 func (tx *clientTx) Init() error {
+	return tx.init(nil)
+}
+
+func (tx *clientTx) init(register func() error) error {
 	tx.initFSM()
+
+	// A response may arrive while Send is still running. Publish the
+	// initialized transaction now and let Receive wait for Send and timer
+	// setup to finish before it advances the FSM.
+	tx.fsmMu.Lock()
+	defer tx.fsmMu.Unlock()
+	if register != nil {
+		if err := register(); err != nil {
+			return err
+		}
+	}
 
 	if err := tx.tpl.Send(tx.Origin()); err != nil {
 		tx.mu.Lock()
 		tx.lastErr = err
 		tx.mu.Unlock()
 
-		tx.fsmMu.RLock()
 		if err := tx.fsm.Spin(client_input_transport_err); err != nil {
 			tx.Log().Errorf("spin FSM to client_input_transport_err failed: %s", err)
 		}
-		tx.fsmMu.RUnlock()
 
 		return err
 	}
@@ -181,6 +202,14 @@ func (tx *clientTx) Receive(msg sip.Message) error {
 		}
 	}
 
+	tx.fsmMu.RLock()
+	defer tx.fsmMu.RUnlock()
+	select {
+	case <-tx.done:
+		return nil
+	default:
+	}
+
 	res = res.WithFields(log.Fields{
 		"request_id": tx.origin.MessageID(),
 	}).(sip.Response)
@@ -202,9 +231,6 @@ func (tx *clientTx) Receive(msg sip.Message) error {
 			input = client_input_300_plus
 		}
 	}
-
-	tx.fsmMu.RLock()
-	defer tx.fsmMu.RUnlock()
 
 	return tx.fsm.Spin(input)
 }

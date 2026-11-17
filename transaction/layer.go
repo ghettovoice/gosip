@@ -129,7 +129,7 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 		return nil, fmt.Errorf("ACK request must be sent directly through transport")
 	}
 
-	tx, err := NewClientTx(req, txl.tpl, txl.Log())
+	tx, err := newClientTx(req, txl.tpl, txl.Log())
 	if err != nil {
 		return nil, err
 	}
@@ -137,14 +137,21 @@ func (txl *layer) Request(req sip.Request) (sip.ClientTransaction, error) {
 	logger := log.AddFieldsFrom(txl.Log(), req, tx)
 	logger.Debug("client transaction created")
 
-	if err := tx.Init(); err != nil {
+	if err := tx.init(func() error {
+		if !txl.transactions.putIfAbsent(tx) {
+			return fmt.Errorf("client transaction with key '%s' already exists", tx.Key())
+		}
+		return nil
+	}); err != nil {
+		txl.transactions.drop(tx)
+		tx.Terminate()
 		return nil, err
 	}
 
-	txl.transactions.put(tx.Key(), tx)
-
 	select {
 	case <-txl.canceled:
+		txl.transactions.drop(tx)
+		tx.Terminate()
 		return tx, fmt.Errorf("transaction layer is canceled")
 	case txl.serveTxCh <- tx:
 	}
@@ -207,7 +214,7 @@ func (txl *layer) serveTransaction(tx Tx) {
 	logger := log.AddFieldsFrom(txl.Log(), tx)
 
 	defer func() {
-		txl.transactions.drop(tx.Key())
+		txl.transactions.drop(tx)
 
 		logger.Debug("transaction deleted")
 
@@ -446,6 +453,17 @@ func (store *transactionStore) put(key TxKey, tx Tx) {
 	store.transactions[key] = tx
 }
 
+func (store *transactionStore) putIfAbsent(tx Tx) bool {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	key := tx.Key()
+	if _, exists := store.transactions[key]; exists {
+		return false
+	}
+	store.transactions[key] = tx
+	return true
+}
+
 func (store *transactionStore) get(key TxKey) (Tx, bool) {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
@@ -453,14 +471,13 @@ func (store *transactionStore) get(key TxKey) (Tx, bool) {
 	return tx, ok
 }
 
-func (store *transactionStore) drop(key TxKey) bool {
-	if _, ok := store.get(key); !ok {
-		return false
-	}
+func (store *transactionStore) drop(tx Tx) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	delete(store.transactions, key)
-	return true
+	key := tx.Key()
+	if store.transactions[key] == tx {
+		delete(store.transactions, key)
+	}
 }
 
 func (store *transactionStore) all() []Tx {
