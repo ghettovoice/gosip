@@ -10,6 +10,8 @@ SIP stack, along with exploratory notes on future directions.
 - [Proxy](./proxy.md) — proxy routing, forwarding, and configuration.
 - [Redirector](./redirector.md) — redirect answering, contact resolution,
   and configuration.
+- [User agent](./useragent.md) — MESSAGE/OPTIONS operations, inbound
+  handling, authentication retry, and redirect following.
 - [Authentication](./authentication.md) — client and server authentication
   contracts and Digest/Bearer helpers.
 - [Future architecture](./future-architecture.md) — exploratory future

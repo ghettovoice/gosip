@@ -14,28 +14,16 @@ import (
 
 	"github.com/ghettovoice/gosip/internal/errors"
 	"github.com/ghettovoice/gosip/internal/shared"
-	"github.com/ghettovoice/gosip/internal/testutil/dnstest"
 	"github.com/ghettovoice/gosip/internal/testutil/siptest"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/header"
 	"github.com/ghettovoice/gosip/sip/redirector"
-	"github.com/ghettovoice/gosip/sip/transport"
 )
 
 // wireReadTimeout bounds one wire read. It is generous rather than tight
 // so that a response delayed by scheduling under -race and parallel
 // package binaries still arrives inside the deadline.
 const wireReadTimeout = 4 * time.Second
-
-// loopbackDNS resolves every fixture host to loopback without touching an
-// external resolver.
-func loopbackDNS() dnstest.StubResolver {
-	return dnstest.StubResolver{
-		LookupIPFunc: func(context.Context, string, string) ([]net.IP, error) {
-			return []net.IP{net.ParseIP("127.0.0.1")}, nil
-		},
-	}
-}
 
 // wireRedirector is one loopback redirector side of the wire harness: an
 // element with a single real UDP transport listening on a kernel-assigned
@@ -53,39 +41,7 @@ type wireRedirector struct {
 func newWireRedirector(tb testing.TB, routes []redirector.Route) *wireRedirector {
 	tb.Helper()
 
-	elm := &sip.Element{DNSResolver: loopbackDNS()}
-	tb.Cleanup(func() {
-		if err := elm.Shutdown(context.WithoutCancel(tb.Context())); err != nil {
-			tb.Errorf("elm.Shutdown() error = %v, want nil", err)
-		}
-	})
-
-	tp, err := transport.NewConnLessTransport(sip.UDPMetadata(), transport.TransportOptions{
-		PublicAddr: sip.MakeHostAddr("127.0.0.1"),
-	})
-	if err != nil {
-		tb.Fatalf("transport.NewConnLessTransport() error = %v, want nil", err)
-	}
-	if err := elm.TrackTransport(tp); err != nil {
-		tb.Fatalf("elm.TrackTransport() error = %v, want nil", err)
-	}
-
-	lis, err := elm.Listen(tb.Context(), "UDP", "127.0.0.1:0")
-	if err != nil {
-		tb.Fatalf("elm.Listen() error = %v, want nil", err)
-	}
-	serveDone := make(chan error, 1)
-	go func() { serveDone <- lis.Serve(context.WithoutCancel(tb.Context())) }()
-	tb.Cleanup(func() {
-		lis.Close()
-		if err := <-serveDone; err != nil &&
-			!errors.Is(err, net.ErrClosed) &&
-			!errors.Is(err, context.Canceled) &&
-			!errors.Is(err, transport.ErrTransportClosed) &&
-			!errors.Is(err, transport.ErrNetworkClosed) {
-			tb.Errorf("lis.Serve() error = %v, want transport closed", err)
-		}
-	})
+	elm, addr := siptest.NewLoopbackUDPElement(tb, sip.UDPMetadata())
 
 	rdr, err := redirector.New(routes)
 	if err != nil {
@@ -93,7 +49,7 @@ func newWireRedirector(tb testing.TB, routes []redirector.Route) *wireRedirector
 	}
 	elm.UseComponent(rdr)
 
-	return &wireRedirector{elm: elm, rdr: rdr, addr: lis.LocalAddr()}
+	return &wireRedirector{elm: elm, rdr: rdr, addr: addr}
 }
 
 // sendReq renders req and writes it onto the wire toward addr.

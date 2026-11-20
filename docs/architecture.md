@@ -18,8 +18,11 @@ composition root (`Element`) — shared by user agents, proxies, and future
 higher-level components (dialogs, registrars). It deliberately does **not**
 own authentication or business response policy.
 
-Layers that do not exist yet (as of this writing): dialogs, UA/registrar
-logic, and a public root-package facade (`gosip.go` holds only `Version`).
+Layers that do not exist yet (as of this writing): dialogs, registrar
+logic, the higher UA layers (`sip/useragent` covers only the
+MESSAGE/OPTIONS operation skeleton — INVITE, sessions, and registration
+are future work), and a public root-package facade (`gosip.go` holds
+only `Version`).
 
 ## 2. Design principles
 
@@ -60,6 +63,7 @@ github.com/ghettovoice/gosip
 │   ├── transport/            # transport implementations (conn-oriented / conn-less)
 │   ├── proxy/                # proxy component (route-based forwarding)
 │   ├── redirector/           # redirect server component (3xx answering)
+│   ├── useragent/            # user agent component (MESSAGE/OPTIONS ops, UAC+UAS)
 │   └── stats/                # statistics recorder component
 ├── pkg/                      # public support packages (importable by users)
 │   ├── dns/                  # RFC 3263 resolver (SRV/NAPTR/A/AAAA) + opt-in cache
@@ -74,7 +78,7 @@ github.com/ghettovoice/gosip
 │   ├── netutil/              # conn decorators (logging/deadline/keepalive), HostIP
 │   ├── ioutil/ util/ testutil/
 ├── openspec/                 # spec-driven workflow: specs/ + changes/archive/
-├── docs/                     # proxy.md, redirector.md, authentication.md, this file, superpowers plans
+├── docs/                     # proxy.md, redirector.md, useragent.md, authentication.md, this file, superpowers plans
 └── Taskfile.yml              # task runner (test, lint, cover, ...)
 ```
 
@@ -87,13 +91,14 @@ sip ──► uri, sip/header, pkg/{dns, errclass, log}, internal/*
 sip/transport ──► sip, pkg/dns, internal/*
 sip/proxy   ──► sip, pkg/log, internal/*
 sip/redirector ──► sip, pkg/log, internal/*
+sip/useragent ──► sip, sip/header, pkg/errclass, internal/*
 sip/stats   ──► sip, sip/proxy
 
 pkg/dns     ──► internal/* (standalone otherwise)
 ```
 
-The core `sip` package imports neither `sip/proxy`, `sip/redirector`,
-nor `sip/stats`.
+The core `sip` package imports none of `sip/proxy`, `sip/redirector`,
+`sip/useragent`, or `sip/stats`.
 
 ## 4. Layered model and message flow
 
@@ -424,14 +429,42 @@ carrying the route's resolved contacts, or a failure response.
 - Lifecycle: `Close` is a one-shot `io.Closer` that seals claiming on all
   elements at once; there is no `Shutdown` hook or request state to drain.
 
-### 6.3 `sip/stats` (`sip/stats/`)
+### 6.3 `sip/useragent` (`sip/useragent/`, user guide `docs/useragent.md`)
+
+An endpoint component adding the UAC and UAS roles to an element:
+outgoing MESSAGE and OPTIONS operations with bounded authentication
+retry and redirect following, plus inbound MESSAGE/OPTIONS claiming.
+
+- `New(opts)` is pure: validates and copies options, binds nothing;
+  registration is an explicit `elm.UseComponent(ua)`; one instance may
+  serve several elements — the processing element travels in each
+  operation's or intercepted request's context.
+- Operations return handles (`*MessageOperation`, `*OptionsOperation`) exposing
+  `Wait`, `Cancel`, `Done`; a `Wait` context bounds only that waiter,
+  never the operation, and `OnComplete` fires exactly once.
+- `Options` carries the authenticator and a `RedirectPolicy` —
+  `AllowTarget` trust gate, visited-set loop detection, a shared logical
+  send budget, and one chain-wide deadline; credentials never cross
+  redirect targets.
+- Inbound: `OnMessage`/`OnOptions` handlers or the automatic OPTIONS
+  capabilities answer; `IncomingMessage.Respond` replies through a
+  per-request server transaction and commits on the first final
+  response.
+- Lifecycle: `Shutdown` seals admission, cancels operations, and drains
+  workers; `Close` is the non-draining seal; closing an element seals
+  the shared instance while its other elements stay open.
+- INVITE, dialogs, sessions, registration, and offer/answer are out of
+  scope for this slice — [useragent-design.md](useragent-design.md)
+  records the proposed upstream design, not the shipped surface.
+
+### 6.4 `sip/stats` (`sip/stats/`)
 
 `Recorder` implements the element component and transaction-handler
 interfaces of the core plus the proxy event-handler contract; `Report()`
 returns a JSON-serializable report with Transports, Transactions, and Proxy
 counter sections.
 
-### 6.4 `sip/auth` (`sip/auth/`)
+### 6.5 `sip/auth` (`sip/auth/`)
 
 Optional basic authentication mechanisms (Digest, Bearer) built on the
 consumer-owned `sip.ClientAuthenticator` and `sip.ServerAuthenticator[P]`
@@ -492,8 +525,10 @@ model.
 - **Public facade** — root `doc.go` is a TODO; README installation/usage/
   features sections are TODO; no runnable examples yet (`examples/` holds
   only TLS certs).
-- **Higher layers** — dialogs and UA/registrar are not implemented;
-  `Element` is explicitly scoped below them. Authentication contracts in
+- **Higher layers** — dialogs are not implemented and `sip/useragent`
+  covers only the MESSAGE/OPTIONS operation skeleton: INVITE, sessions,
+  registration, and `First`-style conveniences remain future work.
+  Authentication contracts in
   `sip` and optional `sip/auth` mechanics are landing incrementally but no
   automatic authentication is attached.
 - **Flow tokens** — `FlowToken` exists but is not used by connection
