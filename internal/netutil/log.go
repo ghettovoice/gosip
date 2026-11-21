@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ghettovoice/gosip/internal/errors"
-	"github.com/ghettovoice/gosip/internal/util"
 )
 
 type logLis struct {
@@ -62,6 +61,7 @@ type logConn struct {
 	lvl slog.Level
 }
 
+// NewLogConn wraps conn to log I/O metadata without logging payload bytes.
 func NewLogConn(conn net.Conn, logger *slog.Logger, lvl slog.Level) net.Conn {
 	if c, ok := AsConn[*logConn](conn); ok {
 		return c
@@ -84,11 +84,7 @@ func (c *logConn) Read(b []byte) (int, error) {
 		context.Background(), c.lvl, "connection read buffer",
 		slog.String("local_addr", c.LocalAddr().String()),
 		slog.String("remote_addr", c.RemoteAddr().String()),
-		slog.Group(
-			"buffer",
-			slog.Int("size", n),
-			slog.String("data", util.Ellipsis(string(b[:n]), 1000)),
-		),
+		slog.Group("buffer", slog.Int("size", n)),
 	)
 
 	return n, nil
@@ -104,11 +100,7 @@ func (c *logConn) Write(b []byte) (n int, err error) {
 		context.Background(), c.lvl, "connection wrote buffer",
 		slog.String("local_addr", c.LocalAddr().String()),
 		slog.String("remote_addr", c.RemoteAddr().String()),
-		slog.Group(
-			"buffer",
-			slog.Int("size", n),
-			slog.String("data", util.Ellipsis(string(b[:n]), 1000)),
-		),
+		slog.Group("buffer", slog.Int("size", n)),
 	)
 
 	return n, nil
@@ -167,6 +159,7 @@ type logPktConn struct {
 	lvl slog.Level
 }
 
+// NewLogPacketConn wraps conn to log I/O metadata without logging payload bytes.
 func NewLogPacketConn(conn net.PacketConn, logger *slog.Logger, lvl slog.Level) net.PacketConn {
 	if _, ok := AsPacketConn[*logPktConn](conn); ok {
 		return conn
@@ -189,11 +182,7 @@ func (c *logPktConn) ReadFrom(b []byte) (int, net.Addr, error) {
 		context.Background(), c.lvl, "connection read buffer",
 		slog.String("local_addr", c.LocalAddr().String()),
 		slog.String("remote_addr", addr.String()),
-		slog.Group(
-			"buffer",
-			slog.Int("size", n),
-			slog.String("data", util.Ellipsis(string(b[:n]), 1000)),
-		),
+		slog.Group("buffer", slog.Int("size", n)),
 	)
 
 	return n, addr, nil
@@ -209,11 +198,7 @@ func (c *logPktConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 		context.Background(), c.lvl, "connection wrote buffer",
 		slog.String("local_addr", c.LocalAddr().String()),
 		slog.String("remote_addr", addr.String()),
-		slog.Group(
-			"buffer",
-			slog.Int("size", n),
-			slog.String("data", util.Ellipsis(string(b[:n]), 1000)),
-		),
+		slog.Group("buffer", slog.Int("size", n)),
 	)
 
 	return n, nil

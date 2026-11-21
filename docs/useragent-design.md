@@ -15,10 +15,10 @@ builder chooses final names within the repo naming rules.
 
 gosip today stops at protocol mechanics: messages, transports, transactions,
 and the `Element` composition root. Applications can build a proxy or a
-redirect server, but there is no endpoint role. The UserAgent (UA) closes that
-gap: one component combining outgoing client operations (UAC) with incoming
-server handling (UAS), dialog and session management, and high-level methods
-for session initiation.
+redirect server, but there is no endpoint role. The endpoint stack closes that
+gap: the UserAgent (UA) combines outgoing client operations (UAC) with incoming
+server handling (UAS), a reusable dialog manager handles in-dialog dispatch,
+and the UA's session layer provides high-level session operations.
 
 The why is recorded in future-architecture.md: gosip is a composable framework
 where roles attach as components, main components come before SIP extensions,
@@ -38,8 +38,8 @@ about seams more than about feature count.
 3. A high-level operation API: op handles with event callbacks set at
    creation, `First`/`Wait` convenience methods, and cancellation mapped to
    CANCEL.
-4. A separate dialog host package (`sip/dialog`) so dialog-level extensions
-   can integrate without depending on the whole UA.
+4. A separate dialog host package (`sip/dialog`) with an optional `Element`
+   component for dialog lookup and dispatch, usable without the UA.
 5. Session as the primary public abstraction, fully implemented and managed
    by the UA, with offer/answer generation behind an SPI and media entirely
    outside.
@@ -159,8 +159,8 @@ INVITE from day one (op handles, creation-time event callbacks,
 ### 7.1 Package layout
 
 ```text
-sip/dialog       Dialog core: IDs, FSM, route set, CSeq, in-dialog machinery.
-sip/useragent    UserAgent component: operations, sessions, policies.
+sip/dialog       Passive Dialog core and optional Manager component.
+sip/useragent    UserAgent component: operations, endpoint policy, sessions.
 ```
 
 Import direction is strictly downward: core `sip` never imports `dialog`;
@@ -168,21 +168,23 @@ Import direction is strictly downward: core `sip` never imports `dialog`;
 and Replaces target `dialog`; outbound targets transport plus the UA
 registration hooks).
 
-Both are library packages; only `sip/useragent` is an `Element` component.
-`sip/dialog` is driven by the UA (and directly by future extensions), not
-registered with `UseComponent`.
+`Dialog` itself is never registered with `UseComponent`. In phase 3 the
+optional `dialog.Manager` is a separate component implementing
+`sip.InboundRequestInterceptor`. The UA uses the same public manager API
+as a standalone consumer. `SessionManager` starts as an internal UA
+consumer, not as another `Element` interceptor.
 
 ### 7.2 `sip/dialog`: scope
 
-Role-agnostic dialog core per RFC 3261 section 12:
+The passive phase 2 dialog core implements RFC 3261 section 12:
 
 - `DialogID` (Call-ID, local tag, remote tag) and matching of incoming
   requests and responses to dialogs.
 - Dialog FSM: early, confirmed, terminated, with the confirmed-on-2xx and
   early-dialog tracking rules.
 - Route set, remote target, and CSeq tracking for both directions.
-- Building and sending in-dialog requests (BYE, re-INVITE, UPDATE, custom
-  methods) and correlating their responses.
+- Building ordinary in-dialog requests; the caller dispatches them through
+  the Element send paths.
 - ACK for 2xx responses to INVITE, built from the dialog state.
 - The host contract for dialog-level extensions: typed read-only views,
   events, and explicit actions, never exported mutable state. The exact hook
@@ -193,7 +195,30 @@ Role-agnostic dialog core per RFC 3261 section 12:
 What `dialog` deliberately does not do: forking policy, authentication,
 redirect handling, offer/answer, registration. Those are UA concerns.
 
+#### Phase 3: Dialog manager
+
+- Register each early or confirmed branch and its handler explicitly. The
+  manager owns lookup and removal, keyed by receiving `Element` and
+  role-relative `dialog.ID` (Call-ID and tags). It can conclude and remove
+  a branch without sending BYE; the caller decides when to end it.
+- The existing transaction layer gets the request first. The manager
+  claims a request only if it finds an owned dialog, checks ordinary
+  request CSeq through `Dialog.ValidateRequest`, and hands the matched
+  dialog and request to the branch handler. A stale CSeq on an owned
+  dialog gets the RFC 3261 500 response; retransmission deduplication
+  stays with the transaction layer.
+- ACK for an INVITE 2xx uses `Dialog.MatchACK` and notifies the owner of
+  the UAS INVITE exchange without creating a transaction, advancing CSeq,
+  or sending a response. CANCEL and non-2xx ACK stay with the transaction
+  path. The manager does not intercept INVITE responses.
+- Requests without a matching dialog pass to the next component unchanged,
+  including requests with a To tag. A proxy on the same Element may own
+  them. Return 481 only when the endpoint has established ownership, never
+  solely because lookup missed. Branch handlers run outside registry locks.
+
 ### 7.3 `sip/useragent`: component shape
+
+UserAgent construction and attachment (the manager is registered separately):
 
 ```go
 ua, err := useragent.New(useragent.Options{
@@ -215,13 +240,19 @@ elm.UseComponent(ua)
   belong to it; responses to operation transactions arrive through the client
   transactions' response handlers), `Capabilities()` (advertising handled
   methods), `Shutdown(ctx)`, and `io.Closer`.
-- Claim rules for inbound requests: the UA claims a request when it matches
-  a known dialog, or when a handler is registered for its method, or for
-  OPTIONS when auto-answer is enabled (see 7.5). Everything else passes to
-  the next interceptor. When the UA shares an element with a proxy, claim
-  conflicts resolve by component registration order, as today.
-- `Shutdown(ctx)` cancels in-flight operations, closes dialogs and sessions
+- In phase 3, explicitly register the shared `dialog.Manager` before the
+  UA on each Element. The UA registers branches with that manager and
+  receives requests for them through branch handlers. Its own interceptor
+  claims initial and standalone requests it is configured to serve and
+  passes other traffic to the next interceptor. It does not duplicate the
+  manager's dialog lookup. Standalone consumers can register the manager
+  without registering a UA.
+- `Shutdown(ctx)` cancels in-flight operations, drains UA-owned sessions
   with best-effort BYE, and stops the registration manager if active.
+  Keep dialog dispatch available during that drain; `Element.Shutdown`
+  runs hooks in registration order, so the dialog manager must not clear
+  the registry in an earlier shutdown hook. Unregister remaining entries
+  during final cleanup without sending BYE.
 
 ### 7.4 Operations (UAC)
 
@@ -265,6 +296,9 @@ err = op.Wait(ctx)         // operation complete: every fork resolved
   confirms, the op CANCELs remaining early dialogs and sends BYE for late
   confirmations; a "keep all" option disables this for applications that
   want every confirmed session.
+- The UA retains each prepared 2xx ACK for the lifetime of the INVITE
+  response observer, keyed by INVITE attempt and `dialog.ID`. Retransmitted
+  2xx responses replay it even after the manager has removed the dialog.
 
 ### 7.5 Incoming handling (UAS)
 
@@ -276,8 +310,10 @@ sess, err := inv.Accept(ctx, opts...)   // 2xx; body via SPI or options
 inv.Decline(ctx, useragent.DeclineBusy) // 486 and similar
 ```
 
-- `Accept` produces the response and the session; the caller's ACK for the
-  2xx is absorbed by the dialog layer.
+- `Accept` creates or confirms the branch and associates it with a
+  session. Make the branch routable before the establishing response can
+  be observed by the peer. The UA's UAS INVITE exchange owns 2xx
+  retransmissions and stops them when the manager reports a matched ACK.
 - CANCEL after `Accept` produces the transaction-level 481 from the
   transaction layer (RFC 3261 section 13.3.1.4). The symmetric caller-side
   race (a late 2xx racing our CANCEL) is covered by the extra-fork
@@ -285,7 +321,8 @@ inv.Decline(ctx, useragent.DeclineBusy) // 486 and similar
 - OnMessage and OnOptions handlers receive the request plus a responder
   that can send any status. OPTIONS is auto-answered from advertised
   capabilities unless OnOptions is set (my call).
-- In-dialog requests dispatch by session:
+- The UA's internal SessionManager receives matched requests from the
+  dialog manager and dispatches by session:
   - BYE terminates the session and raises OnClosed.
   - re-INVITE and UPDATE run through the offer/answer SPI and raise
     OnUpdated (phase 4).
@@ -314,6 +351,9 @@ type OfferAnswerNegotiator interface {
 }
 ```
 
+- `SessionManager` owns the association between the dialog branch and its
+  session, including closure and application callbacks. It does not
+  perform SIP dialog lookup or intercept Element traffic directly.
 - The session layer knows when the protocol requires an offer or answer;
   the provider decides the content. Bodies stay opaque to gosip.
 - A pass-through negotiator ships as the default: it carries application
@@ -386,11 +426,15 @@ Where each planned extension plugs in:
    requests, 2xx ACK. Exit: dialog tests against the transaction layer;
    the extension hook surface pressure-checked against 100rel and
    Replaces on paper.
-3. **INVITE vertical.** InviteOp with forking (OnDialog/OnSession/First/
-   Wait/Cancel), OnInvite (Ringing/Accept/Decline/OnCancel), sessions with
-   the SPI and the pass-through negotiator, BYE in both directions,
-   extra-fork disposition. Exit: two-element call flow, forking race
-   tests, decline/cancel/late-2xx tests.
+3. **INVITE vertical and component composition.** Add the optional
+   `dialog.Manager` for inbound dialog dispatch and registry lifecycle.
+   Compose it with InviteOp (OnDialog/OnSession/First/Wait/Cancel), OnInvite
+   (Ringing/Accept/Decline/OnCancel), and the UA's internal SessionManager.
+   Include BYE in both directions, the SPI and pass-through negotiator,
+   fork disposition, UAS 2xx retransmissions and late-2xx ACK replay.
+   Exit: standalone dialog dispatch without a UA, fallthrough on a lookup
+   miss, and a two-element UA call flow with ACK/BYE, fork, decline,
+   CANCEL and late-2xx coverage.
 4. **Session updates.** re-INVITE/UPDATE through the SPI, OnUpdated, glare
    per RFC 3261 section 14.1, update-failure handling.
 5. **Registration.** The REGISTER op and the RegistrationManager (refresh,
